@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Match is a local-first job search board with flat lead cards, attached documents, Automerge storage, QR device pairing, and WebMCP tools." />
+    <link rel="canonical" href="/agent/" />
+    <title>Match — agent guide</title>
+    <style>
+      :root { --paper: #f3f0e8; --ink: #171717; --muted: #6b675f; --line: #171717; --yellow: #ffd43b; --blue: #1f6feb; --red: #ff5a36; --green: #69db7c; --panel: #fffdf7; --soft: #e9e5db; }
+      * { box-sizing: border-box; }
+      html { min-width: 320px; background: var(--paper); }
+      body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--paper); font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; text-rendering: optimizeLegibility; }
+      a { color: inherit; }
+      code, .eyebrow, .route, .badge, .tool-name, .pipeline span { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .topbar { position: sticky; top: 0; z-index: 5; min-height: 76px; padding: 0 clamp(18px, 4vw, 56px); border-bottom: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(243, 240, 232, .96); }
+      .brand { display: flex; align-items: center; gap: 10px; font-size: clamp(1.1rem, 4vw, 2rem); font-weight: 950; letter-spacing: -.06em; text-decoration: none; }
+      .brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--red); }
+      .route { color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+      main { width: min(1080px, 100%); margin: 0 auto; padding: clamp(34px, 7vw, 82px) clamp(16px, 4vw, 56px) 80px; }
+      .hero { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 28px; align-items: end; margin-bottom: 34px; }
+      .eyebrow { color: var(--blue); font-size: .68rem; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+      h1 { max-width: 720px; margin: 12px 0 18px; font-size: clamp(3.2rem, 9vw, 7rem); line-height: .84; letter-spacing: -.085em; }
+      .lede { max-width: 680px; margin: 0; color: var(--muted); font-size: clamp(1rem, 2vw, 1.25rem); line-height: 1.5; }
+      .hero-card { padding: 18px; border: 2px solid var(--line); background: var(--yellow); box-shadow: 7px 7px 0 var(--ink); }
+      .hero-card strong { display: block; margin: 8px 0 10px; font-size: 1.3rem; line-height: 1; }
+      .hero-card p { margin: 0; font: 700 .73rem/1.5 ui-monospace, monospace; }
+      .guide-card { margin-top: 20px; padding: clamp(20px, 4vw, 30px); border: 2px solid var(--line); background: var(--panel); box-shadow: 6px 6px 0 var(--ink); }
+      .guide-card:nth-of-type(odd) { background: white; }
+      .guide-card h2 { margin: 0 0 14px; font-size: clamp(1.45rem, 3vw, 2.1rem); line-height: .95; letter-spacing: -.055em; }
+      .guide-card p, .guide-card li { color: var(--muted); line-height: 1.62; }
+      .guide-card p { max-width: 820px; margin: 10px 0 0; }
+      .guide-card ul, .guide-card ol { margin: 12px 0 0; padding-left: 23px; }
+      .guide-card li + li { margin-top: 7px; }
+      code { padding: 2px 5px; border: 1px solid rgba(23,23,23,.38); color: var(--ink); background: var(--soft); font-size: .82em; overflow-wrap: anywhere; }
+      .pipeline { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
+      .pipeline span { padding: 12px 9px; border: 2px solid var(--line); color: var(--ink); background: var(--yellow); font-size: .67rem; font-weight: 900; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
+      .pipeline span:nth-child(2) { background: #dfeaff; }.pipeline span:nth-child(3) { background: #eadfff; }.pipeline span:nth-child(4) { background: #dedbd2; }.pipeline span:nth-child(5) { background: var(--green); }
+      .tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 18px; }
+      .tool { min-height: 120px; padding: 14px; border: 2px solid var(--line); background: white; }
+      .tool-name { display: inline-block; color: var(--blue); font-size: .8rem; font-weight: 900; }
+      .tool p { margin-top: 10px; font-size: .78rem; line-height: 1.45; }
+      .note { margin-top: 18px !important; padding: 12px 14px; border-left: 5px solid var(--red); color: var(--ink) !important; background: var(--soft); font-size: .8rem; }
+      footer { width: min(1080px, 100%); margin: 0 auto; padding: 0 clamp(16px, 4vw, 56px) 52px; }
+      footer a { color: var(--blue); font-weight: 900; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+      @media (max-width: 720px) { .hero { grid-template-columns: 1fr; }.hero-card { max-width: 300px; }.pipeline { grid-template-columns: 1fr 1fr; }.pipeline span:last-child { grid-column: 1 / -1; } }
+      @media (max-width: 500px) { .topbar { min-height: 64px; }.route { font-size: .6rem; } h1 { font-size: 3.3rem; }.guide-card { box-shadow: 4px 4px 0 var(--ink); } }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">M</span>Match</a>
+      <span class="route">/agent · machine-readable guide</span>
+    </header>
+
+    <main>
+      <div class="hero">
+        <div>
+          <span class="eyebrow">Agent surface · Match v0.0.1</span>
+          <h1>Match agent guide</h1>
+          <p class="lede">Local-first job search board. Vacancy cards, CVs, cover letters, notes, and file references stay together. No account. No backend. No organization ceremony.</p>
+        </div>
+        <aside class="hero-card"><span class="eyebrow">Core rule</span><strong>Flat cards.<br />Visible state.</strong><p>Agent commands mutate the same board the user sees.</p></aside>
+      </div>
+
+      <section class="guide-card">
+        <h2>Open Match locally</h2>
+        <ol>
+          <li>Install dependencies in <code>match/</code> with <code>npm install</code>.</li>
+          <li>Build the browser sync runtime with <code>npm run build:iroh</code>.</li>
+          <li>Start the app with <code>npm run dev</code>.</li>
+          <li>Open <code>http://127.0.0.1:5173/</code>. Agent documentation is at <code>http://127.0.0.1:5173/agent/</code>.</li>
+        </ol>
+        <p>For a production static build, run <code>npm run build</code> and serve <code>dist/</code>. The workspace is stored in the browser's IndexedDB.</p>
+      </section>
+
+      <section class="guide-card">
+        <h2>Pipeline</h2>
+        <p>Cards move through five statuses:</p>
+        <div class="pipeline"><span>lead</span><span>applied</span><span>interview</span><span>rejected</span><span>offer</span></div>
+      </section>
+
+      <section class="guide-card">
+        <h2>Card fields</h2>
+        <ul>
+          <li><code>company</code> — company name.</li>
+          <li><code>role</code> — vacancy title.</li>
+          <li><code>url</code> — source vacancy URL.</li>
+          <li><code>location</code> and <code>workMode</code> — location and remote/hybrid/onsite mode.</li>
+          <li><code>status</code> — pipeline status.</li>
+          <li><code>priority</code> — <code>p0</code>, <code>p1</code>, <code>p2</code>, or <code>p3</code>.</li>
+          <li><code>fitScore</code> — optional number from 0 to 10.</li>
+          <li><code>notes</code>, <code>description</code>, and <code>sourceText</code> — plain text context.</li>
+        </ul>
+      </section>
+
+      <section class="guide-card">
+        <h2>Attached documents</h2>
+        <p>Each document belongs directly to one card. Kinds: <code>cv</code>, <code>cover_letter</code>, <code>note</code>, and <code>attachment</code>. Formats: <code>markdown</code>, <code>html</code>, <code>pdf</code>, and <code>path</code>. Local file references use an absolute path and stay local.</p>
+      </section>
+
+      <section class="guide-card">
+        <h2>WebMCP tools</h2>
+        <p>When the Match app is open in a browser that exposes WebMCP through <code>document.modelContext</code> or <code>navigator.modelContext</code>, it registers these tools. The tools mutate the same visible workspace as the UI:</p>
+        <div class="tool-grid">
+          <article class="tool"><span class="tool-name">list_leads</span><p>Read cards. Optional <code>status</code> and <code>search</code> filters.</p></article>
+          <article class="tool"><span class="tool-name">create_lead</span><p>Create one flat card. Required <code>company</code>, <code>role</code>, <code>status</code>.</p></article>
+          <article class="tool"><span class="tool-name">move_lead</span><p>Move a card by <code>leadId</code> and <code>status</code>.</p></article>
+          <article class="tool"><span class="tool-name">add_document</span><p>Attach a document by <code>leadId</code>, <code>kind</code>, <code>title</code>, and <code>format</code>.</p></article>
+          <article class="tool"><span class="tool-name">export_workspace</span><p>Download the workspace as a <code>.match</code> bundle and JSON data.</p></article>
+        </div>
+        <p class="note">Do not send organization objects, nested CRDT payloads, or unknown fields. Duplicate vacancy URLs, or the same company plus role, return a duplicate result instead of creating a second card.</p>
+      </section>
+
+      <section class="guide-card">
+        <h2>Storage and sync</h2>
+        <p>Cards and documents live in IndexedDB as an Automerge document. The sync dialog starts the experimental browser iroh/WASM transport. QR pairing opens a <code>/pair#...</code> HTTPS invite carrying an endpoint and a random authorization secret; only the matching secret can merge another device's workspace.</p>
+      </section>
+
+      <section class="guide-card">
+        <h2>Export shape</h2>
+        <p>The JSON export contains two top-level arrays: <code>leads</code> and <code>documents</code>. A document references its card through <code>leadId</code>. The portable <code>.match</code> bundle also contains the manifest and Automerge bytes.</p>
+      </section>
+    </main>
+
+    <footer><a href="/">Open Match board</a></footer>
+  </body>
+</html>

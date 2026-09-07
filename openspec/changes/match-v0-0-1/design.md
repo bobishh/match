@@ -1,0 +1,90 @@
+## Context
+
+Match must feel like the existing Trello workflow, not like a CRM. The agent should be able to add a vacancy with one flat payload, then attach documents with separate simple commands. The browser renders the same state the agent mutates.
+
+## Decisions
+
+### 1. Card is the domain unit
+
+`Lead` contains company and role strings directly. `Organization`, `Application`, and `ActivityEvent` are not v0.0.1 entities.
+
+```ts
+type Lead = {
+  id: string
+  company: string
+  role: string
+  url?: string
+  location?: string
+  workMode?: "remote" | "hybrid" | "onsite" | "unknown"
+  status: "lead" | "applied" | "interview" | "rejected" | "offer"
+  priority?: "p0" | "p1" | "p2" | "p3"
+  fitScore?: number
+  description?: string
+  notes?: string
+  sourceText?: string
+  createdAt: string
+  updatedAt: string
+}
+```
+
+### 2. Documents attach by id
+
+Documents are separate records with `leadId`. The card detail view joins them locally and shows document badges on the card. MCP create/update calls remain flat and small.
+
+```ts
+type Document = {
+  id: string
+  leadId: string
+  kind: "cv" | "cover_letter" | "note" | "attachment"
+  title: string
+  format: "markdown" | "html" | "pdf" | "path"
+  content?: string
+  localPath?: string
+  createdAt: string
+  updatedAt: string
+}
+```
+
+### 3. One command surface
+
+Visible UI and WebMCP call the same functions:
+
+- `create_lead`
+- `update_lead`
+- `move_lead`
+- `list_leads`
+- `add_document`
+- `update_document`
+- `list_documents`
+- `export_workspace`
+
+Schemas reject unknown fields. `create_lead` accepts company, role, source URL, status, priority, fit score, location, and notes. `add_document` accepts a lead id plus document fields. No nested CRDT payload crosses the boundary.
+
+### 4. Duplicate handling
+
+The app checks exact normalized source URL first, then company + role. It returns a possible duplicate for agent/user review instead of silently creating a second card or forcing an organization setup flow.
+
+### 5. Local storage and sync
+
+IndexedDB stores the serialized Automerge workspace document in v0.0.1. A `.match` export contains a manifest, readable card/document JSON, and the Automerge bytes. `updatedAt` is display metadata, never conflict resolution. No LWW policy is part of the domain model.
+
+Device sync has a transport boundary:
+
+- Automerge owns document state and merge.
+- `iroh-webrtc-transport` browser/WASM adapter handles experimental peer transport.
+- The iroh adapter exposes node identity and streams only; it does not own Match fields.
+- The QR invite carries protocol version, remote endpoint id, and a random bearer secret.
+- The first stream frame carries the same secret. The receiver rejects a missing or mismatched secret before calling Automerge merge.
+
+The browser adapter is compiled separately under `iroh-wasm/` because the upstream browser crate is alpha and main-thread-only. UI must show `experimental`/failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist.
+
+Long documents and file payloads remain separate addressable objects. A future `.match` export may package manifest, cards, documents, and blobs without making one monolithic sync payload.
+
+### 6. Visual direction
+
+Dense operational board: dark navy surfaces, thin slate borders, mint active accent, five columns visible on desktop, right-side detail panel, modal creation flow. Board is first viewport. No marketing hero.
+
+## Open Questions
+
+- QR invite generation and manual scan/paste authorization are in v0.0.1. Camera scanning and peer-secret revocation remain future work.
+- Finder reveal remains outside static web v0.0.1; local paths are shown and copied/opened on a best-effort basis.
