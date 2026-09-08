@@ -21,6 +21,8 @@
 - [x] 3.3 Keep transport outside the Automerge merge boundary.
 - [x] 3.4 Add browser iroh WebRTC/WASM adapter spike behind explicit experimental capability.
 - [x] 3.5 Add QR invite, manual scan/paste, and app-layer peer authorization.
+- [x] 3.6 Split `SyncTransport`, session protocol, and Vue flow; QR starts acceptance and invite joins automatically.
+- [x] 3.7 Retry transient browser bootstrap failures without a second user action.
 
 ## 4. Verification
 
@@ -28,3 +30,4 @@
 - [ ] 4.2 Add validation failure flow for missing company/role and duplicate URL.
 - [ ] 4.3 Add reload persistence check.
 - [ ] 4.4 Add responsive board/detail-panel check.
+- [x] 4.5 Add protocol/session tests and isolated-profile QR pairing BDD coverage.

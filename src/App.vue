@@ -1,131 +1,31 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue"
-import { downloadWorkspaceBundle } from "./storage"
+import { downloadWorkspaceBundle, readWorkspaceBundle } from "./storage"
 import { hydrate, useMatch } from "./state"
 import type { DocumentKind, Lead, LeadInput, LeadPriority, LeadStatus } from "./types"
 import { documentKindLabels, priorityLabels, statusLabels } from "./types"
 import { registerWebMcp } from "./webmcp"
-import { startIrohBrowserNode, type IrohNode } from "./iroh"
-import QRCode from "qrcode"
+import SyncDialog from "./components/SyncDialog.vue"
+import LeadFilters from "./components/LeadFilters.vue"
+import { defaultLeadFilters, matchesLeadFilters, type LeadFilters as LeadFilterState } from "./filters"
+import { useDeviceSync } from "./sync/useDeviceSync"
 
-const { workspace, ready, columns, createLead, updateLead, moveLead, createDocument, documentsFor, persist, getAutomergeBytes, mergeRemoteBytes } = useMatch()
+const { workspace, ready, columns, createLead, updateLead, moveLead, createDocument, documentsFor, persist, getAutomergeBytes, mergeRemoteBytes, mergeWorkspaceRecord } = useMatch()
 
 const selectedLeadId = ref<string | null>(null)
 const detailDialog = ref<HTMLElement | null>(null)
+const importInput = ref<HTMLInputElement | null>(null)
 const showLeadForm = ref(false)
 const showDocumentForm = ref(false)
 const search = ref("")
-const statusFilter = ref<LeadStatus | "all">("all")
+const filters = ref<LeadFilterState>({ ...defaultLeadFilters })
 const notice = ref("")
-const showSync = ref(false)
-const irohState = ref<"idle" | "starting" | "ready" | "error">("idle")
-const irohError = ref("")
-const irohNode = ref<IrohNode | null>(null)
-const syncLabel = "Automerge"
-const remoteEndpoint = ref("")
-const remoteSecret = ref("")
-const pairingSecret = ref("")
-const pairingInvite = ref("")
-const pairingQr = ref("")
-const scannedInvite = ref("")
-const authorizationState = ref<"pending" | "armed" | "authorized">("pending")
-const peerAction = ref<"idle" | "dialing" | "waiting">("idle")
 const draggingLeadId = ref<string | null>(null)
 const dragOverStatus = ref<LeadStatus | null>(null)
-
-const pairingVersion = "0.0.1"
-
-type PairingInvite = {
-  version: string
-  endpoint: string
-  secret: string
-}
-
-function encodeBase64Url(bytes: Uint8Array) {
-  let binary = ""
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
-}
-
-function createPairingSecret() {
-  const bytes = new Uint8Array(32)
-  crypto.getRandomValues(bytes)
-  return encodeBase64Url(bytes)
-}
-
-function createPairingInvite(endpoint: string, secret: string): PairingInvite {
-  return { version: pairingVersion, endpoint, secret }
-}
-
-function inviteUrl(invite: PairingInvite) {
-  const url = new URL("/pair", window.location.origin)
-  const params = new URLSearchParams({ v: invite.version, endpoint: invite.endpoint, secret: invite.secret })
-  url.hash = params.toString()
-  return url.toString()
-}
-
-function parsePairingInvite(raw: string): PairingInvite {
-  const url = new URL(raw.trim())
-  const params = url.protocol === "match:" && url.hostname === "pair"
-    ? url.searchParams
-    : url.pathname.replace(/\/$/, "") === "/pair" && url.hash
-      ? new URLSearchParams(url.hash.slice(1))
-      : undefined
-  if (!params) throw new Error("Invalid Match pairing invite")
-  const version = params.get("v") ?? ""
-  const endpoint = params.get("endpoint") ?? ""
-  const secret = params.get("secret") ?? ""
-  if (version !== pairingVersion || !endpoint || !secret) throw new Error("Incomplete or unsupported pairing invite")
-  return { version, endpoint, secret }
-}
-
-function legacyInviteUrl(invite: PairingInvite) {
-  const url = new URL("match://pair")
-  url.searchParams.set("v", invite.version)
-  url.searchParams.set("endpoint", invite.endpoint)
-  url.searchParams.set("secret", invite.secret)
-  return url.toString()
-}
-
-function loadPairingInviteFromUrl() {
-  if (window.location.pathname.replace(/\/$/, "") !== "/pair" || !window.location.hash) return
-  try {
-    const invite = parsePairingInvite(window.location.href)
-    remoteEndpoint.value = invite.endpoint
-    remoteSecret.value = invite.secret
-    scannedInvite.value = legacyInviteUrl(invite)
-    authorizationState.value = "armed"
-    showSync.value = true
-    notice.value = "Pairing invite loaded from QR"
-    window.history.replaceState({}, "", "/")
-  } catch (error) {
-    showSync.value = true
-    irohError.value = error instanceof Error ? error.message : "Pairing invite invalid"
-  }
-}
-
-function encodePairingFrame(secret: string, bytes: Uint8Array) {
-  const header = new TextEncoder().encode(`${JSON.stringify({ type: "match-pairing", version: pairingVersion, secret })}\n`)
-  const frame = new Uint8Array(header.length + bytes.length)
-  frame.set(header)
-  frame.set(bytes, header.length)
-  return frame
-}
-
-function decodePairingFrame(frame: Uint8Array, expectedSecret: string) {
-  const separator = frame.indexOf(10)
-  if (separator < 0) throw new Error("Pairing authorization frame missing")
-  let header: { type?: string; version?: string; secret?: string }
-  try {
-    header = JSON.parse(new TextDecoder().decode(frame.slice(0, separator)))
-  } catch {
-    throw new Error("Pairing authorization frame invalid")
-  }
-  if (header.type !== "match-pairing" || header.version !== pairingVersion || header.secret !== expectedSecret) {
-    throw new Error("Pairing authorization failed")
-  }
-  return frame.slice(separator + 1)
-}
+const sync = useDeviceSync({
+  workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes },
+  origin: () => window.location.origin,
+})
 
 const newLead = ref<LeadInput>({
   company: "",
@@ -164,14 +64,13 @@ const visibleColumns = computed(() => columns.value.map((column) => ({
   leads: column.leads.filter((lead) => {
     const query = search.value.trim().toLowerCase()
     const matchesQuery = !query || `${lead.company} ${lead.role} ${lead.notes ?? ""}`.toLowerCase().includes(query)
-    const matchesStatus = statusFilter.value === "all" || lead.status === statusFilter.value
-    return matchesQuery && matchesStatus
+    return matchesQuery && matchesLeadFilters(lead, filters.value)
   }),
 })))
 
 onMounted(async () => {
   await hydrate()
-  loadPairingInviteFromUrl()
+  sync.joinFromLocation(window.location.href)
   await registerWebMcp({
     workspace,
     createLead,
@@ -304,103 +203,20 @@ function exportWorkspace() {
   notice.value = "Match bundle exported"
 }
 
-async function startIroh() {
-  irohState.value = "starting"
-  irohError.value = ""
+function openImport() {
+  importInput.value?.click()
+}
+
+async function importWorkspace(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ""
+  if (!file) return
   try {
-    irohNode.value = await startIrohBrowserNode()
-    pairingSecret.value = createPairingSecret()
-    pairingInvite.value = inviteUrl(createPairingInvite(irohNode.value.endpointId, pairingSecret.value))
-    pairingQr.value = await QRCode.toDataURL(pairingInvite.value, {
-      width: 240,
-      margin: 2,
-      errorCorrectionLevel: "M",
-    })
-    authorizationState.value = "armed"
-    irohState.value = "ready"
+    await mergeWorkspaceRecord(await readWorkspaceBundle(file))
+    notice.value = "Match bundle merged"
   } catch (error) {
-    irohState.value = "error"
-    irohError.value = error instanceof Error ? error.message : "Browser iroh adapter unavailable"
-  }
-}
-
-async function stopIroh() {
-  await irohNode.value?.close("User stopped sync")
-  irohNode.value = null
-  irohState.value = "idle"
-  pairingSecret.value = ""
-  pairingInvite.value = ""
-  pairingQr.value = ""
-  remoteEndpoint.value = ""
-  remoteSecret.value = ""
-  scannedInvite.value = ""
-  authorizationState.value = "pending"
-}
-
-async function copyPairingInvite() {
-  if (!pairingInvite.value) return
-  await navigator.clipboard.writeText(pairingInvite.value)
-  notice.value = "Pairing invite copied"
-}
-
-function applyScannedInvite() {
-  try {
-    const invite = parsePairingInvite(scannedInvite.value)
-    remoteEndpoint.value = invite.endpoint
-    remoteSecret.value = invite.secret
-    authorizationState.value = "armed"
-    irohError.value = ""
-    notice.value = "Invite loaded; authorization secret armed"
-  } catch (error) {
-    irohError.value = error instanceof Error ? error.message : "Pairing invite invalid"
-  }
-}
-
-async function pushToPeer() {
-  if (!irohNode.value || !remoteEndpoint.value.trim() || !remoteSecret.value) {
-    irohError.value = "Load a pairing invite first"
-    return
-  }
-  peerAction.value = "dialing"
-  irohError.value = ""
-  try {
-    const connection = await irohNode.value.dial(remoteEndpoint.value.trim())
-    const stream = await connection.openStream()
-    await stream.send(encodePairingFrame(remoteSecret.value, getAutomergeBytes()))
-    await stream.closeSend()
-    await connection.close()
-    authorizationState.value = "authorized"
-    notice.value = "Authorized workspace sent"
-  } catch (error) {
-    irohError.value = error instanceof Error ? error.message : "Peer dial failed"
-  } finally {
-    peerAction.value = "idle"
-  }
-}
-
-async function waitForPeer() {
-  if (!irohNode.value || !pairingSecret.value) {
-    irohError.value = "Start iroh to create a pairing secret"
-    return
-  }
-  peerAction.value = "waiting"
-  irohError.value = ""
-  let acceptor: Awaited<ReturnType<IrohNode["accept"]>> | undefined
-  let connection: Awaited<ReturnType<NonNullable<typeof irohNode.value>["dial"]>> | undefined
-  try {
-    acceptor = await irohNode.value.accept()
-    connection = await acceptor.accept()
-    if (!connection) throw new Error("Acceptor closed")
-    const stream = await connection.acceptStream()
-    await mergeRemoteBytes(decodePairingFrame(await stream.read(), pairingSecret.value))
-    authorizationState.value = "authorized"
-    notice.value = "Authorized Automerge workspace merged"
-  } catch (error) {
-    irohError.value = error instanceof Error ? error.message : "Peer accept failed"
-  } finally {
-    await connection?.close()
-    await acceptor?.close()
-    peerAction.value = "idle"
+    notice.value = error instanceof Error ? error.message : "Match bundle import failed"
   }
 }
 
@@ -423,9 +239,11 @@ function closeDetail() {
       <div class="top-actions">
         <span class="local-state"><span class="pulse"></span> Local</span>
         <a class="button button-quiet" href="/agent">Agent guide</a>
-        <button class="button button-quiet" type="button" @click="showSync = true">Sync</button>
+        <button class="button button-quiet" type="button" @click="sync.host">Sync</button>
         <button class="button button-quiet" type="button" @click="exportWorkspace">Export .match</button>
+        <button class="button button-quiet" type="button" @click="openImport">Import .match</button>
         <button class="button button-primary" type="button" @click="showLeadForm = true">+ Add lead</button>
+        <input ref="importInput" class="sr-only" type="file" accept=".match,application/vnd.match+zip" @change="importWorkspace" />
       </div>
     </header>
 
@@ -435,13 +253,7 @@ function closeDetail() {
         <input v-model="search" type="search" placeholder="Search company, role, notes" />
       </label>
       <div class="toolbar-spacer"></div>
-      <label class="filter-label">
-        <span>Status</span>
-        <select v-model="statusFilter">
-          <option value="all">All cards</option>
-          <option v-for="(label, status) in statusLabels" :key="status" :value="status">{{ label }}</option>
-        </select>
-      </label>
+      <LeadFilters v-model="filters" />
       <span class="stats">{{ workspace.leads.length }} cards · {{ totalDocuments }} docs</span>
     </section>
 
@@ -477,28 +289,16 @@ function closeDetail() {
 
     <section v-else class="loading-state">Loading local workspace…</section>
 
-    <div v-if="showSync" class="overlay" @click.self="showSync = false">
-      <section class="dialog sync-dialog">
-        <div class="dialog-head"><div><span class="eyebrow">Device sync</span><h2>{{ irohState === "ready" ? "Device sync ready" : "Local-first sync" }}</h2></div><button class="icon-button" type="button" aria-label="Close" @click="showSync = false">×</button></div>
-        <div class="sync-status"><span class="pulse" :class="{ active: irohState === 'ready' }"></span><strong>{{ syncLabel }}</strong><span>merge layer active</span></div>
-        <p class="dialog-copy">Cards and documents persist as an Automerge document. Iroh browser transport is experimental Rust/WASM. QR pairing carries the endpoint plus a random authorization secret; only a matching secret can merge data.</p>
-        <div v-if="irohState === 'ready'" class="peer-box"><span class="detail-label">This device endpoint</span><code>{{ irohNode?.endpointId }}</code></div>
-        <div v-if="irohState === 'ready'" class="peer-sync-box">
-          <div class="pairing-card">
-            <span class="detail-label">Pair this device</span>
-            <img v-if="pairingQr" :src="pairingQr" alt="Match pairing QR code" class="pairing-qr" />
-            <textarea :value="pairingInvite" rows="3" readonly aria-label="Pairing invite"></textarea>
-            <button class="button button-small button-quiet" type="button" @click="copyPairingInvite">Copy invite</button>
-          </div>
-          <label><span>Scanned invite from peer</span><textarea v-model="scannedInvite" rows="3" placeholder="paste Match invite"></textarea></label>
-          <div class="dialog-actions"><button class="button button-small button-quiet" type="button" :disabled="!scannedInvite.trim()" @click="applyScannedInvite">Use invite</button><span class="authorization-state">Authorization: {{ authorizationState }}</span></div>
-          <p>Scan the QR with the other device, paste its invite here, then send. The waiting device accepts data only after the secret matches.</p>
-          <div class="dialog-actions"><button class="button button-primary" type="button" :disabled="peerAction !== 'idle' || !remoteEndpoint.trim() || !remoteSecret" @click="pushToPeer">{{ peerAction === 'dialing' ? 'Sending…' : 'Connect + send' }}</button><button class="button button-quiet" type="button" :disabled="peerAction !== 'idle' || !pairingSecret" @click="waitForPeer">{{ peerAction === 'waiting' ? 'Waiting…' : 'Wait for device' }}</button></div>
-        </div>
-        <p v-if="irohError" class="sync-error">{{ irohError }}</p>
-        <div class="dialog-actions"><button v-if="irohState === 'ready'" class="button button-quiet" type="button" @click="stopIroh">Stop device sync</button><button v-else class="button button-primary" type="button" :disabled="irohState === 'starting'" @click="startIroh">{{ irohState === 'starting' ? 'Preparing device sync…' : 'Sync with another device' }}</button></div>
-      </section>
-    </div>
+    <SyncDialog
+      v-if="sync.isOpen.value"
+      :phase="sync.phase.value"
+      :title="sync.title.value"
+      :qr-code="sync.qrCode.value"
+      :error="sync.error.value"
+      @copy="sync.copyInvite"
+      @join="sync.join"
+      @close="sync.close"
+    />
 
     <div v-if="showLeadForm" class="overlay" @click.self="showLeadForm = false">
       <form class="dialog" @submit.prevent="submitLead">

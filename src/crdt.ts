@@ -1,11 +1,11 @@
 import * as Automerge from "@automerge/automerge/slim"
-import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64"
+import automergeWasmUrl from "@automerge/automerge/automerge.wasm?url"
 import type { Document, Lead, Workspace } from "./types"
 
 let automergeReady: Promise<void> | undefined
 
 export function initializeAutomerge(): Promise<void> {
-  return (automergeReady ??= Automerge.initializeBase64Wasm(automergeWasmBase64))
+  return (automergeReady ??= Automerge.initializeWasm(automergeWasmUrl))
 }
 
 export type WorkspaceDocument = {

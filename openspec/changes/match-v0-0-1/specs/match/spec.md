@@ -77,14 +77,27 @@ The system SHALL merge same-origin tab changes through Automerge without choosin
 
 ### Requirement: Experimental browser iroh transport
 
-The system SHALL keep browser iroh transport behind an explicit experimental action and SHALL NOT report a connected peer before the browser WASM node starts and exposes an endpoint identity.
+The system SHALL use browser iroh only through a transport boundary and SHALL NOT report a synced workspace before a paired peer has completed authenticated request, response, and acknowledgement frames.
 
-#### Scenario: Start browser iroh node
+#### Scenario: Opening Sync creates a pairing invitation
 
-- **WHEN** the user opens Sync and starts iroh
-- **THEN** the app starts the browser WASM adapter or shows its startup error
-- **AND** a successful start shows the local endpoint identity
-- **AND** no peer is claimed until pairing and an ALPN `match/sync/0` stream exist.
+- **WHEN** the user opens Sync
+- **THEN** the app starts the browser WASM adapter, opens an acceptor, and renders a pairing QR without another setup action
+- **AND** the dialog does not present caller/listener roles or transport implementation details
+- **AND** no workspace is claimed as synced until pairing and an ALPN `match/sync/0` stream exist.
+
+#### Scenario: QR link automatically joins a peer
+
+- **WHEN** a second device opens a valid pairing QR link or pastes it into Sync
+- **THEN** it joins automatically without a second confirmation action
+- **AND** temporary bootstrap failures retry while both pairing dialogs remain open
+- **AND** both visible workspaces converge after the authenticated merge.
+
+#### Scenario: Invalid pairing link fails safely
+
+- **WHEN** a device opens a malformed pairing link
+- **THEN** it shows a pairing failure
+- **AND** it does not report a synced workspace or merge data.
 
 ### Requirement: Flat WebMCP surface
 

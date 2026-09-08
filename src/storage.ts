@@ -1,4 +1,4 @@
-import { zipSync, strToU8 } from "fflate"
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate"
 import type { Workspace } from "./types"
 
 const databaseName = "match"
@@ -97,6 +97,18 @@ export function downloadWorkspaceBundle(workspace: Workspace, automergeBytes?: U
   anchor.download = `match-${new Date().toISOString().slice(0, 10)}.match`
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+export async function readWorkspaceBundle(file: File): Promise<WorkspaceRecord> {
+  const archive = unzipSync(new Uint8Array(await file.arrayBuffer()))
+  const leadsFile = archive["leads.json"]
+  const documentsFile = archive["documents.json"]
+  if (!leadsFile || !documentsFile) throw new Error("Invalid Match bundle")
+
+  const leads = JSON.parse(strFromU8(leadsFile)) as Workspace["leads"]
+  const documents = JSON.parse(strFromU8(documentsFile)) as Workspace["documents"]
+  const automergeBytes = archive["automerge/workspace.bin"]
+  return { workspace: { leads, documents }, automergeBytes }
 }
 
 export function downloadWorkspaceJson(workspace: Workspace): void {

@@ -71,12 +71,14 @@ IndexedDB stores the serialized Automerge workspace document in v0.0.1. A `.matc
 Device sync has a transport boundary:
 
 - Automerge owns document state and merge.
-- `iroh-webrtc-transport` browser/WASM adapter handles experimental peer transport.
-- The iroh adapter exposes node identity and streams only; it does not own Match fields.
+- `SyncTransport` is a port. `iroh-webrtc-transport` browser/WASM is the current experimental adapter.
+- `SyncSession` owns authenticated request/response/ack sequencing; an adapter exposes only nodes, connections, and streams. Vue invokes the session through `useDeviceSync`.
 - The QR invite carries protocol version, remote endpoint id, and a random bearer secret.
 - The first stream frame carries the same secret. The receiver rejects a missing or mismatched secret before calling Automerge merge.
+- Opening Sync starts the acceptor and QR generation immediately. Opening or pasting the link starts joining immediately. There are no initiator/responder controls in the UI.
+- Browser address publication can lag node startup. The join session retries a transient bootstrap failure while the pairing dialogs remain open; retry does not alter Automerge or UI state.
 
-The browser adapter is compiled separately under `iroh-wasm/` because the upstream browser crate is alpha and main-thread-only. UI must show `experimental`/failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist.
+The browser adapter is compiled separately under `iroh-wasm/` because the upstream browser crate is alpha and main-thread-only. UI must show failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist; implementation names stay out of the product flow.
 
 Long documents and file payloads remain separate addressable objects. A future `.match` export may package manifest, cards, documents, and blobs without making one monolithic sync payload.
 
@@ -86,5 +88,5 @@ Dense operational board: dark navy surfaces, thin slate borders, mint active acc
 
 ## Open Questions
 
-- QR invite generation and manual scan/paste authorization are in v0.0.1. Camera scanning and peer-secret revocation remain future work.
+- QR invite generation and scan/paste authorization are in v0.0.1. In-app camera scanning and peer-secret revocation remain future work.
 - Finder reveal remains outside static web v0.0.1; local paths are shown and copied/opened on a best-effort basis.
