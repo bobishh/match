@@ -42,3 +42,8 @@
 - [x] 5.1 Add a mobile-only filter disclosure, closed by default.
 - [x] 5.2 Make pipeline columns snap one full portrait viewport at a time.
 - [x] 5.3 Keep top actions horizontally reachable without wrapping the header.
+
+## 6. Control layout
+
+- [x] 6.1 Make MATCH brand uppercase and lay out mid-size desktop filters without clipping.
+- [x] 6.2 Add 1024-pixel BDD coverage for complete controls.

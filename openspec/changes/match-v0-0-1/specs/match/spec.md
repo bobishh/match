@@ -35,6 +35,17 @@ The system SHALL keep the board usable in portrait on a 390-by-844 CSS-pixel vie
 - **AND** the board has horizontal overflow with snap points at each complete column
 - **AND** portrait remains supported without an orientation prompt.
 
+### Requirement: Legible desktop controls
+
+The system SHALL keep MATCH branding and all filter controls readable on a 1024 CSS-pixel-wide desktop viewport.
+
+#### Scenario: Mid-size desktop shows complete controls
+
+- **WHEN** the app opens on a 1024 CSS-pixel-wide viewport
+- **THEN** the brand reads `MATCH`
+- **AND** search and each filter select remain visible without clipping or page-level horizontal overflow
+- **AND** each filter label and control are laid out as one field rather than squeezed into adjacent controls.
+
 ### Requirement: Flat lead cards
 
 The system SHALL store company and role directly on a lead card. It SHALL NOT require organization creation or a separate vacancy record.

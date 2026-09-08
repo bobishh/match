@@ -232,7 +232,7 @@ function closeDetail() {
       <div class="brand">
         <span class="brand-mark">M</span>
         <div>
-          <h1>Match</h1>
+          <h1>MATCH</h1>
           <p>Cards, documents, next move.</p>
         </div>
       </div>

@@ -28,6 +28,30 @@ test("Given several leads, when filters intersect, then only matching cards rema
   await expect(page.getByRole("button", { name: "Drag VREY — Product" })).toHaveCount(0)
 })
 
+test("Given a mid-size desktop viewport, when Match opens, then the title and filters stay legible without clipped controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 900 })
+  await page.goto("/")
+
+  await expect(page.getByRole("heading", { name: "MATCH" })).toBeVisible()
+  const toolbar = await page.getByRole("region", { name: "Match controls" }).evaluate((element) => {
+    const search = element.querySelector<HTMLElement>(".search-field")!
+    const selects = [...element.querySelectorAll<HTMLSelectElement>("select")]
+    const workModeLabel = selects.find((select) => select.labels?.[0]?.textContent?.includes("Work mode"))!.labels![0]
+    return {
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      searchWidth: search.getBoundingClientRect().width,
+      selectWidths: selects.map((select) => select.getBoundingClientRect().width),
+      workModeLabelHeight: workModeLabel.getBoundingClientRect().height,
+    }
+  })
+
+  expect(toolbar.scrollWidth).toBeLessThanOrEqual(toolbar.clientWidth)
+  expect(toolbar.searchWidth).toBeGreaterThanOrEqual(220)
+  expect(Math.min(...toolbar.selectWidths)).toBeGreaterThanOrEqual(150)
+  expect(toolbar.workModeLabelHeight).toBeLessThanOrEqual(70)
+})
+
 test("Given an iPhone 17e portrait viewport, when Match opens, then filters start closed and columns snap one page at a time", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/")
