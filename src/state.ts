@@ -1,6 +1,6 @@
 import { computed, reactive } from "vue"
 import { loadWorkspaceRecord, saveWorkspaceRecord, type WorkspaceRecord } from "./storage"
-import { initializeAutomerge, loadWorkspaceDoc, mergeWorkspaceDocs, newWorkspaceDoc, saveWorkspaceDoc, updateWorkspaceDoc, workspaceFromDoc, type WorkspaceDoc } from "./crdt"
+import { initializeAutomerge, loadWorkspaceDoc, mergeWorkspaceDocs, newWorkspaceDoc, saveWorkspaceDoc, updateWorkspaceDoc, workspaceFromDoc, workspaceHeads, type WorkspaceDoc } from "./crdt"
 import type { DocumentInput, Lead, LeadInput, Workspace } from "./types"
 import { statusOrder } from "./types"
 import { createDocument as createDocumentCommand, createLead as createLeadCommand, deleteDocument as deleteDocumentCommand, deleteLead as deleteLeadCommand, documentsFor as workspaceDocumentsFor, moveLead as moveLeadCommand, updateDocument as updateDocumentCommand, updateLead as updateLeadCommand } from "./domain/workspace"
@@ -8,6 +8,9 @@ import { createDocument as createDocumentCommand, createLead as createLeadComman
 const workspace = reactive<Workspace>({ leads: [], documents: [] })
 const ready = reactive({ value: false })
 let document: WorkspaceDoc
+const localChangeListeners = new Set<() => void>()
+const storageChannel = typeof BroadcastChannel === "undefined" ? undefined : new BroadcastChannel("match-workspace")
+let reconcilePromise: Promise<void> | undefined
 
 function now() {
   return new Date().toISOString()
@@ -29,6 +32,7 @@ async function persist() {
     },
     automergeBytes: saveWorkspaceDoc(document),
   })
+  storageChannel?.postMessage({ type: "workspace-persisted" })
 }
 
 function applyWorkspace(next: Workspace) {
@@ -42,6 +46,7 @@ function commit(message: string) {
     documents: JSON.parse(JSON.stringify(workspace.documents)),
   }, message)
   void persist()
+  for (const listener of localChangeListeners) listener()
 }
 
 async function mergeRemoteBytes(bytes: Uint8Array) {
@@ -55,6 +60,37 @@ async function mergeWorkspaceRecord(record: WorkspaceRecord) {
   document = mergeWorkspaceDocs(document, imported)
   applyWorkspace(workspaceFromDoc(document))
   await persist()
+}
+
+async function reconcileStoredWorkspace() {
+  if (!ready.value || reconcilePromise) return reconcilePromise
+
+  reconcilePromise = (async () => {
+    const saved = await loadWorkspaceRecord()
+    const stored = saved.automergeBytes ? loadWorkspaceDoc(saved.automergeBytes) : newWorkspaceDoc(saved.workspace)
+    const before = workspaceHeads(document).join(",")
+    const merged = mergeWorkspaceDocs(document, stored)
+    if (workspaceHeads(merged).join(",") === before) return
+
+    document = merged
+    applyWorkspace(workspaceFromDoc(document))
+    await persist()
+  })().finally(() => {
+    reconcilePromise = undefined
+  })
+
+  return reconcilePromise
+}
+
+storageChannel?.addEventListener("message", () => {
+  void reconcileStoredWorkspace()
+})
+
+if (typeof window !== "undefined") {
+  window.addEventListener("focus", () => { void reconcileStoredWorkspace() })
+  globalThis.document?.addEventListener("visibilitychange", () => {
+    if (!globalThis.document.hidden) void reconcileStoredWorkspace()
+  })
 }
 
 export async function hydrate() {
@@ -136,5 +172,9 @@ export function useMatch() {
     getAutomergeBytes: () => saveWorkspaceDoc(document),
     mergeRemoteBytes,
     mergeWorkspaceRecord,
+    subscribeLocalChanges(listener: () => void) {
+      localChangeListeners.add(listener)
+      return () => localChangeListeners.delete(listener)
+    },
   }
 }

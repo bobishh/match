@@ -21,8 +21,10 @@
 - [x] 3.3 Keep transport outside the Automerge merge boundary.
 - [x] 3.4 Add browser iroh WebRTC/WASM adapter spike behind explicit experimental capability.
 - [x] 3.5 Add QR invite, manual scan/paste, and app-layer peer authorization.
-- [x] 3.6 Split `SyncTransport`, session protocol, and Vue flow; QR starts acceptance and invite joins automatically.
+- [x] 3.6 Split `SyncTransport`, session protocol, and Vue flow; QR starts acceptance and the scanning browser joins after Connect to mesh.
 - [x] 3.7 Retry transient browser bootstrap failures without a second user action.
+- [x] 3.8 Keep the authenticated peer connection open and replicate later local commits in both directions.
+- [x] 3.9 Reconcile IndexedDB through same-browser tab notifications and on tab focus.
 
 ## 4. Verification
 
@@ -31,3 +33,12 @@
 - [ ] 4.3 Add reload persistence check.
 - [ ] 4.4 Add responsive board/detail-panel check.
 - [x] 4.5 Add protocol/session tests and isolated-profile QR pairing BDD coverage.
+- [x] 4.6 Add isolated-profile BDD coverage for a post-pair card change.
+- [x] 4.7 Add 390-by-844 BDD coverage for collapsed filters and snap-sized pipeline columns.
+- [x] 4.8 Add same-profile two-tab IndexedDB reconciliation BDD coverage.
+
+## 5. Mobile board
+
+- [x] 5.1 Add a mobile-only filter disclosure, closed by default.
+- [x] 5.2 Make pipeline columns snap one full portrait viewport at a time.
+- [x] 5.3 Keep top actions horizontally reachable without wrapping the header.

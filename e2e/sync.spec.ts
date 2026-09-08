@@ -28,6 +28,38 @@ test("Given several leads, when filters intersect, then only matching cards rema
   await expect(page.getByRole("button", { name: "Drag VREY — Product" })).toHaveCount(0)
 })
 
+test("Given an iPhone 17e portrait viewport, when Match opens, then filters start closed and columns snap one page at a time", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/")
+
+  const filters = page.getByRole("group", { name: "Filters" })
+  await expect(filters).toBeHidden()
+  await page.getByRole("button", { name: "Filters", exact: true }).click()
+  await expect(filters).toBeVisible()
+
+  const layout = await page.locator(".board").evaluate((board) => {
+    const column = board.querySelector<HTMLElement>(".column")!
+    const styles = getComputedStyle(board)
+    return { clientWidth: board.clientWidth, scrollWidth: board.scrollWidth, columnWidth: column.getBoundingClientRect().width, snap: styles.scrollSnapType }
+  })
+  expect(layout.columnWidth).toBeGreaterThanOrEqual(350)
+  expect(layout.scrollWidth).toBeGreaterThan(layout.clientWidth)
+  expect(layout.snap).toContain("x")
+})
+
+test("Given two tabs on one device, when one tab saves a card, then the other reads and merges IndexedDB without pairing", async ({ page }) => {
+  const peer = await page.context().newPage()
+  try {
+    await page.goto("/")
+    await peer.goto("/")
+
+    await addLead(page, { company: "Local-first", role: "Stored workspace", priority: "p1", workMode: "remote", fit: "8" })
+    await expect(peer.getByRole("button", { name: "Drag Local-first — Stored workspace" })).toBeVisible({ timeout: 5_000 })
+  } finally {
+    await peer.close()
+  }
+})
+
 test("Given the board, when Sync is clicked, then pairing opens without a second start action", async ({ page }) => {
   await page.goto("/")
   expect(await page.evaluate(() => performance.getEntriesByType("resource").some((entry) => entry.name.includes("match_iroh")))).toBe(false)
@@ -42,6 +74,23 @@ test("Given the board, when Sync is clicked, then pairing opens without a second
   await expect.poll(() => page.evaluate(() => performance.getEntriesByType("resource").some((entry) => entry.name.includes("match_iroh")))).toBe(true)
 })
 
+test("Given clipboard access is denied, when Sync opens, then its pairing link remains selectable for manual copy", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new DOMException("Clipboard denied", "NotAllowedError") } },
+    })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  const pairingLink = dialog.getByRole("textbox", { name: "Pairing link", exact: true })
+  await expect(pairingLink).toHaveValue(/\/pair#v=0\.0\.1&endpoint=/)
+  await dialog.getByRole("button", { name: "Copy pairing link" }).click()
+  await expect(dialog.getByText("Clipboard unavailable. Select the pairing link and copy it manually.")).toBeVisible()
+})
+
 test("Given a malformed pairing link, when Match opens it, then it fails without claiming a sync", async ({ page }) => {
   await page.goto("/pair#v=0.0.1&endpoint=peer-without-secret")
 
@@ -51,7 +100,7 @@ test("Given a malformed pairing link, when Match opens it, then it fails without
   await expect(dialog.getByText("Workspace synced.")).toHaveCount(0)
 })
 
-test("Given isolated browser profiles, when a QR link is opened, then both workspaces merge", async ({ browser, page }) => {
+test("Given paired browser profiles, when either peer changes a card, then the other board updates without another QR", async ({ browser, page }) => {
   const origin = "http://127.0.0.1:4244"
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
   const peerContext = await browser.newContext()
@@ -75,9 +124,22 @@ test("Given isolated browser profiles, when a QR link is opened, then both works
 
     await peer.goto(invite)
     const peerDialog = peer.getByRole("dialog", { name: "Device sync" })
-    await expect(peerDialog.getByText("Workspace synced.")).toBeVisible({ timeout: 25_000 })
-    await expect(hostDialog.getByText("Workspace synced.")).toBeVisible({ timeout: 25_000 })
+    await expect(peerDialog.getByRole("button", { name: "Connect to mesh" })).toBeVisible()
+    await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toHaveCount(0)
+    await peerDialog.getByRole("button", { name: "Connect to mesh" }).click()
+    await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
+    await expect(hostDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
     await expect(peer.getByText("1 cards · 0 docs")).toBeVisible()
+    await peerDialog.getByRole("button", { name: "Close" }).click()
+
+    // When the peer makes a later visible change, the already-paired host receives it.
+    await peer.getByRole("button", { name: "+ Add lead" }).click()
+    await peer.getByLabel("Company *").fill("Intercom")
+    await peer.getByLabel("Role *").fill("Software Engineer")
+    await peer.getByRole("button", { name: "Create card" }).click()
+
+    // Then no second QR or import is needed for the host board to converge.
+    await expect(page.getByText("2 cards · 0 docs")).toBeVisible({ timeout: 5_000 })
   } finally {
     await peerContext.close()
   }

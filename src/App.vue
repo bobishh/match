@@ -10,7 +10,7 @@ import LeadFilters from "./components/LeadFilters.vue"
 import { defaultLeadFilters, matchesLeadFilters, type LeadFilters as LeadFilterState } from "./filters"
 import { useDeviceSync } from "./sync/useDeviceSync"
 
-const { workspace, ready, columns, createLead, updateLead, moveLead, createDocument, documentsFor, persist, getAutomergeBytes, mergeRemoteBytes, mergeWorkspaceRecord } = useMatch()
+const { workspace, ready, columns, createLead, updateLead, moveLead, createDocument, documentsFor, persist, getAutomergeBytes, mergeRemoteBytes, mergeWorkspaceRecord, subscribeLocalChanges } = useMatch()
 
 const selectedLeadId = ref<string | null>(null)
 const detailDialog = ref<HTMLElement | null>(null)
@@ -23,7 +23,7 @@ const notice = ref("")
 const draggingLeadId = ref<string | null>(null)
 const dragOverStatus = ref<LeadStatus | null>(null)
 const sync = useDeviceSync({
-  workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes },
+  workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: subscribeLocalChanges },
   origin: () => window.location.origin,
 })
 
@@ -237,9 +237,9 @@ function closeDetail() {
         </div>
       </div>
       <div class="top-actions">
-        <span class="local-state"><span class="pulse"></span> Local</span>
+        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : "Local" }}</span>
         <a class="button button-quiet" href="/agent">Agent guide</a>
-        <button class="button button-quiet" type="button" @click="sync.host">Sync</button>
+        <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" @click="exportWorkspace">Export .match</button>
         <button class="button button-quiet" type="button" @click="openImport">Import .match</button>
         <button class="button button-primary" type="button" @click="showLeadForm = true">+ Add lead</button>
@@ -294,10 +294,14 @@ function closeDetail() {
       :phase="sync.phase.value"
       :title="sync.title.value"
       :qr-code="sync.qrCode.value"
+      :invite-url="sync.inviteUrl.value"
+      :copy-notice="sync.copyNotice.value"
       :error="sync.error.value"
       @copy="sync.copyInvite"
-      @join="sync.join"
-      @close="sync.close"
+      @join="sync.prepareJoin"
+      @connect="sync.connectToMesh"
+      @dismiss="sync.dismiss"
+      @stop="sync.close"
     />
 
     <div v-if="showLeadForm" class="overlay" @click.self="showLeadForm = false">

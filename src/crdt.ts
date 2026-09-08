@@ -39,6 +39,10 @@ export function saveWorkspaceDoc(doc: WorkspaceDoc): Uint8Array {
   return Automerge.save(doc)
 }
 
+export function workspaceHeads(doc: WorkspaceDoc): string[] {
+  return Automerge.getHeads(doc).sort()
+}
+
 export function workspaceFromDoc(doc: WorkspaceDoc): Workspace {
   return {
     leads: clone(doc.leads),

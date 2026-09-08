@@ -75,8 +75,10 @@ Device sync has a transport boundary:
 - `SyncSession` owns authenticated request/response/ack sequencing; an adapter exposes only nodes, connections, and streams. Vue invokes the session through `useDeviceSync`.
 - The QR invite carries protocol version, remote endpoint id, and a random bearer secret.
 - The first stream frame carries the same secret. The receiver rejects a missing or mismatched secret before calling Automerge merge.
-- Opening Sync starts the acceptor and QR generation immediately. Opening or pasting the link starts joining immediately. There are no initiator/responder controls in the UI.
+- Opening Sync starts the acceptor and QR generation immediately. Opening or pasting the link prepares the scanning browser; one Connect to mesh action starts joining. There are no initiator/responder controls in the UI.
 - Browser address publication can lag node startup. The join session retries a transient bootstrap failure while the pairing dialogs remain open; retry does not alter Automerge or UI state.
+- After the authenticated snapshot handshake, the connection remains open. Each local Automerge commit sends an authenticated update frame to the paired peer; remote merges do not echo back. Live sync lasts only while both tabs keep the peer connection open, not across reloads.
+- Same-profile browser tabs announce completed IndexedDB writes through `BroadcastChannel`; receiving tabs re-read and merge the persisted Automerge document. Returning focus also reconciles IndexedDB, covering background tabs that missed an announcement.
 
 The browser adapter is compiled separately under `iroh-wasm/` because the upstream browser crate is alpha and main-thread-only. UI must show failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist; implementation names stay out of the product flow.
 
@@ -85,6 +87,8 @@ Long documents and file payloads remain separate addressable objects. A future `
 ### 6. Visual direction
 
 Dense operational board: dark navy surfaces, thin slate borders, mint active accent, five columns visible on desktop, right-side detail panel, modal creation flow. Board is first viewport. No marketing hero.
+
+On phones, portrait is the primary board mode. The filter form is a closed disclosure until requested. Pipeline columns do not shrink into a multi-column mosaic: each column is one snap-sized viewport page inside a native horizontal scroller. The top action row scrolls horizontally rather than wrapping into an uncontrolled header. Orientation is never forced.
 
 ## Open Questions
 

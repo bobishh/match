@@ -6,7 +6,7 @@ export type PairingInvite = {
   secret: string
 }
 
-export type PairingFrameType = "sync-request" | "sync-response" | "sync-ack"
+export type PairingFrameType = "sync-request" | "sync-response" | "sync-ack" | "sync-update"
 
 export class PairingError extends Error {}
 

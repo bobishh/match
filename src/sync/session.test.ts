@@ -107,7 +107,7 @@ function replica(initial: number[]) {
   const mergeBytes = vi.fn(async (remote: Uint8Array) => {
     bytes = new Uint8Array([...bytes, ...remote])
   })
-  return { workspace: { getBytes: () => bytes, mergeBytes } satisfies WorkspaceReplica, mergeBytes, bytes: () => bytes }
+  return { workspace: { getBytes: () => bytes, mergeBytes } satisfies WorkspaceReplica, mergeBytes, bytes: () => bytes, set: (next: number[]) => { bytes = new Uint8Array(next) } }
 }
 
 describe("workspace sync session", () => {
@@ -140,5 +140,22 @@ describe("workspace sync session", () => {
 
     expect(dial).toHaveBeenCalledTimes(2)
     expect(peerWorkspace.mergeBytes).toHaveBeenCalledWith(new Uint8Array([1, 2]))
+  })
+
+  it("Given paired peers, when one peer publishes a later change, then the other merges it on the same connection", async () => {
+    const { host, peer } = connectedNodes()
+    const hostWorkspace = replica([1])
+    const peerWorkspace = replica([2])
+
+    const accepting = acceptWorkspaceSync(host, "host-secret", hostWorkspace.workspace)
+    const peerSession = await joinWorkspaceSync(peer, createPairingInvite("host", "host-secret"), peerWorkspace.workspace)
+    await accepting
+
+    peerWorkspace.set([2, 1, 3])
+    await peerSession.publish()
+
+    await vi.waitFor(() => {
+      expect(hostWorkspace.mergeBytes).toHaveBeenLastCalledWith(new Uint8Array([2, 1, 3]))
+    })
   })
 })

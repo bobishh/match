@@ -17,6 +17,24 @@ The system SHALL render one flat card pipeline with exactly five statuses: Lead,
 - **THEN** the card moves to the matching column
 - **AND** the change persists after reload.
 
+### Requirement: Mobile board navigation
+
+The system SHALL keep the board usable in portrait on a 390-by-844 CSS-pixel viewport without asking the user to rotate their phone.
+
+#### Scenario: Phone starts with filters collapsed
+
+- **GIVEN** the app opens on a viewport at most 720 CSS pixels wide
+- **THEN** filter controls are hidden behind a visible Filters disclosure by default
+- **WHEN** the user opens Filters
+- **THEN** all status, priority, work-mode, and fit controls become available.
+
+#### Scenario: Phone swipes complete pipeline columns
+
+- **GIVEN** the app opens on a 390-by-844 CSS-pixel viewport
+- **THEN** one pipeline column occupies the visible board width
+- **AND** the board has horizontal overflow with snap points at each complete column
+- **AND** portrait remains supported without an orientation prompt.
+
 ### Requirement: Flat lead cards
 
 The system SHALL store company and role directly on a lead card. It SHALL NOT require organization creation or a separate vacancy record.
@@ -75,6 +93,14 @@ The system SHALL merge same-origin tab changes through Automerge without choosin
 - **AND** both visible boards converge
 - **AND** `updatedAt` does not decide the winner.
 
+#### Scenario: A stale tab catches up from local storage
+
+- **GIVEN** two Match tabs share one browser profile
+- **WHEN** one tab persists a workspace change, including a change received from a paired device
+- **THEN** the other tab reads the latest Automerge document from IndexedDB and merges it automatically
+- **AND** returning focus to a background tab triggers the same IndexedDB reconciliation
+- **AND** no QR pairing is required for same-browser tabs.
+
 ### Requirement: Experimental browser iroh transport
 
 The system SHALL use browser iroh only through a transport boundary and SHALL NOT report a synced workspace before a paired peer has completed authenticated request, response, and acknowledgement frames.
@@ -86,12 +112,20 @@ The system SHALL use browser iroh only through a transport boundary and SHALL NO
 - **AND** the dialog does not present caller/listener roles or transport implementation details
 - **AND** no workspace is claimed as synced until pairing and an ALPN `match/sync/0` stream exist.
 
-#### Scenario: QR link automatically joins a peer
+#### Scenario: QR link waits for the scanning browser
 
 - **WHEN** a second device opens a valid pairing QR link or pastes it into Sync
-- **THEN** it joins automatically without a second confirmation action
-- **AND** temporary bootstrap failures retry while both pairing dialogs remain open
+- **THEN** it shows one explicit Connect to mesh action before transport startup
+- **WHEN** the user chooses Connect to mesh
+- **THEN** temporary bootstrap failures retry while both pairing dialogs remain open
 - **AND** both visible workspaces converge after the authenticated merge.
+
+#### Scenario: A paired peer replicates a later change
+
+- **GIVEN** two browser profiles have completed one QR pairing
+- **WHEN** either profile creates, updates, or moves a card
+- **THEN** the other profile merges that change without another QR, import, or manual move
+- **AND** closing or stopping either live session ends this replication until a new pairing.
 
 #### Scenario: Invalid pairing link fails safely
 
