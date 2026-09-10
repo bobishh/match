@@ -206,7 +206,7 @@ function handleConfirmApply() {
 
 <template>
   <ModalLayer protect-draft class="overlay overlay-level-100" @close="emit('close')">
-    <section class="dialog schema-editor-dialog" role="dialog" aria-modal="true" :aria-label="mode === 'entity' ? `Edit ${editorEntityName}` : 'Workspace settings'">
+    <section class="dialog schema-editor-dialog" :class="{ 'schema-entity-dialog': mode === 'entity' }" role="dialog" aria-modal="true" :aria-label="mode === 'entity' ? `Edit ${editorEntityName}` : 'Workspace settings'">
       <div class="dialog-head">
         <div>
           <span class="eyebrow">{{ mode === "entity" ? "Entity schema" : "Workspace settings" }}</span>
@@ -291,7 +291,8 @@ function handleConfirmApply() {
             >
               <div class="schema-field-item-head">
                 <span class="field-item-header">
-                  <strong>{{ fld.title }} ({{ fld.valueType }})</strong>
+                  <strong>{{ fld.title }}</strong>
+                  <span class="field-type">{{ fld.valueType }}</span>
                   <span v-if="fld.required" class="required-badge">Required</span>
                 </span>
                 <button
@@ -458,21 +459,25 @@ function handleConfirmApply() {
 
 <style scoped>
 .schema-editor-dialog {
-  width: min(1120px, calc(100vw - 64px));
+  width: min(960px, 100%);
   max-width: none;
-  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 48px);
   display: flex;
   flex-direction: column;
-  padding: clamp(24px, 3vw, 38px);
+  padding: 28px;
+  overflow: hidden;
 }
+.schema-entity-dialog { width: min(720px, 100%); }
+.schema-editor-dialog > .dialog-head, .schema-editor-dialog > .schema-tabs, .schema-editor-dialog > .schema-error-banner { flex-shrink: 0; }
 .schema-tabs {
   display: flex;
   gap: 6px;
   border-bottom: 2px solid var(--line, #171717);
-  margin-top: 1rem;
+  margin-top: 0;
 }
 .schema-tab-btn {
-  padding: 8px 16px;
+  min-height: 44px;
+  padding: 10px 16px;
   background: var(--soft, #e9e5db);
   border: 1px solid var(--line, #171717);
   border-bottom: none;
@@ -488,7 +493,7 @@ function handleConfirmApply() {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 2px;
+  padding: 12px 6px 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -507,6 +512,15 @@ function handleConfirmApply() {
   align-items: center;
 }
 .schema-section-head h3 { margin: 0; font-size: 1.2rem; }
+.schema-field-label {
+  display: grid;
+  gap: 10px;
+  color: var(--muted);
+  font: 800 .68rem/1.4 ui-monospace, monospace;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.schema-field-label .schema-input { width: 100%; }
 .schema-columns-list {
   display: flex;
   flex-direction: column;
@@ -572,14 +586,15 @@ function handleConfirmApply() {
   border-radius: 0;
 }
 .schema-field-item-head { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.schema-field-item-head > .button { flex-shrink: 0; }
 .field-item-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.field-item-header strong { overflow-wrap: anywhere; }
+.field-type { color: var(--muted); font: .75rem/1.4 ui-monospace, monospace; }
 .required-badge {
   font-size: 0.7rem;
-  background: #ff4757;
-  color: white;
-  padding: 1px 4px;
-  border-radius: 0;
-  margin-left: 0.5rem;
+  background: var(--soft);
+  color: var(--ink);
+  padding: 3px 6px;
 }
 .schema-options-box {
   margin-top: 0.25rem;
@@ -642,13 +657,14 @@ function handleConfirmApply() {
   padding: 0;
 }
 .button-danger {
-  color: #c0392b;
-  border-color: #c0392b;
+  color: #9d2f21;
+  border-color: #9d2f21;
+  background: white;
 }
 .schema-dialog-actions { flex: 0 0 auto; gap: 8px; margin-top: 0; padding-top: 18px; border-top: 2px solid var(--line); }
 
 @media (max-width: 720px) {
-  .schema-editor-dialog { width: calc(100vw - 32px); max-height: calc(100vh - 32px); padding: 20px; }
+  .schema-editor-dialog { width: 100%; max-height: calc(100dvh - 32px); padding: 20px; }
   .schema-column-item { grid-template-columns: 38px minmax(0, 1fr) auto; }
   .schema-column-item .schema-select { grid-column: 2 / 3; }
   .schema-column-item .button-danger { grid-column: 3 / 4; grid-row: 1 / 3; align-self: stretch; }
@@ -659,9 +675,9 @@ function handleConfirmApply() {
 @media (max-width: 480px) {
   .schema-tab-btn { flex: 1; padding: 8px 6px; font-size: .72rem; }
   .schema-add-row { grid-template-columns: 1fr; }
-  .schema-field-item-head { align-items: flex-start; flex-direction: column; }
-  .schema-field-item-head .button { width: 100%; }
-  .schema-add-field-actions { display: grid; grid-template-columns: 1fr 1fr; }
-  .schema-add-field-actions .button { width: 100%; }
+  .schema-field-item { padding: 12px; }
+  .schema-field-item-head { align-items: flex-start; }
+  .schema-add-field-actions { display: flex; flex-wrap: wrap; }
+  .schema-add-field-actions .button { flex: 1; }
 }
 </style>
