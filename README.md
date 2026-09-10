@@ -4,8 +4,8 @@ Match is a local-first, peer-to-peer workspace board and task kernel with increm
 
 ## Features
 
-- **Generic Workspace Kernel**: Create independent workspaces (such as the default *Job search* pipeline or *Blank* boards) with custom columns, rational rank positioning, nested subtask hierarchies, and customizable fields (select, text, number, date).
-- **Preset Adapters & Legacy Aliases**: The *Job search* preset maps generic tasks to lead properties (company, role, status, priority, fit score, notes, source snapshot), CV/cover-letter templates, and generated PDF artifacts while preserving full backward compatibility.
+- **Generic Workspace Kernel**: Create independent workspaces (such as the default *Job search* pipeline or *Blank* boards) with custom columns, rational rank positioning, nested task hierarchies, workspace document templates, and typed fields (text, number, boolean, select, URL, date).
+- **Preset Adapters & Legacy Aliases**: The *Job search* preset maps generic tasks to lead properties, document templates, and generated PDF artifacts while preserving its older lead-oriented tools.
 - **Trash & Needs Placement Recovery**: Soft-deleted columns and cards can be restored safely. Tasks with missing parents or cyclic references are deterministically surfaced under *Needs placement* for recovery without destructive repair writes.
 - **Local Automerge Durability**: All mutations are recorded as signed Automerge changes persisted atomically with change hashes, receipts, and public proofs in IndexedDB. Focus changes and `BroadcastChannel` synchronize same-device tabs instantly without network pairing.
 - **Two Scoped Connection Flows**:
@@ -22,24 +22,38 @@ Match is a local-first, peer-to-peer workspace board and task kernel with increm
 
 ## WebMCP Tools
 
-When opened in an environment exposing WebMCP (`document.modelContext` or `navigator.modelContext`), Match registers generic task commands alongside legacy lead aliases:
+When opened in an environment exposing WebMCP (`document.modelContext` or `navigator.modelContext`), Match registers generic workspace commands alongside job-search compatibility aliases. Commands target the workspace currently open in Match.
 
 ### Generic Commands
 - `list_workspaces` — list available workspaces.
-- `create_workspace` — create a new workspace (Blank or Job search preset).
-- `list_tasks` — list tasks within the active workspace with optional column/search filters.
-- `create_task` — create a task with customizable fields and rank.
-- `move_task` — move a task to another column or under a parent task.
-- `export_workspace` — download the workspace as a `.match` bundle.
+- `create_workspace` — create and open a Blank or Job search workspace.
+- `rename_workspace` — rename the current workspace.
+- `get_workspace` — read the current workspace and active board summary.
+- `get_workspace_settings` — read the complete editable configuration and CRDT heads.
+- `apply_workspace_settings` — validate and atomically apply workspace title, board, columns, fields, and document templates.
+- `list_tasks` — list visible tasks with optional parent and search filters.
+- `get_entity` — read one typed entity by stable UUID.
+- `create_task` — create a task under a column or another task.
+- `patch_task` — update task title, body, or typed field values.
+- `move_entity` — move or reorder an entity under a column or task.
+- `rename_entity` — rename an entity without changing placement.
+- `set_entity_deleted` — soft-delete or restore an entity.
+- `restore_and_move` — restore an entity under a valid parent in one transaction.
+- `list_trash` — list explicitly soft-deleted entities.
+- `list_placement_issues` — inspect missing-parent and cyclic ancestry problems.
+- `create_column` — create a column under a board.
 
-### Legacy Aliases (Job Search)
+Complete settings writes should preserve returned entity IDs and pass returned heads as `expectedHeads`. Omitted columns, fields, and document templates are soft-deleted while their descendants and stored values remain intact. Unknown fields, stale heads, and field type changes are rejected without partial mutation.
+
+### Job Search Compatibility Aliases
 - `list_leads` — list leads with status and search filtering.
 - `create_lead` — create a lead card with company, role, and status.
 - `move_lead` — move a lead card by ID and status.
-- `list_templates` — read Markdown CV and cover-letter templates.
+- `list_templates` — read workspace document templates through the legacy shape.
 - `get_generation_context` — retrieve card and template context for artifact generation.
 - `record_pdf_artifact` — attach a generated PDF artifact to a lead.
 - `add_document` — attach a note or file reference to a lead.
+- `export_workspace` — export through the compatibility workspace shape.
 
 ## Development & Verification
 

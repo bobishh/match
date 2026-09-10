@@ -32,17 +32,18 @@
       .guide-card ul, .guide-card ol { margin: 12px 0 0; padding-left: 23px; }
       .guide-card li + li { margin-top: 7px; }
       code { padding: 2px 5px; border: 1px solid rgba(23,23,23,.38); color: var(--ink); background: var(--soft); font-size: .82em; overflow-wrap: anywhere; }
-      .pipeline { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 18px; }
-      .pipeline span { padding: 12px 9px; border: 2px solid var(--line); color: var(--ink); background: var(--yellow); font-size: .67rem; font-weight: 900; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
-      .pipeline span:nth-child(2) { background: #dfeaff; }.pipeline span:nth-child(3) { background: #eadfff; }.pipeline span:nth-child(4) { background: #dedbd2; }.pipeline span:nth-child(5) { background: var(--green); }
+      .model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-top: 18px; }
+      .model-grid span { padding: 12px 9px; border: 2px solid var(--line); color: var(--ink); background: var(--yellow); font: 900 .67rem/1.25 ui-monospace, monospace; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
+      .model-grid span:nth-child(2n) { background: #dfeaff; }.model-grid span:nth-child(3n) { background: #eadfff; }
       .tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-top: 18px; }
       .tool { min-height: 120px; padding: 14px; border: 2px solid var(--line); background: white; }
       .tool-name { display: inline-block; color: var(--blue); font-size: .8rem; font-weight: 900; }
       .tool p { margin-top: 10px; font-size: .78rem; line-height: 1.45; }
+      .subhead { margin: 26px 0 0; font-size: .76rem; font-family: ui-monospace, monospace; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
       .note { margin-top: 18px !important; padding: 12px 14px; border-left: 5px solid var(--red); color: var(--ink) !important; background: var(--soft); font-size: .8rem; }
       footer { width: min(1080px, 100%); margin: 0 auto; padding: 0 clamp(16px, 4vw, 56px) 52px; }
       footer a { color: var(--blue); font-weight: 900; text-decoration-thickness: 2px; text-underline-offset: 4px; }
-      @media (max-width: 720px) { .hero { grid-template-columns: 1fr; }.hero-card { max-width: 300px; }.pipeline { grid-template-columns: 1fr 1fr; }.pipeline span:last-child { grid-column: 1 / -1; } }
+      @media (max-width: 720px) { .hero { grid-template-columns: 1fr; }.hero-card { max-width: 300px; } }
       @media (max-width: 500px) { .topbar { min-height: 64px; }.brand { font-size: 1.35rem; } h1 { font-size: 3.3rem; }.guide-card { box-shadow: 4px 4px 0 var(--ink); } }
     </style>
   </head>
@@ -54,62 +55,101 @@
     <main>
       <div class="hero">
         <div>
-          <span class="eyebrow">Agent surface · Workspace Kernel</span>
+          <span class="eyebrow">Agent surface · Workspace kernel</span>
           <h1>Match agent guide</h1>
-          <p class="lede">Local-first generic board and task kernel with Automerge durability, cryptographic proof admission, and scoped peer-to-peer sync. No account. No central backend.</p>
+          <p class="lede">Operate the same local-first workspace the user sees. Read stable IDs first, then mutate typed entities through WebMCP commands.</p>
         </div>
-        <aside class="hero-card"><span class="eyebrow">Core rule</span><strong>Generic kernel.<br />Visible state.</strong><p>Agent commands mutate the same workspace board the user sees.</p></aside>
+        <aside class="hero-card"><span class="eyebrow">Core rule</span><strong>Read schema.<br />Use IDs.</strong><p>Never infer columns or fields from a workspace title or preset.</p></aside>
       </div>
 
       <section class="guide-card">
-        <h2>Open Match locally</h2>
-        <ol>
-          <li>Install dependencies in <code>match/</code> with <code>npm install</code>.</li>
-          <li>Build the browser sync runtime with <code>npm run build:iroh</code>.</li>
-          <li>Start the app with <code>npm run dev</code>.</li>
-          <li>Open <code>http://127.0.0.1:5173/</code>. Agent documentation is at <code>http://127.0.0.1:5173/agent/</code>.</li>
-        </ol>
-        <p>For a production static build, run <code>npm run build</code> and serve <code>dist/</code>. Workspaces are stored in the browser's IndexedDB.</p>
-      </section>
-
-      <section class="guide-card">
-        <h2>Workspaces and Presets</h2>
-        <p>Match supports multiple independent workspaces. Workspaces can be created from presets (such as the default <strong>Job search</strong> board) or initialized as a <strong>Blank</strong> board with customizable columns (To do, Doing, Done) and custom field schemas.</p>
-        <div class="pipeline"><span>lead</span><span>applied</span><span>interview</span><span>rejected</span><span>offer</span></div>
-      </section>
-
-      <section class="guide-card">
-        <h2>Generic WebMCP tools & Legacy Aliases</h2>
-        <p>When Match is open in an environment exposing WebMCP through <code>document.modelContext</code> or <code>navigator.modelContext</code>, it registers both generic task tools and backward-compatible lead aliases:</p>
-        <div class="tool-grid">
-          <article class="tool"><span class="tool-name">list_workspaces</span><p>List all local workspaces.</p></article>
-          <article class="tool"><span class="tool-name">create_workspace</span><p>Create a new workspace with preset or blank columns.</p></article>
-          <article class="tool"><span class="tool-name">list_tasks</span><p>Query tasks with optional column and search filters.</p></article>
-          <article class="tool"><span class="tool-name">create_task</span><p>Create a task in a workspace column with custom fields.</p></article>
-          <article class="tool"><span class="tool-name">move_task</span><p>Move a task by ID, target column, or parent task ID.</p></article>
-          <article class="tool"><span class="tool-name">list_leads</span><p>Legacy alias: query job search cards by status.</p></article>
-          <article class="tool"><span class="tool-name">create_lead</span><p>Legacy alias: create lead card with company and role.</p></article>
-          <article class="tool"><span class="tool-name">move_lead</span><p>Legacy alias: move card across job search columns.</p></article>
-          <article class="tool"><span class="tool-name">list_templates</span><p>Read global CV and cover-letter Markdown bases.</p></article>
-          <article class="tool"><span class="tool-name">get_generation_context</span><p>Read lead and template context for local artifact generation.</p></article>
-          <article class="tool"><span class="tool-name">record_pdf_artifact</span><p>Attach generated local PDF artifact to a lead card.</p></article>
-          <article class="tool"><span class="tool-name">add_document</span><p>Attach a note or file reference to a card.</p></article>
-          <article class="tool"><span class="tool-name">export_workspace</span><p>Export workspace as a <code>.match</code> bundle.</p></article>
-        </div>
-        <p class="note">Do not send unknown fields or nested raw CRDT payloads. Unknown fields are rejected without mutation.</p>
-      </section>
-
-      <section class="guide-card">
-        <h2>Two Scoped Connection Flows</h2>
+        <h2>Working model</h2>
+        <p>A device owns a local catalog of independent workspaces. Each workspace is one Automerge document containing its board schema, items, document templates, history, and collaboration metadata. WebMCP commands target the current workspace shown in Match; creating a workspace makes it current.</p>
+        <div class="model-grid"><span>board</span><span>columns</span><span>fields</span><span>tasks</span><span>document templates</span><span>artifacts</span></div>
         <ul>
-          <li><strong>Sync all (Add my device)</strong>: Generates an enrollment invitation with a short mutual authentication code. Upon host approval, delegates a signed device certificate and shares your personal catalog across your own devices.</li>
-          <li><strong>Sync workspace (Invite someone)</strong>: Issues an owner-signed editor grant strictly scoped to one chosen workspace. Guests never receive or learn about unrelated workspaces or your personal root.</li>
+          <li>Every entity has a stable UUID. Titles are display text and may change.</li>
+          <li><code>placement.parentId</code> links a column to its board, a task to a column or parent task, and an artifact to its task. <code>placement.rank</code> orders siblings.</li>
+          <li><strong>Soft deletion</strong> applies to entities. Deleting a column hides its descendant tasks; restoring the column reveals them with their relationships intact.</li>
+          <li>Archive is a normal workspace column. Trash contains explicitly deleted entities. Broken or cyclic ancestry appears through placement issues.</li>
+          <li>Job search is one preset. Its lead vocabulary and pipeline are workspace-specific, never kernel assumptions.</li>
         </ul>
       </section>
 
       <section class="guide-card">
-        <h2>Export Guarantees & Browser Lifetime</h2>
-        <p>Exported <code>.match</code> bundles contain public cryptographic proofs (<code>proofs.json</code>), task JSON, and Automerge CRDT history. Private signing keys, personal root documents, and pairing secrets are strictly excluded. Live sync operates while tabs remain open; enrolled trust persists across browser reloads without requiring another QR scan. Remote revocation and central password recovery are explicitly unsupported.</p>
+        <h2>Safe agent workflow</h2>
+        <ol>
+          <li>Call <code>list_workspaces</code> to inspect the local catalog. The user controls which existing workspace is current.</li>
+          <li>Call <code>get_workspace_settings</code>. Resolve board, column, field, option, and template IDs from its result.</li>
+          <li>Read items with <code>list_tasks</code> or inspect one typed entity with <code>get_entity</code>.</li>
+          <li>Use generic mutation tools. Put custom values under stable field IDs, not field titles.</li>
+          <li>Re-read visible state after mutations. Treat returned IDs and CRDT heads as authoritative.</li>
+        </ol>
+      </section>
+
+      <section class="guide-card">
+        <h2>Complete workspace settings</h2>
+        <p><code>get_workspace_settings</code> returns <code>settings</code> plus <code>heads</code>. Settings contain <code>formatVersion</code>, <code>workspace.title</code>, the board title and item name, ordered columns, typed fields and select options, and <code>documentTemplates</code>. Templates belong to that workspace and describe documents generated for its items; they have no fixed CV/cover-letter kind enum.</p>
+        <p>To change the complete configuration, edit the returned object and call <code>apply_workspace_settings</code> with those <code>heads</code> as <code>expectedHeads</code>. The apply is one validated CRDT transaction. Omitted columns, fields, and templates are soft-deleted. Existing descendants and field values remain stored.</p>
+        <p class="note">Keep IDs returned by Match when editing. Omit an ID only when adding a column, field, field option, or document template. A field's <code>valueType</code> cannot change in place.</p>
+      </section>
+
+      <section class="guide-card">
+        <h2>Generic WebMCP tools</h2>
+        <p>Match registers these tools when the browser exposes <code>document.modelContext</code> or <code>navigator.modelContext</code>.</p>
+        <h3 class="subhead">Workspace</h3>
+        <div class="tool-grid">
+          <article class="tool"><span class="tool-name">list_workspaces</span><p>List all local workspaces.</p></article>
+          <article class="tool"><span class="tool-name">create_workspace</span><p>Create and open a job-search or blank workspace.</p></article>
+          <article class="tool"><span class="tool-name">rename_workspace</span><p>Rename the current workspace.</p></article>
+          <article class="tool"><span class="tool-name">get_workspace</span><p>Read current workspace and active board summary.</p></article>
+          <article class="tool"><span class="tool-name">get_workspace_settings</span><p>Read complete editable configuration and CRDT heads.</p></article>
+          <article class="tool"><span class="tool-name">apply_workspace_settings</span><p>Validate and apply complete configuration atomically.</p></article>
+        </div>
+        <h3 class="subhead">Entities</h3>
+        <div class="tool-grid">
+          <article class="tool"><span class="tool-name">list_tasks</span><p>List visible tasks; optionally filter by parent ID or text.</p></article>
+          <article class="tool"><span class="tool-name">get_entity</span><p>Read one raw typed entity by UUID.</p></article>
+          <article class="tool"><span class="tool-name">create_task</span><p>Create a task under a column or another task.</p></article>
+          <article class="tool"><span class="tool-name">patch_task</span><p>Update task title, body, or field values.</p></article>
+          <article class="tool"><span class="tool-name">move_entity</span><p>Move or reorder an entity using parent and optional sibling IDs.</p></article>
+          <article class="tool"><span class="tool-name">rename_entity</span><p>Rename an entity without changing placement.</p></article>
+          <article class="tool"><span class="tool-name">set_entity_deleted</span><p>Soft-delete or restore an entity.</p></article>
+          <article class="tool"><span class="tool-name">restore_and_move</span><p>Restore and place under a valid parent atomically.</p></article>
+          <article class="tool"><span class="tool-name">list_trash</span><p>List explicitly soft-deleted entities.</p></article>
+          <article class="tool"><span class="tool-name">list_placement_issues</span><p>List missing-parent and cyclic ancestry problems.</p></article>
+          <article class="tool"><span class="tool-name">create_column</span><p>Create a column under a board.</p></article>
+        </div>
+      </section>
+
+      <section class="guide-card">
+        <h2>Mutation rules</h2>
+        <ul>
+          <li>Unknown fields are rejected without mutation. Send command inputs, never raw Automerge objects or changes.</li>
+          <li>Keep returned IDs. Names are editable labels and cannot identify an entity safely.</li>
+          <li>Use <code>expectedHeads</code> for settings writes. On a conflict, re-read settings, reapply the intended edit, and submit the new heads.</li>
+          <li>Use <code>restore_and_move</code> when an entity's former parent is deleted or missing. Do not repair ancestry by recreating the entity.</li>
+          <li>Inspect <code>list_placement_issues</code> only for recovery. Normal parent/child relationships need no repair.</li>
+        </ul>
+      </section>
+
+      <section class="guide-card">
+        <h2>Job-search compatibility tools</h2>
+        <p>The default Job search preset also exposes legacy adapters: <code>list_leads</code>, <code>create_lead</code>, <code>move_lead</code>, <code>list_templates</code>, <code>get_generation_context</code>, <code>record_pdf_artifact</code>, <code>add_document</code>, and <code>export_workspace</code>. Use generic tools for workspace-independent automation. Legacy status names and lead fields only describe that preset.</p>
+      </section>
+
+      <section class="guide-card">
+        <h2>Sync, identity, and storage</h2>
+        <ul>
+          <li><strong>Share workspaces:</strong> Sync opens with the current workspace selected. Select one or more existing workspaces, then generate one invitation for that fixed set. The recipient keeps a separate person and device identity.</li>
+          <li><strong>Sync all / Add my device:</strong> enrolls another device under the same personal identity and shares the personal workspace catalog after mutual code approval.</li>
+          <li>Automerge changes sync incrementally while peer sessions are live. Workspace snapshots and trust state persist in IndexedDB.</li>
+          <li>A <code>.match</code> export carries workspace data, Automerge history, and public proofs. It excludes private signing keys, the personal root, and pairing secrets.</li>
+        </ul>
+      </section>
+
+      <section class="guide-card">
+        <h2>Run locally</h2>
+        <p>Install dependencies with <code>npm install</code>, build the browser transport with <code>npm run build:iroh</code>, then start Vite with <code>npm run dev</code>. Workspaces remain in that browser profile's IndexedDB. Production builds use <code>npm run build</code>.</p>
       </section>
     </main>
 
