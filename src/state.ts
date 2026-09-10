@@ -38,6 +38,9 @@ import { getVisibleChildren, derivePlacementIssues, getChildren, isEntityVisible
 
 const workspace = reactive<Workspace>({ leads: [], documents: [], templates: [], artifacts: [] })
 const ready = reactive({ value: false })
+const saveState = ref<"idle" | "saving" | "saved" | "error">("idle")
+let pendingWrites = 0
+let batchSaveFailed = false
 
 let activeDoc: Automerge.Doc<WorkspaceDocumentV2> | null = null
 const docVersion = ref(0)
@@ -57,6 +60,9 @@ export function resetStateForTest(): void {
   activeDoc = null
   currentProfile = null
   ready.value = false
+  saveState.value = "idle"
+  pendingWrites = 0
+  batchSaveFailed = false
   workspace.leads.splice(0, workspace.leads.length)
   workspace.documents.splice(0, workspace.documents.length)
   workspace.templates.splice(0, workspace.templates.length)
@@ -378,6 +384,21 @@ export async function commitAndPersist(
   command: Command,
   storage = defaultStorage
 ): Promise<void> {
+  if (!pendingWrites) batchSaveFailed = false
+  pendingWrites++
+  saveState.value = "saving"
+  try {
+    await persistCommand(command, storage)
+  } catch (error) {
+    batchSaveFailed = true
+    throw error
+  } finally {
+    pendingWrites--
+    saveState.value = pendingWrites ? "saving" : batchSaveFailed ? "error" : "saved"
+  }
+}
+
+async function persistCommand(command: Command, storage: WorkspaceStorage): Promise<void> {
   if (!activeDoc || !currentProfile) {
     throw new Error("Workspace not hydrated")
   }
@@ -832,6 +853,7 @@ export function useMatch() {
   return {
     workspace,
     ready,
+    saveState,
     columns,
     availableWorkspaces,
     activeWorkspace: activeWorkspaceMeta,

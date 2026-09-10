@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import type { Task, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 
@@ -7,6 +8,7 @@ const props = defineProps<{
   subtasks: Task[]
   fields: FieldDefinition[]
   history?: HistoryEntry[]
+  archiveError?: string
 }>()
 
 const emit = defineEmits<{
@@ -18,7 +20,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="overlay detail-overlay" role="presentation" @click.self="emit('close')">
+  <ModalLayer class="overlay detail-overlay" @close="emit('close')">
     <section class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Task overview" tabindex="-1">
       <div class="detail-head">
         <div>
@@ -98,9 +100,10 @@ const emit = defineEmits<{
       </div>
 
       <div class="dialog-actions dialog-actions-split">
-        <button class="button button-danger" type="button" @click="emit('deleteTask', task.id)">Delete task</button>
+        <button class="button button-danger" type="button" @click="emit('deleteTask', task.id)">Archive task</button>
         <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
       </div>
+      <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
     </section>
-  </div>
+  </ModalLayer>
 </template>

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { reactive, ref } from "vue"
+import { useDelayedFlag } from "../ui/useDelayedFlag"
 import type { FieldDefinition, FieldValue } from "../domain/model"
 
 const props = defineProps<{
@@ -10,6 +12,7 @@ const props = defineProps<{
   initialBody?: string
   initialValues?: Record<string, FieldValue>
   errorMessage?: string
+  saving?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,8 +25,10 @@ const title = ref(props.initialTitle ?? "")
 const body = ref(props.initialBody ?? "")
 const values = reactive<Record<string, any>>({ ...(props.initialValues ?? {}) })
 const localError = ref("")
+const showSaving = useDelayedFlag(() => Boolean(props.saving))
 
 function handleSave() {
+  if (props.saving) return
   localError.value = ""
   if (!title.value.trim()) {
     localError.value = "Title is required"
@@ -55,18 +60,18 @@ function handleSave() {
 </script>
 
 <template>
-  <div class="overlay overlay-level-120" role="presentation" @click.self="emit('cancel')">
+  <ModalLayer :busy="saving" protect-draft class="overlay overlay-level-120" @close="emit('cancel')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Item details">
-      <form novalidate @submit.prevent="handleSave">
+      <form novalidate :aria-busy="saving" @submit.prevent="handleSave">
         <div class="dialog-head">
           <div>
             <span class="eyebrow">Item</span>
             <h2>Item details</h2>
           </div>
-          <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('cancel')">×</button>
+          <button class="icon-button" type="button" aria-label="Dismiss" :disabled="saving" @click="emit('cancel')">×</button>
         </div>
 
-        <div class="form-grid form-grid-spaced">
+        <fieldset class="form-grid form-grid-spaced" :disabled="saving">
           <label class="wide">
             <span>Title *</span>
             <input v-model="title" autofocus required placeholder="Item title" />
@@ -128,17 +133,17 @@ function handleSave() {
               </select>
             </label>
           </template>
-        </div>
+        </fieldset>
 
         <p v-if="localError || errorMessage" role="alert" class="form-error form-error-spaced">
           {{ localError || errorMessage }}
         </p>
 
         <div class="dialog-actions">
-          <button class="button button-quiet" type="button" @click="emit('cancel')">Cancel</button>
-          <button class="button button-primary" type="submit">Save item</button>
+          <button class="button button-quiet" type="button" :disabled="saving" @click="emit('cancel')">Cancel</button>
+          <button class="button button-primary" type="submit" :disabled="saving">{{ showSaving ? 'Saving…' : errorMessage ? 'Retry save' : 'Save item' }}</button>
         </div>
       </form>
     </section>
-  </div>
+  </ModalLayer>
 </template>

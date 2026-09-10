@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { ref } from "vue"
 
 const props = defineProps<{
@@ -39,7 +40,7 @@ function displayTitle(title: string) {
 </script>
 
 <template>
-  <div class="overlay" role="presentation" @click.self="emit('close')">
+  <ModalLayer protect-draft class="overlay" @close="emit('close')">
     <section v-if="!isCreating" class="dialog" role="dialog" aria-modal="true" aria-label="Workspaces">
       <div class="dialog-head">
         <div>
@@ -108,5 +109,5 @@ function displayTitle(title: string) {
         </div>
       </form>
     </section>
-  </div>
+  </ModalLayer>
 </template>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { computed, ref } from "vue"
 import type { Board, Column, FieldDefinition, WorkspaceDocumentV2, Heads } from "../domain/model"
 import type { Template } from "../types"
@@ -204,7 +205,7 @@ function handleConfirmApply() {
 </script>
 
 <template>
-  <div class="overlay overlay-level-100" role="presentation" @click.self="emit('close')">
+  <ModalLayer protect-draft class="overlay overlay-level-100" @close="emit('close')">
     <section class="dialog schema-editor-dialog" role="dialog" aria-modal="true" :aria-label="mode === 'entity' ? `Edit ${editorEntityName}` : 'Workspace settings'">
       <div class="dialog-head">
         <div>
@@ -369,7 +370,7 @@ function handleConfirmApply() {
       </div>
 
       <!-- Preview Modal Before Apply -->
-      <div v-if="showPreview && schemaDiff" class="overlay overlay-level-150" @click.self="showPreview = false">
+      <ModalLayer protect-draft v-if="showPreview && schemaDiff" class="overlay overlay-level-150" @close="showPreview = false">
         <section class="dialog schema-preview-dialog" role="dialog" aria-modal="true" aria-label="Preview schema changes">
           <div class="dialog-head">
             <div>
@@ -450,9 +451,9 @@ function handleConfirmApply() {
             <button class="button button-primary" type="button" @click="handleConfirmApply">Confirm apply</button>
           </div>
         </section>
-      </div>
+      </ModalLayer>
     </section>
-  </div>
+  </ModalLayer>
 </template>
 
 <style scoped>

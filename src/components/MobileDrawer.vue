@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from "vue"
+import { ref } from "vue"
+import { hideLeavingElement, showEnteringElement, useModal } from "../ui/modal"
 
 const props = defineProps<{
   isOpen: boolean
@@ -21,68 +22,26 @@ const emit = defineEmits<{
 
 const drawerRef = ref<HTMLElement | null>(null)
 const closeButtonRef = ref<HTMLButtonElement | null>(null)
-
-watch(
-  () => props.isOpen,
-  async (open) => {
-    if (open) {
-      await nextTick()
-      closeButtonRef.value?.focus()
-    }
-  }
-)
-
-onMounted(async () => {
-  if (props.isOpen) {
-    await nextTick()
-    closeButtonRef.value?.focus()
-  }
-})
+useModal(drawerRef, () => emit("close"))
 
 function handleAction(event: () => void) {
   emit("close")
   event()
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape") {
-    e.preventDefault()
-    emit("close")
-    return
-  }
-
-  if (e.key === "Tab" && drawerRef.value) {
-    const focusable = drawerRef.value.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-    if (!focusable.length) return
-
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }
-}
 </script>
 
 <template>
-  <div v-if="isOpen" class="mobile-drawer-root">
+  <Transition name="drawer" @before-enter="showEnteringElement" @before-leave="hideLeavingElement">
+  <div v-if="isOpen" ref="drawerRef" class="mobile-drawer-root">
     <div class="mobile-drawer-backdrop" aria-hidden="true" @click="emit('close')"></div>
     <nav
       id="mobile-drawer"
-      ref="drawerRef"
       class="mobile-drawer"
       role="dialog"
       aria-modal="true"
       aria-label="Navigation menu"
       tabindex="-1"
-      @keydown="handleKeydown"
     >
       <div class="drawer-header">
         <div class="drawer-workspace-info">
@@ -155,4 +114,5 @@ function handleKeydown(e: KeyboardEvent) {
       </div>
     </nav>
   </div>
+  </Transition>
 </template>

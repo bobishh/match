@@ -12,7 +12,7 @@ async function addLead(page: import("@playwright/test").Page, input: { company: 
   await page.getByRole("button", { name: "Close detail" }).click()
 }
 
-test("Given cards still loading on first visit, when Match opens, then a full-screen encouraging preloader stays until the board is ready", async ({ page }) => {
+test("Given cards still loading on first visit, when Match opens, then delayed progress appears within the board shell", async ({ page }) => {
   await page.addInitScript(() => {
     const instantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly)
     WebAssembly.instantiateStreaming = async (source, imports) => {
@@ -28,7 +28,8 @@ test("Given cards still loading on first visit, when Match opens, then a full-sc
   const preloader = page.getByRole("status")
   await expect(preloader).toBeVisible()
   await expect(preloader.getByText("Loading your cards")).toBeVisible()
-  await expect(preloader.getByText(/One good application|Your next role|Small steps|You have done hard things|The right team/)).toBeVisible()
+  await expect(page.locator(".boot-placeholder")).toBeVisible()
+  await expect(page.locator(".topbar")).toBeVisible()
   await expect(page.getByRole("region", { name: "Job search" })).toHaveCount(0)
 
   await page.evaluate(() => window.dispatchEvent(new Event("match:release-automerge")))
@@ -82,9 +83,18 @@ test("Given an archived card, when Archive opens, then it expands into a filtere
   await expect(page.locator(".bin-column").getByRole("button", { name: "Open Cleo — Ruby Engineer" })).toBeVisible()
 
   await page.getByPlaceholder("Search company, role, notes").fill("missing")
-  await expect(page.locator(".bin-column").getByText("No cards")).toBeVisible()
+  await expect(page.getByText("No matching cards", { exact: true })).toBeVisible()
+  await expect(page.locator(".board > .column")).toHaveCount(0)
+  await page.getByRole("button", { name: "Clear search and filters" }).click()
   await page.getByRole("button", { name: "Collapse archive" }).click()
-  await expect(page.getByRole("button", { name: "Open archive with 0 cards" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Open archive with 1 cards" })).toBeVisible()
+  await page.getByRole("group", { name: "Filters" }).getByRole("combobox", { name: "Status", exact: true }).selectOption({ label: "Archive" })
+  await expect(page.locator(".board > .column")).toHaveCount(1)
+  await expect(page.locator(".bin-column")).toHaveClass(/bin-column-open/)
+  await expect(page.locator(".bin-column").getByRole("button", { name: "Open Cleo — Ruby Engineer" })).toBeVisible()
+  await expect(page.locator(".bin-column").getByText("Remote", { exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Clear search and filters" }).click()
+  await expect(page.getByRole("button", { name: "Open archive with 1 cards" })).toBeVisible()
 })
 
 test("Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit", async ({ page }) => {
@@ -94,7 +104,7 @@ test("Given several leads, when filters intersect, then only matching cards rema
 
   const filters = page.getByRole("group", { name: "Filters" })
   await filters.getByLabel("Priority").selectOption({ label: "P1" })
-  await expect(page.getByText("No cards").first()).toBeVisible()
+  await expect(page.getByText("No matching cards", { exact: true })).toBeVisible()
 
   await filters.getByLabel("Priority").selectOption({ label: "P0" })
   await filters.getByLabel("Work mode").selectOption({ label: "Remote" })
@@ -141,7 +151,7 @@ test("Given an iPhone 17e portrait viewport, when Match opens, then filters star
     const styles = getComputedStyle(board)
     return { clientWidth: board.clientWidth, scrollWidth: board.scrollWidth, columnWidth: column.getBoundingClientRect().width, snap: styles.scrollSnapType }
   })
-  expect(layout.columnWidth).toBeGreaterThanOrEqual(350)
+  expect(layout.columnWidth).toBeLessThan(layout.clientWidth)
   expect(layout.scrollWidth).toBeGreaterThan(layout.clientWidth)
   expect(layout.snap).toContain("x")
 })
@@ -213,7 +223,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await page.getByLabel("Company *").fill("Cleo")
     await page.getByLabel("Role *").fill("Senior Ruby Engineer")
     await page.getByRole("button", { name: "Create item" }).click()
-    await expect(page.getByText("1 cards · 0 docs")).toBeVisible()
+    await expect(page.getByText("1 card · 0 docs")).toBeVisible()
     await page.getByRole("button", { name: "Close detail" }).click()
 
     await page.getByRole("button", { name: "Sync", exact: true }).click()
@@ -230,7 +240,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await peerDialog.getByRole("button", { name: "Connect to mesh" }).click()
     await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
     await expect(hostDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
-    await expect(peer.getByText("1 cards · 0 docs")).toBeVisible()
+    await expect(peer.getByText("1 card · 0 docs")).toBeVisible()
     await peerDialog.getByRole("button", { name: "Close" }).click()
 
     // When the peer makes a later visible change, the already-paired host receives it.

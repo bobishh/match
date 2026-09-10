@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { ref } from "vue"
 import type { Task } from "../domain/model"
 
@@ -21,7 +22,7 @@ function handleConfirm() {
 </script>
 
 <template>
-  <div class="overlay overlay-level-130" role="presentation" @click.self="emit('close')">
+  <ModalLayer class="overlay overlay-level-130" @close="emit('close')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Move task">
       <div class="dialog-head">
         <div>
@@ -48,5 +49,5 @@ function handleConfirm() {
         <button class="button button-primary" type="button" @click="handleConfirm">Confirm move</button>
       </div>
     </section>
-  </div>
+  </ModalLayer>
 </template>

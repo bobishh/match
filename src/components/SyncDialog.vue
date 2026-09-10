@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { computed } from "vue"
 import type { SyncStep } from "../sync/useDeviceSync"
 
@@ -82,7 +83,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('dismiss')">
+  <ModalLayer class="overlay" @close="emit('dismiss')">
     <section class="dialog sync-dialog" role="dialog" aria-modal="true" aria-label="Device sync">
       <div class="dialog-head">
         <div>
@@ -262,7 +263,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </div>
       </template>
     </section>
-  </div>
+  </ModalLayer>
 </template>
 
 <style scoped>

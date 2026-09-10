@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, ref } from "vue"
 import type { Column, FieldDefinition } from "../domain/model"
 import { compareRanks } from "../domain/ancestry"
-import type { BoardFilters, FilterRange } from "../filters"
+import { activeFilterCount, type BoardFilters, type FilterRange } from "../filters"
 
 const props = defineProps<{
   modelValue: BoardFilters
@@ -12,6 +12,12 @@ const props = defineProps<{
 const emit = defineEmits<{ "update:modelValue": [value: BoardFilters] }>()
 
 const isOpen = ref(false)
+const mobileQuery = window.matchMedia("(max-width: 768px)")
+const mobile = ref(mobileQuery.matches)
+const updateMobile = () => { mobile.value = mobileQuery.matches }
+mobileQuery.addEventListener("change", updateMobile)
+onBeforeUnmount(() => mobileQuery.removeEventListener("change", updateMobile))
+const activeCount = computed(() => activeFilterCount(props.modelValue))
 const filterableFields = computed(() => props.fields.filter((field) =>
   !field.deleted && ["select", "number", "boolean", "date"].includes(field.valueType)
 ))
@@ -43,7 +49,9 @@ function optionsFor(field: FieldDefinition) {
 
 <template>
   <div class="filters-panel" :class="{ 'filters-panel-open': isOpen }">
-    <button class="filters-toggle" type="button" :aria-expanded="isOpen" aria-controls="board-filters" @click="isOpen = !isOpen"><span>Filters</span><span class="filters-toggle-mark" aria-hidden="true">{{ isOpen ? "−" : "+" }}</span></button>
+    <button class="filters-toggle" type="button" :aria-expanded="isOpen" aria-controls="board-filters" @click="isOpen = !isOpen"><span>Filters{{ activeCount ? ` · ${activeCount}` : '' }}</span><span class="filters-toggle-mark" aria-hidden="true">{{ isOpen ? "−" : "+" }}</span></button>
+    <div class="filters-collapse" :class="{ 'filters-collapse-open': isOpen }" :inert="mobile && !isOpen || undefined">
+    <div class="filters-collapse-inner">
     <fieldset id="board-filters" class="lead-filters">
       <legend>Filters</legend>
       <label class="filter-label">
@@ -82,5 +90,7 @@ function optionsFor(field: FieldDefinition) {
         </div>
       </template>
     </fieldset>
+    </div>
+    </div>
   </div>
 </template>

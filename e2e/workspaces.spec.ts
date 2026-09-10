@@ -151,8 +151,8 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.getByLabel("Company *").fill("Stripe")
     await page.getByLabel("Role *").fill("Platform Engineer")
     await page.getByRole("button", { name: "Create item" }).click()
-    await expect(page.getByRole("button", { name: "Open Stripe — Platform Engineer" })).toBeVisible()
     await page.getByRole("button", { name: "Close detail" }).click()
+    await expect(page.getByRole("button", { name: "Open Stripe — Platform Engineer" })).toBeVisible()
 
     // 2. Create Reading board workspace
     await page.getByRole("button", { name: "Workspaces" }).click()

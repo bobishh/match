@@ -28,7 +28,8 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
 
       // Click hamburger to open drawer
       await hamburger.click()
-      await expect(hamburger).toHaveAttribute("aria-expanded", "true")
+      // The trigger remains expanded but is inert behind the modal drawer.
+      await expect(page.getByRole("button", { name: "Menu", exact: true, includeHidden: true })).toHaveAttribute("aria-expanded", "true")
 
       const drawer = page.getByRole("dialog", { name: "Navigation menu" })
       await expect(drawer).toBeVisible()

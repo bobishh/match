@@ -13,6 +13,13 @@ export function defaultBoardFilters(): BoardFilters {
   return { columnId: "", fieldValues: {}, numberRanges: {}, dateRanges: {} }
 }
 
+export function activeFilterCount(filters: BoardFilters): number {
+  return Number(Boolean(filters.columnId))
+    + Object.values(filters.fieldValues).filter(Boolean).length
+    + Object.values(filters.numberRanges).filter(range => range.min || range.max).length
+    + Object.values(filters.dateRanges).filter(range => range.min || range.max).length
+}
+
 function matchesRange(value: unknown, range: FilterRange, kind: "number" | "date") {
   if (!range.min && !range.max) return true
   if (kind === "number") {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { ref } from "vue"
 
 const props = defineProps<{
@@ -21,7 +22,7 @@ function handleSave() {
 </script>
 
 <template>
-  <div class="overlay" role="presentation" @click.self="emit('close')">
+  <ModalLayer protect-draft class="overlay" @close="emit('close')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Edit column">
       <form novalidate @submit.prevent="handleSave">
         <div class="dialog-head">
@@ -49,5 +50,5 @@ function handleSave() {
         </div>
       </form>
     </section>
-  </div>
+  </ModalLayer>
 </template>

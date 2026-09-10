@@ -11,6 +11,7 @@ async function createBlankWorkspace(page: Page) {
 }
 
 async function expectInsideViewport(locator: Locator, page: Page) {
+  await expect(locator).toHaveCSS("transform", "none")
   const box = await locator.boundingBox()
   const viewport = page.viewportSize()
   expect(box).not.toBeNull()

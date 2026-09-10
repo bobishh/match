@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import type { WorkspaceEntity } from "../domain/model"
 
 const props = defineProps<{
@@ -19,7 +20,7 @@ function isParentDeleted(item: WorkspaceEntity): boolean {
 </script>
 
 <template>
-  <div class="overlay" role="presentation" @click.self="emit('close')">
+  <ModalLayer class="overlay" @close="emit('close')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Trash">
       <div class="dialog-head">
         <div>
@@ -61,5 +62,5 @@ function isParentDeleted(item: WorkspaceEntity): boolean {
         <button class="button button-quiet" type="button" aria-label="Close trash" @click="emit('close')">Close trash</button>
       </div>
     </section>
-  </div>
+  </ModalLayer>
 </template>

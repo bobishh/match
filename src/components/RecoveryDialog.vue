@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ModalLayer from "./ModalLayer.vue"
 import { computed, ref } from "vue"
 import type { ProjectionIssue, WorkspaceEntity, Column } from "../domain/model"
 
@@ -49,7 +50,7 @@ function handleConfirmPlacement() {
 </script>
 
 <template>
-  <div class="overlay" role="presentation" @click.self="emit('close')">
+  <ModalLayer class="overlay" @close="emit('close')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Needs placement">
       <div class="dialog-head">
         <div>
@@ -91,10 +92,10 @@ function handleConfirmPlacement() {
         <button class="button button-quiet" type="button" aria-label="Close recovery" @click="emit('close')">Close recovery</button>
       </div>
     </section>
-  </div>
+  </ModalLayer>
 
   <!-- Placement selector dialog layered on top -->
-  <div v-if="placingEntityId" class="overlay overlay-level-120" role="presentation" @click.self="placingEntityId = null">
+  <ModalLayer v-if="placingEntityId" class="overlay overlay-level-120" @close="placingEntityId = null">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Select placement">
       <div class="dialog-head">
         <div>
@@ -121,5 +122,5 @@ function handleConfirmPlacement() {
         <button class="button button-primary" type="button" @click="handleConfirmPlacement">Confirm placement</button>
       </div>
     </section>
-  </div>
+  </ModalLayer>
 </template>
