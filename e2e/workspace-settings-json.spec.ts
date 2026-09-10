@@ -29,6 +29,7 @@ test.describe("Workspace settings JSON", () => {
     await expect(page.getByText("MATCH // Reading")).toBeVisible()
     await expect(page.getByRole("button", { name: "Add book to Unread" })).toBeVisible()
     await expect(page.getByRole("region", { name: "Unread" })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Unread" }).getByText("No books", { exact: true })).toBeVisible()
     await page.reload()
     await expect(page.getByRole("button", { name: "Add book to Unread" })).toBeVisible()
   })

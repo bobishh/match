@@ -1117,7 +1117,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
                 </dl>
               </div>
             </button>
-            <div v-if="!tasksForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : 'No cards yet' }}</div>
+            <div v-if="!tasksForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
           <button v-if="!isEditingBoard" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
         </template>

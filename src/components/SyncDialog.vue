@@ -266,6 +266,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       <template v-else-if="step === 'synced'">
         <p class="sync-success" role="status">Live sync is on. Changes appear in both tabs.</p>
         <div class="dialog-actions">
+          <button class="button button-primary" type="button" @click="emit('selectSyncWorkspace')">Invite peers</button>
           <button class="button button-quiet" type="button" @click="emit('stop')">Stop live sync</button>
         </div>
       </template>

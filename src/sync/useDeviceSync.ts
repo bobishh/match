@@ -853,6 +853,9 @@ export function useDeviceSync({
           const response = decodePairingFrame(await stream.read(), "workspace-join-response", invite.secret)
           const payload = JSON.parse(new TextDecoder().decode(response))
           if (typeof payload.error === "string") throw new Error(payload.error)
+          if (durableMesh && payload.meshWorkspaces === undefined) {
+            throw new Error("The other device needs an update. Reload it and generate a new invitation.")
+          }
           if (typeof payload.snapshot !== "string" || !Array.isArray(payload.grants) ||
             payload.grants.length !== invite.workspaces.length ||
             new Set(payload.grants.map((g: any) => g?.payload?.workspaceId)).size !== invite.workspaces.length ||
