@@ -15,12 +15,13 @@ import {
 } from "./protocol"
 import { irohTransport } from "./irohTransport"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
-import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
+import { bootstrapIdentity, fromBase64Url, toBase64Url, type LocalProfile } from "../domain/identity"
 import { acceptWorkspaceSync, joinWorkspaceSync, liveWorkspaceSync, type LiveWorkspaceSync, type WorkspaceReplica } from "./session"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport } from "./transport"
 import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { ReplicationService } from "./replication"
+import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
 
 export type SyncStep =
   | "idle"
@@ -35,6 +36,8 @@ export type SyncStep =
   | "enroll-guest-waiting"
   | "enroll-guest-done"
   | "workspace-guest"
+  | "workspace-reconnecting"
+  | "workspace-guest-waiting"
   | "workspace-guest-done"
   | "synced"
   | "error"
@@ -43,6 +46,7 @@ export type SyncPhase = "idle" | "preparing" | "ready" | "join-ready" | "joining
 
 type DeviceSyncOptions = {
   workspace: WorkspaceReplica
+  workspaceStore?: WorkspaceSetStore
   origin: () => string
   transport?: SyncTransport
   availableWorkspaces?: Ref<{ id: string; title: string }[]>
@@ -74,6 +78,7 @@ export function userMessage(err: unknown, fallback: string) {
 
 export function useDeviceSync({
   workspace,
+  workspaceStore,
   origin,
   transport = irohTransport,
   availableWorkspaces = ref([]),
@@ -97,6 +102,7 @@ export function useDeviceSync({
   let liveSession: LiveWorkspaceSync | undefined
   let stopWatchingWorkspace: (() => void) | undefined
   let run = 0
+  let wakeRetry: (() => void) | undefined
   let approveResolve: (() => void) | undefined
   let currentIssuedInvite: DeviceEnrollmentInvitation | WorkspaceJoinInvitation | undefined
   let pendingEnrollGuest: { deviceId: string; publicKey: string; displayName?: string } | undefined
@@ -130,51 +136,7 @@ export function useDeviceSync({
         if (step.value === "enroll-guest-waiting") {
           step.value = "enroll-guest-done"
         }
-      } else if (data.type === "workspace-joined" && step.value === "workspace-host") {
-        try {
-          const profile = await getProfile()
-          const invite = currentIssuedInvite as WorkspaceJoinInvitation | undefined
-          const guestInfo = data.guestInfo || { personId: "guest_person", publicKey: "" }
-          const targetWorkspaces = invite?.workspaces || (invite?.workspaceId ? [{ id: invite.workspaceId, title: invite.workspaceTitle }] : [])
-          const invId = data.invitationId || invite?.invitationId || ""
-          const grantRes = await defaultInvitationService.approveWorkspaceJoinSet(
-            invId,
-            guestInfo.personId,
-            targetWorkspaces.map((w) => w.id),
-            profile
-          )
-          if (grantRes.ok) {
-            for (const g of grantRes.grants) {
-              await defaultProofStore.putGrant(g.payload.grantId, g)
-            }
-            channel.postMessage({
-              type: "workspace-join-granted",
-              invitationId: invId,
-              grants: grantRes.grants,
-            })
-          }
-        } catch (err) {
-          console.warn("Failed to approve workspace-joined via channel", err)
-        }
-        step.value = "workspace-guest-done"
-      } else if (data.type === "workspace-join-granted") {
-        if (Array.isArray(data.grants)) {
-          for (const g of data.grants) {
-            if (g?.payload?.grantId) {
-              await defaultProofStore.putGrant(g.payload.grantId, g)
-            }
-          }
-        } else if (data.grant?.payload?.grantId) {
-          await defaultProofStore.putGrant(data.grant.payload.grantId, data.grant)
-        }
-        if (invitationWorkspaces.value.length > 0) {
-          for (const ws of invitationWorkspaces.value) {
-            await defaultStorage.registerWorkspace(ws.id, ws.title)
-          }
-        } else if (data.workspaceId) {
-          await defaultStorage.registerWorkspace(data.workspaceId, invitationWorkspaceTitle.value || "Workspace")
-        }
-        step.value = "workspace-guest-done"
+
       }
     }
   }
@@ -190,7 +152,7 @@ export function useDeviceSync({
     if (step.value === "enroll-guest" || step.value === "enroll-guest-waiting" || step.value === "enroll-guest-done") {
       return "Enroll this device"
     }
-    if (step.value === "workspace-guest" || step.value === "workspace-guest-done") {
+    if (step.value === "workspace-guest" || step.value === "workspace-guest-waiting" || step.value === "workspace-guest-done") {
       return "Join workspace"
     }
     if (step.value === "synced") return "Live sync on"
@@ -232,6 +194,7 @@ export function useDeviceSync({
 
   async function close() {
     run += 1
+    wakeRetry?.()
     isOpen.value = false
     step.value = "idle"
     qrCode.value = ""
@@ -250,6 +213,10 @@ export function useDeviceSync({
 
   // Open workspace selection without starting a node
   function open() {
+    if (step.value === "workspace-reconnecting" || step.value === "workspace-guest-waiting") {
+      isOpen.value = true
+      return
+    }
     if (isLive.value) {
       isOpen.value = true
       step.value = "synced"
@@ -447,84 +414,111 @@ export function useDeviceSync({
       qrCode.value = await QRCode.toDataURL(inviteUrl.value, { width: 240, margin: 2, errorCorrectionLevel: "M" })
       step.value = "workspace-host"
 
-      const hostWsPoll = setInterval(async () => {
-        if (step.value !== "workspace-host") {
-          clearInterval(hostWsPoll)
-          return
-        }
-        try {
-          const res = await fetch("/api/sync-signal?topic=workspace")
-          const ct = res.headers.get("content-type") || ""
-          if (res.ok && ct.includes("application/json")) {
-            const list = await res.json()
-            if (Array.isArray(list)) {
-              const req = list.find((m: any) => m.type === "workspace-joined")
-              if (req) {
-                clearInterval(hostWsPoll)
-                const guestInfo = req.guestInfo || { personId: "guest_person", publicKey: "" }
-                const targetWsIds = workspacesToInvite.map((w) => w.id)
-                const grantRes = await defaultInvitationService.approveWorkspaceJoinSet(
-                  req.invitationId || invite.invitationId,
-                  guestInfo.personId,
-                  targetWsIds,
-                  profile
-                )
-                if (grantRes.ok) {
-                  for (const g of grantRes.grants) {
-                    await defaultProofStore.putGrant(g.payload.grantId, g)
-                  }
-                  await fetch("/api/sync-signal?topic=workspace", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      type: "workspace-join-granted",
-                      invitationId: req.invitationId || invite.invitationId,
-                      workspaceIds: targetWsIds,
-                      grants: grantRes.grants,
-                    }),
-                  })
-                }
-              }
+      if (!workspaceStore) throw new Error("Workspace sync is unavailable.")
+      const replica = workspaceSet(workspaceStore, workspacesToInvite.map(w => w.id))
+      const acceptor = await started.accept()
+      const peers = new Map<string, LiveWorkspaceSync>()
+      const connections = new Set<SyncConnection>()
+      const grants = new Map<string, Awaited<ReturnType<typeof defaultInvitationService.approveWorkspaceJoinSet>>>()
+      let stopped = false
+      let everConnected = false
+      let fail!: (error: unknown) => void
+      const done = new Promise<void>((_, reject) => { fail = reject })
+      function disconnected() {
+        if (currentRun !== run || stopped || peers.size) return
+        isLive.value = false
+        if (everConnected) step.value = "workspace-reconnecting"
+      }
+      const offline = () => {
+        for (const connection of connections) void connection.close()
+      }
+      window.addEventListener("offline", offline)
+      const group: LiveWorkspaceSync = {
+        done,
+        async publish() {
+          await Promise.all([...peers.values()].map(async session => {
+            try { await session.publish() } catch (err) {
+              await session.close()
+              if (!isNetworkFailure(err)) throw err
             }
-          }
-        } catch {}
-      }, 200)
-
-      // Listen for incoming join request
-      void (async () => {
+          }))
+        },
+        async close() {
+          stopped = true
+          window.removeEventListener("offline", offline)
+          await acceptor.close()
+          await Promise.all([...connections].map(connection => connection.close()))
+        },
+      }
+      attachLiveSession(group, currentRun)
+      isLive.value = false
+      async function receivePeer(connection: SyncConnection) {
+        let session: LiveWorkspaceSync | undefined
+        let personId = ""
+        const timeout = setTimeout(() => { void connection.close() }, 30_000)
+        connections.add(connection)
         try {
-          const acceptor = await started.accept()
+          const stream = await connection.acceptStream()
+          const request = decodePairingFrame(await stream.read(), "workspace-join-request", secret)
+          const guest = JSON.parse(new TextDecoder().decode(request))
+          if (typeof guest.personId !== "string" || !guest.personId || guest.invitationId !== invite.invitationId) {
+            throw new Error("Invalid workspace join request.")
+          }
+          personId = guest.personId
+          let result = grants.get(personId)
+          if (!result) {
+            if (Date.parse(invite.expiresAt) <= Date.now()) {
+              await stream.send(encodePairingFrame("workspace-join-response", secret,
+                new TextEncoder().encode(JSON.stringify({ error: "This invitation has expired." }))))
+              await stream.closeSend()
+              return
+            }
+            result = await defaultInvitationService.approveWorkspaceJoinSet(
+              invite.invitationId, personId, workspacesToInvite.map(w => w.id), profile,
+            )
+            if (!result.ok) throw new Error(result.error)
+            for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
+            grants.set(personId, result)
+          }
+          if (!result.ok) throw new Error(result.error)
+          const payload = new TextEncoder().encode(JSON.stringify({
+            grants: result.grants,
+            snapshot: toBase64Url(await replica.snapshot()),
+          }))
+          await stream.send(encodePairingFrame("workspace-join-response", secret, payload))
+          await stream.closeSend()
+          const acknowledgement = await connection.acceptStream()
+          await replica.receive(decodePairingFrame(await acknowledgement.read(), "sync-ack", secret))
+          await acknowledgement.closeSend()
+          if (currentRun !== run || stopped) return
+          clearTimeout(timeout)
+          session = liveWorkspaceSetSync(connection, secret, replica)
+          const previous = peers.get(personId)
+          peers.set(personId, session)
+          await previous?.close()
+          everConnected = true
+          isLive.value = true
+          step.value = "synced"
+          // Share merged offline changes with all connected devices.
+          await group.publish()
+          await session.done
+        } catch (err) {
+          if (!stopped && currentRun === run && !isNetworkFailure(err)) fail(err)
+        } finally {
+          clearTimeout(timeout)
+          if (session && peers.get(personId) === session) peers.delete(personId)
+          connections.delete(connection)
+          await connection.close()
+          disconnected()
+        }
+      }
+      void (async () => {
+        while (!stopped && currentRun === run) {
           const connection = await acceptor.accept()
           if (!connection) return
-
-          const stream = await connection.acceptStream()
-          const raw = await stream.read()
-          const requestBytes = decodePairingFrame(raw, "workspace-join-request", secret)
-          let guestInfo = { personId: "guest_person", publicKey: "" }
-          try {
-            guestInfo = JSON.parse(new TextDecoder().decode(requestBytes))
-          } catch {}
-
-          const grantRes = await defaultInvitationService.approveWorkspaceJoinSet(
-            invite.invitationId,
-            guestInfo.personId,
-            workspacesToInvite.map((w) => w.id),
-            profile
-          )
-
-          if (grantRes.ok) {
-            for (const g of grantRes.grants) {
-              await defaultProofStore.putGrant(g.payload.grantId, g)
-            }
-          }
-
-          const grantBytes = new TextEncoder().encode(JSON.stringify(grantRes.ok ? grantRes.grants : []))
-          await stream.send(encodePairingFrame("workspace-join-response", secret, grantBytes))
-          await stream.closeSend()
-        } catch (e) {
-          console.error("Workspace host connection error", e)
+          void receivePeer(networkConnection(connection)).catch(fail)
         }
-      })()
+      })().catch(fail)
     } catch (err) {
       console.error("generateWorkspaceInvite failed", err)
       step.value = "error"
@@ -692,114 +686,132 @@ export function useDeviceSync({
     }
   }
 
-  // Guest clicks "Accept and join"
+  async function waitToReconnect(milliseconds: number) {
+    await new Promise<void>(resolve => {
+      const finish = () => {
+        clearTimeout(timer)
+        window.removeEventListener("online", finish)
+        if (wakeRetry === finish) wakeRetry = undefined
+        resolve()
+      }
+      const timer = setTimeout(finish, milliseconds)
+      wakeRetry = finish
+      window.addEventListener("online", finish, { once: true })
+    })
+  }
+
+  // Retry transport failures with the same invitation; saved documents are merged idempotently.
   async function acceptWorkspaceJoin() {
     const invite = parsedInvite.value
-    if (!invite || invite.kind !== "workspace-join") return
-
-    const profile = await getProfile()
-    const guestInfo = {
-      personId: profile.identity.personId,
-      publicKey: profile.device.publicKey,
-      displayName: profile.device.displayName,
-    }
-
-    const targetWorkspaces = invite.workspaces || [{ id: invite.workspaceId, title: invite.workspaceTitle }]
-    const wsIds = targetWorkspaces.map((w) => w.id)
-
-    if (channel) {
-      channel.postMessage({
-        type: "workspace-joined",
-        invitationId: invite.invitationId,
-        workspaceId: invite.workspaceId,
-        workspaceIds: wsIds,
-        guestInfo,
-      })
-    }
-
+    if (!invite || invite.kind !== "workspace-join" || step.value === "workspace-guest-waiting") return
+    const currentRun = ++run
+    step.value = "workspace-guest-waiting"
+    error.value = ""
     try {
-      await fetch("/api/sync-signal?topic=workspace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "workspace-joined",
-          invitationId: invite.invitationId,
-          workspaceId: invite.workspaceId,
-          workspaceIds: wsIds,
-          guestInfo,
-        }),
-      })
-    } catch {}
-
-    const wsPoll = setInterval(async () => {
-      if (step.value === "workspace-guest-done") {
-        clearInterval(wsPoll)
-        return
-      }
-      try {
-        const res = await fetch("/api/sync-signal?topic=workspace")
-        const ct = res.headers.get("content-type") || ""
-        if (res.ok && ct.includes("application/json")) {
-          const list = await res.json()
-          if (Array.isArray(list)) {
-            const granted = list.find((m: any) => m.type === "workspace-join-granted")
-            if (granted) {
-              clearInterval(wsPoll)
-              if (Array.isArray(granted.grants)) {
-                for (const g of granted.grants) {
-                  if (g?.payload?.grantId) {
-                    await defaultProofStore.putGrant(g.payload.grantId, g)
-                  }
-                }
-              } else if (granted.grant?.payload?.grantId) {
-                await defaultProofStore.putGrant(granted.grant.payload.grantId, granted.grant)
-              }
-              for (const ws of targetWorkspaces) {
-                await defaultStorage.registerWorkspace(ws.id, ws.title)
-              }
-              step.value = "workspace-guest-done"
-            }
-          }
+      if (!workspaceStore) throw new Error("Workspace sync is unavailable.")
+      if (Date.parse(invite.expiresAt) <= Date.now()) throw new Error("This invitation has expired.")
+      const profile = await getProfile()
+      const replica = workspaceSet(workspaceStore, invite.workspaces.map(w => w.id))
+      let connectedBefore = false
+      let attempts = 0
+      while (currentRun === run) {
+        if (!navigator.onLine) {
+          step.value = "workspace-reconnecting"
+          await waitToReconnect(15_000)
+          continue
         }
-      } catch {}
-    }, 200)
-
-    for (const ws of targetWorkspaces) {
-      await defaultStorage.registerWorkspace(ws.id, ws.title)
-    }
-    step.value = "workspace-guest-done"
-
-    void (async () => {
-      try {
-        const started = await transport.start()
-        node = started
-        const connection = await started.dial(invite.issuerEndpoint)
-        const stream = await connection.openStream()
-        const reqBytes = new TextEncoder().encode(JSON.stringify(guestInfo))
-        await stream.send(encodePairingFrame("workspace-join-request", invite.secret, reqBytes))
-
-        const response = await stream.read()
-        const respBytes = decodePairingFrame(response, "workspace-join-response", invite.secret)
+        let connection: SyncConnection | undefined
+        let session: LiveWorkspaceSync | undefined
+        let started: SyncNode | undefined
+        let disconnectError: unknown
+        let timeout: ReturnType<typeof setTimeout> | undefined
+        const offline = () => {
+          if (currentRun !== run) return
+          disconnectError = new SyncNetworkError("Network offline")
+          isLive.value = false
+          step.value = "workspace-reconnecting"
+          void connection?.close()
+          if (!connection) void started?.close("Network offline").catch(() => {})
+        }
+        window.addEventListener("offline", offline)
         try {
-          const grantsOrGrant = JSON.parse(new TextDecoder().decode(respBytes))
-          if (Array.isArray(grantsOrGrant)) {
-            for (const g of grantsOrGrant) {
-              if (g?.payload?.grantId) {
-                await defaultProofStore.putGrant(g.payload.grantId, g)
-              }
-            }
-          } else if (grantsOrGrant?.payload?.grantId) {
-            await defaultProofStore.putGrant(grantsOrGrant.payload.grantId, grantsOrGrant)
+          started = await transport.start()
+          if (currentRun !== run) return
+          node = started
+          timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 30_000)
+          connection = networkConnection(await networkIO(started.dial(invite.issuerEndpoint)))
+          if (currentRun !== run) return
+          const stream = await connection.openStream()
+          const request = new TextEncoder().encode(JSON.stringify({
+            invitationId: invite.invitationId,
+            personId: profile.identity.personId,
+          }))
+          await stream.send(encodePairingFrame("workspace-join-request", invite.secret, request))
+          await stream.closeSend()
+          const response = decodePairingFrame(await stream.read(), "workspace-join-response", invite.secret)
+          const payload = JSON.parse(new TextDecoder().decode(response))
+          if (typeof payload.error === "string") throw new Error(payload.error)
+          if (typeof payload.snapshot !== "string" || !Array.isArray(payload.grants) ||
+            payload.grants.length !== invite.workspaces.length ||
+            new Set(payload.grants.map((g: any) => g?.payload?.workspaceId)).size !== invite.workspaces.length ||
+            payload.grants.some((g: any) => g?.payload?.personId !== profile.identity.personId ||
+              !invite.workspaces.some(w => w.id === g?.payload?.workspaceId))) {
+            throw new Error("The other device needs an update. Reload it and generate a new invitation.")
           }
-          for (const ws of targetWorkspaces) {
-            await defaultStorage.registerWorkspace(ws.id, ws.title)
+          for (const grant of payload.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
+          if (currentRun !== run) return
+          await replica.receive(fromBase64Url(payload.snapshot))
+          if (currentRun !== run) return
+          if (!connectedBefore) await workspaceStore.activate(invite.workspaces[0]!.id)
+          const acknowledgement = await connection.openStream()
+          await acknowledgement.send(encodePairingFrame("sync-ack", invite.secret, await replica.snapshot()))
+          await acknowledgement.closeSend()
+          clearTimeout(timeout)
+          session = liveWorkspaceSetSync(connection, invite.secret, replica)
+          liveSession = session
+          isLive.value = true
+          step.value = "workspace-guest-done"
+          connectedBefore = true
+          attempts = 0
+          const currentSession = session
+          stopWatchingWorkspace = workspace.subscribe?.(() => {
+            void currentSession.publish().catch(err => {
+              disconnectError = err
+              void currentSession.close()
+            })
+          })
+          await session.publish()
+          await session.done
+          if (disconnectError) throw disconnectError
+          if (currentRun === run) throw new SyncNetworkError("Connection closed")
+        } catch (err) {
+          if (currentRun !== run) return
+          if (!isNetworkFailure(err)) throw err
+          step.value = "workspace-reconnecting"
+        } finally {
+          clearTimeout(timeout)
+          window.removeEventListener("offline", offline)
+          if (liveSession === session) {
+            stopWatchingWorkspace?.()
+            stopWatchingWorkspace = undefined
+            liveSession = undefined
+            isLive.value = false
           }
-        } catch {}
-        await stream.closeSend()
-      } catch (e) {
-        console.warn("P2P workspace join in progress or handled by channel", e)
+          await session?.close()
+          await connection?.close()
+          await started?.close("Reconnecting").catch(() => {})
+          if (node === started) node = undefined
+        }
+        if (currentRun !== run) return
+        await waitToReconnect(Math.min(1_000 * 2 ** attempts++, 15_000))
       }
-    })()
+    } catch (err) {
+      if (currentRun !== run) return
+      isLive.value = false
+      step.value = "error"
+      console.error("Workspace sync failed", err)
+      error.value = userMessage(err, "Couldn’t save the received workspaces.")
+    }
   }
 
   function joinFromLocation(rawUrl: string) {
@@ -822,18 +834,14 @@ export function useDeviceSync({
   async function connectToMesh() {
     const invite = parsedInvite.value
     if (!invite) return
+    if (invite.kind === "workspace-join") return acceptWorkspaceJoin()
     const currentRun = ++run
     try {
       const started = await transport.start()
       node = started
       const profile = await getProfile()
       const repl = new ReplicationService(profile.device.deviceId, defaultProofStore)
-      if (invite.kind === "device-enrollment") {
-        repl.registerPeer("host", { kind: "all" })
-      } else {
-        const wsIds = invite.workspaces?.map((w) => w.id) || [invite.workspaceId]
-        repl.registerPeer("host", { kind: "workspaces", workspaceIds: wsIds })
-      }
+      repl.registerPeer("host", { kind: "all" })
 
       const session = await joinWorkspaceSync(
         started,
@@ -845,7 +853,7 @@ export function useDeviceSync({
         workspace,
         {
           peerId: "host",
-          workspaceId: invite.kind === "workspace-join" ? invite.workspaceId : "default",
+          workspaceId: "default",
           replicationService: repl,
         }
       )

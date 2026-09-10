@@ -234,6 +234,21 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </div>
       </template>
 
+      <template v-else-if="step === 'workspace-guest-waiting'">
+        <p class="dialog-copy" role="status">Receiving workspaces… Keep both devices open.</p>
+        <div class="dialog-actions">
+          <button class="button button-quiet" type="button" @click="emit('stop')">Cancel</button>
+        </div>
+      </template>
+
+      <template v-else-if="step === 'workspace-reconnecting'">
+        <p class="dialog-copy" role="status">Reconnecting automatically… Your changes are saved on this device.</p>
+        <div class="dialog-actions">
+          <button class="button button-quiet" type="button" @click="emit('dismiss')">Keep working</button>
+          <button class="button button-quiet" type="button" @click="emit('stop')">Stop sync</button>
+        </div>
+      </template>
+
       <!-- Step 9: Workspace guest done -->
       <template v-else-if="step === 'workspace-guest-done'">
         <p class="sync-success sync-result" role="status">Connected to {{ invitationWorkspaceTitle || "Workspace" }}</p>

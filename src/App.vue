@@ -62,6 +62,8 @@ const {
   artifactsFor,
   persist,
   getAutomergeBytes,
+  readWorkspaceBytes,
+  mergeScopedWorkspaceBytes,
   mergeRemoteBytes,
   mergeWorkspaceRecord,
   subscribeLocalChanges
@@ -129,6 +131,7 @@ const startupError = ref("")
 let loadingTimer: ReturnType<typeof setTimeout> | undefined
 const sync = useDeviceSync({
   workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: subscribeLocalChanges },
+  workspaceStore: { read: readWorkspaceBytes, merge: mergeScopedWorkspaceBytes, activate: switchWorkspace },
   origin: () => window.location.origin,
   availableWorkspaces,
   activeWorkspaceId: () => activeWorkspace?.id || "default",
@@ -933,7 +936,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </div>
       </button>
       <div class="topbar-mobile-controls">
-        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : "Local" }}</span>
+        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button
           ref="menuButtonRef"
           class="button button-quiet mobile-menu-button"
@@ -948,7 +951,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </button>
       </div>
       <div class="top-actions top-actions-desktop" :inert="!ready.value || undefined">
-        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : "Local" }}</span>
+        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Settings</button>
         <button class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>

@@ -5,6 +5,7 @@ import { defaultStorage, WorkspaceStorage, loadWorkspaceRecord, saveWorkspace, s
 import { bootstrapIdentity, sha256Base64Url, type LocalProfile } from "./domain/identity"
 import { createPersonalRoot, registerWorkspaceInRoot, reconcilePersonalRootWorkspaces } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
+import { validateWorkspaceDoc } from "./domain/model"
 import { applyMigrationPlan, createMigrationPlan } from "./domain/migration"
 import { executeCommand, type Command } from "./domain/commands"
 import type {
@@ -889,6 +890,36 @@ export function useMatch() {
     persist: async () => {},
     reconcile,
     getAutomergeBytes: () => (activeDoc ? Automerge.save(activeDoc) : new Uint8Array()),
+    async readWorkspaceBytes(id: string, storage = defaultStorage): Promise<Uint8Array> {
+      const doc = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
+      if (!doc) throw new Error("The selected workspace is unavailable on this device.")
+      return Automerge.save(doc)
+    },
+    async mergeScopedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
+      const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
+      if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
+      const local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
+      let merged = remote
+      if (local) {
+        const sharedBoard = Object.values(local.entities).some(e => e.kind === "board" && remote.entities[e.id]?.kind === "board")
+        if (!sharedBoard) {
+          // Each fresh install historically seeded a different board under the same "default" ID.
+          // Only replace an untouched seed. Never merge unrelated populated boards.
+          if (id !== "default" || Automerge.getAllChanges(local).length > 1 ||
+            Object.values(local.entities).some(e => !["board", "column", "field"].includes(e.kind))) {
+            throw new Error("This device has a different workspace with the same ID. Export its data before joining from a fresh browser profile.")
+          }
+        } else {
+          merged = Automerge.merge(Automerge.clone(local), remote)
+          if (Automerge.getHeads(merged).sort().join() === Automerge.getHeads(local).sort().join()) return
+        }
+      }
+      await storage.saveSnapshot(id, merged, Automerge.save(merged))
+      if (activeDoc?.id === id) updateReactiveState(merged)
+      availableWorkspaces.value = await storage.listWorkspaces()
+      storageChannel?.postMessage({ type: "workspace-persisted" })
+      for (const listener of localChangeListeners) listener()
+    },
     async mergeRemoteBytes(bytes: Uint8Array, storage = defaultStorage): Promise<void> {
       if (!activeDoc) return
       const remoteDoc = Automerge.load<WorkspaceDocumentV2>(bytes)
