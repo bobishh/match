@@ -446,6 +446,7 @@ async function reconcile(storage = defaultStorage): Promise<void> {
     if (beforeHeads === afterHeads) return
 
     updateReactiveState(loaded.doc)
+    for (const listener of localChangeListeners) listener()
   })().finally(() => {
     reconcilePromise = undefined
   })
@@ -964,6 +965,7 @@ export function useMatch() {
           }
           local = undefined
         } else {
+          if (remote.ownerPersonId !== local.ownerPersonId) throw new Error("Workspace ownership cannot change through sync.")
           merged = Automerge.merge(Automerge.clone(local), remote)
           if (Automerge.getHeads(merged).sort().join() === Automerge.getHeads(local).sort().join()) return
         }

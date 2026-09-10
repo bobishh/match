@@ -29,15 +29,18 @@ export type IrohStream = {
 
 type IrohModule = {
   default: () => Promise<void>
-  BrowserNode: { start: () => Promise<IrohNode> }
+  BrowserNode: { start: (secret?: Uint8Array) => Promise<IrohNode> }
 }
 
 export function irohArtifactAvailable(): boolean {
   return typeof WebAssembly !== "undefined"
 }
 
-export async function startIrohBrowserNode(): Promise<IrohNode> {
+export async function startIrohBrowserNode(secret?: Uint8Array): Promise<IrohNode> {
   if (!irohArtifactAvailable()) throw new Error("WebAssembly unavailable in this browser")
+  if (secret !== undefined && secret.byteLength !== 32) {
+    throw new Error("Iroh node secret must be exactly 32 bytes")
+  }
   await irohInit()
-  return BrowserNode.start()
+  return BrowserNode.start(secret)
 }

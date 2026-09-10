@@ -89,6 +89,7 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
     await expect(desktopActions.getByRole("button", { name: "Sync" })).toBeVisible()
     await expect(desktopActions.getByRole("button", { name: /Add lead/ })).toHaveCount(0)
     await expect(desktopActions.getByRole("link", { name: "Agent guide" })).toHaveCount(0)
-    await expect(desktopActions.getByRole("button")).toHaveCount(4)
+    await expect(desktopActions.getByRole("button", { name: "Workspace chat", exact: true })).toBeVisible()
+    await expect(desktopActions.getByRole("button")).toHaveCount(5)
   })
 })

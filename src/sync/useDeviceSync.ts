@@ -8,6 +8,7 @@ import {
   parseInvitation,
   encodePairingFrame,
   decodePairingFrame,
+  inspectPairingFrame,
   type ScopedInvitation,
   type DeviceEnrollmentInvitation,
   type WorkspaceJoinInvitation,
@@ -22,6 +23,7 @@ import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { ReplicationService } from "./replication"
 import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
+import { DurableMesh, startPersistentNode, type MeshPeerView } from "./durableMesh"
 
 export type SyncStep =
   | "idle"
@@ -51,6 +53,7 @@ type DeviceSyncOptions = {
   transport?: SyncTransport
   availableWorkspaces?: Ref<{ id: string; title: string }[]>
   activeWorkspaceId?: () => string
+  workspaceOwner?: (id: string) => Promise<string>
 }
 
 export function userMessage(err: unknown, fallback: string) {
@@ -83,9 +86,11 @@ export function useDeviceSync({
   transport = irohTransport,
   availableWorkspaces = ref([]),
   activeWorkspaceId,
+  workspaceOwner,
 }: DeviceSyncOptions) {
   const isOpen = ref(false)
   const isLive = ref(false)
+  const liveWorkspaceIds = ref<string[]>([])
   const step = ref<SyncStep>("idle")
   const qrCode = ref("")
   const inviteUrl = ref("")
@@ -97,15 +102,36 @@ export function useDeviceSync({
   const invitationWorkspaceTitle = ref("")
   const invitationWorkspaces = ref<{ id: string; title: string }[]>([])
   const parsedInvite = ref<ScopedInvitation | null>(null)
+  const meshPeers = ref<MeshPeerView[]>([])
+  const meshLiveWorkspaceIds = ref<string[]>([])
+  const revokedWorkspaceIds = ref<string[]>([])
 
   let node: SyncNode | undefined
   let liveSession: LiveWorkspaceSync | undefined
+  const directPeerSessions = new Map<string, LiveWorkspaceSync>()
   let stopWatchingWorkspace: (() => void) | undefined
   let run = 0
   let wakeRetry: (() => void) | undefined
   let approveResolve: (() => void) | undefined
   let currentIssuedInvite: DeviceEnrollmentInvitation | WorkspaceJoinInvitation | undefined
   let pendingEnrollGuest: { deviceId: string; publicKey: string; displayName?: string } | undefined
+  const meshWorkspaceStore: WorkspaceSetStore | undefined = workspaceStore ? { ...workspaceStore } : undefined
+  const durableMesh = workspaceStore && meshWorkspaceStore ? new DurableMesh({
+    transport,
+    workspaceStore: meshWorkspaceStore,
+    workspace,
+    getProfile,
+    onChange(ids, peers) {
+      meshLiveWorkspaceIds.value = ids
+      meshPeers.value = peers
+      if (ids.length > 0) isLive.value = true
+      else if (!liveSession) isLive.value = false
+    },
+  }) : undefined
+  if (durableMesh && meshWorkspaceStore) {
+    meshWorkspaceStore.readMesh = id => durableMesh.exportWorkspace(id)
+    meshWorkspaceStore.mergeMesh = (id, value) => durableMesh.mergeWorkspace(id, value)
+  }
 
   const channel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
     ? new BroadcastChannel("match-scoped-sync")
@@ -165,10 +191,38 @@ export function useDeviceSync({
     const session = liveSession
     liveSession = undefined
     isLive.value = false
+    liveWorkspaceIds.value = []
     await session?.close()
     const current = node
     node = undefined
     await current?.close(reason)
+  }
+
+  async function pauseDurableMesh() {
+    await durableMesh?.pauseAll()
+  }
+
+  async function startDurableMesh() {
+    revokedWorkspaceIds.value = await durableMesh?.revokedWorkspaceIds() ?? []
+    await durableMesh?.resumeAll()
+  }
+
+  async function shutdown() {
+    run += 1
+    wakeRetry?.()
+    await durableMesh?.dispose()
+    await stopNode("Page closed")
+    channel?.close()
+  }
+
+  async function revokePeer(personId: string) {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId) throw new Error("No active workspace")
+    await durableMesh?.revokePerson(workspaceId, personId)
+    await liveSession?.publish().catch(() => {})
+    const direct = directPeerSessions.get(personId)
+    directPeerSessions.delete(personId)
+    await direct?.close()
   }
 
   function attachLiveSession(session: LiveWorkspaceSync, currentRun: number) {
@@ -205,6 +259,7 @@ export function useDeviceSync({
     parsedInvite.value = null
     approveResolve = undefined
     await stopNode("Pairing closed")
+    void startDurableMesh()
   }
 
   async function dismiss() {
@@ -258,6 +313,7 @@ export function useDeviceSync({
 
   // Flow 1: Host selects "Sync all"
   async function selectSyncAll() {
+    await pauseDurableMesh()
     await stopNode("Starting enroll host")
     const currentRun = ++run
     copyNotice.value = ""
@@ -265,7 +321,7 @@ export function useDeviceSync({
 
     try {
       const profile = await getProfile()
-      const started = await transport.start()
+      const started = await startPersistentNode(transport)
       if (currentRun !== run) return void started.close("Replaced")
       node = started
 
@@ -401,21 +457,30 @@ export function useDeviceSync({
     if (selectedWorkspaceIds.value.length === 0) {
       return
     }
-    await stopNode("Starting workspace host")
-    const currentRun = ++run
-    copyNotice.value = ""
-    error.value = ""
-
     try {
       const profile = await getProfile()
-      const started = await transport.start()
-      if (currentRun !== run) return void started.close("Replaced")
-      node = started
-
       const selectedWs = availableWorkspaces.value.filter((w) => selectedWorkspaceIds.value.includes(w.id))
       const workspacesToInvite = selectedWs.length > 0
         ? selectedWs
         : selectedWorkspaceIds.value.map((id) => ({ id, title: "Workspace" }))
+
+      const owners = new Map<string, string>()
+      for (const item of workspacesToInvite) {
+        const owner = workspaceOwner ? await workspaceOwner(item.id) : profile.identity.personId
+        if (owner !== profile.identity.personId) throw new Error(`Only the workspace owner can invite peers to ${item.title}`)
+        owners.set(item.id, owner)
+      }
+
+      await pauseDurableMesh()
+      await stopNode("Starting workspace host")
+      const currentRun = ++run
+      copyNotice.value = ""
+      error.value = ""
+      const started = await startPersistentNode(transport)
+      if (currentRun !== run) return void started.close("Replaced")
+      node = started
+
+      await durableMesh?.ensureOwnerWorkspaces(workspacesToInvite.map(w => w.id), started.endpointId, profile)
 
       const secret = createPairingSecret()
       const invite = createWorkspaceJoinInvite(started.endpointId, secret, profile, workspacesToInvite)
@@ -427,19 +492,30 @@ export function useDeviceSync({
       step.value = "workspace-host"
 
       if (!workspaceStore) throw new Error("Workspace sync is unavailable.")
-      const replica = workspaceSet(workspaceStore, workspacesToInvite.map(w => w.id))
+      const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore, workspacesToInvite.map(w => w.id))
+      liveWorkspaceIds.value = workspacesToInvite.map(w => w.id)
       const acceptor = await started.accept()
       const peers = new Map<string, LiveWorkspaceSync>()
       const connections = new Set<SyncConnection>()
       const grants = new Map<string, Awaited<ReturnType<typeof defaultInvitationService.approveWorkspaceJoinSet>>>()
       let stopped = false
       let everConnected = false
+      let handoffStarted = false
       let fail!: (error: unknown) => void
       const done = new Promise<void>((_, reject) => { fail = reject })
       function disconnected() {
         if (currentRun !== run || stopped || peers.size) return
         isLive.value = false
-        if (everConnected) step.value = "workspace-reconnecting"
+        if (everConnected) {
+          step.value = "workspace-reconnecting"
+          if (!handoffStarted) {
+            handoffStarted = true
+            void (async () => {
+              await stopNode("Invitation peer disconnected")
+              if (currentRun === run) await startDurableMesh()
+            })()
+          }
+        }
       }
       const offline = () => {
         for (const connection of connections) void connection.close()
@@ -471,7 +547,12 @@ export function useDeviceSync({
         connections.add(connection)
         try {
           const stream = await connection.acceptStream()
-          const request = decodePairingFrame(await stream.read(), "workspace-join-request", secret)
+          const rawRequest = await stream.read()
+          const header = inspectPairingFrame(rawRequest)
+          // A durable peer may dial this stable endpoint while a fresh invitation is open.
+          // Its mesh handshake belongs to the background mesh listener, not this invitation.
+          if (header.type !== "workspace-join-request" || header.secret !== secret) return
+          const request = decodePairingFrame(rawRequest, "workspace-join-request", secret)
           const guest = JSON.parse(new TextDecoder().decode(request))
           if (typeof guest.personId !== "string" || !guest.personId || guest.invitationId !== invite.invitationId) {
             throw new Error("Invalid workspace join request.")
@@ -486,16 +567,18 @@ export function useDeviceSync({
               return
             }
             result = await defaultInvitationService.approveWorkspaceJoinSet(
-              invite.invitationId, personId, workspacesToInvite.map(w => w.id), profile,
+              invite.invitationId, personId, workspacesToInvite.map(w => w.id), profile, owners,
             )
             if (!result.ok) throw new Error(result.error)
             for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
+            await durableMesh?.acceptGuest(workspacesToInvite.map(w => w.id), guest.meshPeers, result.grants)
             grants.set(personId, result)
           }
           if (!result.ok) throw new Error(result.error)
           const payload = new TextEncoder().encode(JSON.stringify({
             grants: result.grants,
             snapshot: toBase64Url(await replica.snapshot()),
+            meshWorkspaces: await durableMesh?.invitationPayload(workspacesToInvite.map(w => w.id)),
           }))
           await stream.send(encodePairingFrame("workspace-join-response", secret, payload))
           await stream.closeSend()
@@ -507,6 +590,7 @@ export function useDeviceSync({
           session = liveWorkspaceSetSync(connection, secret, replica)
           const previous = peers.get(personId)
           peers.set(personId, session)
+          directPeerSessions.set(personId, session)
           await previous?.close()
           everConnected = true
           isLive.value = true
@@ -519,6 +603,7 @@ export function useDeviceSync({
         } finally {
           clearTimeout(timeout)
           if (session && peers.get(personId) === session) peers.delete(personId)
+          if (session && directPeerSessions.get(personId) === session) directPeerSessions.delete(personId)
           connections.delete(connection)
           await connection.close()
           disconnected()
@@ -586,6 +671,7 @@ export function useDeviceSync({
   // Guest visits /pair#...
   async function prepareJoin(rawInvite: string) {
     await close()
+    await pauseDurableMesh()
     isOpen.value = true
 
     try {
@@ -610,6 +696,7 @@ export function useDeviceSync({
   async function requestEnrollment() {
     const invite = parsedInvite.value
     if (!invite || invite.kind !== "device-enrollment") return
+    await pauseDurableMesh()
 
     step.value = "enroll-guest-waiting"
     const profile = await getProfile()
@@ -670,7 +757,7 @@ export function useDeviceSync({
     }, 200)
 
     try {
-      const started = await transport.start()
+      const started = await startPersistentNode(transport)
       node = started
       const connection = await started.dial(invite.issuerEndpoint)
       const stream = await connection.openStream()
@@ -716,6 +803,7 @@ export function useDeviceSync({
   async function acceptWorkspaceJoin() {
     const invite = parsedInvite.value
     if (!invite || invite.kind !== "workspace-join" || step.value === "workspace-guest-waiting") return
+    await pauseDurableMesh()
     const currentRun = ++run
     step.value = "workspace-guest-waiting"
     error.value = ""
@@ -723,10 +811,11 @@ export function useDeviceSync({
       if (!workspaceStore) throw new Error("Workspace sync is unavailable.")
       if (Date.parse(invite.expiresAt) <= Date.now()) throw new Error("This invitation has expired.")
       const profile = await getProfile()
-      const replica = workspaceSet(workspaceStore, invite.workspaces.map(w => w.id))
+      const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore, invite.workspaces.map(w => w.id))
       let connectedBefore = false
       let attempts = 0
       while (currentRun === run) {
+        let handoffToMesh = false
         if (!navigator.onLine) {
           step.value = "workspace-reconnecting"
           await waitToReconnect(15_000)
@@ -747,7 +836,7 @@ export function useDeviceSync({
         }
         window.addEventListener("offline", offline)
         try {
-          started = await transport.start()
+          started = await startPersistentNode(transport)
           if (currentRun !== run) return
           node = started
           timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 30_000)
@@ -757,6 +846,7 @@ export function useDeviceSync({
           const request = new TextEncoder().encode(JSON.stringify({
             invitationId: invite.invitationId,
             personId: profile.identity.personId,
+            meshPeers: await durableMesh?.createGuestAdvertisements(invite.workspaces.map(w => w.id), started.endpointId, profile),
           }))
           await stream.send(encodePairingFrame("workspace-join-request", invite.secret, request))
           await stream.closeSend()
@@ -773,6 +863,7 @@ export function useDeviceSync({
           for (const grant of payload.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
           if (currentRun !== run) return
           await replica.receive(fromBase64Url(payload.snapshot))
+          await durableMesh?.receiveInvitation(payload.meshWorkspaces, invite.workspaces.map(w => w.id), profile, payload.grants)
           if (currentRun !== run) return
           if (!connectedBefore) await workspaceStore.activate(invite.workspaces[0]!.id)
           const acknowledgement = await connection.openStream()
@@ -783,6 +874,7 @@ export function useDeviceSync({
           liveSession = session
           isLive.value = true
           step.value = "workspace-guest-done"
+          liveWorkspaceIds.value = invite.workspaces.map(w => w.id)
           connectedBefore = true
           attempts = 0
           const currentSession = session
@@ -800,6 +892,7 @@ export function useDeviceSync({
           if (currentRun !== run) return
           if (!isNetworkFailure(err)) throw err
           step.value = "workspace-reconnecting"
+          handoffToMesh = connectedBefore
         } finally {
           clearTimeout(timeout)
           window.removeEventListener("offline", offline)
@@ -815,12 +908,19 @@ export function useDeviceSync({
           if (node === started) node = undefined
         }
         if (currentRun !== run) return
+        if (handoffToMesh) {
+          await startDurableMesh()
+          return
+        }
         await waitToReconnect(Math.min(1_000 * 2 ** attempts++, 15_000))
       }
     } catch (err) {
       if (currentRun !== run) return
       isLive.value = false
       step.value = "error"
+      if (/access revoked/i.test(err instanceof Error ? err.message : String(err))) {
+        revokedWorkspaceIds.value = [...new Set([...revokedWorkspaceIds.value, ...invite.workspaces.map(w => w.id)])]
+      }
       console.error("Workspace sync failed", err)
       error.value = userMessage(err, "Couldn’t save the received workspaces.")
     }
@@ -828,8 +928,9 @@ export function useDeviceSync({
 
   function joinFromLocation(rawUrl: string) {
     const url = new URL(rawUrl)
-    if (url.pathname.replace(/\/$/, "") !== "/pair" || !url.hash) return
+    if (url.pathname.replace(/\/$/, "") !== "/pair" || !url.hash) return false
     void prepareJoin(rawUrl)
+    return true
   }
 
   async function copyInvite(targetUrl?: string) {
@@ -846,10 +947,11 @@ export function useDeviceSync({
   async function connectToMesh() {
     const invite = parsedInvite.value
     if (!invite) return
+    await pauseDurableMesh()
     if (invite.kind === "workspace-join") return acceptWorkspaceJoin()
     const currentRun = ++run
     try {
-      const started = await transport.start()
+      const started = await startPersistentNode(transport)
       node = started
       const profile = await getProfile()
       const repl = new ReplicationService(profile.device.deviceId, defaultProofStore)
@@ -882,6 +984,9 @@ export function useDeviceSync({
   return {
     isOpen,
     isLive,
+    isWorkspaceLive: (id: string) => (isLive.value && liveWorkspaceIds.value.includes(id)) || meshLiveWorkspaceIds.value.includes(id),
+    isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
+    meshPeers,
     step,
     phase,
     title,
@@ -905,6 +1010,9 @@ export function useDeviceSync({
     connectToMesh,
     prepareJoin,
     joinFromLocation,
+    startDurableMesh,
+    shutdown,
+    revokePeer,
     copyInvite,
     close,
     dismiss,

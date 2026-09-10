@@ -22,7 +22,7 @@ export type BoardSchemaSelectOption = {
 export type BoardSchemaField = {
   id?: string
   title: string
-  valueType: "text" | "number" | "boolean" | "select" | "url" | "date"
+  valueType: "text" | "number" | "boolean" | "select" | "url" | "date" | "datetime"
   required: boolean
   min?: number | null
   max?: number | null
@@ -117,7 +117,7 @@ export function projectBoardSchema(
   }
 }
 
-const ALLOWED_VALUE_TYPES = new Set(["text", "number", "boolean", "select", "url", "date"])
+const ALLOWED_VALUE_TYPES = new Set(["text", "number", "boolean", "select", "url", "date", "datetime"])
 
 export function validateBoardSchemaDraft(draft: unknown): SchemaValidationResult {
   const errors: SchemaValidationError[] = []
@@ -166,7 +166,7 @@ export function validateBoardSchemaDraft(draft: unknown): SchemaValidationResult
       if (!fld.valueType || !ALLOWED_VALUE_TYPES.has(fld.valueType)) {
         errors.push({
           path: `/fields/${idx}/valueType`,
-          message: `valueType must be one of: text, number, boolean, select, url, date`,
+          message: `valueType must be one of: text, number, boolean, select, url, date, datetime`,
         })
       }
       if (typeof fld.required !== "boolean") {

@@ -10,6 +10,7 @@ import {
   createWorkspaceJoinInvite,
   invitationUrl,
   parseInvitation,
+  inspectPairingFrame,
 } from "./protocol"
 
 describe("pairing protocol", () => {
@@ -27,6 +28,11 @@ describe("pairing protocol", () => {
     const frame = encodePairingFrame("sync-request", "wrong-secret", new Uint8Array([1]))
 
     expect(() => decodePairingFrame(frame, "sync-request", "secret-a")).toThrow("Pairing authorization failed")
+  })
+
+  it("Given a mesh handshake, when inspected, then dispatch reads only its framed type and secret", () => {
+    const frame = encodePairingFrame("mesh-handshake-request", "workspace-secret", new Uint8Array([7]))
+    expect(inspectPairingFrame(frame)).toEqual({ type: "mesh-handshake-request", secret: "workspace-secret" })
   })
 
   describe("Task 3.1: Discriminated v1 invitations", () => {

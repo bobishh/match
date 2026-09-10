@@ -16,6 +16,10 @@ import LeadFilters from "./components/LeadFilters.vue"
 import WorkspacesDialog from "./components/WorkspacesDialog.vue"
 import ColumnDialog from "./components/ColumnDialog.vue"
 import SchemaEditorDialog from "./components/SchemaEditorDialog.vue"
+import WorkspaceChat from "./components/WorkspaceChat.vue"
+import WorkspaceNameSettings from "./components/WorkspaceNameSettings.vue"
+import { configureChat, exportChat, receiveChat, subscribeChat } from "./chat/service"
+import { useWorkspaceChat } from "./chat/useWorkspaceChat"
 import type { BoardSchemaDraft } from "./domain/schema"
 import type { WorkspaceSettingsDraft } from "./domain/workspaceSettings"
 import TaskFormDialog from "./components/TaskFormDialog.vue"
@@ -131,13 +135,46 @@ function closeMobileMenu() {
 const showLoading = ref(false)
 const startupError = ref("")
 let loadingTimer: ReturnType<typeof setTimeout> | undefined
+configureChat(async id => {
+  const doc = Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id))
+  return doc.ownerPersonId
+}, async id => {
+  const doc = Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id))
+  const board = Object.values(doc.entities).find(e => e.kind === "board")
+  if (!board) throw new Error("Workspace has no board")
+  // Local legacy IDs may collide or be rekeyed on import. Board genesis remains stable.
+  return `${doc.ownerPersonId}:${board.id}`
+})
+const chatWorkspaceId = computed(() => ready.value ? activeWorkspace.id : "")
+const chatOwnerId = computed(() => { void docVersion.value; return getActiveDoc()?.ownerPersonId ?? "" })
+const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId)
 const sync = useDeviceSync({
-  workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: subscribeLocalChanges },
-  workspaceStore: { read: readWorkspaceBytes, merge: mergeScopedWorkspaceBytes, activate: switchWorkspace },
+  workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: listener => {
+    const stopWorkspace = subscribeLocalChanges(listener)
+    const stopChat = subscribeChat(() => listener())
+    return () => { stopWorkspace(); stopChat() }
+  } },
+  workspaceStore: { read: readWorkspaceBytes, merge: mergeScopedWorkspaceBytes, activate: switchWorkspace, readChat: exportChat, mergeChat: receiveChat },
   origin: () => window.location.origin,
   availableWorkspaces,
   activeWorkspaceId: () => activeWorkspace?.id || "default",
+  workspaceOwner: async id => Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id)).ownerPersonId,
 })
+const revokingPeer = ref("")
+const peerAccessError = ref("")
+const isWorkspaceOwner = computed(() => chat.personId.value !== "" && chat.personId.value === chatOwnerId.value)
+const meshParticipantDevices = computed(() => sync.meshPeers.value
+  .filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value)
+  .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
+
+async function revokeWorkspacePeer(personId: string) {
+  if (revokingPeer.value) return
+  revokingPeer.value = personId
+  peerAccessError.value = ""
+  try { await sync.revokePeer(personId) }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not revoke access" }
+  finally { revokingPeer.value = "" }
+}
 
 const newLead = ref<LeadInput>({
   company: "",
@@ -411,7 +448,7 @@ onMounted(async () => {
     clearTimeout(loadingTimer)
     showLoading.value = false
   }
-  sync.joinFromLocation(window.location.href)
+  if (!sync.joinFromLocation(window.location.href)) await sync.startDurableMesh()
   const unregisterWebMcp = await registerWebMcp({
     workspace,
     createLead,
@@ -466,6 +503,7 @@ watch(() => visibleColumns.value.map((column) => column.id).join("|"), () => {
 }, { flush: "post" })
 
 onBeforeUnmount(() => {
+  void sync.shutdown()
   destroyBoardSortables()
   if (noticeTimer) clearTimeout(noticeTimer)
   clearTimeout(loadingTimer)
@@ -949,7 +987,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </div>
       </button>
       <div class="topbar-mobile-controls">
-        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
+        <button class="button button-quiet button-small" type="button" aria-label="Workspace chat" :disabled="!ready.value" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
+        <span class="local-state"><span class="pulse"></span> {{ sync.isWorkspaceAccessRevoked(activeWorkspace.id) ? "Access removed" : sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button
           ref="menuButtonRef"
           class="button button-quiet mobile-menu-button"
@@ -964,7 +1003,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </button>
       </div>
       <div class="top-actions top-actions-desktop" :inert="!ready.value || undefined">
-        <span class="local-state"><span class="pulse"></span> {{ sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
+        <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
+        <span class="local-state"><span class="pulse"></span> {{ sync.isWorkspaceAccessRevoked(activeWorkspace.id) ? "Access removed" : sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Settings</button>
         <button class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
@@ -1119,7 +1159,38 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @close="showBoardSettings = false"
       @save-template="handleSaveTemplate"
       @apply-workspace-settings="handleApplyWorkspaceSettings"
-    />
+    >
+      <template #profile>
+        <WorkspaceNameSettings :name="chat.ownName.value" :display-name="chat.displayName.value" :saving="chat.savingName.value" :error="chat.nameError.value"
+          @save="chat.rename" @randomize="chat.randomize" />
+        <section class="chat-members" aria-label="Known workspace participants">
+          <h3>Participants</h3>
+          <p>{{ isWorkspaceOwner ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
+          <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.role }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
+          <template v-if="isWorkspaceOwner && meshParticipantDevices.length">
+            <h4>Trusted peer devices</h4>
+            <ul>
+              <li v-for="peer in meshParticipantDevices" :key="peer.deviceId" class="peer-device-row">
+                <span><strong>{{ peer.name }}</strong><small>{{ peer.online ? 'Online' : 'Offline' }} · {{ peer.role }}</small></span>
+                <button v-if="!peer.revokedAt" class="button button-danger" type="button" :disabled="Boolean(revokingPeer)"
+                  @click="revokeWorkspacePeer(peer.personId)">Remove access</button>
+                <span v-else>Revoked</span>
+              </li>
+            </ul>
+          </template>
+          <p v-if="peerAccessError" class="form-error" role="alert">{{ peerAccessError }}</p>
+        </section>
+      </template>
+    </SchemaEditorDialog>
+
+    <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"
+      :messages="chat.messages.value" :current-person-id="chat.personId.value" :sending="chat.sending.value"
+      :error="chat.error.value" :loading="chat.loading.value" :connected="sync.isWorkspaceLive(activeWorkspace.id)"
+      @close="chat.open.value = false" @send="chat.send" />
+    <aside v-if="chat.toast.value" class="chat-toast" role="status">
+      <button class="button button-quiet" type="button" @click="chat.open.value = true">{{ chat.toast.value.text }}</button>
+      <button class="icon-button" type="button" aria-label="Dismiss chat notification" @click="chat.toast.value = null">×</button>
+    </aside>
 
     <SchemaEditorDialog
       v-if="showEntitySettings && activeBoard && getActiveDoc()"

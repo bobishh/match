@@ -79,6 +79,21 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(paths).toContain("/columns/1/title")
     expect(paths).toContain("/fields/0/valueType")
     expect(paths).toContain("/fields/1/options/0/title")
+
+    const validDraftWithDatetime: BoardSchemaDraft = {
+      boardId: "board-1",
+      boardTitle: "Valid Board",
+      entityName: "task",
+      columns: [{ title: "Col 1" }],
+      fields: [
+        {
+          title: "Created At",
+          valueType: "datetime" as any,
+          required: false,
+        },
+      ],
+    }
+    expect(validateBoardSchemaDraft(validDraftWithDatetime).valid).toBe(true)
   })
 
   it("diffs schema draft against canonical doc showing renames, soft-deletions, and option retention", () => {

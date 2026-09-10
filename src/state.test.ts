@@ -105,6 +105,15 @@ describe("Repository-backed state and projections (Task 1.8)", () => {
     expect(match.getAutomergeBytes()).toEqual(before)
   })
 
+  it("does not allow a peer to replace the owner used to authorize chat", async () => {
+    const match = useMatch()
+    const before = match.getActiveDoc()!
+    const owner = before.ownerPersonId
+    const forged = Automerge.change(Automerge.clone(before), draft => { draft.ownerPersonId = "attacker" })
+    await expect(match.mergeScopedWorkspaceBytes(before.id, Automerge.save(forged))).rejects.toThrow(/ownership/)
+    expect(match.getActiveDoc()!.ownerPersonId).toBe(owner)
+  })
+
   it("deletes the active workspace and opens a remaining workspace", async () => {
     const match = useMatch()
     const firstId = match.activeWorkspace.id

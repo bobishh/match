@@ -53,6 +53,8 @@ export type PairingFrameType =
   | "enroll-approved"
   | "workspace-join-request"
   | "workspace-join-response"
+  | "mesh-handshake-request"
+  | "mesh-handshake-response"
 
 export class PairingError extends Error {}
 
@@ -308,6 +310,22 @@ export function encodePairingFrame(type: PairingFrameType, secret: string, bytes
   frame.set(header)
   frame.set(bytes, header.length)
   return frame
+}
+
+export function inspectPairingFrame(frame: Uint8Array): { type: PairingFrameType; secret: string } {
+  const separator = frame.indexOf(10)
+  if (separator < 0) throw new PairingError("Pairing frame missing")
+  let header: { type?: string; version?: string; secret?: string }
+  try {
+    header = JSON.parse(new TextDecoder().decode(frame.slice(0, separator)))
+  } catch {
+    throw new PairingError("Pairing frame invalid")
+  }
+  if (header.version !== pairingVersion || !header.secret || ![
+    "sync-request", "sync-response", "sync-ack", "sync-update", "enroll-request", "enroll-approved",
+    "workspace-join-request", "workspace-join-response", "mesh-handshake-request", "mesh-handshake-response",
+  ].includes(header.type ?? "")) throw new PairingError("Pairing frame invalid")
+  return { type: header.type as PairingFrameType, secret: header.secret }
 }
 
 export function decodePairingFrame(frame: Uint8Array, expectedType: PairingFrameType, expectedSecret: string) {

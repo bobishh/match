@@ -15,8 +15,21 @@ pub struct BrowserNode {
 #[wasm_bindgen]
 impl BrowserNode {
     #[wasm_bindgen(js_name = start)]
-    pub async fn start() -> Result<BrowserNode, JsValue> {
-        let secret_key = SecretKey::generate();
+    pub async fn start(secret: Option<Vec<u8>>) -> Result<BrowserNode, JsValue> {
+        let secret_key = match secret {
+            Some(mut bytes) => {
+                if bytes.len() != 32 {
+                    return Err(JsError::new("secret key must be exactly 32 bytes").into());
+                }
+                let mut key_bytes = [0u8; 32];
+                key_bytes.copy_from_slice(&bytes);
+                bytes.fill(0);
+                let key = SecretKey::from_bytes(&key_bytes);
+                key_bytes.fill(0);
+                key
+            }
+            None => SecretKey::generate(),
+        };
         let inner = BrowserWebRtcNode::builder(BrowserWebRtcNodeConfig::default(), secret_key)
             .accept_facade(ALPN)
             .spawn()
@@ -135,6 +148,6 @@ impl BrowserStream {
 }
 
 #[wasm_bindgen]
-pub async fn start_browser_node() -> Result<BrowserNode, JsValue> {
-    BrowserNode::start().await
+pub async fn start_browser_node(secret: Option<Vec<u8>>) -> Result<BrowserNode, JsValue> {
+    BrowserNode::start(secret).await
 }

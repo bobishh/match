@@ -33,23 +33,38 @@ export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
   merge: (id: string, bytes: Uint8Array) => Promise<void>
   activate: (id: string) => Promise<void>
+  readChat?: (id: string, known?: Set<string>) => Promise<unknown>
+  mergeChat?: (id: string, value: unknown, history: boolean) => Promise<void>
+  readMesh?: (id: string) => Promise<unknown>
+  mergeMesh?: (id: string, value: unknown) => Promise<void>
 }
 
 export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
   const ids = [...new Set(workspaceIds)].sort()
   return {
-    async snapshot() {
-      const entries = await Promise.all(ids.map(async id => ({ id, bytes: toBase64Url(await store.read(id)) })))
+    async snapshot(knownChat?: Map<string, Set<string>>) {
+      const entries = await Promise.all(ids.map(async id => ({ id, bytes: toBase64Url(await store.read(id)),
+        ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
+          const known = knownChat.get(id) ?? new Set<string>()
+          knownChat.set(id, known)
+          return known
+        })() : undefined) } : {}),
+        ...(store.readMesh ? { mesh: await store.readMesh(id) } : {}),
+      })))
       return new TextEncoder().encode(JSON.stringify(entries))
     },
-    async receive(bytes: Uint8Array) {
+    async receive(bytes: Uint8Array, history = true) {
       const entries = JSON.parse(new TextDecoder().decode(bytes))
       if (!Array.isArray(entries) || entries.length !== ids.length ||
         new Set(entries.map(e => e?.id)).size !== ids.length ||
         entries.some(e => !ids.includes(e?.id) || typeof e?.bytes !== "string")) {
         throw new Error("The peer sent a different set of workspaces than the invitation allows.")
       }
-      for (const entry of entries) await store.merge(entry.id, fromBase64Url(entry.bytes))
+      for (const entry of entries) {
+        await store.merge(entry.id, fromBase64Url(entry.bytes))
+        if (entry.chat !== undefined && store.mergeChat) await store.mergeChat(entry.id, entry.chat, history)
+        if (entry.mesh !== undefined && store.mergeMesh) await store.mergeMesh(entry.id, entry.mesh)
+      }
     },
   }
 }
@@ -62,11 +77,12 @@ export function liveWorkspaceSetSync(
   let stopped = false
   let lastSent = ""
   let queue = Promise.resolve()
+  const knownChat = new Map<string, Set<string>>()
   const done = (async () => {
     while (!stopped) {
       const stream = await connection.acceptStream()
       if (stopped) return
-      await replica.receive(decodePairingFrame(await stream.read(), "sync-update", secret))
+      await replica.receive(decodePairingFrame(await stream.read(), "sync-update", secret), false)
       await stream.closeSend()
     }
   })().catch(error => { if (!stopped) throw error })
@@ -75,7 +91,7 @@ export function liveWorkspaceSetSync(
     publish() {
       queue = queue.then(async () => {
         if (stopped) return
-        const bytes = await replica.snapshot()
+        const bytes = await replica.snapshot(knownChat)
         const content = toBase64Url(bytes)
         if (stopped || content === lastSent) return
         const stream = await connection.openStream()

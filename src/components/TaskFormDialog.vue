@@ -3,6 +3,7 @@ import ModalLayer from "./ModalLayer.vue"
 import { reactive, ref } from "vue"
 import { useDelayedFlag } from "../ui/useDelayedFlag"
 import type { FieldDefinition, FieldValue } from "../domain/model"
+import { validateFieldValue } from "../domain/fields"
 
 const props = defineProps<{
   parentId: string
@@ -35,18 +36,17 @@ function handleSave() {
     return
   }
 
-  // Validate required custom fields
+  // Validate custom fields
   for (const field of props.fields) {
-    if (field.required && !field.deleted) {
-      if ((field.title === "Company" || field.title === "Role") && (values[field.id] === undefined || values[field.id] === null || values[field.id] === "")) {
-        values[field.id] = field.title === "Company" ? title.value.trim() : "Item"
-        continue
-      }
-      const v = values[field.id]
-      if (v === undefined || v === null || v === "") {
-        localError.value = `${field.title} is required`
-        return
-      }
+    if (field.deleted) continue
+    if ((field.title === "Company" || field.title === "Role") && (values[field.id] === undefined || values[field.id] === null || values[field.id] === "")) {
+      values[field.id] = field.title === "Company" ? title.value.trim() : "Item"
+      continue
+    }
+    const res = validateFieldValue(field, values[field.id])
+    if (!res.valid) {
+      localError.value = res.issue || `${field.title} is required`
+      return
     }
   }
 
@@ -110,6 +110,12 @@ function handleSave() {
                 v-else-if="field.valueType === 'date'"
                 v-model="values[field.id]"
                 type="date"
+                :required="field.required"
+              />
+              <input
+                v-else-if="field.valueType === 'datetime'"
+                v-model="values[field.id]"
+                type="datetime-local"
                 :required="field.required"
               />
               <input

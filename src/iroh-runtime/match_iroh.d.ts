@@ -33,7 +33,7 @@ export class BrowserNode {
     accept(): Promise<BrowserAcceptor>;
     close(reason?: string | null): Promise<void>;
     dial(remote_endpoint: string): Promise<BrowserConnection>;
-    static start(): Promise<BrowserNode>;
+    static start(secret?: Uint8Array | null): Promise<BrowserNode>;
     readonly endpointId: string;
 }
 
@@ -74,7 +74,7 @@ export class IntoUnderlyingSource {
     pull(controller: ReadableStreamDefaultController): Promise<any>;
 }
 
-export function start_browser_node(): Promise<BrowserNode>;
+export function start_browser_node(secret?: Uint8Array | null): Promise<BrowserNode>;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -94,11 +94,11 @@ export interface InitOutput {
     readonly browsernode_close: (a: number, b: number, c: number) => any;
     readonly browsernode_dial: (a: number, b: number, c: number) => any;
     readonly browsernode_endpointId: (a: number) => [number, number];
-    readonly browsernode_start: () => any;
+    readonly browsernode_start: (a: number, b: number) => any;
     readonly browserstream_closeSend: (a: number) => any;
     readonly browserstream_read: (a: number) => any;
     readonly browserstream_send: (a: number, b: number, c: number) => any;
-    readonly start_browser_node: () => any;
+    readonly start_browser_node: (a: number, b: number) => any;
     readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
     readonly intounderlyingsource_cancel: (a: number) => void;
     readonly intounderlyingsource_pull: (a: number, b: any) => any;

@@ -1,8 +1,8 @@
 import type { SyncTransport } from "./transport"
 
 export const irohTransport: SyncTransport = {
-  async start() {
+  async start(secret?: Uint8Array) {
     const { startIrohBrowserNode } = await import("../iroh")
-    return startIrohBrowserNode()
+    return startIrohBrowserNode(secret)
   },
 }

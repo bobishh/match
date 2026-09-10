@@ -115,6 +115,19 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .notice { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0; padding: 10px 12px 10px 14px; border: 2px solid var(--ink); color: white; background: var(--ink); box-shadow: 5px 5px 0 var(--yellow); font: 750 .78rem/1.3 ui-monospace, monospace; pointer-events: auto; }
 .notice-error { background: var(--red); box-shadow: 5px 5px 0 var(--ink); }
 .notice-dismiss { flex: 0 0 28px; width: 28px; height: 28px; padding: 0; border: 1px solid currentColor; color: inherit; background: transparent; font: 900 1rem/1 ui-monospace, monospace; }
+.chat-toast { position: fixed; bottom: 24px; left: 16px; z-index: 26; display: flex; align-items: start; gap: 8px; width: min(380px, calc(100vw - 32px)); padding: 12px; border: 2px solid var(--ink); background: var(--panel); box-shadow: 5px 5px 0 var(--blue); }
+.chat-toast > .button { flex: 1; min-width: 0; text-align: left; overflow-wrap: anywhere; }
+.chat-toast > .icon-button { flex-shrink: 0; }
+.chat-members { padding-top: 20px; border-top: 2px solid var(--line); }
+.chat-members h3 { margin: 0; }
+.chat-members p { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+.chat-members ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.chat-members li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
+.chat-members li span { color: var(--muted); font-size: .85rem; }
+.chat-members h4 { margin: 20px 0 10px; font: 850 .72rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.chat-members .peer-device-row { align-items: center; padding-top: 10px; border-top: 1px solid var(--soft); }
+.chat-members .peer-device-row > span:first-child { display: grid; gap: 4px; color: var(--ink); }
+.chat-members .peer-device-row small { color: var(--muted); }
 .board-editing .column-title h2 { cursor: text; }
 .column-drag-handle { cursor: grab; touch-action: none; }
 .column-drag-handle:active { cursor: grabbing; }
@@ -558,6 +571,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
 }
 @media (max-width: 500px) {
+  .topbar-mobile-controls .local-state { font-size: 0; gap: 0; margin-right: 0; }
   .brand {
     flex: 0 0 auto;
   }

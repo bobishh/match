@@ -53,7 +53,7 @@ export type FieldDefinition = EntityBase & {
   kind: "field"
   required: boolean
 } & (
-  | { valueType: "text" | "url" | "date" | "boolean" }
+  | { valueType: "text" | "url" | "date" | "datetime" | "boolean" }
   | { valueType: "number"; min: number | null; max: number | null }
   | { valueType: "select"; options: Record<EntityId, FieldOption> }
 )
@@ -432,7 +432,7 @@ export function validateEntity(entity: unknown): CommandResult<WorkspaceEntity> 
       const unknownKey = assertNoUnknownKeys(e, [...commonKeys, "required", "valueType", "min", "max", "options"])
       if (unknownKey) return err("invalid_input", `Unknown key in field: ${unknownKey}`)
       if (typeof e.required !== "boolean") return err("invalid_input", "field required must be boolean")
-      const validTypes = ["text", "url", "date", "boolean", "number", "select"]
+      const validTypes = ["text", "url", "date", "datetime", "boolean", "number", "select"]
       if (!validTypes.includes(e.valueType as string)) {
         return err("invalid_input", `field valueType must be one of: ${validTypes.join(", ")}`)
       }

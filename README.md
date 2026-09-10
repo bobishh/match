@@ -4,7 +4,7 @@ Match is a local-first, peer-to-peer workspace board and task kernel with increm
 
 ## Features
 
-- **Generic Workspace Kernel**: Create independent workspaces (such as the default *Job search* pipeline or *Blank* boards) with custom columns, rational rank positioning, nested task hierarchies, workspace document templates, and typed fields (text, number, boolean, select, URL, date).
+- **Generic Workspace Kernel**: Create independent workspaces (such as the default *Job search* pipeline or *Blank* boards) with custom columns, rational rank positioning, nested task hierarchies, workspace document templates, and typed fields (text, number, boolean, select, URL, date, datetime).
 - **Preset Adapters & Legacy Aliases**: The *Job search* preset maps generic tasks to lead properties, document templates, and generated PDF artifacts while preserving its older lead-oriented tools.
 - **Trash & Needs Placement Recovery**: Soft-deleted columns and cards can be restored safely. Tasks with missing parents or cyclic references are deterministically surfaced under *Needs placement* for recovery without destructive repair writes.
 - **Local Automerge Durability**: All mutations are recorded as signed Automerge changes persisted atomically with change hashes, receipts, and public proofs in IndexedDB. Focus changes and `BroadcastChannel` synchronize same-device tabs instantly without network pairing.
@@ -16,9 +16,12 @@ Match is a local-first, peer-to-peer workspace board and task kernel with increm
   - Bounded framing limits physical frames to 1 MiB with reassembly up to 32 MiB.
   - Content-addressed blob storage with SHA-256 validation and resumable 256 KiB chunks.
   - Granular progress reporting separating document sync frontiers from pending file transfers.
+- **Workspace Chat**: Each workspace has a signed local-first chat and workspace-specific display names. Chat retains the newest 2,000 messages within a 4 MiB cap in a separate IndexedDB journal.
 - **Export Guarantees**: Exported `.match` bundles contain workspace metadata, task documents, Automerge CRDT history bytes, and public cryptographic proofs (`proofs.json`). Private signing keys, personal root documents, and pairing secrets are strictly excluded.
-- **Browser Lifetime & Persistence**: Peer-to-peer sync operates while browser tabs/workers remain open. Known peer trust and enrolled device certificates persist in IndexedDB across reloads without requiring another QR code scan.
-- **Explicit Limitations**: No central servers, accounts, or corporate organizations. Remote key revocation across offline peers and server-side secret recovery are explicitly unsupported.
+- **Browser Lifetime & Persistence**: A stable local node identity, workspace mesh credentials, signed peer advertisements, grants, and revocation records persist in IndexedDB. One elected tab owns the network node. Trusted peers reconnect after every tab closes and reopens; peers introduced by a common owner can later sync directly without that owner online.
+- **Owner-Controlled Access**: Workspace settings list trusted devices and presence. Only the workspace owner can invite or revoke. Signed revocations gossip through the mesh without consensus.
+- **Upgrade Behavior**: Existing task databases need no schema rewrite. Chat and peer state use new databases created lazily. Devices paired before durable mesh support need one new workspace invitation to receive the shared mesh credential and signed catalog.
+- **Explicit Limitations**: No central servers, accounts, corporate organizations, permanent replica, or server-side secret recovery. Revocation is eventually consistent while peers are offline: a partitioned peer rejects revoked access only after receiving the owner's signed tombstone from an up-to-date peer.
 
 ## WebMCP Tools
 

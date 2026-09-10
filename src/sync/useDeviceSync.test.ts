@@ -57,6 +57,25 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
     expect(sync.inviteUrl.value).toBe("")
   })
 
+  it("Given an editor, when they generate an invite, rejects before starting a network node", async () => {
+    let transportStarted = false
+    const sync = useDeviceSync({
+      workspace: { getBytes: () => new Uint8Array(), mergeBytes: async () => {} },
+      origin: () => "http://localhost:3000",
+      transport: { start: async () => { transportStarted = true; throw new Error("must not start") } } as any,
+      availableWorkspaces: { value: [{ id: "ws_1", title: "Shared" }] } as any,
+      activeWorkspaceId: () => "ws_1",
+      workspaceOwner: async () => "another-person",
+    })
+
+    sync.open()
+    await sync.generateWorkspaceInvite()
+
+    expect(transportStarted).toBe(false)
+    expect(sync.step.value).toBe("error")
+    expect(sync.error.value).toBe("Only the workspace owner can invite peers to Shared")
+  })
+
   it("handles expired invitation by setting error state and preventing connection", async () => {
     const sync = useDeviceSync({
       workspace: { getBytes: () => new Uint8Array(), mergeBytes: async () => {} },

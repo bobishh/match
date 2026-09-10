@@ -267,4 +267,55 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     field = queue.getDocument().entities[fieldId] as any
     expect(field.options[lowOpt.id].title).toBe("Minor")
   })
+
+  it("validates datetime field values when creating and patching tasks", async () => {
+    const rawWs = createWorkspaceDoc("ws_dt_test", "Datetime Board", profile.identity.personId, "blank")
+    const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
+    const queue = createCommandQueue(blankDoc, profile)
+    const board = Object.values(blankDoc.entities).find((e) => e.kind === "board")!
+    const col = Object.values(blankDoc.entities).find((e) => e.kind === "column")!
+
+    const fieldRes = await queue.transact({
+      kind: "createField",
+      boardId: board.id,
+      title: "Scheduled Time",
+      valueType: "datetime",
+      required: true,
+    })
+    expect(fieldRes.ok).toBe(true)
+    if (!fieldRes.ok) return
+    const fieldId = fieldRes.value.receipt.changedEntityIds[0]
+
+    // Creating with valid datetime succeeds
+    const taskRes = await queue.transact({
+      kind: "createTask",
+      parentId: col.id,
+      title: "Maintenance",
+      body: "",
+      values: { [fieldId]: "2026-09-12T03:00" },
+    })
+    expect(taskRes.ok).toBe(true)
+    if (!taskRes.ok) return
+    const taskId = taskRes.value.receipt.changedEntityIds[0]
+    const task = queue.getDocument().entities[taskId] as any
+    expect(task.values[fieldId]).toBe("2026-09-12T03:00")
+
+    // Patching with invalid datetime fails
+    const patchInvalid = await queue.transact({
+      kind: "patchTask",
+      entityId: taskId,
+      values: { [fieldId]: "invalid-datetime" },
+    })
+    expect(patchInvalid.ok).toBe(false)
+
+    // Patching with valid ISO datetime with seconds and Z succeeds
+    const patchValid = await queue.transact({
+      kind: "patchTask",
+      entityId: taskId,
+      values: { [fieldId]: "2026-09-12T03:30:00Z" },
+    })
+    expect(patchValid.ok).toBe(true)
+    const updatedTask = queue.getDocument().entities[taskId] as any
+    expect(updatedTask.values[fieldId]).toBe("2026-09-12T03:30:00Z")
+  })
 })

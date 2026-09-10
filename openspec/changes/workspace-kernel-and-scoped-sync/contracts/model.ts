@@ -59,7 +59,7 @@ export type FieldDefinition = EntityBase & {
   kind: "field"
   required: boolean
 } & (
-  | { valueType: "text" | "url" | "date" | "boolean" }
+  | { valueType: "text" | "url" | "date" | "datetime" | "boolean" }
   | { valueType: "number"; min: number | null; max: number | null }
   | { valueType: "select"; options: Record<EntityId, FieldOption> }
 )
@@ -110,7 +110,7 @@ export type WorkspaceSettingsDraft = {
     fields: Array<{
       id?: EntityId
       title: string
-      valueType: "text" | "number" | "boolean" | "select" | "url" | "date"
+      valueType: "text" | "number" | "boolean" | "select" | "url" | "date" | "datetime"
       required: boolean
       min?: number | null
       max?: number | null

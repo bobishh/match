@@ -153,10 +153,13 @@ export class BrowserNode {
         }
     }
     /**
+     * @param {Uint8Array | null} [secret]
      * @returns {Promise<BrowserNode>}
      */
-    static start() {
-        const ret = wasm.browsernode_start();
+    static start(secret) {
+        var ptr0 = isLikeNone(secret) ? 0 : passArray8ToWasm0(secret, wasm.__wbindgen_malloc);
+        var len0 = WASM_VECTOR_LEN;
+        const ret = wasm.browsernode_start(ptr0, len0);
         return ret;
     }
 }
@@ -319,10 +322,13 @@ export class IntoUnderlyingSource {
 if (Symbol.dispose) IntoUnderlyingSource.prototype[Symbol.dispose] = IntoUnderlyingSource.prototype.free;
 
 /**
+ * @param {Uint8Array | null} [secret]
  * @returns {Promise<BrowserNode>}
  */
-export function start_browser_node() {
-    const ret = wasm.start_browser_node();
+export function start_browser_node(secret) {
+    var ptr0 = isLikeNone(secret) ? 0 : passArray8ToWasm0(secret, wasm.__wbindgen_malloc);
+    var len0 = WASM_VECTOR_LEN;
+    const ret = wasm.start_browser_node(ptr0, len0);
     return ret;
 }
 function __wbg_get_imports() {

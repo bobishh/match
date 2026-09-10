@@ -34,7 +34,7 @@ const emit = defineEmits<{
   (e: "applyWorkspaceSettings", payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }): void
 }>()
 
-const activeTab = ref<"templates" | "json">("templates")
+const activeTab = ref<"templates" | "json" | "profile">("templates")
 const draft = ref<BoardSchemaDraft>(projectBoardSchema(props.doc, props.board.id))
 const editorEntityName = computed(() => draft.value.entityName || props.board.entityName || "item")
 const jsonText = ref<string>(JSON.stringify(draft.value, null, 2))
@@ -49,7 +49,7 @@ const workspaceErrors = ref<SchemaValidationError[]>([])
 // Tree view add field form state
 const showAddField = ref(false)
 const newFieldTitle = ref("")
-const newFieldValueType = ref<"text" | "number" | "boolean" | "select" | "url" | "date">("text")
+const newFieldValueType = ref<"text" | "number" | "boolean" | "select" | "url" | "date" | "datetime">("text")
 const newFieldRequired = ref(false)
 const newFieldOptions = ref("")
 
@@ -267,6 +267,7 @@ function handleConfirmApply() {
                 <option value="select">select</option>
                 <option value="url">url</option>
                 <option value="date">date</option>
+                <option value="datetime">datetime</option>
               </select>
             </label>
             <label v-if="newFieldValueType === 'select'">
@@ -324,6 +325,7 @@ function handleConfirmApply() {
 
       <template v-else>
         <div class="schema-tabs" role="tablist" aria-label="Workspace settings views">
+          <button v-if="$slots.profile" class="schema-tab-btn" :class="{ active: activeTab === 'profile' }" type="button" role="tab" :aria-selected="activeTab === 'profile'" @click="activeTab = 'profile'">Your profile</button>
           <button class="schema-tab-btn" :class="{ active: activeTab === 'templates' }" type="button" role="tab" :aria-selected="activeTab === 'templates'" @click="activeTab = 'templates'">Document templates</button>
           <button class="schema-tab-btn" :class="{ active: activeTab === 'json' }" type="button" role="tab" :aria-selected="activeTab === 'json'" @click="activeTab = 'json'">JSON</button>
         </div>
@@ -343,6 +345,7 @@ function handleConfirmApply() {
           </div>
         </div>
 
+        <div v-else-if="activeTab === 'profile'" class="schema-tab-content"><slot name="profile" /></div>
         <div v-else class="schema-tab-content workspace-json-editor">
           <p>Advanced workspace configuration. One apply updates workspace title, board, columns, fields, and document templates.</p>
           <div v-if="workspaceErrors.length" class="schema-error-banner" role="alert">

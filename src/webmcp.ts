@@ -85,7 +85,7 @@ const workspaceSettingsSchema = {
             properties: {
               id: { type: "string", description: "Keep returned IDs when editing. Omit only for new fields." },
               title: { type: "string" },
-              valueType: { type: "string", enum: ["text", "number", "boolean", "select", "url", "date"] },
+              valueType: { type: "string", enum: ["text", "number", "boolean", "select", "url", "date", "datetime"] },
               required: { type: "boolean" },
               min: { type: ["number", "null"] },
               max: { type: ["number", "null"] },

@@ -23,5 +23,5 @@ export type SyncNode = {
 }
 
 export type SyncTransport = {
-  start: () => Promise<SyncNode>
+  start: (secret?: Uint8Array) => Promise<SyncNode>
 }

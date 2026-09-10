@@ -136,6 +136,19 @@ describe("model runtime types and validators (Task 1.1)", () => {
     }
     expect(validateEntity(selectField).ok).toBe(true)
 
+    const datetimeField: FieldDefinition = {
+      id: "field_datetime",
+      kind: "field",
+      title: "Due Date & Time",
+      placement: { parentId: "board_1", rank: "3/1" },
+      deleted: false,
+      createdAt: "2026-09-09T10:00:00.000Z",
+      updatedAt: "2026-09-09T10:00:00.000Z",
+      required: false,
+      valueType: "datetime" as any,
+    }
+    expect(validateEntity(datetimeField).ok).toBe(true)
+
     const invalidNumberField = { ...numberField, min: "invalid" }
     expect(validateEntity(invalidNumberField).ok).toBe(false)
   })

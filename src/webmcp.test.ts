@@ -91,12 +91,17 @@ describe("WebMCP tools and legacy aliases (Task 1.12)", () => {
     const read = await registeredTools.get("get_workspace_settings").execute({})
     read.settings.workspace.title = "Agent workspace"
     read.settings.board.entityName = "record"
+    read.settings.board.fields = [
+      { title: "Due Date", valueType: "datetime", required: false },
+    ]
     read.settings.documentTemplates = [{ title: "Agent template", markdown: "# Record" }]
     const result = await registeredTools.get("apply_workspace_settings").execute({ settings: read.settings, expectedHeads: read.heads })
 
     expect(result.applied).toBe(true)
     expect(result.settings.workspace.title).toBe("Agent workspace")
     expect(result.settings.board.entityName).toBe("record")
+    expect(result.settings.board.fields[0].title).toBe("Due Date")
+    expect(result.settings.board.fields[0].valueType).toBe("datetime")
     expect(result.settings.documentTemplates[0].title).toBe("Agent template")
   })
 

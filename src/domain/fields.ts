@@ -40,6 +40,16 @@ export function validateFieldValue(
       }
       return { valid: true }
 
+    case "datetime":
+      if (
+        typeof value !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/.test(value) ||
+        Number.isNaN(Date.parse(value))
+      ) {
+        return { valid: false, issue: `${field.title} must be a valid datetime` }
+      }
+      return { valid: true }
+
     case "boolean":
       if (typeof value !== "boolean") {
         return { valid: false, issue: `${field.title} must be true or false` }

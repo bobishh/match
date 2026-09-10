@@ -29,7 +29,10 @@ describe("workspace settings transaction", () => {
     settings.workspace.title = "After"
     settings.board.entityName = "book"
     settings.board.columns[0].title = "Unread"
-    settings.board.fields = [{ title: "Author", valueType: "text", required: true }]
+    settings.board.fields = [
+      { title: "Author", valueType: "text", required: true },
+      { title: "Published At", valueType: "datetime" as any, required: false },
+    ]
     settings.documentTemplates = [{ title: "Review", markdown: "# {{title}}" }]
 
     const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings, expectedHeads: Automerge.getHeads(doc) }, profile)
@@ -41,6 +44,8 @@ describe("workspace settings transaction", () => {
     expect(projected.board.entityName).toBe("book")
     expect(projected.board.columns[0].title).toBe("Unread")
     expect(projected.board.fields[0].title).toBe("Author")
+    expect(projected.board.fields[1].title).toBe("Published At")
+    expect(projected.board.fields[1].valueType).toBe("datetime")
     expect(projected.documentTemplates[0]).toMatchObject({ title: "Review", markdown: "# {{title}}" })
   })
 

@@ -31,6 +31,23 @@ describe("Field validation and lifecycle (Task 1.5)", () => {
     expect(validateFieldValue(dateField, "09-09-2026").valid).toBe(false)
     expect(validateFieldValue(dateField, null).valid).toBe(true) // optional
 
+    const dateTimeField: FieldDefinition = { ...baseField, id: "f_datetime", required: false, valueType: "datetime" as any }
+    expect(validateFieldValue(dateTimeField, "2026-09-09T14:30").valid).toBe(true)
+    expect(validateFieldValue(dateTimeField, "2026-09-09T14:30:00").valid).toBe(true)
+    expect(validateFieldValue(dateTimeField, "2026-09-09T14:30:00Z").valid).toBe(true)
+    expect(validateFieldValue(dateTimeField, "2026-09-09T14:30:00+02:00").valid).toBe(true)
+    expect(validateFieldValue(dateTimeField, "2026-09-09T14:30:00.123Z").valid).toBe(true)
+    expect(validateFieldValue(dateTimeField, "2026-09-09").valid).toBe(false) // date only without time
+    expect(validateFieldValue(dateTimeField, "2026-09-09 14:30").valid).toBe(false) // missing T
+    expect(validateFieldValue(dateTimeField, "not-a-datetime").valid).toBe(false)
+    expect(validateFieldValue(dateTimeField, "2026-13-45T99:99").valid).toBe(false) // invalid values
+    expect(validateFieldValue(dateTimeField, null).valid).toBe(true) // optional
+
+    const reqDateTimeField: FieldDefinition = { ...baseField, id: "f_req_datetime", required: true, valueType: "datetime" as any }
+    expect(validateFieldValue(reqDateTimeField, null).valid).toBe(false) // required
+    expect(validateFieldValue(reqDateTimeField, "").valid).toBe(false) // required
+    expect(validateFieldValue(reqDateTimeField, "2026-09-09T14:30").valid).toBe(true)
+
     const numField: FieldDefinition = { ...baseField, id: "f_num", required: false, valueType: "number", min: 0, max: 10 }
     expect(validateFieldValue(numField, 5).valid).toBe(true)
     expect(validateFieldValue(numField, 0).valid).toBe(true)
