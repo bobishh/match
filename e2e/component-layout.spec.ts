@@ -22,6 +22,19 @@ async function expectInsideViewport(locator: Locator, page: Page) {
 }
 
 test.describe("Component layout audit", () => {
+  test("Given a wide desktop, when all job columns fit, then the board uses available width without horizontal scrolling", async ({ page }) => {
+    await page.setViewportSize({ width: 1920, height: 1000 })
+    await page.goto("/")
+
+    const geometry = await page.getByRole("region", { name: "Job search" }).evaluate((board) => ({
+      clientWidth: board.clientWidth,
+      scrollWidth: board.scrollWidth,
+      viewportWidth: document.documentElement.clientWidth,
+    }))
+    expect(geometry.clientWidth).toBe(geometry.viewportWidth)
+    expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth)
+  })
+
   test("Given desktop viewport, when recent dialogs open, then spacing and geometry stay consistent", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await createBlankWorkspace(page)

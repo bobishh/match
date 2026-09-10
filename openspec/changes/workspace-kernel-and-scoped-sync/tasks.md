@@ -105,3 +105,8 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 - [x] 11.1 Replace job-search filter enums with column IDs, live select option IDs/titles, number ranges, boolean values, and date ranges from the active schema.
 - [x] 11.2 Apply the same search/filter path to preset and generic workspace tasks; reset filter state when switching workspaces.
 - [x] 11.3 Verify renamed options, generic select filtering, numeric schema bounds, regressions, build, and OpenSpec.
+
+## 12. User Steering: Wide desktop board layout
+
+- [x] 12.1 Remove the fixed board-width ceiling and unnecessary stable scrollbar gutter while retaining narrow-screen horizontal navigation.
+- [x] 12.2 Verify a 1920px board fills the viewport and has no horizontal overflow when its columns fit.
