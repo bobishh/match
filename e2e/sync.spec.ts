@@ -220,6 +220,8 @@ test("Given a QR invitation opened in a scanner, when its current URL opens in a
   await expect(dialog.getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
   await expect(page).toHaveURL(/\/pair#/)
   const handoffUrl = page.url()
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await expect(page).toHaveURL(handoffUrl)
   await page.reload()
   await expect(dialog.getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
   const otherContext = await browser.newContext()
@@ -232,6 +234,21 @@ test("Given a QR invitation opened in a scanner, when its current URL opens in a
     await otherContext.close()
   }
 })
+
+for (const exit of ["Dismiss", "Close", "Escape"]) {
+  test(`Given an expired invitation, when its error is closed with ${exit}, then the URL returns to the board and reload stays there`, async ({ page }) => {
+    await page.goto("/pair?view=board#v=1&kind=workspace-join&invitationId=expired&workspaceId=ws1&expiresAt=2020-01-01T00:00:00.000Z&endpoint=peer1&secret=abc")
+    const dialog = page.getByRole("dialog", { name: "Device sync" })
+    await expect(dialog.getByRole("alert")).toHaveText("This invitation has expired.")
+    if (exit === "Escape") await page.keyboard.press("Escape")
+    else await dialog.getByRole("button", { name: exit, exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page).toHaveURL("http://127.0.0.1:4244/?view=board")
+    await page.reload()
+    await expect(page.getByRole("region", { name: "Job search", exact: true })).toBeVisible()
+    await expect(dialog).toBeHidden()
+  })
+}
 
 test("Given paired browser profiles, when either peer changes a card, then the other board updates without another QR", async ({ browser, page }) => {
   const origin = "http://127.0.0.1:4244"

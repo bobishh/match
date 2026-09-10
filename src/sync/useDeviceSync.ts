@@ -207,7 +207,19 @@ export function useDeviceSync({
     await stopNode("Pairing closed")
   }
 
-  function dismiss() {
+  async function dismiss() {
+    if (step.value === "error") {
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href)
+        if (url.pathname.replace(/\/$/, "") === "/pair") {
+          url.pathname = "/"
+          url.hash = ""
+          window.history.replaceState(window.history.state, "", url)
+        }
+      }
+      await close()
+      return
+    }
     isOpen.value = false
   }
 
