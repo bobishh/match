@@ -229,10 +229,12 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .workspace-active-badge { margin-left: auto; padding: 5px 7px; border: 1px solid var(--line); color: var(--muted); background: var(--panel); font: 800 .62rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .workspace-create-form { display: grid; gap: 18px; margin: 24px 0; }
 .workspace-create-form > label { display: grid; gap: 7px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.workspace-create-form input { width: 100%; padding: 10px 12px; }
-.workspace-preset { display: grid; gap: 12px; margin: 0; padding: 16px; border: 2px solid var(--line); background: var(--soft); }
+.workspace-create-form > label input { width: 100%; padding: 10px 12px; }
+.workspace-preset { min-inline-size: 0; display: grid; gap: 12px; margin: 0; padding: 12px; border: 2px solid var(--line); background: var(--soft); }
 .workspace-preset legend { padding: 0 6px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.workspace-preset-options { display: grid; gap: 10px; }.workspace-preset-options label { display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.workspace-preset-options { display: grid; gap: 4px; }
+.workspace-preset-options label { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 8px; cursor: pointer; }
+.workspace-preset-options input { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--ink); }
 .template-list { display: grid; align-content: start; gap: 8px; padding-right: 18px; border-right: 2px solid var(--line); }
 .template-item { display: grid; gap: 4px; padding: 10px; border: 2px solid var(--line); color: var(--ink); background: white; text-align: left; }
 .template-item:hover, .template-item.active { background: var(--yellow); }

@@ -262,7 +262,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toHaveCount(0)
     await peerDialog.getByRole("button", { name: "Connect to mesh" }).click()
     await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
-    await expect(peer).toHaveURL(`${origin}/`)
+    await expect(peer).toHaveURL(invite)
     await expect(hostDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
     await expect(peer.getByText("1 card · 0 docs")).toBeVisible()
     await peerDialog.getByRole("button", { name: "Close" }).click()

@@ -212,11 +212,6 @@ export function useDeviceSync({
   function attachLiveSession(session: LiveWorkspaceSync, currentRun: number) {
     liveSession = session
     isLive.value = true
-    // Keep the invitation intact for scanner-to-browser handoff and retries.
-    // Remove its secret only after the live session has connected successfully.
-    if (typeof window !== "undefined" && window.location.pathname.replace(/\/$/, "") === "/pair" && window.location.hash) {
-      window.history.replaceState({}, "", "/")
-    }
     stopWatchingWorkspace = workspace.subscribe?.(() => {
       void session.publish().catch((syncError) => {
         if (currentRun !== run) return

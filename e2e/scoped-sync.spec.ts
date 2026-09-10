@@ -178,8 +178,8 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
       await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
 
-      // Reload second device
-      await secondPage.reload()
+      // Reopen the board directly; reloading an invitation intentionally keeps its join screen.
+      await secondPage.goto(`${origin}/`)
       // Durable trust persists in storage, board loads properly
       await expect(secondPage.getByRole("heading", { name: "Match" })).toBeVisible()
       await secondPage.getByRole("button", { name: "Sync", exact: true }).click()
