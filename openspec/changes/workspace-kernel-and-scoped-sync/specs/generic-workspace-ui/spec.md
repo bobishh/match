@@ -96,6 +96,13 @@ The system SHALL retain legacy job-search WebMCP adapters while exposing generic
 - **THEN** the board expands to the viewport instead of stopping at a fixed desktop maximum
 - **AND** no horizontal board scrollbar appears.
 
+#### Scenario: Expanded collapsed-style column shares normal sizing
+
+- **GIVEN** a column has the collapsed display hint
+- **WHEN** the user expands it
+- **THEN** it uses the same flex sizing and minimum width as ordinary columns at every viewport
+- **AND** only its closed state uses the narrow fixed width.
+
 ### Requirement: Mobile-first navigation and accessible drawer
 
 The system SHALL provide a mobile-first header with an accessible hamburger menu trigger on mobile viewports (≤768px). The drawer SHALL house navigation in clearly labeled semantic groups: Workspaces, Board & Schema, Collaboration, Data & Storage, Recovery, and Resources. It SHALL manage keyboard focus (focus trap, Escape key to close, focus restoration to trigger), support backdrop dismissal, and prevent accidental horizontal page-level overflow across 360px, 390px, and 430px viewports while preserving direct desktop usability at 1024px.

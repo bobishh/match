@@ -93,8 +93,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 
 .board { width: 100%; margin: 0 auto; padding: clamp(26px, 4vw, 52px) clamp(16px, 4vw, 56px) 100px; display: flex; gap: 20px; align-items: stretch; overflow-x: auto; overscroll-behavior-x: contain; }
 .column { flex: 1 0 220px; min-width: 220px; min-height: 520px; display: flex; flex-direction: column; border: 2px solid var(--line); background: var(--panel); box-shadow: var(--shadow); overflow: hidden; transition: background .15s, box-shadow .15s, transform .15s; }
-.bin-column { flex: 0 0 76px; min-width: 76px; min-height: 520px; background: var(--ink); box-shadow: 6px 6px 0 var(--red); transition: flex-basis .32s ease, background .32s ease, box-shadow .32s ease; }
-.board-bin-open .bin-column { flex-basis: clamp(220px, 18vw, 280px); }
+.bin-column:not(.bin-column-open) { flex: 0 0 76px; min-width: 76px; background: var(--ink); box-shadow: 6px 6px 0 var(--red); transition: flex-basis .32s ease, background .32s ease, box-shadow .32s ease; }
 .bin-column-open { background: var(--panel); box-shadow: var(--shadow); }
 .bin-closed { width: 100%; min-height: 516px; display: grid; align-content: center; justify-items: center; gap: 14px; padding: 12px 6px; border: 0; color: white; background: transparent; }
 .bin-closed:hover { color: var(--yellow); background: #2a2a2a; }
@@ -193,7 +192,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .detail-scroll { min-height: 0; overflow: auto; padding-right: 3px; }
 .status-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }.status-strip button { border: 2px solid var(--line); padding: 8px 9px; color: var(--ink); background: white; font: 800 .66rem/1 ui-monospace, monospace; text-transform: uppercase; }.status-strip button.active { color: white; background: var(--ink); }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 15px 0; border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); }.detail-grid div { display: grid; gap: 6px; }.detail-grid strong { font-size: .88rem; text-transform: capitalize; }.detail-grid small { color: var(--muted); font-size: .72rem; }.source-link { display: inline-block; margin: 18px 0 4px; color: var(--blue); font-weight: 800; text-decoration-thickness: 2px; text-underline-offset: 3px; }.detail-section { margin-top: 25px; }.detail-copy, .source-snapshot { margin-top: 9px; color: var(--ink); white-space: pre-wrap; font-size: .88rem; line-height: 1.55; }.source-snapshot { max-height: 190px; overflow: auto; padding: 11px; border: 2px solid var(--line); background: white; font: .7rem/1.5 ui-monospace, monospace; }.section-heading { justify-content: space-between; align-items: end; }.section-heading h3 { margin-top: 6px; font-size: 1rem; }.document-form { display: grid; gap: 11px; margin-top: 14px; padding: 14px; border: 2px solid var(--line); background: var(--soft); }.document-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px; border: 2px solid var(--line); background: white; }.document-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 2px solid var(--line); color: var(--blue); font: 900 .55rem/1 ui-monospace, monospace; }.document-row div { display: grid; gap: 3px; flex: 1; }.document-row strong { font-size: .8rem; }.document-row span { color: var(--muted); font: 700 .64rem/1 ui-monospace, monospace; }.open-path { color: var(--blue); font: 800 .65rem/1 ui-monospace, monospace; }
 
-@media (max-width: 1250px) { .board { padding-right: 16px; }.board-bin-open .bin-column { flex-basis: 220px; } }
+@media (max-width: 1250px) { .board { padding-right: 16px; } }
 @media (max-width: 1320px) and (min-width: 721px) {
   .toolbar { grid-template-columns: minmax(220px, 360px) minmax(0, 1fr); align-items: center; }
   .filters-panel { grid-column: 1 / -1; }
@@ -428,24 +427,13 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
     padding: 16px 16px 48px;
     box-sizing: border-box;
   }
-  .board-bin-open {
-    --bin-width: calc(100vw - 32px);
-  }
   .column {
     flex: 0 0 calc(100vw - 32px);
     min-width: 0;
     scroll-snap-align: start;
     scroll-snap-stop: always;
   }
-  .bin-column {
-    flex-basis: 76px;
-    min-width: 76px;
-  }
   .add-column-card { flex-basis: calc(100vw - 32px); min-width: 0; scroll-snap-align: start; }
-  .board-bin-open .bin-column {
-    flex-basis: calc(100vw - 32px);
-    min-width: 0;
-  }
   .detail-dialog {
     width: 100%;
     max-height: calc(100vh - 32px);

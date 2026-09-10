@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-for (const width of [1440, 1024, 390]) {
+for (const width of [1920, 1440, 1024, 390]) {
   test(`Given all job-search statuses at ${width}px, when archive opens and closes, then every column stays in one horizontal row`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto("/")
@@ -28,7 +28,13 @@ for (const width of [1440, 1024, 390]) {
     await archive.getByRole("button", { name: "Open archive with 0 cards" }).click()
     await expect(archive.getByText("No cards")).toBeVisible()
     await expectSingleRow()
+    await expect.poll(async () => {
+      const archiveBox = await archive.boundingBox()
+      const regularBox = await page.getByRole("region", { name: "Lead", exact: true }).boundingBox()
+      return Math.abs(archiveBox!.width - regularBox!.width)
+    }).toBeLessThan(1)
     await archive.getByRole("button", { name: "Collapse archive" }).click()
     await expectSingleRow()
+    await expect.poll(async () => (await archive.boundingBox())!.width).toBe(76)
   })
 }
