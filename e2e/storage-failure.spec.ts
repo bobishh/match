@@ -1,0 +1,21 @@
+import { expect, test } from "@playwright/test"
+
+test("Given storage failure, when an item is saved, then failure stays visible and no card publishes", async ({ page }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  await page.getByRole("button", { name: "New workspace" }).click()
+  const create = page.getByRole("dialog", { name: "Create workspace" })
+  await create.getByLabel("Title").fill("Failure board")
+  await create.getByRole("radio", { name: "Blank board" }).check()
+  await create.getByRole("button", { name: "Create" }).click()
+  await page.getByRole("button", { name: /Add item to/ }).first().click()
+  const form = page.getByRole("dialog", { name: "Item details" })
+  await form.getByLabel("Title *").fill("Unsaved item")
+  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+
+  await form.getByRole("button", { name: "Save item" }).click()
+
+  await expect(form.getByRole("alert")).toContainText(/Storage failure|Save failed/i)
+  await expect(page.getByText("Pending save")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Open Unsaved item" })).toHaveCount(0)
+})

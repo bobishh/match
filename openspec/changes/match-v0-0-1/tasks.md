@@ -1,7 +1,7 @@
 ## 1. Product surface
 
 - [x] 1.1 Create standalone Vue 3 + TypeScript + Vite app under `match/`.
-- [x] 1.2 Render five Trello-equivalent columns: Lead, Applied, Interview, Rejected, Offer.
+- [x] 1.2 Render five Trello-equivalent columns: Lead, Applied, Interview, Offer, Archive.
 - [x] 1.3 Add flat lead creation form with duplicate detection.
 - [x] 1.4 Add selected-card detail panel with status controls.
 - [x] 1.5 Add document attachment flow and visible document badges.
@@ -10,9 +10,9 @@
 
 ## 2. WebMCP
 
-- [ ] 2.1 Register flat imperative tools after first browser preview.
-- [ ] 2.2 Validate valid create/move/document tool calls against visible state.
-- [ ] 2.3 Validate invalid field and nested-payload failures without state corruption.
+- [x] 2.1 Register flat imperative tools after first browser preview.
+- [x] 2.2 Validate valid create/move/document tool calls against visible state.
+- [x] 2.3 Validate invalid field and nested-payload failures without state corruption.
 
 ## 3. Merge and sync boundary
 
@@ -28,10 +28,10 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Add Playwright happy-path board/card/document flow.
-- [ ] 4.2 Add validation failure flow for missing company/role and duplicate URL.
-- [ ] 4.3 Add reload persistence check.
-- [ ] 4.4 Add responsive board/detail-panel check.
+- [x] 4.1 Add Playwright happy-path board/card/document flow.
+- [x] 4.2 Add validation failure flow for missing company/role and duplicate URL.
+- [x] 4.3 Add reload persistence check.
+- [x] 4.4 Add responsive board/detail-panel check.
 - [x] 4.5 Add protocol/session tests and isolated-profile QR pairing BDD coverage.
 - [x] 4.6 Add isolated-profile BDD coverage for a post-pair card change.
 - [x] 4.7 Add 390-by-844 BDD coverage for collapsed filters and snap-sized pipeline columns.

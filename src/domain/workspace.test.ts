@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest"
-import { createDocument, createLead, deleteDocument, deleteLead, documentsFor, moveLead, updateDocument, updateLead } from "./workspace"
+import { artifactsFor, createArtifact, createDocument, createLead, createTemplate, deleteDocument, deleteLead, documentsFor, moveLead, updateDocument, updateLead, updateTemplate } from "./workspace"
 import type { CommandContext } from "./workspace"
-import type { Workspace } from "../types"
+import { normalizeWorkspace, type Workspace } from "../types"
 
 const context: CommandContext = {
   id: (prefix) => `${prefix}_1`,
   now: () => "2026-09-08T12:00:00.000Z",
 }
 
-const empty: Workspace = { leads: [], documents: [] }
+const empty: Workspace = { leads: [], documents: [], templates: [], artifacts: [] }
 
 describe("workspace commands", () => {
   it("creates a lead without mutating the current workspace", () => {
@@ -40,6 +40,23 @@ describe("workspace commands", () => {
     const document = createDocument(lead.workspace, { leadId: lead.lead.id, kind: "cv", title: "CV", format: "markdown" }, context)
 
     expect(deleteDocument(document.workspace, document.document.id).workspace.documents).toEqual([])
-    expect(deleteLead(document.workspace, lead.lead.id).workspace).toEqual({ leads: [], documents: [] })
+    expect(deleteLead(document.workspace, lead.lead.id).workspace).toEqual({ leads: [], documents: [], templates: [], artifacts: [] })
+  })
+
+  it("keeps Markdown bases global and PDF outputs bound to a lead", () => {
+    const template = createTemplate(empty, { name: "General CV", markdown: "# Candidate" }, context)
+    const updatedTemplate = updateTemplate(template.workspace, template.template.id, { markdown: "# Updated candidate" }, "2026-09-09T12:00:00.000Z")
+    const lead = createLead(updatedTemplate.workspace, { company: "Cleo", role: "Ruby", status: "lead" }, context)
+    const artifact = createArtifact(lead.workspace, { leadId: lead.lead.id, kind: "cv", title: "Cleo CV", templateId: template.template.id, pdfPath: "/tmp/cleo-cv.pdf" }, context)
+
+    expect(updatedTemplate.template).toMatchObject({ id: template.template.id, markdown: "# Updated candidate" })
+    expect(artifactsFor(artifact.workspace, lead.lead.id)).toEqual([expect.objectContaining({ templateId: template.template.id, pdfPath: "/tmp/cleo-cv.pdf" })])
+    expect(deleteLead(artifact.workspace, lead.lead.id).workspace).toMatchObject({ templates: [updatedTemplate.template], artifacts: [] })
+  })
+
+  it("preserves legacy rejected cards with rejected status instead of archiving", () => {
+    const normalized = normalizeWorkspace({ leads: [{ id: "lead_legacy", status: "rejected" }] as unknown as Workspace["leads"] })
+
+    expect(normalized.leads[0]?.status).toBe("rejected")
   })
 })

@@ -1,29 +1,41 @@
-import type { Lead, LeadPriority, LeadStatus } from "./types"
+import type { EntityId, Task } from "./domain/model"
 
-export type LeadFilters = {
-  status: LeadStatus | "all"
-  priority: LeadPriority | "all"
-  workMode: NonNullable<Lead["workMode"]> | "all"
-  fit: "all" | "strong" | "possible" | "low" | "unscored"
+export type FilterRange = { min: string; max: string }
+
+export type BoardFilters = {
+  columnId: EntityId | ""
+  fieldValues: Record<EntityId, string>
+  numberRanges: Record<EntityId, FilterRange>
+  dateRanges: Record<EntityId, FilterRange>
 }
 
-export const defaultLeadFilters: LeadFilters = {
-  status: "all",
-  priority: "all",
-  workMode: "all",
-  fit: "all",
+export function defaultBoardFilters(): BoardFilters {
+  return { columnId: "", fieldValues: {}, numberRanges: {}, dateRanges: {} }
 }
 
-export function matchesLeadFilters(lead: Lead, filters: LeadFilters) {
-  const fit = lead.fitScore
-  const matchesFit = filters.fit === "all"
-    || (filters.fit === "strong" && fit !== undefined && fit >= 8)
-    || (filters.fit === "possible" && fit !== undefined && fit >= 6 && fit < 8)
-    || (filters.fit === "low" && fit !== undefined && fit < 6)
-    || (filters.fit === "unscored" && fit === undefined)
+function matchesRange(value: unknown, range: FilterRange, kind: "number" | "date") {
+  if (!range.min && !range.max) return true
+  if (kind === "number") {
+    if (typeof value !== "number") return false
+    return (!range.min || value >= Number(range.min)) && (!range.max || value <= Number(range.max))
+  }
+  if (typeof value !== "string") return false
+  return (!range.min || value >= range.min) && (!range.max || value <= range.max)
+}
 
-  return (filters.status === "all" || lead.status === filters.status)
-    && (filters.priority === "all" || lead.priority === filters.priority)
-    && (filters.workMode === "all" || lead.workMode === filters.workMode)
-    && matchesFit
+export function matchesTaskFilters(task: Task, columnId: EntityId, filters: BoardFilters) {
+  if (filters.columnId && filters.columnId !== columnId) return false
+
+  for (const [fieldId, expected] of Object.entries(filters.fieldValues)) {
+    if (!expected) continue
+    const actual = task.values[fieldId]
+    if (expected === "__true" ? actual !== true : expected === "__false" ? actual !== false : actual !== expected) return false
+  }
+  for (const [fieldId, range] of Object.entries(filters.numberRanges)) {
+    if (!matchesRange(task.values[fieldId], range, "number")) return false
+  }
+  for (const [fieldId, range] of Object.entries(filters.dateRanges)) {
+    if (!matchesRange(task.values[fieldId], range, "date")) return false
+  }
+  return true
 }

@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim"
 import automergeWasmUrl from "@automerge/automerge/automerge.wasm?url"
-import type { Document, Lead, Workspace } from "./types"
+import { normalizeWorkspace, type Artifact, type Document, type Lead, type Template, type Workspace } from "./types"
 
 let automergeReady: Promise<void> | undefined
 
@@ -11,6 +11,8 @@ export function initializeAutomerge(): Promise<void> {
 export type WorkspaceDocument = {
   leads: Lead[]
   documents: Document[]
+  templates: Template[]
+  artifacts: Artifact[]
 }
 
 export type WorkspaceDoc = Automerge.Doc<WorkspaceDocument>
@@ -20,6 +22,8 @@ export function newWorkspaceDoc(workspace: Workspace): WorkspaceDoc {
   doc = Automerge.change(doc, { message: "Create Match workspace" }, (draft) => {
     draft.leads = clone(workspace.leads)
     draft.documents = clone(workspace.documents)
+    draft.templates = clone(workspace.templates)
+    draft.artifacts = clone(workspace.artifacts)
   })
   return doc
 }
@@ -28,6 +32,8 @@ export function updateWorkspaceDoc(doc: WorkspaceDoc, workspace: Workspace, mess
   return Automerge.change(doc, { message }, (draft) => {
     draft.leads = clone(workspace.leads)
     draft.documents = clone(workspace.documents)
+    draft.templates = clone(workspace.templates)
+    draft.artifacts = clone(workspace.artifacts)
   })
 }
 
@@ -44,14 +50,18 @@ export function workspaceHeads(doc: WorkspaceDoc): string[] {
 }
 
 export function workspaceFromDoc(doc: WorkspaceDoc): Workspace {
-  return {
+  return normalizeWorkspace({
     leads: clone(doc.leads),
     documents: clone(doc.documents),
-  }
+    templates: clone(doc.templates ?? []),
+    artifacts: clone(doc.artifacts ?? []),
+  })
 }
 
 export function mergeWorkspaceDocs(local: WorkspaceDoc, remote: WorkspaceDoc): WorkspaceDoc {
-  return Automerge.merge(local, remote)
+  // Automerge freezes both merge arguments. The current local document must stay
+  // writable when a no-op reconciliation keeps it instead of the merge result.
+  return Automerge.merge(Automerge.clone(local), remote)
 }
 
 function clone<T>(value: T): T {

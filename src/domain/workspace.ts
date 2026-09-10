@@ -1,7 +1,7 @@
-import type { Document, DocumentInput, Lead, LeadInput, LeadStatus, Workspace } from "../types"
+import type { Artifact, ArtifactInput, Document, DocumentInput, Lead, LeadInput, LeadStatus, Template, TemplateInput, Workspace } from "../types"
 
 export type CommandContext = {
-  id: (prefix: "lead" | "doc") => string
+  id: (prefix: "lead" | "doc" | "template" | "artifact") => string
   now: () => string
 }
 
@@ -27,6 +27,8 @@ export function deleteLead(workspace: Workspace, leadId: string) {
     workspace: {
       leads: workspace.leads.filter((lead) => lead.id !== leadId),
       documents: workspace.documents.filter((document) => document.leadId !== leadId),
+      templates: workspace.templates,
+      artifacts: workspace.artifacts.filter((artifact) => artifact.leadId !== leadId),
     },
   }
 }
@@ -50,4 +52,27 @@ export function deleteDocument(workspace: Workspace, documentId: string) {
 
 export function documentsFor(workspace: Workspace, leadId: string) {
   return workspace.documents.filter((document) => document.leadId === leadId)
+}
+
+export function createTemplate(workspace: Workspace, input: TemplateInput, context: CommandContext) {
+  const timestamp = context.now()
+  const template: Template = { ...input, id: context.id("template"), createdAt: timestamp, updatedAt: timestamp }
+  return { template, workspace: { ...workspace, templates: [template, ...workspace.templates] } }
+}
+
+export function updateTemplate(workspace: Workspace, templateId: string, patch: Partial<TemplateInput>, timestamp: string) {
+  const current = workspace.templates.find((template) => template.id === templateId)
+  if (!current) return { template: undefined, workspace }
+  const template: Template = { ...current, ...patch, id: current.id, createdAt: current.createdAt, updatedAt: timestamp }
+  return { template, workspace: { ...workspace, templates: workspace.templates.map((item) => item.id === templateId ? template : item) } }
+}
+
+export function createArtifact(workspace: Workspace, input: ArtifactInput, context: CommandContext) {
+  const timestamp = context.now()
+  const artifact: Artifact = { ...input, id: context.id("artifact"), createdAt: timestamp, updatedAt: timestamp }
+  return { artifact, workspace: { ...workspace, artifacts: [artifact, ...workspace.artifacts] } }
+}
+
+export function artifactsFor(workspace: Workspace, leadId: string) {
+  return workspace.artifacts.filter((artifact) => artifact.leadId === leadId)
 }

@@ -5,7 +5,7 @@ Job-search work currently lives across Trello cards, local CV/cover-letter folde
 ## What Changes
 
 - Add a standalone Vue 3 + TypeScript Match app under `match/`.
-- Render the exact pipeline used by the Trello board: Lead, Applied, Interview, Rejected, Offer.
+- Render the exact pipeline used by the Trello board: Lead, Applied, Interview, Offer, Archive.
 - Represent each vacancy as one flat card. Do not require organization records, application records, or setup flows.
 - Attach CVs, cover letters, notes, and file references directly to cards.
 - Persist local workspace data in IndexedDB as an Automerge document and export a `.match` bundle.

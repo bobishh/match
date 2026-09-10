@@ -52,15 +52,52 @@ async function closeAcceptor(acceptor: SyncAcceptor | undefined) {
   await acceptor?.close()
 }
 
-function liveWorkspaceSync(connection: SyncConnection, secret: string, workspace: WorkspaceReplica): LiveWorkspaceSync {
+import { ReplicationService } from "./replication"
+import * as Automerge from "@automerge/automerge/slim"
+
+export type LiveWorkspaceSyncOptions = {
+  peerId?: string
+  workspaceId?: string
+  replicationService?: ReplicationService
+}
+
+export function liveWorkspaceSync(
+  connection: SyncConnection,
+  secret: string,
+  workspace: WorkspaceReplica,
+  options?: LiveWorkspaceSyncOptions
+): LiveWorkspaceSync {
   let stopped = false
   let publishQueue = Promise.resolve()
+  const repl = options?.replicationService
+  const peerId = options?.peerId ?? "peer"
+  const workspaceId = options?.workspaceId ?? "workspace"
+
+  if (repl) {
+    try {
+      const doc = Automerge.load(workspace.getBytes())
+      repl.trackDocument(workspaceId, doc)
+    } catch {}
+  }
 
   const done = (async () => {
     while (!stopped) {
       const stream = await connection.acceptStream()
       if (stopped) return
-      await workspace.mergeBytes(decodePairingFrame(await stream.read(), "sync-update", secret))
+      const raw = await stream.read()
+      const payload = decodePairingFrame(raw, "sync-update", secret)
+
+      if (repl) {
+        try {
+          const { doc } = repl.receiveSyncMessage(peerId, workspaceId, payload)
+          await workspace.mergeBytes(Automerge.save(doc))
+        } catch {
+          await workspace.mergeBytes(payload)
+        }
+      } else {
+        await workspace.mergeBytes(payload)
+      }
+
       await stream.closeSend()
     }
   })().catch((error) => {
@@ -73,6 +110,20 @@ function liveWorkspaceSync(connection: SyncConnection, secret: string, workspace
       publishQueue = publishQueue.then(async () => {
         if (stopped) return
         const stream = await connection.openStream()
+
+        if (repl) {
+          try {
+            const doc = Automerge.load(workspace.getBytes())
+            repl.updateDocument(workspaceId, doc)
+            const delta = repl.generateSyncMessage(peerId, workspaceId)
+            if (delta && delta.length > 0) {
+              await stream.send(encodePairingFrame("sync-update", secret, delta))
+              await stream.closeSend()
+              return
+            }
+          } catch {}
+        }
+
         await stream.send(encodePairingFrame("sync-update", secret, workspace.getBytes()))
         await stream.closeSend()
       })
@@ -86,7 +137,12 @@ function liveWorkspaceSync(connection: SyncConnection, secret: string, workspace
   }
 }
 
-export async function acceptWorkspaceSync(node: SyncNode, secret: string, workspace: WorkspaceReplica): Promise<LiveWorkspaceSync> {
+export async function acceptWorkspaceSync(
+  node: SyncNode,
+  secret: string,
+  workspace: WorkspaceReplica,
+  options?: LiveWorkspaceSyncOptions
+): Promise<LiveWorkspaceSync> {
   let acceptor: SyncAcceptor | undefined
   let connection: SyncConnection | undefined
   let paired = false
@@ -104,7 +160,7 @@ export async function acceptWorkspaceSync(node: SyncNode, secret: string, worksp
     decodePairingFrame(await acknowledgement.read(), "sync-ack", secret)
     await acknowledgement.closeSend()
     paired = true
-    return liveWorkspaceSync(connection, secret, workspace)
+    return liveWorkspaceSync(connection, secret, workspace, options)
   } finally {
     await closeAcceptor(acceptor)
     if (!paired) await connection?.close()
@@ -115,7 +171,7 @@ export async function joinWorkspaceSync(
   node: SyncNode,
   invite: PairingInvite,
   workspace: WorkspaceReplica,
-  options: JoinOptions = {},
+  options: JoinOptions & LiveWorkspaceSyncOptions = {},
 ) {
   let connection: SyncConnection | undefined
   let paired = false
@@ -130,7 +186,7 @@ export async function joinWorkspaceSync(
     await acknowledgement.send(encodePairingFrame("sync-ack", invite.secret, new Uint8Array()))
     await acknowledgement.closeSend()
     paired = true
-    return liveWorkspaceSync(connection, invite.secret, workspace)
+    return liveWorkspaceSync(connection, invite.secret, workspace, options)
   } finally {
     if (!paired) await connection?.close()
   }

@@ -2,14 +2,21 @@
 
 ### Requirement: Trello-equivalent lead board
 
-The system SHALL render one flat card pipeline with exactly five statuses: Lead, Applied, Interview, Rejected, and Offer.
+The system SHALL render one flat card pipeline with Lead, Applied, Interview, Offer, and Archive statuses.
 
 #### Scenario: Board shows pipeline columns
 
 - **WHEN** the app loads
-- **THEN** it shows five status columns in this order: Lead, Applied, Interview, Rejected, Offer
+- **THEN** it shows Lead, Applied, Interview, Offer, and a collapsed Archive bin in this order
 - **AND** each column shows card count
 - **AND** a lead belongs to one column based on its `status` value.
+
+#### Scenario: User expands the Archive bin
+
+- **GIVEN** one or more leads have Archive status
+- **WHEN** the user opens the compact Archive bin at the end of the board
+- **THEN** it expands with an animation into a regular card column
+- **AND** its cards obey the current search and filters.
 
 #### Scenario: User moves a card
 
@@ -63,21 +70,70 @@ The system SHALL store company and role directly on a lead card. It SHALL NOT re
 - **THEN** the command fails with field-level validation
 - **AND** no partial card is persisted.
 
-### Requirement: Attached documents
+### Requirement: Attached notes and file references
 
-The system SHALL let each lead show and manage attached CVs, cover letters, notes, and file references.
+The system SHALL let each lead show and manage attached notes and file references. CVs and cover letters SHALL be represented by the dedicated PDF artifact model.
 
 #### Scenario: Card shows documents
 
-- **WHEN** a lead has attached documents
+- **WHEN** a lead has attached notes or file references
 - **THEN** its card shows compact document badges
 - **AND** its detail panel lists document title, kind, and format.
 
 #### Scenario: Agent attaches a document
 
-- **WHEN** a valid `add_document` command supplies `leadId`, kind, title, and format
+- **WHEN** a valid `add_document` command supplies `leadId`, kind `note` or `attachment`, title, and format
 - **THEN** the document is attached to that lead
 - **AND** the detail panel shows it without changing lead status.
+
+### Requirement: Global Markdown writing templates
+
+The system SHALL store CV and cover-letter bases as dedicated global Markdown templates. A template SHALL NOT be an attached lead document and SHALL NOT contain presentation or PDF-renderer configuration.
+
+#### Scenario: User saves a base CV
+
+- **WHEN** the user saves a named CV template with non-empty Markdown
+- **THEN** the template is available from the Templates library
+- **AND** it is not attached to any lead card.
+
+#### Scenario: User edits a base template
+
+- **WHEN** the user edits and saves an existing template
+- **THEN** the same template id remains
+- **AND** its Markdown and updated timestamp change.
+
+### Requirement: Lead-bound PDF artifacts
+
+The system SHALL represent generated CVs and cover letters as dedicated PDF artifacts bound to one lead. PDF rendering and styling SHALL remain local-agent concerns outside workspace state.
+
+#### Scenario: User records a generated CV PDF
+
+- **GIVEN** a lead and a matching base CV template
+- **WHEN** the user records a title and local PDF path
+- **THEN** the lead shows one CV PDF artifact
+- **AND** the artifact records the originating template id.
+
+#### Scenario: Artifact requires generation inputs
+
+- **WHEN** the user attempts to attach a PDF artifact without a title, matching template, or PDF path
+- **THEN** the app shows a validation error
+- **AND** no artifact is persisted.
+
+### Requirement: Agent-local PDF generation boundary
+
+The system SHALL expose the Markdown template and lead context for a local agent, and SHALL let it record only a completed PDF artifact.
+
+#### Scenario: Agent requests generation context
+
+- **WHEN** an agent calls `get_generation_context` with an existing lead id and template id
+- **THEN** it receives that lead and template Markdown
+- **AND** no output artifact is created.
+
+#### Scenario: Agent records generated PDF
+
+- **WHEN** an agent calls `record_pdf_artifact` with an existing lead, matching template kind, title, and local PDF path
+- **THEN** the app attaches the PDF artifact to that lead
+- **AND** no styling or renderer settings are stored in the workspace.
 
 ### Requirement: Local workspace persistence
 

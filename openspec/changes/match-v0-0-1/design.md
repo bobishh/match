@@ -16,7 +16,7 @@ type Lead = {
   url?: string
   location?: string
   workMode?: "remote" | "hybrid" | "onsite" | "unknown"
-  status: "lead" | "applied" | "interview" | "rejected" | "offer"
+  status: "lead" | "applied" | "interview" | "offer" | "archived"
   priority?: "p0" | "p1" | "p2" | "p3"
   fitScore?: number
   description?: string
@@ -86,7 +86,7 @@ Long documents and file payloads remain separate addressable objects. A future `
 
 ### 6. Visual direction
 
-Dense operational board: dark navy surfaces, thin slate borders, mint active accent, five columns visible on desktop, right-side detail panel, modal creation flow. Board is first viewport. No marketing hero.
+Dense operational board: dark navy surfaces, thin slate borders, mint active accent, four active columns plus a compact Archive bin on desktop, right-side detail panel, modal creation flow. Board is first viewport. No marketing hero.
 
 On phones, portrait is the primary board mode. The filter form is a closed disclosure until requested. Pipeline columns do not shrink into a multi-column mosaic: each column is one snap-sized viewport page inside a native horizontal scroller. The top action row scrolls horizontally rather than wrapping into an uncontrolled header. Orientation is never forced.
 

@@ -1,50 +1,86 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import { defaultLeadFilters, type LeadFilters } from "../filters"
-import { priorityLabels, statusLabels } from "../types"
+import type { Column, FieldDefinition } from "../domain/model"
+import { compareRanks } from "../domain/ancestry"
+import type { BoardFilters, FilterRange } from "../filters"
 
-const props = defineProps<{ modelValue: LeadFilters }>()
-const emit = defineEmits<{ "update:modelValue": [value: LeadFilters] }>()
+const props = defineProps<{
+  modelValue: BoardFilters
+  columns: Column[]
+  fields: FieldDefinition[]
+}>()
+const emit = defineEmits<{ "update:modelValue": [value: BoardFilters] }>()
 
-const filters = computed(() => ({ ...defaultLeadFilters, ...props.modelValue }))
 const isOpen = ref(false)
+const filterableFields = computed(() => props.fields.filter((field) =>
+  !field.deleted && ["select", "number", "boolean", "date"].includes(field.valueType)
+))
 
-function update<Key extends keyof LeadFilters>(key: Key, value: LeadFilters[Key]) {
-  emit("update:modelValue", { ...filters.value, [key]: value })
+function updateColumn(columnId: string) {
+  emit("update:modelValue", { ...props.modelValue, columnId })
+}
+
+function updateField(fieldId: string, value: string) {
+  emit("update:modelValue", {
+    ...props.modelValue,
+    fieldValues: { ...props.modelValue.fieldValues, [fieldId]: value },
+  })
+}
+
+function updateRange(kind: "numberRanges" | "dateRanges", fieldId: string, edge: keyof FilterRange, value: string) {
+  const current = props.modelValue[kind][fieldId] ?? { min: "", max: "" }
+  emit("update:modelValue", {
+    ...props.modelValue,
+    [kind]: { ...props.modelValue[kind], [fieldId]: { ...current, [edge]: value } },
+  })
+}
+
+function optionsFor(field: FieldDefinition) {
+  if (field.valueType !== "select") return []
+  return Object.values(field.options).filter((option) => !option.deleted).sort((a, b) => compareRanks(a.rank, b.rank))
 }
 </script>
 
 <template>
   <div class="filters-panel" :class="{ 'filters-panel-open': isOpen }">
-    <button class="filters-toggle" type="button" :aria-expanded="isOpen" aria-controls="lead-filters" @click="isOpen = !isOpen"><span>Filters</span><span class="filters-toggle-mark" aria-hidden="true">{{ isOpen ? "−" : "+" }}</span></button>
-    <fieldset id="lead-filters" class="lead-filters">
+    <button class="filters-toggle" type="button" :aria-expanded="isOpen" aria-controls="board-filters" @click="isOpen = !isOpen"><span>Filters</span><span class="filters-toggle-mark" aria-hidden="true">{{ isOpen ? "−" : "+" }}</span></button>
+    <fieldset id="board-filters" class="lead-filters">
       <legend>Filters</legend>
       <label class="filter-label">
         <span>Status</span>
-        <select :value="filters.status" @change="update('status', ($event.target as HTMLSelectElement).value as LeadFilters['status'])">
-          <option value="all">All cards</option>
-          <option v-for="(label, status) in statusLabels" :key="status" :value="status">{{ label }}</option>
+        <select :value="modelValue.columnId" @change="updateColumn(($event.target as HTMLSelectElement).value)">
+          <option value="">All cards</option>
+          <option v-for="column in columns" :key="column.id" :value="column.id">{{ column.title }}</option>
         </select>
       </label>
-      <label class="filter-label">
-        <span>Priority</span>
-        <select :value="filters.priority" @change="update('priority', ($event.target as HTMLSelectElement).value as LeadFilters['priority'])">
-          <option value="all">Any priority</option>
-          <option v-for="(label, priority) in priorityLabels" :key="priority" :value="priority">{{ label }}</option>
-        </select>
-      </label>
-      <label class="filter-label">
-        <span>Work mode</span>
-        <select :value="filters.workMode" @change="update('workMode', ($event.target as HTMLSelectElement).value as LeadFilters['workMode'])">
-          <option value="all">Any mode</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option><option value="unknown">Unknown</option>
-        </select>
-      </label>
-      <label class="filter-label">
-        <span>Fit</span>
-        <select :value="filters.fit" @change="update('fit', ($event.target as HTMLSelectElement).value as LeadFilters['fit'])">
-          <option value="all">Any fit</option><option value="strong">8–10</option><option value="possible">6–7</option><option value="low">0–5</option><option value="unscored">Unscored</option>
-        </select>
-      </label>
+
+      <template v-for="field in filterableFields" :key="field.id">
+        <label v-if="field.valueType === 'select'" class="filter-label">
+          <span>{{ field.title }}</span>
+          <select :value="modelValue.fieldValues[field.id] ?? ''" @change="updateField(field.id, ($event.target as HTMLSelectElement).value)">
+            <option value="">Any</option>
+            <option v-for="option in optionsFor(field)" :key="option.id" :value="option.id">{{ option.title }}</option>
+          </select>
+        </label>
+        <label v-else-if="field.valueType === 'boolean'" class="filter-label">
+          <span>{{ field.title }}</span>
+          <select :value="modelValue.fieldValues[field.id] ?? ''" @change="updateField(field.id, ($event.target as HTMLSelectElement).value)">
+            <option value="">Any</option>
+            <option value="__true">Yes</option>
+            <option value="__false">No</option>
+          </select>
+        </label>
+        <div v-else-if="field.valueType === 'number'" class="filter-range">
+          <span>{{ field.title }}</span>
+          <label><span class="sr-only">{{ field.title }} minimum</span><input :value="modelValue.numberRanges[field.id]?.min ?? ''" type="number" :min="field.min ?? undefined" :max="field.max ?? undefined" placeholder="Min" @input="updateRange('numberRanges', field.id, 'min', ($event.target as HTMLInputElement).value)" /></label>
+          <label><span class="sr-only">{{ field.title }} maximum</span><input :value="modelValue.numberRanges[field.id]?.max ?? ''" type="number" :min="field.min ?? undefined" :max="field.max ?? undefined" placeholder="Max" @input="updateRange('numberRanges', field.id, 'max', ($event.target as HTMLInputElement).value)" /></label>
+        </div>
+        <div v-else-if="field.valueType === 'date'" class="filter-range">
+          <span>{{ field.title }}</span>
+          <label><span class="sr-only">{{ field.title }} from</span><input :value="modelValue.dateRanges[field.id]?.min ?? ''" type="date" @input="updateRange('dateRanges', field.id, 'min', ($event.target as HTMLInputElement).value)" /></label>
+          <label><span class="sr-only">{{ field.title }} to</span><input :value="modelValue.dateRanges[field.id]?.max ?? ''" type="date" @input="updateRange('dateRanges', field.id, 'max', ($event.target as HTMLInputElement).value)" /></label>
+        </div>
+      </template>
     </fieldset>
   </div>
 </template>
