@@ -27,6 +27,8 @@ for (const width of [1920, 1440, 1024, 390]) {
     await expectSingleRow()
     await archive.getByRole("button", { name: "Open archive with 0 cards" }).click()
     await expect(archive.getByText("No cards")).toBeVisible()
+    await expect(archive.locator('.column-header')).toHaveCSS('background-color', 'rgb(23, 23, 23)')
+    await expect(archive.locator('.column-header')).toHaveCSS('color', 'rgb(255, 255, 255)')
     await expectSingleRow()
     await expect.poll(async () => {
       const archiveBox = await archive.boundingBox()
