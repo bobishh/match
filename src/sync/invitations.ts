@@ -136,7 +136,8 @@ export class InvitationService {
     recipientPersonId: string,
     workspaceId: string,
     profile: LocalProfile,
-    workspaceOwnerPersonId?: string
+    workspaceOwnerPersonId?: string,
+    role: "editor" | "visitor" = "visitor"
   ): Promise<{ ok: true; grant: WorkspaceGrant } | { ok: false; error: string }> {
     const invite = await this.getInvitation(invitationId)
     if (!invite) {
@@ -157,7 +158,7 @@ export class InvitationService {
       grantId: crypto.randomUUID(),
       workspaceId,
       personId: recipientPersonId,
-      role: "editor" as const,
+      role,
     }
 
     const signingKey = profile.privateKeys.identityPrivateKey || profile.privateKeys.devicePrivateKey
@@ -174,7 +175,8 @@ export class InvitationService {
     recipientPersonId: string,
     workspaceIds: string[],
     profile: LocalProfile,
-    workspaceOwners?: Map<string, string>
+    workspaceOwners?: Map<string, string>,
+    role: "editor" | "visitor" = "visitor"
   ): Promise<{ ok: true; grants: WorkspaceGrant[] } | { ok: false; error: string }> {
     const invite = await this.getInvitation(invitationId)
     if (!invite) {
@@ -202,7 +204,7 @@ export class InvitationService {
         grantId: crypto.randomUUID(),
         workspaceId: wsId,
         personId: recipientPersonId,
-        role: "editor" as const,
+        role,
       }
       const signedGrant = await signEnvelope(signingKey, grantPayload, profile.device.deviceId)
       grants.push(signedGrant)

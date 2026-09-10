@@ -16,6 +16,8 @@ async function pairWorkspace(host: Page, guest: Page) {
   await guest.goto(invite)
   const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
   await guestDialog.getByRole("button", { name: "Accept and join" }).click()
+  await host.getByLabel("Participant role").selectOption("editor")
+  await host.getByRole("button", { name: "Approve access" }).click()
   await expect(guestDialog.getByText(/Connected to/)).toBeVisible({ timeout: 30_000 })
   await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
   await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
@@ -111,7 +113,7 @@ test("Given an editor is trusted, when owner removes access, then UI marks revoc
     await expect(settings.getByText("Revoked")).toBeVisible()
     await expect(guest.locator(".local-state").first()).toContainText("Access removed", { timeout: 20_000 })
 
-    await addLead(guest, "Revoked write")
+    await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Open Revoked write — Engineer" })).toHaveCount(0)
   } finally {
     await guestContext.close()

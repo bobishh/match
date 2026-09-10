@@ -51,7 +51,7 @@ export type WorkspaceMemberBundle = {
   grant?: WorkspaceGrant
   ownerPublicKey?: string
   ownerCertificates?: DeviceCertificate[]
-  role?: "owner" | "editor"
+  role?: "owner" | "editor" | "visitor"
 }
 
 export type CreatePeerAdvertisementOptions = {
@@ -91,7 +91,7 @@ export type VerifiedWorkspaceMember = Omit<
   signerKeyId: string
   signature: string
   devicePublicKey: string
-  role: "owner" | "editor"
+  role: "owner" | "editor" | "visitor"
 }
 
 export async function keyId(key: string): Promise<string> {
@@ -557,7 +557,7 @@ export async function verifyWorkspaceMemberBundle(
   const grant = (bundle.grant ?? (bundle.authority as any)?.grant) as WorkspaceGrant | undefined
   const isOwner = ownerPersonId ? p.personId === ownerPersonId : !grant
 
-  let role: "owner" | "editor" = "owner"
+  let role: "owner" | "editor" | "visitor" = "owner"
 
   if (isOwner) {
     // Owner needs no grant
@@ -565,61 +565,11 @@ export async function verifyWorkspaceMemberBundle(
     if (!ownerPersonId) ownerPersonId = p.personId
     if (!ownerPublicKey) ownerPublicKey = memberPublicKey
   } else {
-    // Editor needs valid owner-signed WorkspaceGrant
-    role = "editor"
-    if (!grant) {
-      throw new Error("Missing workspace grant for non-owner member")
-    }
-
-    const gp = grant.payload
-    if (
-      !gp ||
-      typeof gp !== "object" ||
-      gp.kind !== "workspace-grant" ||
-      gp.version !== 1 ||
-      gp.workspaceId !== (expectedWorkspaceId ?? p.workspaceId) ||
-      gp.personId !== p.personId ||
-      (gp.role !== "owner" && gp.role !== "editor")
-    ) {
-      throw new Error("Invalid workspace grant")
-    }
-
-    role = gp.role
-
-    // Verify grant signature:
-    // Existing grants may be root-signed while signerKeyId is device ID: accept only root signature or valid owner device chain.
-    let grantVerified = false
-
-    if (ownerPublicKey) {
-      if (await verifyEnvelope(grant, ownerPublicKey)) {
-        grantVerified = true
-      }
-    }
-
-    if (!grantVerified) {
-      const ownerCerts =
-        opts.ownerCertificates ??
-        (bundle.ownerCertificates as DeviceCertificate[] | undefined) ??
-        ((bundle.authority as any)?.certificates as DeviceCertificate[] | undefined)
-
-      if (ownerCerts && Array.isArray(ownerCerts) && ownerCerts.length > 0 && ownerPublicKey && ownerPersonId) {
-        try {
-          const ownerDeviceKey = await verifyDeviceChain({
-            personId: ownerPersonId,
-            publicKey: ownerPublicKey,
-            deviceId: grant.signerKeyId,
-            certificates: ownerCerts,
-          })
-          if (await verifyEnvelope(grant, ownerDeviceKey)) {
-            grantVerified = true
-          }
-        } catch {}
-      }
-    }
-
-    if (!grantVerified) {
-      throw new Error("Invalid workspace grant signature")
-    }
+    role = await verifyWorkspaceGrant(grant, {
+      workspaceId: expectedWorkspaceId ?? p.workspaceId, personId: p.personId,
+      ownerPersonId: ownerPersonId!, ownerPublicKey: ownerPublicKey!,
+      ownerCertificates: opts.ownerCertificates ?? bundle.ownerCertificates as DeviceCertificate[] ?? (bundle.authority as any)?.certificates ?? [],
+    })
   }
 
   return {
@@ -669,4 +619,22 @@ export async function verifyWorkspaceRevocation(raw: unknown, workspaceId: strin
     deviceId: record.signerKeyId, certificates: ownerCertificates })
   if (!await verifyEnvelope(record, deviceKey)) throw new Error("Invalid workspace revocation signature")
   return record
+}
+
+
+export async function verifyWorkspaceGrant(grant: WorkspaceGrant | undefined, scope: {
+  workspaceId: string; personId: string; ownerPersonId: string; ownerPublicKey: string; ownerCertificates: DeviceCertificate[]
+}): Promise<"owner" | "editor" | "visitor"> {
+  if (!grant) throw new Error("Missing workspace grant for non-owner member")
+  const p = grant.payload
+  if (!p || p.kind !== "workspace-grant" || p.version !== 1 || p.workspaceId !== scope.workspaceId ||
+    p.personId !== scope.personId || !["owner", "editor", "visitor"].includes(p.role)) throw new Error("Invalid workspace grant")
+  if (!scope.ownerPublicKey || await keyId(scope.ownerPublicKey) !== scope.ownerPersonId) throw new Error("Invalid workspace owner")
+  if (await verifyEnvelope(grant, scope.ownerPublicKey)) return p.role
+  try {
+    const key = await verifyDeviceChain({ personId: scope.ownerPersonId, publicKey: scope.ownerPublicKey,
+      deviceId: grant.signerKeyId, certificates: scope.ownerCertificates })
+    if (await verifyEnvelope(grant, key)) return p.role
+  } catch {}
+  throw new Error("Invalid workspace grant signature")
 }

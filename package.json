@@ -16,7 +16,8 @@
     "fflate": "^0.8.2",
     "qrcode": "^1.5.4",
     "sortablejs": "^1.15.7",
-    "vue": "^3.5.18"
+    "vue": "^3.5.18",
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",

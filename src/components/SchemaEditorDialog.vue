@@ -18,6 +18,7 @@ import {
 } from "../domain/workspaceSettings"
 
 const props = defineProps<{
+  readOnly?: boolean
   doc: WorkspaceDocumentV2
   board: Board
   columns: Column[]
@@ -331,7 +332,7 @@ function handleConfirmApply() {
         </div>
 
         <div v-if="activeTab === 'templates'" class="schema-tab-content">
-          <div class="templates-layout">
+          <fieldset :disabled="readOnly" class="templates-layout">
           <aside class="template-list" aria-label="Saved templates">
             <button class="button button-small" type="button" @click="startTemplate">+ Template</button>
             <button v-for="template in templates" :key="template.id" class="template-item" :class="{ active: editingTemplateId === template.id }" type="button" @click="editTemplate(template)"><strong>{{ template.name }}</strong></button>
@@ -342,7 +343,7 @@ function handleConfirmApply() {
             <label><span>Markdown</span><textarea v-model="templateDraft.markdown" rows="16" required placeholder="# Your name"></textarea></label>
             <div class="dialog-actions"><button class="button button-primary" type="submit">Save template</button></div>
           </form>
-          </div>
+          </fieldset>
         </div>
 
         <div v-else-if="activeTab === 'profile'" class="schema-tab-content"><slot name="profile" /></div>
@@ -354,9 +355,9 @@ function handleConfirmApply() {
           </div>
           <label class="workspace-json-label">
             <span>Workspace settings JSON</span>
-            <textarea :value="workspaceJson" class="schema-json-textarea" rows="22" aria-label="Workspace settings JSON" spellcheck="false" @input="handleWorkspaceJsonInput"></textarea>
+            <textarea :readonly="readOnly" :value="workspaceJson" class="schema-json-textarea" rows="22" aria-label="Workspace settings JSON" spellcheck="false" @input="handleWorkspaceJsonInput"></textarea>
           </label>
-          <div class="dialog-actions"><button class="button button-primary" type="button" :disabled="workspaceErrors.length > 0" @click="applyWorkspaceJson">Apply JSON</button></div>
+          <div class="dialog-actions"><button class="button button-primary" type="button" :disabled="readOnly || workspaceErrors.length > 0" @click="applyWorkspaceJson">Apply JSON</button></div>
         </div>
       </template>
 

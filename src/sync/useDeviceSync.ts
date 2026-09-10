@@ -53,6 +53,7 @@ type DeviceSyncOptions = {
   transport?: SyncTransport
   availableWorkspaces?: Ref<{ id: string; title: string }[]>
   activeWorkspaceId?: () => string
+  displayName?: () => string
   workspaceOwner?: (id: string) => Promise<string>
 }
 
@@ -87,6 +88,7 @@ export function useDeviceSync({
   availableWorkspaces = ref([]),
   activeWorkspaceId,
   workspaceOwner,
+  displayName,
 }: DeviceSyncOptions) {
   const isOpen = ref(false)
   const isLive = ref(false)
@@ -97,6 +99,14 @@ export function useDeviceSync({
   const copyNotice = ref("")
   const error = ref("")
   const authCode = ref("")
+  const pendingJoins = ref<{ id: string; name: string; personId: string; role: "visitor" | "editor" }[]>([])
+  const joinDecisions = new Map<string, (role: "visitor" | "editor" | null) => void>()
+  function decideJoin(id: string, approve: boolean) {
+    const request = pendingJoins.value.find(item => item.id === id)
+    joinDecisions.get(id)?.(approve ? request?.role ?? "visitor" : null)
+    joinDecisions.delete(id)
+    pendingJoins.value = pendingJoins.value.filter(item => item.id !== id)
+  }
   const selectedWorkspaceId = ref("")
   const selectedWorkspaceIds = ref<string[]>([])
   const invitationWorkspaceTitle = ref("")
@@ -186,6 +196,9 @@ export function useDeviceSync({
   })
 
   async function stopNode(reason: string) {
+    for (const resolve of joinDecisions.values()) resolve(null)
+    joinDecisions.clear()
+    pendingJoins.value = []
     stopWatchingWorkspace?.()
     stopWatchingWorkspace = undefined
     const session = liveSession
@@ -543,7 +556,7 @@ export function useDeviceSync({
       async function receivePeer(connection: SyncConnection) {
         let session: LiveWorkspaceSync | undefined
         let personId = ""
-        const timeout = setTimeout(() => { void connection.close() }, 30_000)
+        const timeout = setTimeout(() => { void connection.close() }, 600_000)
         connections.add(connection)
         try {
           const stream = await connection.acceptStream()
@@ -566,8 +579,21 @@ export function useDeviceSync({
               await stream.closeSend()
               return
             }
+            const requestId = crypto.randomUUID()
+            pendingJoins.value.push({ id: requestId, personId, name: typeof guest.displayName === "string" ? guest.displayName.slice(0, 80) : `Participant ${personId.slice(0, 6)}`, role: "visitor" })
+            isOpen.value = true
+            step.value = "workspace-host"
+            const role = await new Promise<"visitor" | "editor" | null>(resolve => {
+              const timer = setTimeout(() => decideJoin(requestId, false), 600_000)
+              joinDecisions.set(requestId, value => { clearTimeout(timer); resolve(value) })
+            })
+            if (!role) {
+              await stream.send(encodePairingFrame("workspace-join-response", secret, new TextEncoder().encode(JSON.stringify({ error: "The owner declined this request." }))))
+              await stream.closeSend()
+              return
+            }
             result = await defaultInvitationService.approveWorkspaceJoinSet(
-              invite.invitationId, personId, workspacesToInvite.map(w => w.id), profile, owners,
+              invite.invitationId, personId, workspacesToInvite.map(w => w.id), profile, owners, role,
             )
             if (!result.ok) throw new Error(result.error)
             for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
@@ -839,13 +865,15 @@ export function useDeviceSync({
           started = await startPersistentNode(transport)
           if (currentRun !== run) return
           node = started
-          timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 30_000)
+          timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 600_000)
           connection = networkConnection(await networkIO(started.dial(invite.issuerEndpoint)))
           if (currentRun !== run) return
           const stream = await connection.openStream()
+          if (!connectedBefore) step.value = "workspace-guest-waiting"
           const request = new TextEncoder().encode(JSON.stringify({
             invitationId: invite.invitationId,
             personId: profile.identity.personId,
+            displayName: displayName?.() || profile.identity.displayName,
             meshPeers: await durableMesh?.createGuestAdvertisements(invite.workspaces.map(w => w.id), started.endpointId, profile),
           }))
           await stream.send(encodePairingFrame("workspace-join-request", invite.secret, request))
@@ -865,8 +893,9 @@ export function useDeviceSync({
           }
           for (const grant of payload.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
           if (currentRun !== run) return
-          await replica.receive(fromBase64Url(payload.snapshot))
+          if (Array.isArray(payload.meshWorkspaces) && payload.meshWorkspaces.some((item: any) => item?.ownerPersonId !== invite.issuerPersonId)) throw new Error("Invitation owner mismatch")
           await durableMesh?.receiveInvitation(payload.meshWorkspaces, invite.workspaces.map(w => w.id), profile, payload.grants)
+          await replica.receive(fromBase64Url(payload.snapshot))
           if (currentRun !== run) return
           if (!connectedBefore) await workspaceStore.activate(invite.workspaces[0]!.id)
           const acknowledgement = await connection.openStream()
@@ -986,6 +1015,8 @@ export function useDeviceSync({
 
   return {
     isOpen,
+    pendingJoins,
+    decideJoin,
     isLive,
     isWorkspaceLive: (id: string) => (isLive.value && liveWorkspaceIds.value.includes(id)) || meshLiveWorkspaceIds.value.includes(id),
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),

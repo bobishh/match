@@ -4,6 +4,7 @@ import type { Task, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 
 const props = defineProps<{
+  readOnly?: boolean
   task: Task
   subtasks: Task[]
   fields: FieldDefinition[]
@@ -54,7 +55,7 @@ const emit = defineEmits<{
               <span class="detail-label">Subtasks</span>
               <h3>{{ subtasks.length ? `${subtasks.length} subtasks` : "No subtasks" }}</h3>
             </div>
-            <button class="button button-small" type="button" @click="emit('addSubtask', task.id)">+ Add subtask</button>
+            <button class="button button-small" type="button" :disabled="readOnly" @click="emit('addSubtask', task.id)">+ Add subtask</button>
           </div>
 
           <div v-if="subtasks.length" class="subtask-list">
@@ -68,7 +69,7 @@ const emit = defineEmits<{
                 class="button button-small button-quiet"
                 type="button"
                 :aria-label="`Move ${sub.title}`"
-                @click="emit('startMove', sub)"
+                :disabled="readOnly" @click="emit('startMove', sub)"
               >
                 Move
               </button>
@@ -100,7 +101,7 @@ const emit = defineEmits<{
       </div>
 
       <div class="dialog-actions dialog-actions-split">
-        <button class="button button-danger" type="button" @click="emit('deleteTask', task.id)">Archive task</button>
+        <button class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteTask', task.id)">Archive task</button>
         <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
       </div>
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>

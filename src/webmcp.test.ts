@@ -1,3 +1,4 @@
+import { defaultStorage } from "./storage"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import { initializeAutomerge } from "./crdt"
@@ -17,6 +18,7 @@ describe("WebMCP tools and legacy aliases (Task 1.12)", () => {
   let match: ReturnType<typeof useMatch>
 
   beforeEach(async () => {
+    for (const workspace of await defaultStorage.listWorkspaces()) await defaultStorage.deleteWorkspace(workspace.id)
     resetIdentityStorageForTest()
     resetStateForTest()
     await bootstrapIdentity("WebMCP Test User")

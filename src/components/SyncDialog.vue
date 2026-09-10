@@ -4,6 +4,7 @@ import { computed } from "vue"
 import type { SyncStep } from "../sync/useDeviceSync"
 
 const props = defineProps<{
+  pendingJoins?: { id: string; name: string; personId: string; role: "visitor" | "editor" }[]
   step: SyncStep
   title: string
   qrCode: string
@@ -19,6 +20,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: "decideJoin", id: string, approve: boolean): void
   (e: "dismiss"): void
   (e: "selectSyncAll"): void
   (e: "selectSyncWorkspace"): void
@@ -93,6 +95,12 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <button class="icon-button" type="button" aria-label="Close" @click="emit('dismiss')">×</button>
       </div>
 
+      <section v-for="request in pendingJoins" :key="request.id" class="join-request" aria-label="Access request">
+        <h3>{{ request.name }} wants to join</h3>
+        <small>{{ request.personId.slice(0, 12) }}</small>
+        <label>Role<select v-model="request.role" aria-label="Participant role"><option value="visitor">Visitor — view only</option><option value="editor">Editor — edit items</option></select></label>
+        <div class="dialog-actions"><button class="button button-primary" @click="emit('decideJoin', request.id, true)">Approve access</button><button class="button" @click="emit('decideJoin', request.id, false)">Decline</button></div>
+      </section>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->
       <template v-if="step === 'workspace-select' || step === 'workspace-host-select' || step === 'chooser'">
         <p class="dialog-copy">Select which workspaces to include in this invitation:</p>
@@ -223,7 +231,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
       <!-- Step 8: Workspace guest join -->
       <template v-else-if="step === 'workspace-guest'">
-        <p class="dialog-copy">You have been invited to edit {{ invitationWorkspaceTitle || "Workspace" }}</p>
+        <p class="dialog-copy">You have been invited to join {{ invitationWorkspaceTitle || "Workspace" }}</p>
         <ul v-if="guestWorkspaces.length > 1" class="guest-workspace-list">
           <li v-for="ws in guestWorkspaces" :key="ws.id">
             {{ ws.title }}
@@ -235,7 +243,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       </template>
 
       <template v-else-if="step === 'workspace-guest-waiting'">
-        <p class="dialog-copy" role="status">Receiving workspaces… Keep both devices open.</p>
+        <p class="dialog-copy" role="status">Waiting for owner approval, then receiving workspaces… Keep both devices open.</p>
         <div class="dialog-actions">
           <button class="button button-quiet" type="button" @click="emit('stop')">Cancel</button>
         </div>

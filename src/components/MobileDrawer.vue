@@ -3,6 +3,7 @@ import { ref } from "vue"
 import { hideLeavingElement, showEnteringElement, useModal } from "../ui/modal"
 
 const props = defineProps<{
+  canEditBoard?: boolean
   isOpen: boolean
   activeWorkspaceTitle: string
   isEditingBoard: boolean
@@ -86,7 +87,7 @@ function handleAction(event: () => void) {
               <span>Workspace settings</span>
               <span class="drawer-item-arrow" aria-hidden="true">→</span>
             </button>
-            <button class="drawer-item-btn" type="button" @click="handleAction(() => emit('toggleBoardEdit'))">
+            <button v-if="canEditBoard !== false" class="drawer-item-btn" type="button" @click="handleAction(() => emit('toggleBoardEdit'))">
               <span>{{ isEditingBoard ? "Done editing" : "Edit board" }}</span>
               <span class="drawer-item-arrow" aria-hidden="true">→</span>
             </button>

@@ -1,3 +1,4 @@
+import { defaultStorage } from "./storage"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { initializeAutomerge } from "./crdt"
@@ -15,6 +16,8 @@ beforeAll(async () => {
 
 describe("Repository-backed state and projections (Task 1.8)", () => {
   beforeEach(async () => {
+    setStorageFailureHookForTest(false)
+    for (const workspace of await defaultStorage.listWorkspaces()) await defaultStorage.deleteWorkspace(workspace.id)
     resetIdentityStorageForTest()
     setStorageFailureHookForTest(false)
     resetStateForTest()

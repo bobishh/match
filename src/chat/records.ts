@@ -85,7 +85,7 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
     const grant = authority.grant
     if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1 ||
         grant.payload.personId !== p.personId || grant.payload.workspaceId !== grantWorkspaceId ||
-        !["owner", "editor"].includes(grant.payload.role)) throw new Error("No permission to write to this chat")
+        !(p.kind === "chat-profile" ? ["owner", "editor", "visitor"] : ["owner", "editor"]).includes(grant.payload.role)) throw new Error("No permission to write to this chat")
     // Existing workspace invitations sign with the root key but label the signer with a device ID.
     if (!await verifyEnvelope(grant, authority.publicKey)) {
       const ownerDeviceKey = await deviceKey(ownerPersonId, authority.publicKey, grant.signerKeyId, authority.certificates)

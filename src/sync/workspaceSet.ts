@@ -31,8 +31,9 @@ export function isNetworkFailure(error: unknown) {
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
-  merge: (id: string, bytes: Uint8Array) => Promise<void>
+  merge: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   activate: (id: string) => Promise<void>
+  readAuthorization?: (bytes: Uint8Array) => Promise<unknown>
   readChat?: (id: string, known?: Set<string>) => Promise<unknown>
   mergeChat?: (id: string, value: unknown, history: boolean) => Promise<void>
   readMesh?: (id: string) => Promise<unknown>
@@ -43,14 +44,15 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
   const ids = [...new Set(workspaceIds)].sort()
   return {
     async snapshot(knownChat?: Map<string, Set<string>>) {
-      const entries = await Promise.all(ids.map(async id => ({ id, bytes: toBase64Url(await store.read(id)),
+      const entries = await Promise.all(ids.map(async id => { const bytes = await store.read(id); return { id, bytes: toBase64Url(bytes),
+        ...(store.readAuthorization ? { authorization: await store.readAuthorization(bytes) } : {}),
         ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
           const known = knownChat.get(id) ?? new Set<string>()
           knownChat.set(id, known)
           return known
         })() : undefined) } : {}),
         ...(store.readMesh ? { mesh: await store.readMesh(id) } : {}),
-      })))
+      }}))
       return new TextEncoder().encode(JSON.stringify(entries))
     },
     async receive(bytes: Uint8Array, history = true) {
@@ -61,7 +63,7 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
         throw new Error("The peer sent a different set of workspaces than the invitation allows.")
       }
       for (const entry of entries) {
-        await store.merge(entry.id, fromBase64Url(entry.bytes))
+        await store.merge(entry.id, fromBase64Url(entry.bytes), entry.authorization)
         if (entry.chat !== undefined && store.mergeChat) await store.mergeChat(entry.id, entry.chat, history)
         if (entry.mesh !== undefined && store.mergeMesh) await store.mergeMesh(entry.id, entry.mesh)
       }

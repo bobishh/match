@@ -3,7 +3,7 @@ import type { WorkspaceGrant } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
 import { createPeerAdvertisement, createWorkspaceRevocation, verifyDeviceChain, verifyWorkspaceMemberBundle,
-  verifyWorkspaceRevocation, type WorkspaceMemberBundle, type WorkspaceRevocation } from "./meshRecords"
+  verifyWorkspaceRevocation, verifyWorkspaceGrant, type WorkspaceMemberBundle, type WorkspaceRevocation } from "./meshRecords"
 import { MeshLeader } from "./meshLeader"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport } from "./transport"
@@ -28,7 +28,7 @@ export type MeshPeerView = {
   workspaceId: string
   personId: string
   deviceId: string
-  role: "owner" | "editor"
+  role: "owner" | "editor" | "visitor"
   endpoint: string
   online: boolean
   lastSeen: string
@@ -247,6 +247,8 @@ export class DurableMesh {
       if (!localGrant || localGrant.payload.personId !== profile.identity.personId) throw new Error("Missing local workspace grant")
       await verifyDeviceChain({ personId: envelope.ownerPersonId, publicKey: envelope.ownerPublicKey,
         deviceId: (envelope.ownerCertificates[0] as any)?.payload?.deviceId, certificates: envelope.ownerCertificates as any })
+      await verifyWorkspaceGrant(localGrant, { workspaceId, personId: profile.identity.personId,
+        ownerPersonId: envelope.ownerPersonId, ownerPublicKey: envelope.ownerPublicKey, ownerCertificates: envelope.ownerCertificates as any })
       const credential: WorkspaceMeshCredential = {
         version: 1,
         workspaceId,

@@ -71,10 +71,12 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await guestPage.goto(inviteLink)
       const guestDialog = guestPage.getByRole("dialog", { name: "Device sync" })
       await expect(guestDialog.getByRole("heading", { name: "Join workspace" })).toBeVisible()
-      await expect(guestDialog.getByText("You have been invited to edit Job search")).toBeVisible()
+      await expect(guestDialog.getByText("You have been invited to join Job search")).toBeVisible()
 
       // Explicit acceptance
       await guestDialog.getByRole("button", { name: "Accept and join" }).click()
+      await page.getByLabel("Participant role").selectOption("editor")
+      await page.getByRole("button", { name: "Approve access" }).click()
       await expect(guestDialog.getByText("Connected to Job search")).toBeVisible()
     } finally {
       await guestContext.close()
@@ -121,6 +123,8 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await expect(guestDialog.locator("li", { hasText: "Job search" })).toBeVisible()
 
       await guestDialog.getByRole("button", { name: "Accept and join" }).click()
+      await page.getByLabel("Participant role").selectOption("editor")
+      await page.getByRole("button", { name: "Approve access" }).click()
       await expect(guestDialog.getByText(/Connected to/i)).toBeVisible()
     } finally {
       await guestContext.close()

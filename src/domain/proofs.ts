@@ -171,7 +171,7 @@ export async function createWorkspaceGrant(
   profile: LocalProfile,
   workspaceId: WorkspaceId,
   subjectPersonId: PersonId,
-  role: "owner" | "editor"
+  role: "owner" | "editor" | "visitor"
 ): Promise<WorkspaceGrant> {
   const payload = {
     kind: "workspace-grant" as const,

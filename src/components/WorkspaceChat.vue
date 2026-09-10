@@ -12,6 +12,7 @@ interface ChatMessage {
 
 const props = withDefaults(
   defineProps<{
+  readOnly?: boolean
     workspaceTitle: string
     messages: readonly ChatMessage[]
     currentPersonId: string
@@ -280,7 +281,8 @@ function formatDisplayTime(createdAt: string): string {
         {{ error }}
       </p>
 
-      <footer class="chat-footer">
+      <p v-if="readOnly" class="chat-status">Visitor · view only</p>
+      <footer v-else class="chat-footer">
         <form class="chat-composer-form" novalidate @submit.prevent="handleSubmit">
           <div class="chat-composer-field">
             <label for="chat-message-textarea" class="chat-composer-label">

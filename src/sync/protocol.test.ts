@@ -64,7 +64,7 @@ describe("pairing protocol", () => {
       )
       expect(invite.kind).toBe("workspace-join")
       expect(invite.workspaceId).toBe("ws_job")
-      expect(invite.role).toBe("editor")
+      expect(invite.role).toBe("visitor")
 
       const url = invitationUrl("https://match.test", invite)
       const parsed = parseInvitation(url, now)

@@ -11,7 +11,7 @@
  * - Strong validation and transactional completion (durability)
  */
 
-export type PeerRole = "owner" | "editor"
+export type PeerRole = "owner" | "editor" | "visitor"
 
 export interface WorkspacePeerRecord {
   workspaceId: string
@@ -112,7 +112,7 @@ export function validatePeerRecord(peer: unknown): asserts peer is WorkspacePeer
     throw new Error(`Invalid peer record: transportSecret must be a non-empty string or Uint8Array <= ${MAX_SECRET_LENGTH} bytes`)
   }
 
-  if (r.role !== "owner" && r.role !== "editor") {
+  if (r.role !== "owner" && r.role !== "editor" && r.role !== "visitor") {
     throw new Error("Invalid peer record: role must be 'owner' or 'editor'")
   }
 
@@ -255,7 +255,7 @@ export function mergePeerRecords(
     role = existing.role
   } else {
     // Tied timestamp: owner takes priority over editor
-    role = existing.role === "owner" || incoming.role === "owner" ? "owner" : "editor"
+    role = existing.role === "owner" || incoming.role === "owner" ? "owner" : existing.role === "visitor" || incoming.role === "visitor" ? "visitor" : "editor"
   }
 
   // 6. revokedAt

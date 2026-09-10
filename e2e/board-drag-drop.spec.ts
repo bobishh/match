@@ -16,6 +16,7 @@ async function createItem(page: Page, title: string, column: string) {
   await dialog.getByLabel("Title *").fill(title)
   await dialog.getByLabel("Status *").selectOption({ label: column })
   await dialog.getByRole("button", { name: "Save item" }).click()
+  await expect(dialog).toBeHidden()
 }
 
 async function drag(page: Page, sourceSelector: string, targetSelector: string) {
@@ -46,6 +47,7 @@ test.describe("Trello-like board dragging", () => {
     await expect(target.locator(".empty-column")).toBeHidden()
     await expect.poll(async () => (await target.locator(".card-sortable-ghost").boundingBox())!.y - box.y).toBeLessThan(20)
     await page.mouse.up()
+    await expect(page.getByRole("status")).toContainText("Item moved")
     await page.reload()
     await expect(target.getByText("Moving item", { exact: true })).toBeVisible()
   })
@@ -60,6 +62,7 @@ test.describe("Trello-like board dragging", () => {
     await drag(page, source, target)
 
     await expect(page.getByRole("region", { name: "Doing" }).getByText("Second")).toBeVisible()
+    await expect(page.getByRole("status")).toContainText("Item moved")
     await page.reload()
     await expect(page.getByRole("region", { name: "Doing" }).getByText("Second")).toBeVisible()
   })
@@ -80,6 +83,7 @@ test.describe("Trello-like board dragging", () => {
 
     const cards = page.getByRole("region", { name: "To do" }).locator(".lead-card")
     await expect(cards.nth(0)).toContainText("Third")
+    await expect(page.getByRole("status")).toContainText("Item moved")
     await page.reload()
     await expect(page.getByRole("region", { name: "To do" }).locator(".lead-card").nth(0)).toContainText("Third")
   })
@@ -109,6 +113,7 @@ test.describe("Trello-like board dragging", () => {
     await page.mouse.up()
 
     await expect(page.locator(".board > .column").first()).toHaveAttribute("aria-label", "Done")
+    await expect(page.getByRole("status")).toContainText("Column moved")
     await page.reload()
     await expect(page.locator(".board > .column").first()).toHaveAttribute("aria-label", "Done")
   })

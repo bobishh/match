@@ -89,6 +89,8 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     await guest.goto(inviteUrl)
     const guestSync = guest.getByRole("dialog", { name: "Device sync" })
     await guestSync.getByRole("button", { name: "Accept and join" }).click()
+    await page.getByLabel("Participant role").selectOption("editor")
+    await page.getByRole("button", { name: "Approve access" }).click()
     await expect(guestSync.getByText("Connected to Job search")).toBeVisible({ timeout: 30_000 })
     await guestSync.getByRole("button", { name: "Close", exact: true }).first().click()
     await hostSync.getByRole("button", { name: "Close", exact: true }).first().click()

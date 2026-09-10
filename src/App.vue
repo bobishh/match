@@ -1,4 +1,8 @@
+<!-- Workspace role gates are enforced again at command and sync boundaries. -->
 <script setup lang="ts">
+import { workspaceRole, exportAuthorizations } from "./sync/changeAuthorization"
+import type { WorkspaceRole } from "./domain/permissions"
+import { bootstrapIdentity } from "./domain/identity"
 import ModalLayer from "./components/ModalLayer.vue"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import Sortable from "sortablejs"
@@ -69,7 +73,7 @@ const {
   persist,
   getAutomergeBytes,
   readWorkspaceBytes,
-  mergeScopedWorkspaceBytes,
+  mergeAuthorizedWorkspace,
   mergeRemoteBytes,
   mergeWorkspaceRecord,
   subscribeLocalChanges
@@ -148,13 +152,26 @@ configureChat(async id => {
 const chatWorkspaceId = computed(() => ready.value ? activeWorkspace.id : "")
 const chatOwnerId = computed(() => { void docVersion.value; return getActiveDoc()?.ownerPersonId ?? "" })
 const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId)
+const currentRole = ref<WorkspaceRole>("visitor")
+const roleWorkspaceId = ref("")
+watch([() => activeWorkspace.id, docVersion, ready], async (_, __, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  const doc = getActiveDoc()
+  if (!doc) return
+  const id = doc.id
+  const role = await workspaceRole(doc, await bootstrapIdentity("My Device"))
+  if (!cancelled && activeWorkspace.id === id) { currentRole.value = role; roleWorkspaceId.value = id }
+}, { immediate: true })
+const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id && currentRole.value !== "visitor" && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
 const sync = useDeviceSync({
+  displayName: () => chat.displayName.value,
   workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: listener => {
     const stopWorkspace = subscribeLocalChanges(listener)
     const stopChat = subscribeChat(() => listener())
     return () => { stopWorkspace(); stopChat() }
   } },
-  workspaceStore: { read: readWorkspaceBytes, merge: mergeScopedWorkspaceBytes, activate: switchWorkspace, readChat: exportChat, mergeChat: receiveChat },
+  workspaceStore: { read: readWorkspaceBytes, merge: mergeAuthorizedWorkspace, readAuthorization: exportAuthorizations, activate: switchWorkspace, readChat: exportChat, mergeChat: receiveChat },
   origin: () => window.location.origin,
   availableWorkspaces,
   activeWorkspaceId: () => activeWorkspace?.id || "default",
@@ -322,7 +339,7 @@ async function setupBoardSortables() {
   await nextTick()
   destroyBoardSortables()
   const board = boardRef.value
-  if (!board || !activeBoard.value) return
+  if (!board || !activeBoard.value || !canEditItems.value) return
 
   if (isEditingBoard.value) {
     columnSortable = Sortable.create(board, {
@@ -475,6 +492,7 @@ watch(
     ready.value,
     docVersion.value,
     isEditingBoard.value,
+    canEditItems.value,
     isArchiveOpen.value,
     boardRenderKey.value,
     hasFilters.value,
@@ -490,6 +508,11 @@ watch(notice, (message) => {
 })
 
 watch(() => activeWorkspace.id, () => {
+  isEditingBoard.value = false
+  editingColumn.value = null
+  showEntitySettings.value = false
+  showTaskForm.value = false
+  showLeadForm.value = false
   filters.value = defaultBoardFilters()
   search.value = ""
   activeMobileColumnIndex.value = 0
@@ -702,6 +725,7 @@ async function importWorkspace(event: Event) {
   const file = input.files?.[0]
   input.value = ""
   if (!file) return
+  if (!isWorkspaceOwner.value) { notice.value = "Only the owner can import into this workspace"; return }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const v2Result = await readWorkspaceBundleV2(bytes)
@@ -983,6 +1007,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!ready.value" @click="showWorkspaces = true">
         <span class="brand-mark">M</span>
         <div>
+          <span v-if="ready.value" class="workspace-role" :aria-label="`Workspace role: ${currentRole}`">{{ currentRole }}</span>
           <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
         </div>
       </button>
@@ -1007,7 +1032,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         <span class="local-state"><span class="pulse"></span> {{ sync.isWorkspaceAccessRevoked(activeWorkspace.id) ? "Access removed" : sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Settings</button>
-        <button class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
+        <button v-if="isWorkspaceOwner" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
         <button v-if="isEditingBoard" class="button button-primary" type="button" @click="showEntitySettings = true">Edit {{ entityName }}</button>
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
         <input ref="importInput" class="sr-only" type="file" accept=".match,application/vnd.match+zip" @change="importWorkspace" />
@@ -1039,6 +1064,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :is-open="showMobileMenu"
       :active-workspace-title="workspaceLabel"
       :is-editing-board="isEditingBoard"
+      :can-edit-board="isWorkspaceOwner"
       :entity-name="entityName"
       @close="closeMobileMenu"
       @open-workspaces="showWorkspaces = true"
@@ -1119,7 +1145,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
             </button>
             <div v-if="!tasksForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
-          <button v-if="!isEditingBoard" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
+          <button v-if="!isEditingBoard && canEditItems" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
         </template>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
@@ -1150,6 +1176,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     <SchemaEditorDialog
       v-if="showBoardSettings && activeBoard && getActiveDoc()"
       :doc="getActiveDoc()!"
+      :read-only="!isWorkspaceOwner"
       :board="activeBoard"
       :columns="genericColumns"
       :fields="boardFields"
@@ -1166,7 +1193,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         <section class="chat-members" aria-label="Known workspace participants">
           <h3>Participants</h3>
           <p>{{ isWorkspaceOwner ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
-          <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.role }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
+          <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.personId === chatOwnerId ? "Owner" : member.personId === chat.personId.value ? currentRole : meshParticipantDevices.find(peer => peer.personId === member.personId)?.role ?? "Member" }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
           <template v-if="isWorkspaceOwner && meshParticipantDevices.length">
             <h4>Trusted peer devices</h4>
             <ul>
@@ -1184,6 +1211,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     </SchemaEditorDialog>
 
     <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"
+      :read-only="!canEditItems"
       :messages="chat.messages.value" :current-person-id="chat.personId.value" :sending="chat.sending.value"
       :error="chat.error.value" :loading="chat.loading.value" :connected="sync.isWorkspaceLive(activeWorkspace.id)"
       @close="chat.open.value = false" @send="chat.send" />
@@ -1195,6 +1223,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     <SchemaEditorDialog
       v-if="showEntitySettings && activeBoard && getActiveDoc()"
       :doc="getActiveDoc()!"
+      :read-only="!isWorkspaceOwner"
       :board="activeBoard"
       :columns="genericColumns"
       :fields="boardFields"
@@ -1209,6 +1238,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     <TaskDetailDialog
       v-if="selectedTask"
       :task="selectedTask"
+      :read-only="!canEditItems"
       :subtasks="subtasksForSelectedTask"
       :fields="boardFields"
       :history="selectedTaskHistory"
@@ -1240,6 +1270,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
 
     <SyncDialog
       v-if="sync.isOpen.value"
+      :pending-joins="sync.pendingJoins.value"
+      @decide-join="sync.decideJoin"
       :step="sync.step.value"
       :title="sync.title.value"
       :qr-code="sync.qrCode.value"
@@ -1292,7 +1324,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     <ModalLayer v-if="selectedLead" class="overlay detail-overlay" @close="closeDetail">
       <section ref="detailDialog" class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Lead details" tabindex="-1" @keydown.esc="closeDetail">
         <div class="detail-head"><div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div><button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button></div>
-      <div class="status-strip"><button v-for="(label, status) in statusLabels" :key="status" type="button" :class="{ active: selectedLead.status === status }" @click="setStatus(status)">{{ label }}</button></div>
+      <div class="status-strip"><button v-for="(label, status) in statusLabels" :key="status" :disabled="!canEditItems" type="button" :class="{ active: selectedLead.status === status }" @click="setStatus(status)">{{ label }}</button></div>
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       <button v-if="archiveUndo && archiveUndo.workspaceId === activeWorkspace.id" class="button button-small" type="button" :disabled="undoSaving" @click="undoArchive">{{ undoSaving ? 'Restoring…' : 'Undo archive' }}</button>
       <div class="detail-scroll">
@@ -1308,7 +1340,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         <section v-if="selectedLead.status === 'rejected' || selectedLead.rejectionReason" class="detail-section">
           <span class="detail-label">Rejection notes / retrospective</span>
           <textarea
-            class="rejection-note-textarea"
+            class="rejection-note-textarea" :readonly="!canEditItems"
             :value="selectedLead.rejectionReason ?? ''"
             placeholder="Optional rejection reason or retrospective note (what went wrong)…"
             rows="3"
@@ -1316,12 +1348,12 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
             @input="handleUpdateRejectionReason(($event.target as HTMLTextAreaElement).value)"
           ></textarea>
         </section>
-        <section class="detail-section artifacts-section"><div class="section-heading"><div><span class="detail-label">PDF artifacts</span><h3>{{ selectedArtifacts.length ? `${selectedArtifacts.length} attached` : "No generated PDFs" }}</h3></div><button class="button button-small" type="button" @click="showArtifactForm ? showArtifactForm = false : openArtifactForm()">+ PDF</button></div>
+        <section class="detail-section artifacts-section"><div class="section-heading"><div><span class="detail-label">PDF artifacts</span><h3>{{ selectedArtifacts.length ? `${selectedArtifacts.length} attached` : "No generated PDFs" }}</h3></div><button class="button button-small" type="button" :disabled="!canEditItems" @click="showArtifactForm ? showArtifactForm = false : openArtifactForm()">+ PDF</button></div>
           <form v-if="showArtifactForm" class="document-form" novalidate @submit.prevent="submitArtifact"><label><span>Kind</span><select v-model="artifactDraft.kind" @change="artifactDraft.templateId = ''"><option v-for="(label, kind) in artifactKindLabels" :key="kind" :value="kind">{{ label }}</option></select></label><label><span>Title</span><input v-model="artifactDraft.title" placeholder="Cleo CV" /></label><label><span>Base template</span><select v-model="artifactDraft.templateId"><option value="">Select template</option><option v-for="template in availableArtifactTemplates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label><label><span>PDF path</span><input v-model="artifactDraft.pdfPath" placeholder="/Users/…/cleo-cv.pdf" /></label><label><span>Generated Markdown path</span><input v-model="artifactDraft.sourceMarkdownPath" placeholder="/Users/…/cleo-cv.md" /></label><p v-if="artifactError" class="form-error" role="alert">{{ artifactError }}</p><button class="button button-primary" type="submit">Attach PDF</button></form>
           <div v-for="artifact in selectedArtifacts" :key="artifact.id" class="document-row"><span class="document-icon">{{ artifact.kind === "cv" ? "CV" : "CL" }}</span><div><strong>{{ artifact.title }}</strong><span>{{ artifactKindLabels[artifact.kind] }} · from template</span></div><a :href="`file://${artifact.pdfPath}`" class="open-path" title="Open PDF">Open PDF</a></div>
         </section>
 
-        <section class="detail-section documents-section"><div class="section-heading"><div><span class="detail-label">Notes & files</span><h3>{{ selectedDocuments.length ? `${selectedDocuments.length} attached` : "Nothing attached" }}</h3></div><button class="button button-small" type="button" @click="showDocumentForm = !showDocumentForm">+ Document</button></div>
+        <section class="detail-section documents-section"><div class="section-heading"><div><span class="detail-label">Notes & files</span><h3>{{ selectedDocuments.length ? `${selectedDocuments.length} attached` : "Nothing attached" }}</h3></div><button class="button button-small" type="button" :disabled="!canEditItems" @click="showDocumentForm = !showDocumentForm">+ Document</button></div>
           <form v-if="showDocumentForm" class="document-form" @submit.prevent="submitDocument"><label><span>Kind</span><select v-model="newDocument.kind"><option value="note">Note</option><option value="attachment">Attachment</option></select></label><label><span>Title</span><input v-model="newDocument.title" required /></label><label><span>Format</span><select v-model="newDocument.format"><option value="markdown">Markdown</option><option value="html">HTML</option><option value="path">Local path</option></select></label><label v-if="newDocument.format === 'path'"><span>Path</span><input v-model="newDocument.localPath" placeholder="/Users/…" /></label><label v-else><span>Content</span><textarea v-model="newDocument.content" rows="5" placeholder="Paste note…"></textarea></label><button class="button button-primary" type="submit">Attach</button></form>
           <div v-for="document in selectedDocuments" :key="document.id" class="document-row"><span class="document-icon">{{ document.kind === "cv" ? "CV" : document.kind === "cover_letter" ? "CL" : "↗" }}</span><div><strong>{{ document.title }}</strong><span>{{ documentKindLabels[document.kind] }} · {{ document.format }}</span></div><a v-if="document.localPath" :href="`file://${document.localPath}`" class="open-path" title="Open local file">Open</a></div>
         </section>

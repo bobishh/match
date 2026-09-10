@@ -1,3 +1,5 @@
+import { workspaceRole, authorizeLocalChanges, validateIncomingChanges } from "./sync/changeAuthorization"
+import { assertWorkspaceTransition } from "./domain/permissions"
 import { computed, reactive, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
@@ -227,6 +229,7 @@ function updateReactiveState(doc: Automerge.Doc<WorkspaceDocumentV2>) {
 }
 
 async function upgradeJobSearchRejected(doc: Automerge.Doc<WorkspaceDocumentV2>, storage: WorkspaceStorage) {
+  if (doc.ownerPersonId !== currentProfile?.identity.personId) return doc
   if (!currentProfile) throw new Error("Identity not initialized")
   for (const entity of Object.values(doc.entities)) {
     if (entity.kind !== "board" || entity.deleted || entity.preset?.key !== "job-search") continue
@@ -404,6 +407,8 @@ async function persistCommand(command: Command, storage: WorkspaceStorage): Prom
     throw new Error("Workspace not hydrated")
   }
 
+  const role = await workspaceRole(activeDoc, currentProfile)
+  if (role === "visitor") throw new Error("Visitors can only view this workspace")
   const result = await executeCommand(activeDoc, command, currentProfile)
   if (!result.ok) {
     throw new Error(`Command failed: [${result.error.code}] ${result.error.message}`)
@@ -413,6 +418,9 @@ async function persistCommand(command: Command, storage: WorkspaceStorage): Prom
   if (!changeBytes) {
     throw new Error("No change produced")
   }
+
+  assertWorkspaceTransition(role, activeDoc, result.value.newDoc)
+  await authorizeLocalChanges(result.value.newDoc, currentProfile, [result.value.receipt.changeHash])
 
   // Atomic durable persistence
   await storage.commitTransaction(
@@ -570,6 +578,7 @@ export function useMatch() {
     } else {
       const loaded = await storage.loadWorkspaceDoc(workspaceId)
       if (!loaded) throw new Error("Workspace not found")
+      if (loaded.doc.ownerPersonId !== currentProfile.identity.personId) throw new Error("Only the owner can rename this workspace")
       const result = await executeCommand(loaded.doc, { kind: "renameWorkspace", title: cleanTitle }, currentProfile)
       if (!result.ok) throw new Error(result.error.message)
       const change = Automerge.getLastLocalChange(result.value.newDoc)
@@ -934,6 +943,13 @@ export function useMatch() {
       const doc = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
       if (!doc) throw new Error("The selected workspace is unavailable on this device.")
       return Automerge.save(doc)
+    },
+    async mergeAuthorizedWorkspace(id: string, bytes: Uint8Array, authorization: unknown) {
+      const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
+      let local = (await defaultStorage.loadWorkspaceDoc(id))?.doc
+      if (local && !Object.values(local.entities).some(e => e.kind === "board" && remote.entities[e.id]?.kind === "board")) local = undefined
+      await validateIncomingChanges(local, remote, authorization)
+      await useMatch().mergeScopedWorkspaceBytes(id, bytes)
     },
     async mergeScopedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
       const remote = Automerge.load<WorkspaceDocumentV2>(bytes)

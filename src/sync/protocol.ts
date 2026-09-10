@@ -36,7 +36,7 @@ export type WorkspaceJoinInvitation = {
   workspaceId: string
   workspaceTitle: string
   workspaces: WorkspaceItem[]
-  role: "editor"
+  role: "editor" | "visitor"
   createdAt: string
   expiresAt: string
   secret: string
@@ -165,7 +165,7 @@ export function createWorkspaceJoinInvite(
     workspaceId: primaryWs.id,
     workspaceTitle: primaryWs.title,
     workspaces,
-    role: "editor",
+    role: "visitor",
     createdAt: new Date(effectiveNow).toISOString(),
     expiresAt: new Date(effectiveNow + 10 * 60 * 1000).toISOString(),
     secret,
@@ -264,7 +264,7 @@ export function parseInvitation(raw: string, now = Date.now()): ScopedInvitation
     const workspaceId = params.get("workspaceId")
     const workspaceTitle = params.get("workspaceTitle") || "Workspace"
     const role = params.get("role")
-    if (!workspaceId || role !== "editor") {
+    if (!workspaceId || (role !== "editor" && role !== "visitor")) {
       throw new PairingError("Invalid invitation: missing workspace or valid role on workspace-join")
     }
 
@@ -294,7 +294,7 @@ export function parseInvitation(raw: string, now = Date.now()): ScopedInvitation
       workspaceId: workspaces[0].id,
       workspaceTitle: workspaces[0].title,
       workspaces,
-      role: "editor",
+      role,
       createdAt,
       expiresAt,
       secret,
