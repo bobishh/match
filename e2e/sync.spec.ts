@@ -208,6 +208,29 @@ test("Given a malformed pairing link, when Match opens it, then it fails without
   await expect(dialog.getByRole("heading", { name: "Couldn’t sync" })).toBeVisible()
   await expect(dialog.getByRole("alert")).toHaveText("This pairing link is invalid.")
   await expect(dialog.getByText("Workspace synced.")).toHaveCount(0)
+  await expect(page).toHaveURL(/\/pair#v=0\.0\.1&endpoint=peer-without-secret$/)
+  await page.reload()
+  await expect(dialog.getByRole("alert")).toHaveText("This pairing link is invalid.")
+})
+
+test("Given a QR invitation opened in a scanner, when its current URL opens in another browser then the invitation survives", async ({ page, browser }) => {
+  const invite = "/pair#v=1&kind=workspace-join&invitationId=handoff-test&issuerPersonId=p1&issuerDeviceId=d1&issuerPublicKey=pk1&endpoint=ep1&createdAt=2026-01-01T00:00:00.000Z&expiresAt=2099-01-01T00:00:00.000Z&secret=handoff-secret&workspaceId=ws1&workspaceTitle=Handoff+board&role=editor"
+  await page.goto(invite)
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await expect(dialog.getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/\/pair#/)
+  const handoffUrl = page.url()
+  await page.reload()
+  await expect(dialog.getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
+  const otherContext = await browser.newContext()
+  try {
+    const other = await otherContext.newPage()
+    await other.goto(handoffUrl)
+    await expect(other.getByRole("dialog", { name: "Device sync" }).getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
+    await expect(other).toHaveURL(handoffUrl)
+  } finally {
+    await otherContext.close()
+  }
 })
 
 test("Given paired browser profiles, when either peer changes a card, then the other board updates without another QR", async ({ browser, page }) => {
@@ -239,6 +262,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toHaveCount(0)
     await peerDialog.getByRole("button", { name: "Connect to mesh" }).click()
     await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
+    await expect(peer).toHaveURL(`${origin}/`)
     await expect(hostDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
     await expect(peer.getByText("1 card · 0 docs")).toBeVisible()
     await peerDialog.getByRole("button", { name: "Close" }).click()
