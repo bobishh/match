@@ -261,6 +261,12 @@ export async function executeCommand(
   let applyFn: ((draft: WorkspaceDocumentV2) => void) | null = null
 
   switch (command.kind) {
+    case "renameWorkspace": {
+      if (!command.title.trim()) return err("invalid_input", "Workspace name is required", "title")
+      applyFn = draft => { draft.title = command.title.trim() }
+      break
+    }
+
     case "upgradeJobSearchRejected": {
       const board = doc.entities[command.boardId] as Board | undefined
       if (board?.kind !== "board" || board.preset?.key !== "job-search") {

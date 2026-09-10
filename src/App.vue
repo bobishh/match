@@ -44,6 +44,8 @@ const {
   placementIssues,
   createWorkspaceAsync,
   switchWorkspace,
+  renameWorkspaceAsync,
+  deleteWorkspaceAsync,
   executeCommandAsync,
   getActiveDoc,
   createLead,
@@ -703,6 +705,17 @@ async function handleSwitchWorkspace(id: string) {
   notice.value = "Switched workspace"
 }
 
+async function handleRenameWorkspace(payload: { id: string; title: string }) {
+  await renameWorkspaceAsync(payload.id, payload.title)
+  notice.value = `Workspace renamed to "${payload.title}"`
+}
+
+async function handleDeleteWorkspace(id: string) {
+  await sync.close()
+  await deleteWorkspaceAsync(id)
+  notice.value = "Workspace deleted"
+}
+
 function openAddTask(columnId?: string) {
   storageError.value = ""
   taskFormError.value = ""
@@ -1081,6 +1094,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
       @create="handleCreateWorkspace"
+      @rename="handleRenameWorkspace"
+      @delete="handleDeleteWorkspace"
     />
 
     <ColumnDialog

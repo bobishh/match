@@ -116,6 +116,49 @@ export class WorkspaceStorage {
     setStorageRaw("match.workspaces", JSON.stringify(list))
   }
 
+  async rekeyWorkspace(oldId: string, newId: string, newTitle: string): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+    checkStorageFailureHook()
+    if (oldId === newId) throw new Error("Workspace IDs must differ")
+    if (await this.loadWorkspaceDoc(newId)) throw new Error(`Workspace ${newId} already exists`)
+    const loaded = await this.loadWorkspaceDoc(oldId)
+    if (!loaded) throw new Error(`Workspace ${oldId} not found`)
+
+    const moved = Automerge.change(Automerge.clone(loaded.doc), draft => {
+      draft.id = newId
+      draft.title = newTitle
+    })
+    // Save the recoverable copy first. Old keys are removed only after that succeeds.
+    await this.saveSnapshot(newId, moved, Automerge.save(moved))
+
+    this.inMemory.snapshots.delete(oldId)
+    this.inMemory.workspaces.delete(oldId)
+    for (const map of [this.inMemory.changes, this.inMemory.proofs, this.inMemory.receipts]) {
+      for (const key of map.keys()) {
+        if (key.startsWith(`${oldId}:`)) map.delete(key)
+      }
+    }
+    for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
+      removeStorageRaw(`${prefix}${oldId}`)
+    }
+    setStorageRaw("match.workspaces", JSON.stringify(Array.from(this.inMemory.workspaces.values())))
+    return moved
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    checkStorageFailureHook()
+    this.inMemory.snapshots.delete(workspaceId)
+    this.inMemory.workspaces.delete(workspaceId)
+    for (const map of [this.inMemory.changes, this.inMemory.proofs, this.inMemory.receipts]) {
+      for (const key of map.keys()) {
+        if (key.startsWith(`${workspaceId}:`)) map.delete(key)
+      }
+    }
+    for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
+      removeStorageRaw(`${prefix}${workspaceId}`)
+    }
+    setStorageRaw("match.workspaces", JSON.stringify(Array.from(this.inMemory.workspaces.values())))
+  }
+
   async commitTransaction(
     workspaceId: string,
     receipt: TransactionReceipt,

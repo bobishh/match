@@ -82,6 +82,38 @@ test("Given no network before accepting, when the connection returns, then the s
   }
 })
 
+test("Given both devices have different populated workspaces with the same ID, when joining, then the local one is kept as a separate renamable workspace", async ({ browser, page }) => {
+  test.setTimeout(60_000)
+  await page.goto("/")
+  await addLead(page, "Host workspace card")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Generate link" }).click()
+  const invite = await host.getByLabel("Pairing link").inputValue()
+  const context = await browser.newContext()
+  try {
+    const guest = await context.newPage()
+    await guest.goto("/")
+    await addLead(guest, "Guest local card")
+    await guest.goto(invite)
+    const dialog = guest.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("button", { name: "Accept and join" }).click()
+    await expect(dialog.getByText("Connected to Job search")).toBeVisible({ timeout: 25_000 })
+    await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await expect(guest.getByRole("button", { name: "Open Host workspace card — Engineer" })).toBeVisible()
+    await expect(guest.getByRole("button", { name: "Open Guest local card — Engineer" })).toHaveCount(0)
+    await guest.getByRole("button", { name: "Open workspaces" }).click()
+    const workspaces = guest.getByRole("dialog", { name: "Workspaces" })
+    await expect(workspaces.getByRole("button", { name: /jobs/ })).toBeVisible()
+    await expect(workspaces.getByRole("button", { name: /Job search \(local\)/ })).toBeVisible()
+    await workspaces.getByRole("button", { name: /Job search \(local\)/ }).click()
+    await expect(guest.getByRole("button", { name: "Open Guest local card — Engineer" })).toBeVisible()
+    await expect(guest.getByRole("button", { name: "Open Host workspace card — Engineer" })).toHaveCount(0)
+  } finally {
+    await context.close()
+  }
+})
+
 test("Given a storage failure on the receiving device, when joining, then it shows progress followed by an error and keeps the invitation", async ({ browser, page }) => {
   await page.goto("/")
   await addLead(page, "Must be saved")

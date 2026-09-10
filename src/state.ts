@@ -560,6 +560,43 @@ export function useMatch() {
     }
   }
 
+  async function renameWorkspaceAsync(workspaceId: string, title: string, storage = defaultStorage) {
+    const cleanTitle = title.trim()
+    if (!cleanTitle) throw new Error("Workspace name is required")
+    if (!currentProfile) currentProfile = await bootstrapIdentity("Match User")
+    if (activeDoc?.id === workspaceId) {
+      await commitAndPersist({ kind: "renameWorkspace", title: cleanTitle }, storage)
+    } else {
+      const loaded = await storage.loadWorkspaceDoc(workspaceId)
+      if (!loaded) throw new Error("Workspace not found")
+      const result = await executeCommand(loaded.doc, { kind: "renameWorkspace", title: cleanTitle }, currentProfile)
+      if (!result.ok) throw new Error(result.error.message)
+      const change = Automerge.getLastLocalChange(result.value.newDoc)
+      if (!change) throw new Error("Workspace rename produced no change")
+      await storage.commitTransaction(workspaceId, result.value.receipt, change, result.value.proof)
+      await storage.saveSnapshot(workspaceId, result.value.newDoc, Automerge.save(result.value.newDoc))
+    }
+    availableWorkspaces.value = await storage.listWorkspaces()
+  }
+
+  async function deleteWorkspaceAsync(workspaceId: string, storage = defaultStorage) {
+    const wasActive = activeDoc?.id === workspaceId
+    await storage.deleteWorkspace(workspaceId)
+    const root = await storage.loadPersonalRoot()
+    if (root?.workspaces[workspaceId]) {
+      delete root.workspaces[workspaceId]
+      await storage.savePersonalRoot(root)
+    }
+    availableWorkspaces.value = await storage.listWorkspaces()
+    if (!wasActive) return
+    const replacement = availableWorkspaces.value[0]
+    if (replacement) {
+      await switchWorkspace(replacement.id, storage)
+    } else {
+      await createWorkspaceAsync("Job search", "job-search", storage)
+    }
+  }
+
   function resolveColumnId(status: LeadStatus): string {
     if (!activeDoc) throw new Error("Not hydrated")
     const board = Object.values(activeDoc.entities).find((e): e is Board => e.kind === "board")
@@ -867,6 +904,8 @@ export function useMatch() {
     placementIssues,
     createWorkspaceAsync,
     switchWorkspace,
+    renameWorkspaceAsync,
+    deleteWorkspaceAsync,
     executeCommandAsync: commitAndPersist,
     getActiveDoc: () => activeDoc,
     getCurrentProfile: () => currentProfile,
@@ -898,17 +937,32 @@ export function useMatch() {
     async mergeScopedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
       const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
       if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
-      const local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
+      let local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
       let merged = remote
       if (local) {
         const sharedBoard = Object.values(local.entities).some(e => e.kind === "board" && remote.entities[e.id]?.kind === "board")
         if (!sharedBoard) {
-          // Each fresh install historically seeded a different board under the same "default" ID.
-          // Only replace an untouched seed. Never merge unrelated populated boards.
-          if (id !== "default" || Automerge.getAllChanges(local).length > 1 ||
-            Object.values(local.entities).some(e => !["board", "column", "field"].includes(e.kind))) {
-            throw new Error("This device has a different workspace with the same ID. Export its data before joining from a fresh browser profile.")
+          const titles = new Set((await storage.listWorkspaces()).map(workspace => workspace.title))
+          const baseTitle = `${local.title} (local)`
+          let localTitle = baseTitle
+          for (let suffix = 2; titles.has(localTitle); suffix += 1) localTitle = `${baseTitle} ${suffix}`
+          const localId = crypto.randomUUID()
+          const moved = await storage.rekeyWorkspace(id, localId, localTitle)
+          if (activeDoc?.id === id) {
+            if (typeof localStorage !== "undefined") localStorage.setItem("match.active_workspace_id", localId)
+            updateReactiveState(moved)
           }
+          const root = await storage.loadPersonalRoot()
+          if (root) {
+            const previous = root.workspaces[id]
+            delete root.workspaces[id]
+            root.workspaces[localId] = previous
+              ? { ...previous, workspaceId: localId, documentId: localId }
+              : { workspaceId: localId, documentId: localId, grantHash: "genesis", forgotten: false }
+            registerWorkspaceInRoot(root, id, id, "shared")
+            await storage.savePersonalRoot(root)
+          }
+          local = undefined
         } else {
           merged = Automerge.merge(Automerge.clone(local), remote)
           if (Automerge.getHeads(merged).sort().join() === Automerge.getHeads(local).sort().join()) return

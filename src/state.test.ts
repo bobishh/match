@@ -82,14 +82,19 @@ describe("Repository-backed state and projections (Task 1.8)", () => {
     expect(match.ready.value).toBe(true)
   })
 
-  it("rejects an unrelated populated workspace with the same ID without replacing local data", async () => {
+  it("moves an unrelated populated same-ID workspace aside before saving the invited workspace", async () => {
     const match = useMatch()
     await match.createLeadAsync({ company: "Local data", role: "Engineer", status: "lead" })
-    const before = match.getAutomergeBytes()
     const id = match.getActiveDoc()!.id
     const unrelated = Automerge.from(createWorkspaceDoc(id, "Remote board", "remote-owner", "blank"))
-    await expect(match.mergeScopedWorkspaceBytes(id, Automerge.save(unrelated))).rejects.toThrow(/different workspace/)
-    expect(match.getAutomergeBytes()).toEqual(before)
+    await match.mergeScopedWorkspaceBytes(id, Automerge.save(unrelated))
+
+    expect(match.activeWorkspace.id).not.toBe(id)
+    expect(match.activeWorkspace.title).toBe("Job search (local)")
+    expect(match.workspace.leads.some(lead => lead.company === "Local data")).toBe(true)
+    await match.switchWorkspace(id)
+    expect(match.activeWorkspace.title).toBe("Remote board")
+    expect(match.workspace.leads).toHaveLength(0)
   })
 
   it("rejects a document addressed to another workspace without touching the active board", async () => {
@@ -98,5 +103,18 @@ describe("Repository-backed state and projections (Task 1.8)", () => {
     const remote = Automerge.from(createWorkspaceDoc("other", "Remote board", "owner", "blank"))
     await expect(match.mergeScopedWorkspaceBytes("selected", Automerge.save(remote))).rejects.toThrow(/Invalid workspace/)
     expect(match.getAutomergeBytes()).toEqual(before)
+  })
+
+  it("deletes the active workspace and opens a remaining workspace", async () => {
+    const match = useMatch()
+    const firstId = match.activeWorkspace.id
+    await match.createWorkspaceAsync("Keep me", "blank")
+    const secondId = match.activeWorkspace.id
+    await match.deleteWorkspaceAsync(secondId)
+    expect(match.activeWorkspace.id).not.toBe(secondId)
+    expect(match.availableWorkspaces.value.some(workspace => workspace.id === firstId)).toBe(true)
+    expect(match.availableWorkspaces.value.some(workspace => workspace.id === match.activeWorkspace.id)).toBe(true)
+    expect(match.availableWorkspaces.value.some(workspace => workspace.id === secondId)).toBe(false)
+    expect(await new WorkspaceStorage().loadWorkspaceDoc(secondId)).toBeNull()
   })
 })
