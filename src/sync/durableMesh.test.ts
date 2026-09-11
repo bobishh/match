@@ -62,6 +62,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const store = {
       getWorkspaceCredential: async () => structuredClone(credential),
       putWorkspaceCredential: async (next: typeof credential) => { credential = structuredClone(next) },
+      getPeer: async () => null,
     }
     const mesh = new DurableMesh({
       transport: {} as never,

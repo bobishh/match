@@ -3,7 +3,8 @@ import { bootstrapIdentity, signEnvelope, verifyEnvelope, type LocalProfile, typ
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore } from "./peerStore"
-import { verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer } from "./meshRecords"
+import { verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
+  type WorkspaceSuccessionClaim } from "./meshRecords"
 
 import { assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
 type Authorization = {
@@ -90,7 +91,7 @@ function authoritiesWithEmbeddedCertificates(owners: WorkspaceAuthority[], recor
   })
 }
 
-function historicalOwnerHashes(remote: Automerge.Doc<WorkspaceDocumentV2>, transfers: WorkspaceOwnershipTransfer[]) {
+function historicalOwnerHashes(remote: Automerge.Doc<WorkspaceDocumentV2>, transfers: Array<WorkspaceOwnershipTransfer | WorkspaceSuccessionClaim>) {
   const changes = Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change))
   const byHash = new Map(changes.map(change => [change.hash, change]))
   const result = new Map<string, Set<string>>()
@@ -144,7 +145,8 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
   if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
   const expectedOwner = credential?.ownerPersonId ?? genesisOwner
   const ownerSet = authorities(credential)
-  const transfers = ((credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[] } | undefined)?.ownershipTransfers ?? [])
+  const catalog = credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[]; successionClaims?: WorkspaceSuccessionClaim[] } | undefined
+  const transfers = [...(catalog?.ownershipTransfers ?? []), ...(catalog?.successionClaims ?? [])]
   const historicalHashes = historicalOwnerHashes(remote, transfers)
   if (!Array.isArray(raw) || raw.length > 20000 || new TextEncoder().encode(JSON.stringify(raw)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const known = new Set(local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : [])

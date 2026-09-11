@@ -48,7 +48,7 @@ test("Given a joined workspace with local data, when an editor leaves the mesh, 
     await guestDialog.getByRole("button", { name: "Leave mesh" }).click()
     await expect(guestDialog.getByText("Workspace data stays on this device.")).toBeVisible()
     await guestDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
-    await expect(guest.getByLabel("Mesh empty")).toBeVisible()
+    await expect(guest.getByLabel("Mesh empty")).toBeVisible({ timeout: 20_000 })
     await expect(guestDialog.getByText(/^Reconnect:/)).toHaveCount(0)
     await expect(guestDialog.getByRole("alert")).toHaveCount(0)
     await expect(guestDialog.getByRole("list", { name: "Mesh members" }).getByRole("button")).toHaveCount(0)
@@ -113,8 +113,6 @@ test("Given trusted peers closed every tab, when both reopen without an invitati
     await guest.goto("/")
     await pairWorkspace(page, guest)
 
-    await page.getByRole("button", { name: "Sync", exact: true }).click()
-    await page.getByRole("dialog", { name: "Device sync" }).getByRole("button", { name: "Stop live sync" }).click()
     const hostContext = page.context()
     await guest.close()
     await page.close()
@@ -185,8 +183,6 @@ test("Given owner introduced two editors, when owner goes offline, then editors 
   try {
     await Promise.all([page.goto("/"), b.goto("/"), c.goto("/")])
     await pairWorkspace(page, b)
-    await page.getByRole("button", { name: "Sync", exact: true }).click()
-    await page.getByRole("dialog", { name: "Device sync" }).getByRole("button", { name: "Stop live sync" }).click()
     await pairWorkspace(page, c)
     await page.close()
 
@@ -238,7 +234,7 @@ test("Given an online editor, when owner selects them in mesh members and transf
     const dialog = page.getByRole("dialog", { name: "Device sync" })
     const members = dialog.getByRole("list", { name: "Mesh members" })
     await expect(members.locator(".mesh-member")).toHaveCount(2)
-    await members.locator(".mesh-member:not(:disabled)").click()
+    await members.getByRole("button").filter({ hasText: "editor" }).click()
     await expect(dialog.getByRole("button", { name: "Transfer ownership" })).toBeEnabled()
     await dialog.getByRole("button", { name: "Transfer ownership" }).click()
 

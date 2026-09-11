@@ -3,6 +3,9 @@ import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./p
 import type { LiveWorkspaceSync } from "./session"
 import type { DuplexStream, SyncConnection } from "./transport"
 
+export const MESH_HEARTBEAT_INTERVAL_MS = 5_000
+export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
+
 export class SyncNetworkError extends Error {}
 
 export async function networkIO<T>(operation: Promise<T>): Promise<T> {
@@ -122,7 +125,7 @@ export function liveWorkspaceSetSync(
           const frame = await Promise.race([
             stream.read(),
             new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new SyncNetworkError("Mesh heartbeat timed out")), 4_000)
+              timer = setTimeout(() => reject(new SyncNetworkError("Mesh heartbeat timed out")), MESH_HEARTBEAT_TIMEOUT_MS)
             }),
           ])
           decodePairingFrame(frame, "sync-heartbeat-ack", secret)

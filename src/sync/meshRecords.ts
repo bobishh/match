@@ -15,6 +15,7 @@ export const MAX_STRING_LENGTH = 256
 export const MAX_FUTURE_TOLERANCE_MS = 5 * 60 * 1000 // 5 minutes
 export const MAX_STALE_TOLERANCE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
 export const MAX_CERT_CHAIN_LENGTH = 32
+export const MAX_SUCCESSION_EDITORS = 32
 
 export type PeerAdvertisementPayload = {
   kind: "peer-advertisement"
@@ -62,6 +63,27 @@ export type WorkspaceOwnershipTransferPayload = {
 }
 
 export type WorkspaceOwnershipTransfer = SignedEnvelope<WorkspaceOwnershipTransferPayload>
+
+export type WorkspaceSuccessionPolicy = SignedEnvelope<{
+  kind: "workspace-succession-policy"; version: 1; workspaceId: string; ownerPersonId: string
+  successorPersonId: string | null; eligibleEditorPersonIds: string[]; epoch: number; updatedAt: string
+}>
+export type WorkspaceSuccessionVote = {
+  signed: SignedEnvelope<{
+    kind: "workspace-succession-vote"; version: 1; workspaceId: string; ownerPersonId: string
+    voterPersonId: string; candidatePersonId: string; policySignature: string; votedAt: string
+  }>
+  voterPublicKey: string
+  voterCertificates: DeviceCertificate[]
+  voterGrant: WorkspaceGrant
+}
+export type WorkspaceSuccessionClaim = SignedEnvelope<{
+  kind: "workspace-succession-claim"; version: 1; workspaceId: string; fromOwnerPersonId: string
+  toOwnerPersonId: string; toOwnerPublicKey: string; toOwnerCertificates: DeviceCertificate[]
+  candidateGrant: WorkspaceGrant; formerOwnerGrant: WorkspaceGrant
+  policy: WorkspaceSuccessionPolicy; votes: WorkspaceSuccessionVote[]; workspaceHeads: string[]
+  epoch: number; claimedAt: string
+}>
 
 export type WorkspaceMemberBundle = {
   advertisement: PeerAdvertisement
@@ -752,4 +774,156 @@ export async function verifyWorkspaceOwnershipTransfer(
     throw new Error("Invalid ownership transfer roles")
   }
   return record
+}
+
+async function verifyOwnerEnvelope<T extends { kind: string }>(record: SignedEnvelope<T>, authority: WorkspaceAuthority) {
+  if (record.signerKeyId === authority.personId) {
+    if (!await verifyEnvelope(record, authority.publicKey)) throw new Error(`Invalid ${record.payload.kind} signature`)
+    return
+  }
+  const signerKey = await verifyDeviceChain({ personId: authority.personId, publicKey: authority.publicKey,
+    deviceId: record.signerKeyId, certificates: authority.certificates })
+  if (!await verifyEnvelope(record, signerKey)) throw new Error(`Invalid ${record.payload.kind} signature`)
+}
+
+function validIso(value: unknown, now = Date.now()) {
+  return typeof value === "string" && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value &&
+    Date.parse(value) <= now + MAX_FUTURE_TOLERANCE_MS
+}
+
+export async function createWorkspaceSuccessionPolicy(profile: LocalProfile, workspaceId: string,
+  successorPersonId: string | null, eligibleEditorPersonIds: string[], epoch: number,
+  updatedAt = new Date().toISOString()): Promise<WorkspaceSuccessionPolicy> {
+  const eligible = [...new Set(eligibleEditorPersonIds)].sort()
+  if (!workspaceId || !Number.isSafeInteger(epoch) || epoch < 1 || eligible.length > MAX_SUCCESSION_EDITORS ||
+    eligible.some(id => typeof id !== "string" || !id || id === profile.identity.personId) ||
+    eligible.join("\0") !== eligibleEditorPersonIds.join("\0") ||
+    (successorPersonId !== null && !eligible.includes(successorPersonId)) || !validIso(updatedAt)) {
+    throw new Error("Invalid workspace succession policy")
+  }
+  return signEnvelope(profile.privateKeys.devicePrivateKey, {
+    kind: "workspace-succession-policy", version: 1, workspaceId, ownerPersonId: profile.identity.personId,
+    successorPersonId, eligibleEditorPersonIds: eligible, epoch, updatedAt,
+  }, profile.device.deviceId)
+}
+
+export async function verifyWorkspaceSuccessionPolicy(raw: unknown, workspaceId: string,
+  authority: WorkspaceAuthority, now = Date.now()): Promise<WorkspaceSuccessionPolicy> {
+  if (new TextEncoder().encode(JSON.stringify(raw)).byteLength > MAX_PEER_ADVERTISEMENT_SIZE) throw new Error("Workspace succession policy too large")
+  const policy = raw as WorkspaceSuccessionPolicy
+  const p = policy?.payload
+  const eligible = p?.eligibleEditorPersonIds
+  if (!p || p.kind !== "workspace-succession-policy" || p.version !== 1 || p.workspaceId !== workspaceId ||
+    p.ownerPersonId !== authority.personId || !Number.isSafeInteger(p.epoch) || p.epoch < 1 || !validIso(p.updatedAt, now) ||
+    !Array.isArray(eligible) || eligible.length > MAX_SUCCESSION_EDITORS || new Set(eligible).size !== eligible.length ||
+    eligible.some(id => typeof id !== "string" || !id || id === authority.personId) ||
+    [...eligible].sort().join("\0") !== eligible.join("\0") ||
+    (p.successorPersonId !== null && (typeof p.successorPersonId !== "string" || !eligible.includes(p.successorPersonId)))) {
+    throw new Error("Invalid workspace succession policy")
+  }
+  await verifyOwnerEnvelope(policy, authority)
+  return policy
+}
+
+export async function createWorkspaceSuccessionVote(profile: LocalProfile, policy: WorkspaceSuccessionPolicy,
+  candidatePersonId: string, voterGrant: WorkspaceGrant,
+  votedAt = new Date().toISOString(), voterCertificates: DeviceCertificate[] = [profile.certificate]): Promise<WorkspaceSuccessionVote> {
+  const p = policy.payload
+  if (!candidatePersonId || !p.eligibleEditorPersonIds.includes(profile.identity.personId) ||
+    !p.eligibleEditorPersonIds.includes(candidatePersonId) || !validIso(votedAt)) throw new Error("Invalid workspace succession vote")
+  return {
+    signed: await signEnvelope(profile.privateKeys.devicePrivateKey, {
+      kind: "workspace-succession-vote", version: 1, workspaceId: p.workspaceId, ownerPersonId: p.ownerPersonId,
+      voterPersonId: profile.identity.personId, candidatePersonId, policySignature: policy.signature, votedAt,
+    }, profile.device.deviceId),
+    voterPublicKey: profile.identity.publicKey,
+    voterCertificates,
+    voterGrant,
+  }
+}
+
+export async function verifyWorkspaceSuccessionVote(raw: unknown, policy: WorkspaceSuccessionPolicy, candidatePersonId: string,
+  authority: WorkspaceAuthority, revoked: Set<string>, now: number): Promise<WorkspaceSuccessionVote> {
+  if (new TextEncoder().encode(JSON.stringify(raw)).byteLength > MAX_PEER_ADVERTISEMENT_SIZE) {
+    throw new Error("Workspace succession vote too large")
+  }
+  const vote = raw as WorkspaceSuccessionVote
+  const p = vote?.signed?.payload
+  if (!p || p.kind !== "workspace-succession-vote" || p.version !== 1 || p.workspaceId !== policy.payload.workspaceId ||
+    p.ownerPersonId !== authority.personId || p.policySignature !== policy.signature || p.candidatePersonId !== candidatePersonId ||
+    !policy.payload.eligibleEditorPersonIds.includes(p.voterPersonId) ||
+    !policy.payload.eligibleEditorPersonIds.includes(p.candidatePersonId) ||
+    revoked.has(p.voterPersonId) || !validIso(p.votedAt, now) ||
+    typeof vote.voterPublicKey !== "string" || !Array.isArray(vote.voterCertificates) || vote.voterCertificates.length > MAX_CERT_CHAIN_LENGTH) {
+    throw new Error("Invalid workspace succession vote")
+  }
+  if (await keyId(vote.voterPublicKey) !== p.voterPersonId) throw new Error("Invalid succession voter identity")
+  const deviceKey = await verifyDeviceChain({ personId: p.voterPersonId, publicKey: vote.voterPublicKey,
+    deviceId: vote.signed.signerKeyId, certificates: vote.voterCertificates })
+  if (!await verifyEnvelope(vote.signed, deviceKey)) throw new Error("Invalid workspace succession vote signature")
+  if (await verifyWorkspaceGrant(vote.voterGrant, { workspaceId: p.workspaceId, personId: p.voterPersonId,
+    ownerPersonId: authority.personId, ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates }) !== "editor") {
+    throw new Error("Succession voter is not an editor")
+  }
+  return vote
+}
+
+export async function createWorkspaceSuccessionClaim(profile: LocalProfile, policy: WorkspaceSuccessionPolicy,
+  votes: WorkspaceSuccessionVote[], candidateGrant: WorkspaceGrant, workspaceHeads: string[], epoch: number,
+  toOwnerCertificates: DeviceCertificate[] = [profile.certificate], claimedAt = new Date().toISOString()): Promise<WorkspaceSuccessionClaim> {
+  if (!Array.isArray(workspaceHeads) || !workspaceHeads.length || workspaceHeads.length > 256 ||
+    workspaceHeads.some(head => typeof head !== "string" || !head) || !Number.isSafeInteger(epoch) || epoch < 2 ||
+    !Array.isArray(toOwnerCertificates) || !toOwnerCertificates.length || toOwnerCertificates.length > MAX_CERT_CHAIN_LENGTH || !validIso(claimedAt)) {
+    throw new Error("Invalid workspace succession claim")
+  }
+  const formerOwnerGrant = await createWorkspaceGrant(profile, policy.payload.workspaceId, policy.payload.ownerPersonId, "editor")
+  return signEnvelope(profile.privateKeys.devicePrivateKey, {
+    kind: "workspace-succession-claim", version: 1, workspaceId: policy.payload.workspaceId,
+    fromOwnerPersonId: policy.payload.ownerPersonId, toOwnerPersonId: profile.identity.personId,
+    toOwnerPublicKey: profile.identity.publicKey, toOwnerCertificates, candidateGrant,
+    formerOwnerGrant, policy, votes, workspaceHeads, epoch, claimedAt,
+  }, profile.device.deviceId)
+}
+
+export async function verifyWorkspaceSuccessionClaim(raw: unknown, workspaceId: string, authority: WorkspaceAuthority,
+  minimumEpoch: number, revoked: Set<string>, now = Date.now()): Promise<WorkspaceSuccessionClaim> {
+  if (new TextEncoder().encode(JSON.stringify(raw)).byteLength > 128 * 1024) throw new Error("Workspace succession claim too large")
+  const claim = raw as WorkspaceSuccessionClaim
+  const p = claim?.payload
+  if (!p || p.kind !== "workspace-succession-claim" || p.version !== 1 || p.workspaceId !== workspaceId ||
+    p.fromOwnerPersonId !== authority.personId || !p.toOwnerPersonId || p.toOwnerPersonId === authority.personId ||
+    revoked.has(p.toOwnerPersonId) || await keyId(p.toOwnerPublicKey) !== p.toOwnerPersonId ||
+    !Array.isArray(p.toOwnerCertificates) || !p.toOwnerCertificates.length || p.toOwnerCertificates.length > MAX_CERT_CHAIN_LENGTH ||
+    !Array.isArray(p.workspaceHeads) || !p.workspaceHeads.length || p.workspaceHeads.length > 256 ||
+    p.workspaceHeads.some(head => typeof head !== "string" || !head) || !Number.isSafeInteger(p.epoch) || p.epoch !== minimumEpoch + 1 ||
+    !validIso(p.claimedAt, now) || !Array.isArray(p.votes) || p.votes.length > MAX_SUCCESSION_EDITORS) throw new Error("Invalid workspace succession claim")
+  const policy = await verifyWorkspaceSuccessionPolicy(p.policy, workspaceId, authority, now)
+  if (policy.payload.epoch !== minimumEpoch) throw new Error("Succession policy epoch is stale")
+  if (await verifyWorkspaceGrant(p.candidateGrant, { workspaceId, personId: p.toOwnerPersonId,
+    ownerPersonId: authority.personId, ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates }) !== "editor") {
+    throw new Error("Successor is not an editor")
+  }
+  const candidateKey = await verifyDeviceChain({ personId: p.toOwnerPersonId, publicKey: p.toOwnerPublicKey,
+    deviceId: claim.signerKeyId, certificates: p.toOwnerCertificates })
+  if (!await verifyEnvelope(claim, candidateKey)) throw new Error("Invalid workspace succession claim signature")
+  const named = policy.payload.successorPersonId
+  if (!named || revoked.has(named)) {
+    if (!policy.payload.eligibleEditorPersonIds.includes(p.toOwnerPersonId)) throw new Error("Candidate is not an eligible editor")
+    const activeEligible = policy.payload.eligibleEditorPersonIds.filter(id => !revoked.has(id))
+    const quorum = Math.floor(activeEligible.length / 2) + 1
+    const voters = new Set<string>()
+    for (const rawVote of p.votes) {
+      const vote = await verifyWorkspaceSuccessionVote(rawVote, policy, p.toOwnerPersonId, authority, revoked, now)
+      if (voters.has(vote.signed.payload.voterPersonId)) throw new Error("Duplicate succession voter")
+      voters.add(vote.signed.payload.voterPersonId)
+    }
+    if (voters.size < quorum) throw new Error(`Editor quorum requires ${quorum} votes`)
+  } else if (named !== p.toOwnerPersonId) {
+    throw new Error("Named successor has priority")
+  }
+  const nextAuthority = { personId: p.toOwnerPersonId, publicKey: p.toOwnerPublicKey, certificates: p.toOwnerCertificates }
+  if (await verifyWorkspaceGrant(p.formerOwnerGrant, { workspaceId, personId: authority.personId,
+    ownerPersonId: nextAuthority.personId, ownerPublicKey: nextAuthority.publicKey,
+    ownerCertificates: nextAuthority.certificates }) !== "editor") throw new Error("Former owner grant is invalid")
+  return claim
 }

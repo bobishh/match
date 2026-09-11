@@ -229,6 +229,11 @@ const meshMembers = computed(() => {
     }
   }).sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
 })
+const activeSuccession = computed(() => sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id))
+const successionVotesForSelf = computed(() => activeSuccession.value?.votes.filter(vote => vote.candidatePersonId === chat.personId.value).length ?? 0)
+const canClaimSuccession = computed(() => currentRole.value === "editor" && Boolean(activeSuccession.value) &&
+  (activeSuccession.value!.successorPersonId === chat.personId.value ||
+    (!activeSuccession.value!.successorPersonId && successionVotesForSelf.value >= activeSuccession.value!.quorum)))
 const transferringOwnership = ref("")
 
 async function transferWorkspaceOwnership(personId: string) {
@@ -244,6 +249,24 @@ async function leaveWorkspaceMesh() {
   peerAccessError.value = ""
   try { await sync.leaveMesh() }
   catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not leave mesh" }
+}
+
+async function setWorkspaceSuccessor(personId: string | null) {
+  peerAccessError.value = ""
+  try { await sync.setSuccessor(personId) }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not set successor" }
+}
+
+async function voteForWorkspaceSuccessor(personId: string) {
+  peerAccessError.value = ""
+  try { await sync.voteForSuccessor(personId) }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not record vote" }
+}
+
+async function claimWorkspaceSuccession() {
+  peerAccessError.value = ""
+  try { await sync.claimSuccession() }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not claim ownership" }
 }
 
 async function revokeWorkspacePeer(personId: string) {
@@ -1358,6 +1381,10 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :selected-workspace-id="sync.selectedWorkspaceId.value"
       :mesh-members="meshMembers"
       :has-mesh="meshMembers.length > 0"
+      :current-person-id="chat.personId.value"
+      :current-role="currentRole"
+      :succession="activeSuccession"
+      :can-claim-succession="canClaimSuccession"
       :can-manage-mesh="isWorkspaceOwner"
       :transferring-ownership="transferringOwnership"
       :mesh-action-error="peerAccessError"
@@ -1371,6 +1398,9 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @generate-workspace-invite="sync.generateWorkspaceInvite"
       @transfer-ownership="transferWorkspaceOwnership"
       @leave-mesh="leaveWorkspaceMesh"
+      @set-successor="setWorkspaceSuccessor"
+      @vote-successor="voteForWorkspaceSuccessor"
+      @claim-succession="claimWorkspaceSuccession"
       @request-enrollment="sync.requestEnrollment"
       :enrollment-device-name="sync.enrollmentDeviceName.value"
       @approve-device="sync.approveEnrollment"

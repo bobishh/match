@@ -22,8 +22,8 @@ import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { createEnrollmentRequest, readEnrollmentRequest, installEnrollment, enrollmentPayload } from "./enrollment"
 import { registerDeviceInRoot } from "../domain/personalRoot"
-import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
-import { DurableMesh, startPersistentNode, type MeshPeerView } from "./durableMesh"
+import { workspaceSet, liveWorkspaceSetSync, MESH_HEARTBEAT_INTERVAL_MS, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
+import { DurableMesh, startPersistentNode, type MeshPeerView, type MeshSuccessionView } from "./durableMesh"
 
 function dialPairingPeer(node: SyncNode, endpoint: string) {
   return node.dialRelay ? node.dialRelay(endpoint) : node.dial(endpoint)
@@ -127,6 +127,8 @@ export function useDeviceSync({
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
   const ownershipRevision = ref(0)
+  const meshSuccession = ref<MeshSuccessionView[]>([])
+  const leavingWorkspaceIds = new Set<string>()
   const isLive = computed(() => directLive.value || meshLiveWorkspaceIds.value.length > 0)
 
   let node: SyncNode | undefined
@@ -143,10 +145,11 @@ export function useDeviceSync({
     workspaceStore: meshWorkspaceStore,
     workspace,
     getProfile,
-    onChange(ids, peers, revoked) {
-      meshLiveWorkspaceIds.value = [...new Set(ids)]
-      meshPeers.value = peers
-      revokedWorkspaceIds.value = revoked
+    onChange(ids, peers, revoked, succession) {
+      meshLiveWorkspaceIds.value = [...new Set(ids)].filter(id => !leavingWorkspaceIds.has(id))
+      meshPeers.value = peers.filter(peer => !leavingWorkspaceIds.has(peer.workspaceId))
+      revokedWorkspaceIds.value = revoked.filter(id => !leavingWorkspaceIds.has(id))
+      meshSuccession.value = succession.filter(item => !leavingWorkspaceIds.has(item.workspaceId))
       ownershipRevision.value += 1
       if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "members"
     },
@@ -200,9 +203,16 @@ export function useDeviceSync({
     await durableMesh?.pauseAll()
   }
 
-  async function startDurableMesh() {
+  async function startDurableMesh(adoptedNode?: SyncNode) {
     revokedWorkspaceIds.value = await durableMesh?.revokedWorkspaceIds() ?? []
-    await durableMesh?.resumeAll()
+    await durableMesh?.resumeAll(adoptedNode)
+  }
+
+  async function handoffDirectNode(reason: string) {
+    const adoptedNode = node
+    node = undefined
+    await stopNode(reason)
+    await startDurableMesh(adoptedNode)
   }
 
   async function shutdown() {
@@ -229,23 +239,49 @@ export function useDeviceSync({
     ownershipRevision.value += 1
   }
 
+  async function setSuccessor(personId: string | null) {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId || !durableMesh) throw new Error("No active workspace")
+    await durableMesh.setSuccessor(workspaceId, personId)
+  }
+
+  async function voteForSuccessor(personId: string) {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId || !durableMesh) throw new Error("No active workspace")
+    await durableMesh.voteForSuccessor(workspaceId, personId)
+  }
+
+  async function claimSuccession() {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId || !durableMesh) throw new Error("No active workspace")
+    await durableMesh.claimSuccession(workspaceId)
+    ownershipRevision.value += 1
+  }
+
   async function leaveMesh() {
     const workspaceId = activeWorkspaceId?.()
     if (!workspaceId || !durableMesh) throw new Error("No active workspace")
     run += 1
     wakeRetry?.()
-    await pauseDurableMesh()
-    await stopNode("Leaving workspace mesh")
-    for (const session of directPeerSessions.values()) await session.close().catch(() => {})
-    directPeerSessions.clear()
-    await durableMesh.leaveWorkspace(workspaceId)
+    leavingWorkspaceIds.add(workspaceId)
+    directLive.value = false
+    liveWorkspaceIds.value = liveWorkspaceIds.value.filter(id => id !== workspaceId)
     meshLiveWorkspaceIds.value = meshLiveWorkspaceIds.value.filter(id => id !== workspaceId)
     meshPeers.value = meshPeers.value.filter(peer => peer.workspaceId !== workspaceId)
     revokedWorkspaceIds.value = revokedWorkspaceIds.value.filter(id => id !== workspaceId)
     meshDiagnostic.value = ""
     ownershipRevision.value += 1
     step.value = "members"
-    void startDurableMesh()
+    try {
+      await pauseDurableMesh()
+      await stopNode("Leaving workspace mesh")
+      for (const session of directPeerSessions.values()) await session.close().catch(() => {})
+      directPeerSessions.clear()
+      await durableMesh.leaveWorkspace(workspaceId)
+      void startDurableMesh()
+    } finally {
+      leavingWorkspaceIds.delete(workspaceId)
+    }
   }
 
   function attachLiveSession(session: LiveWorkspaceSync, currentRun: number) {
@@ -280,8 +316,7 @@ export function useDeviceSync({
     error.value = ""
     authCode.value = ""
     parsedInvite.value = null
-    await stopNode("Pairing closed")
-    void startDurableMesh()
+    await handoffDirectNode("Pairing closed")
   }
 
   async function dismiss() {
@@ -425,8 +460,7 @@ export function useDeviceSync({
           await connection?.close().catch(() => {})
           await acceptor.close().catch(() => {})
           if (currentRun === run) {
-            await stopNode("Enrollment finished")
-            void startDurableMesh()
+            await handoffDirectNode("Enrollment finished")
           }
         }
       })()
@@ -502,8 +536,11 @@ export function useDeviceSync({
           if (!handoffStarted) {
             handoffStarted = true
             void (async () => {
+              const adoptedNode = node
+              node = undefined
               await stopNode("Invitation peer disconnected")
-              if (currentRun === run) await startDurableMesh()
+              if (currentRun === run) await startDurableMesh(adoptedNode)
+              else await adoptedNode?.close("Invitation superseded").catch(() => {})
             })()
           }
         }
@@ -611,7 +648,7 @@ export function useDeviceSync({
           step.value = "synced"
           heartbeat = setInterval(() => {
             void session?.heartbeat?.().catch(() => { void session?.close() })
-          }, 3_000)
+          }, MESH_HEARTBEAT_INTERVAL_MS)
           // Share merged offline changes with all connected devices.
           await group.publish()
           await session.done
@@ -755,8 +792,7 @@ export function useDeviceSync({
       clearTimeout(timeout)
       await connection?.close().catch(() => {})
       if (currentRun === run) {
-        await stopNode("Enrollment finished")
-        void startDurableMesh()
+        await handoffDirectNode("Enrollment finished")
       }
     }
   }
@@ -892,12 +928,12 @@ export function useDeviceSync({
           }
           await session?.close()
           await connection?.close()
-          await started?.close("Reconnecting").catch(() => {})
+          if (!handoffToMesh) await started?.close("Reconnecting").catch(() => {})
           if (node === started) node = undefined
         }
         if (currentRun !== run) return
         if (handoffToMesh) {
-          await startDurableMesh()
+          await startDurableMesh(started)
           return
         }
         await waitToReconnect(Math.min(1_000 * 2 ** attempts++, 15_000))
@@ -941,6 +977,7 @@ export function useDeviceSync({
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
     meshPeers,
     meshDiagnostic,
+    meshSuccession,
     localDeviceId,
     ownershipRevision,
     step,
@@ -971,6 +1008,9 @@ export function useDeviceSync({
     shutdown,
     revokePeer,
     transferOwnership,
+    setSuccessor,
+    voteForSuccessor,
+    claimSuccession,
     leaveMesh,
     copyInvite,
     close,

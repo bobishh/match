@@ -27,6 +27,15 @@ const props = defineProps<{
     self: boolean
   }>
   hasMesh?: boolean
+  currentPersonId?: string
+  currentRole?: "owner" | "editor" | "visitor"
+  succession?: {
+    successorPersonId: string | null
+    eligibleEditorPersonIds: string[]
+    votes: Array<{ voterPersonId: string; candidatePersonId: string }>
+    quorum: number
+  }
+  canClaimSuccession?: boolean
   canManageMesh?: boolean
   transferringOwnership?: string
   meshActionError?: string
@@ -45,6 +54,9 @@ const emit = defineEmits<{
   (e: "generateWorkspaceInvite"): void
   (e: "transferOwnership", personId: string): void
   (e: "leaveMesh"): void
+  (e: "setSuccessor", personId: string | null): void
+  (e: "voteSuccessor", personId: string): void
+  (e: "claimSuccession"): void
   (e: "copy", url?: string): void
   (e: "requestEnrollment"): void
   (e: "approveDevice"): void
@@ -69,6 +81,7 @@ const hasSelection = computed(() => selectedIds.value.length > 0)
 const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
+const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
 
 function isWorkspaceSelected(id: string) {
   return selectedIds.value.includes(id)
@@ -137,12 +150,11 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             :class="{ 'is-selected': selectedMemberId === member.personId }"
             type="button"
             :aria-pressed="selectedMemberId === member.personId"
-            :disabled="member.self"
             @click="selectedMemberId = member.personId"
           >
             <span class="mesh-member-presence" :class="member.online ? 'is-online' : 'is-offline'" aria-hidden="true"></span>
             <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
-            <span class="mesh-member-role">{{ member.role }}</span>
+            <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
           <p v-if="!(meshMembers || []).length" class="mesh-member-empty">No mesh members yet.</p>
         </div>
@@ -158,6 +170,32 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             :disabled="!selectedMember.online || Boolean(transferringOwnership)"
             @click="emit('transferOwnership', selectedMember.personId)"
           >{{ transferringOwnership === selectedMember.personId ? 'Transferring…' : 'Transfer ownership' }}</button>
+          <button
+            v-if="canManageMesh && selectedMember.role === 'editor' && selectedMember.personId !== succession?.successorPersonId"
+            class="button" type="button" @click="emit('setSuccessor', selectedMember.personId)"
+          >Name successor</button>
+          <button
+            v-if="canManageMesh && selectedMember.personId === succession?.successorPersonId"
+            class="button" type="button" @click="emit('setSuccessor', null)"
+          >Remove named successor</button>
+          <button
+            v-if="currentRole === 'editor' && selectedMember.role === 'editor' && !currentVote"
+            class="button" type="button" @click="emit('voteSuccessor', selectedMember.personId)"
+          >Vote for {{ selectedMember.self ? 'yourself' : selectedMember.name }}</button>
+          <p v-if="currentRole === 'editor' && currentVote" class="dialog-copy">Vote recorded for {{ (meshMembers || []).find(member => member.personId === currentVote?.candidatePersonId)?.name || 'an editor' }}.</p>
+        </section>
+        <section v-if="hasMesh" class="sync-section" aria-label="Ownership succession">
+          <p class="sync-section-copy">Ownership succession</p>
+          <p v-if="succession" class="dialog-copy">
+            <template v-if="succession.successorPersonId">Named successor: {{ (meshMembers || []).find(member => member.personId === succession?.successorPersonId)?.name || 'Unavailable member' }}.</template>
+            <template v-else>Editor quorum: {{ succession.quorum }} of {{ succession.eligibleEditorPersonIds.length }}.</template>
+          </p>
+          <p v-if="succession && currentRole === 'editor'" class="dialog-copy">
+            Votes for you: {{ succession.votes.filter(vote => vote.candidatePersonId === currentPersonId).length }} / {{ succession.quorum }}.
+          </p>
+          <p v-if="!succession" class="dialog-copy">No recovery policy. Owner must enable editor quorum or name a successor.</p>
+          <button v-if="canManageMesh && !succession" class="button" type="button" @click="emit('setSuccessor', null)">Enable editor quorum</button>
+          <button v-if="canClaimSuccession" class="button button-danger" type="button" @click="emit('claimSuccession')">Claim ownership</button>
         </section>
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
         <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">

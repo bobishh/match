@@ -23,6 +23,11 @@ import {
   verifyWorkspaceRevocation,
   createWorkspaceOwnershipTransfer,
   verifyWorkspaceOwnershipTransfer,
+  createWorkspaceSuccessionPolicy,
+  createWorkspaceSuccessionVote,
+  createWorkspaceSuccessionClaim,
+  verifyWorkspaceSuccessionVote,
+  verifyWorkspaceSuccessionClaim,
 } from "./meshRecords"
 
 describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () => {
@@ -66,6 +71,94 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
         publicKey: owner.identity.publicKey,
         certificates: [owner.certificate],
       }, 1)).rejects.toThrow(/ownership transfer/i)
+    })
+  })
+
+  describe("succession", () => {
+    it("Given a named successor, when they claim ownership, then the owner-signed policy is sufficient", async () => {
+      const owner = await createProfile("Owner")
+      const successor = await createProfile("Successor")
+      const grant = await createWorkspaceGrant(owner, workspaceId, successor.identity.personId, "editor")
+      const policy = await createWorkspaceSuccessionPolicy(owner, workspaceId, successor.identity.personId,
+        [successor.identity.personId], 1)
+      const claim = await createWorkspaceSuccessionClaim(successor, policy, [], grant, ["head"], 2)
+
+      await expect(verifyWorkspaceSuccessionClaim(claim, workspaceId, {
+        personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+      }, 1, new Set())).resolves.toEqual(claim)
+    })
+
+    it("Given no named successor, when a majority of eligible editors vote, then the candidate can claim ownership", async () => {
+      const owner = await createProfile("Owner")
+      const candidate = await createProfile("Candidate")
+      const voter = await createProfile("Voter")
+      const eligible = [candidate.identity.personId, voter.identity.personId].sort()
+      const policy = await createWorkspaceSuccessionPolicy(owner, workspaceId, null, eligible, 1)
+      const candidateGrant = await createWorkspaceGrant(owner, workspaceId, candidate.identity.personId, "editor")
+      const voterGrant = await createWorkspaceGrant(owner, workspaceId, voter.identity.personId, "editor")
+      const votes = [
+        await createWorkspaceSuccessionVote(candidate, policy, candidate.identity.personId, candidateGrant),
+        await createWorkspaceSuccessionVote(voter, policy, candidate.identity.personId, voterGrant),
+      ]
+      const claim = await createWorkspaceSuccessionClaim(candidate, policy, votes, candidateGrant, ["head"], 2)
+
+      await expect(verifyWorkspaceSuccessionClaim(claim, workspaceId, {
+        personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+      }, 1, new Set())).resolves.toEqual(claim)
+    })
+
+    it("Given no named successor, when fewer than a majority vote, then takeover is rejected", async () => {
+      const owner = await createProfile("Owner")
+      const candidate = await createProfile("Candidate")
+      const other = await createProfile("Other")
+      const third = await createProfile("Third")
+      const policy = await createWorkspaceSuccessionPolicy(owner, workspaceId, null,
+        [candidate.identity.personId, other.identity.personId, third.identity.personId].sort(), 1)
+      const grant = await createWorkspaceGrant(owner, workspaceId, candidate.identity.personId, "editor")
+      const vote = await createWorkspaceSuccessionVote(candidate, policy, candidate.identity.personId, grant)
+      const claim = await createWorkspaceSuccessionClaim(candidate, policy, [vote], grant, ["head"], 2)
+
+      await expect(verifyWorkspaceSuccessionClaim(claim, workspaceId, {
+        personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+      }, 1, new Set())).rejects.toThrow(/quorum/i)
+    })
+
+    it("Given a visitor signs a succession vote, when verified, then the vote is rejected", async () => {
+      const owner = await createProfile("Owner")
+      const candidate = await createProfile("Candidate")
+      const visitor = await createProfile("Visitor")
+      const policy = await createWorkspaceSuccessionPolicy(owner, workspaceId, null,
+        [candidate.identity.personId, visitor.identity.personId].sort(), 1)
+      const visitorGrant = await createWorkspaceGrant(owner, workspaceId, visitor.identity.personId, "visitor")
+      const vote = await createWorkspaceSuccessionVote(visitor, policy, candidate.identity.personId, visitorGrant)
+
+      await expect(verifyWorkspaceSuccessionVote(vote, policy, candidate.identity.personId, {
+        personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+      }, new Set(), Date.now())).rejects.toThrow(/not an editor/i)
+    })
+
+    it("Given a revoked named successor, when remaining editors reach quorum, then fallback succession works", async () => {
+      const owner = await createProfile("Owner")
+      const departed = await createProfile("Departed")
+      const candidate = await createProfile("Candidate")
+      const stalePolicy = await createWorkspaceSuccessionPolicy(owner, workspaceId, departed.identity.personId,
+        [departed.identity.personId, candidate.identity.personId].sort(), 1)
+      const grant = await createWorkspaceGrant(owner, workspaceId, candidate.identity.personId, "editor")
+      const staleVote = await createWorkspaceSuccessionVote(candidate, stalePolicy, candidate.identity.personId, grant)
+      const staleClaim = await createWorkspaceSuccessionClaim(candidate, stalePolicy, [staleVote], grant, ["head"], 3)
+
+      await expect(verifyWorkspaceSuccessionClaim(staleClaim, workspaceId, {
+        personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+      }, 2, new Set([departed.identity.personId]))).rejects.toThrow(/epoch is stale/i)
+
+      const policy = await createWorkspaceSuccessionPolicy(owner, workspaceId, null,
+        [candidate.identity.personId], 2)
+      const vote = await createWorkspaceSuccessionVote(candidate, policy, candidate.identity.personId, grant)
+      const claim = await createWorkspaceSuccessionClaim(candidate, policy, [vote], grant, ["head"], 3)
+
+      await expect(verifyWorkspaceSuccessionClaim(claim, workspaceId, {
+        personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+      }, 2, new Set([departed.identity.personId]))).resolves.toEqual(claim)
     })
   })
 
