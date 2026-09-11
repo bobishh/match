@@ -91,6 +91,7 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 }
 
 type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[] }
+const meshCapabilities = ["heartbeat-v1"]
 
 function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
   return (credential.catalog as MeshCatalog | undefined) ?? {}
@@ -666,11 +667,12 @@ export class DurableMesh {
       const own = await this.ownBundle(credential)
       await stream.send(encodePairingFrame("mesh-handshake-response", credential.transportSecret,
         new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: own,
-          ownershipTransfers: ownershipTransfers(credential) }))))
+          ownershipTransfers: ownershipTransfers(credential), capabilities: meshCapabilities }))))
       await stream.closeSend()
       if (signal?.aborted) return
       await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
-        remote.advertisement.payload.issuedAt, "incoming", connection)
+        remote.advertisement.payload.issuedAt, "incoming", connection,
+        Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"))
     } catch {
       await connection.close()
     }
@@ -715,7 +717,7 @@ export class DurableMesh {
       const stream = await connection.openStream()
       await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
         new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
-          ownershipTransfers: ownershipTransfers(credential) }))))
+          ownershipTransfers: ownershipTransfers(credential), capabilities: meshCapabilities }))))
       await stream.closeSend()
       const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
       if (Array.isArray(response.ownershipTransfers)) {
@@ -731,7 +733,8 @@ export class DurableMesh {
       await this.putVerifiedBundle(credential, response.peer)
       this.failures.delete(key)
       this.failedAt.delete(key)
-      await this.installSession(peer.workspaceId, peer.deviceId, verified.advertisement.payload.issuedAt, "outgoing", connection)
+      await this.installSession(peer.workspaceId, peer.deviceId, verified.advertisement.payload.issuedAt, "outgoing", connection,
+        Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"))
       connection = undefined
     } catch {
       this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 5))
@@ -744,7 +747,7 @@ export class DurableMesh {
   }
 
   private async installSession(workspaceId: string, deviceId: string, remoteIssuedAt: string,
-    direction: "incoming" | "outgoing", connection: SyncConnection) {
+    direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false) {
     const key = `${workspaceId}:${deviceId}`
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
@@ -759,11 +762,11 @@ export class DurableMesh {
     await previous?.session.close()
     await this.notify()
     void session.publish().catch(() => { void session.close() })
-    const heartbeat = setInterval(() => {
+    const heartbeat = heartbeatSupported ? setInterval(() => {
       void session.heartbeat?.().catch(() => { void session.close() })
-    }, 3_000)
+    }, 3_000) : undefined
     void session.done.catch(() => {}).finally(async () => {
-      clearInterval(heartbeat)
+      if (heartbeat) clearInterval(heartbeat)
       const wasCurrent = this.sessions.get(key)?.session === session
       if (wasCurrent) this.sessions.delete(key)
       await connection.close()
