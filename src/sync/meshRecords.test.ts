@@ -477,6 +477,37 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
       expect(verified.grant?.signerKeyId).toBe(ownerSecondary.deviceId)
     })
 
+    it("Given a stale owner chain, when a peer carries the enrolled owner certificate, then its grant verifies", async () => {
+      const owner = await createProfile("Workspace Owner Alice")
+      const ownerSecondary = await createSecondaryDevice(owner, "Owner Phone")
+      const editor = await createProfile("Guest Editor Bob")
+      const grant = await signEnvelope(ownerSecondary.privateKey, {
+        kind: "workspace-grant" as const,
+        version: 1 as const,
+        grantId: crypto.randomUUID(),
+        workspaceId,
+        personId: editor.identity.personId,
+        role: "editor" as const,
+      }, ownerSecondary.deviceId) as WorkspaceGrant
+      const bundle = await createWorkspaceMemberBundle(editor, {
+        workspaceId,
+        endpoint: "iroh://bob-with-fresh-owner-chain",
+        grant,
+        ownerPublicKey: owner.identity.publicKey,
+        ownerCertificates: [owner.certificate, ownerSecondary.certificate],
+      })
+
+      const verified = await verifyWorkspaceMemberBundle(bundle, {
+        workspaceId,
+        ownerPersonId: owner.identity.personId,
+        ownerPublicKey: owner.identity.publicKey,
+        ownerCertificates: [owner.certificate],
+      })
+
+      expect(verified.role).toBe("editor")
+      expect(verified.ownerCertificates?.map(item => item.payload.deviceId)).toContain(ownerSecondary.deviceId)
+    })
+
     it("admits editor whose advertisement is from a secondary device", async () => {
       const owner = await createProfile("Workspace Owner Alice")
       const editor = await createProfile("Guest Editor Bob")

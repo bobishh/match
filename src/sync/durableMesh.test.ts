@@ -57,6 +57,7 @@ describe("DurableMesh peer catalog gossip", () => {
       transportSecret: "mesh-secret",
       epoch: 1,
       updatedAt: new Date(0).toISOString(),
+      localGrant: { stale: true },
     }
     const store = {
       getWorkspaceCredential: async () => structuredClone(credential),
@@ -84,6 +85,7 @@ describe("DurableMesh peer catalog gossip", () => {
       ownerCertificates: credential.ownerCertificates,
     })).resolves.toBe("editor")
     expect(credential.ownerCertificates.map(item => item.payload.deviceId)).toContain(deviceId)
+    expect("localGrant" in credential).toBe(false)
     await mesh.dispose()
   })
 })

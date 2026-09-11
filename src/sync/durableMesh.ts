@@ -219,8 +219,10 @@ export class DurableMesh {
       ...credential.ownerCertificates as DeviceCertificate[],
       ...certificates,
     ].map(certificate => [certificate.signature, certificate])).values()]
-    if (ownerCertificates.length === credential.ownerCertificates.length) return credential
-    const next = { ...credential, ownerCertificates, updatedAt: new Date().toISOString() }
+    const hasStaleGrant = credential.localGrant !== undefined
+    if (ownerCertificates.length === credential.ownerCertificates.length && !hasStaleGrant) return credential
+    const { localGrant: _staleGrant, ...ownerCredential } = credential
+    const next = { ...ownerCredential, ownerCertificates, updatedAt: new Date().toISOString() }
     await this.store.putWorkspaceCredential(next)
     return next
   }
@@ -384,6 +386,13 @@ export class DurableMesh {
       ownerCertificates: credential.ownerCertificates as any,
       ownerHistory: ownerAuthorities(credential).slice(1),
     })
+    const ownerCertificates = [...new Map([
+      ...credential.ownerCertificates as DeviceCertificate[],
+      ...(verified.ownerCertificates ?? []),
+    ].map(certificate => [certificate.signature, certificate])).values()]
+    if (ownerCertificates.length > credential.ownerCertificates.length) {
+      await this.store.putWorkspaceCredential({ ...credential, ownerCertificates, updatedAt: new Date().toISOString() })
+    }
     const p = verified.advertisement.payload
     if (revokedPersonIds(credential).has(p.personId)) throw new Error("Workspace member is revoked")
     const record: WorkspacePeerRecord = {

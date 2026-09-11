@@ -580,6 +580,17 @@ export async function verifyWorkspaceMemberBundle(
   // 9. Role and Grant verification
   const grant = (bundle.grant ?? (bundle.authority as any)?.grant) as WorkspaceGrant | undefined
   const isOwner = ownerPersonId ? p.personId === ownerPersonId : !grant
+  const embeddedOwnerCertificates = bundle.ownerCertificates ?? (bundle.authority as any)?.certificates
+  if (embeddedOwnerCertificates !== undefined && !Array.isArray(embeddedOwnerCertificates)) {
+    throw new Error("Invalid owner certificate chain")
+  }
+  const ownerCertificates = [...new Map([
+    ...(opts.ownerCertificates ?? []),
+    ...((embeddedOwnerCertificates ?? []) as DeviceCertificate[]),
+  ].map(certificate => [certificate?.signature, certificate])).values()]
+  if (ownerCertificates.length > MAX_CERT_CHAIN_LENGTH || ownerCertificates.some(certificate => !certificate?.signature)) {
+    throw new Error("Invalid owner certificate chain")
+  }
 
   let role: "owner" | "editor" | "visitor" = "owner"
 
@@ -592,7 +603,7 @@ export async function verifyWorkspaceMemberBundle(
     const authorities: WorkspaceAuthority[] = [{
       personId: ownerPersonId!,
       publicKey: ownerPublicKey!,
-      certificates: opts.ownerCertificates ?? bundle.ownerCertificates as DeviceCertificate[] ?? (bundle.authority as any)?.certificates ?? [],
+      certificates: ownerCertificates,
     }, ...(opts.ownerHistory ?? [])]
     let verifiedRole: "owner" | "editor" | "visitor" | undefined
     for (const authority of authorities) {
@@ -621,7 +632,7 @@ export async function verifyWorkspaceMemberBundle(
     role,
     grant,
     ownerPublicKey,
-    ownerCertificates: opts.ownerCertificates ?? (bundle.ownerCertificates as DeviceCertificate[]),
+    ownerCertificates,
   }
 }
 
