@@ -15,6 +15,10 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     const peer = await page.context().newPage()
     try {
       await Promise.all([page.goto("/"), peer.goto("/")])
+      await Promise.all([
+        expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible(),
+        expect(peer.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible(),
+      ])
       const activeId = (target: typeof page) => target.evaluate(() => localStorage.getItem("match.active_workspace_id"))
       await expect.poll(() => activeId(peer)).toBe(await activeId(page))
       await page.getByRole("button", { name: "Open workspaces" }).click()
