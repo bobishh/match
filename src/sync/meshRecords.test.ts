@@ -21,6 +21,8 @@ import {
   MAX_PEER_ADVERTISEMENT_SIZE,
   createWorkspaceRevocation,
   verifyWorkspaceRevocation,
+  createWorkspaceOwnershipTransfer,
+  verifyWorkspaceOwnershipTransfer,
 } from "./meshRecords"
 
 describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () => {
@@ -28,6 +30,43 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
 
   beforeEach(() => {
     resetIdentityStorageForTest()
+  })
+
+  describe("ownership transfer", () => {
+    it("Given an owner and editor, when ownership transfers, then the signed record promotes editor and demotes former owner", async () => {
+      const owner = await createProfile("Current Owner")
+      const editor = await createProfile("Next Owner")
+      const transfer = await createWorkspaceOwnershipTransfer(owner, workspaceId, {
+        personId: editor.identity.personId,
+        publicKey: editor.identity.publicKey,
+        certificates: [editor.certificate],
+      }, ["head-before-transfer"], 2)
+
+      await expect(verifyWorkspaceOwnershipTransfer(transfer, workspaceId, {
+        personId: owner.identity.personId,
+        publicKey: owner.identity.publicKey,
+        certificates: [owner.certificate],
+      }, 1)).resolves.toEqual(transfer)
+      expect(transfer.payload.toOwnerGrant.payload.role).toBe("owner")
+      expect(transfer.payload.formerOwnerGrant.payload.role).toBe("editor")
+    })
+
+    it("Given a forged transfer, when verified, then ownership stays untrusted", async () => {
+      const owner = await createProfile("Current Owner")
+      const editor = await createProfile("Next Owner")
+      const transfer = await createWorkspaceOwnershipTransfer(owner, workspaceId, {
+        personId: editor.identity.personId,
+        publicKey: editor.identity.publicKey,
+        certificates: [editor.certificate],
+      }, ["head-before-transfer"], 2)
+      transfer.payload.toOwnerPersonId = owner.identity.personId
+
+      await expect(verifyWorkspaceOwnershipTransfer(transfer, workspaceId, {
+        personId: owner.identity.personId,
+        publicKey: owner.identity.publicKey,
+        certificates: [owner.certificate],
+      }, 1)).rejects.toThrow(/ownership transfer/i)
+    })
   })
 
   async function createProfile(displayName: string): Promise<LocalProfile> {

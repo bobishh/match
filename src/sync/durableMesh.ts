@@ -1,9 +1,11 @@
 import type { LocalProfile } from "../domain/identity"
 import type { WorkspaceGrant } from "../domain/model"
+import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
-import { createPeerAdvertisement, createWorkspaceRevocation, verifyDeviceChain, verifyWorkspaceMemberBundle,
-  verifyWorkspaceRevocation, verifyWorkspaceGrant, type WorkspaceMemberBundle, type WorkspaceRevocation } from "./meshRecords"
+import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorkspaceRevocation, verifyDeviceChain,
+  verifyWorkspaceMemberBundle, verifyWorkspaceOwnershipTransfer, verifyWorkspaceRevocation, verifyWorkspaceGrant,
+  type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation } from "./meshRecords"
 import { MeshLeader } from "./meshLeader"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
@@ -20,9 +22,16 @@ export type MeshWorkspaceEnvelope = {
   epoch: number
   peers: WorkspaceMemberBundle[]
   revocations?: WorkspaceRevocation[]
+  ownerHistory?: WorkspaceAuthority[]
+  ownershipTransfers?: WorkspaceOwnershipTransfer[]
 }
 
-export type MeshExport = { version: 1; peers: WorkspaceMemberBundle[]; revocations: WorkspaceRevocation[] }
+export type MeshExport = {
+  version: 1
+  peers: WorkspaceMemberBundle[]
+  revocations: WorkspaceRevocation[]
+  ownershipTransfers?: WorkspaceOwnershipTransfer[]
+}
 
 export type MeshPeerView = {
   workspaceId: string
@@ -76,12 +85,30 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
   return Boolean(item && item.version === 1 && typeof item.workspaceId === "string" && item.workspaceId &&
     typeof item.ownerPersonId === "string" && item.ownerPersonId && typeof item.ownerPublicKey === "string" && item.ownerPublicKey &&
     typeof item.transportSecret === "string" && item.transportSecret && Number.isSafeInteger(item.epoch) && item.epoch >= 1 &&
-    Array.isArray(item.ownerCertificates) && item.ownerCertificates.length <= 32 && Array.isArray(item.peers) && item.peers.length <= 512)
+    Array.isArray(item.ownerCertificates) && item.ownerCertificates.length <= 32 && Array.isArray(item.peers) && item.peers.length <= 512 &&
+    (item.ownerHistory === undefined || Array.isArray(item.ownerHistory)) &&
+    (item.ownershipTransfers === undefined || Array.isArray(item.ownershipTransfers)))
+}
+
+type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[] }
+
+function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
+  return (credential.catalog as MeshCatalog | undefined) ?? {}
 }
 
 function revocations(credential: WorkspaceMeshCredential): WorkspaceRevocation[] {
-  const value = credential.catalog as { revocations?: WorkspaceRevocation[] } | undefined
+  const value = meshCatalog(credential)
   return Array.isArray(value?.revocations) ? value.revocations : []
+}
+
+function ownershipTransfers(credential: WorkspaceMeshCredential): WorkspaceOwnershipTransfer[] {
+  const value = meshCatalog(credential)
+  return Array.isArray(value.ownershipTransfers) ? value.ownershipTransfers : []
+}
+
+function ownerAuthorities(credential: WorkspaceMeshCredential): WorkspaceAuthority[] {
+  return [{ personId: credential.ownerPersonId, publicKey: credential.ownerPublicKey,
+    certificates: credential.ownerCertificates as any }, ...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
 }
 
 function revokedPersonIds(credential: WorkspaceMeshCredential) {
@@ -245,6 +272,8 @@ export class DurableMesh {
         peers: (await this.store.listPeers(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
           .map(peer => peer.advertisement as WorkspaceMemberBundle),
         revocations: revocations(credential),
+        ownerHistory: ownerAuthorities(credential).slice(1),
+        ownershipTransfers: ownershipTransfers(credential),
       })
     }
     return result
@@ -261,6 +290,10 @@ export class DurableMesh {
       if (!isOwner && (!localGrant || localGrant.payload.personId !== profile.identity.personId)) throw new Error("Missing local workspace grant")
       await verifyDeviceChain({ personId: envelope.ownerPersonId, publicKey: envelope.ownerPublicKey,
         deviceId: (envelope.ownerCertificates[0] as any)?.payload?.deviceId, certificates: envelope.ownerCertificates as any })
+      for (const authority of envelope.ownerHistory ?? []) {
+        await verifyDeviceChain({ personId: authority.personId, publicKey: authority.publicKey,
+          deviceId: authority.certificates[0]?.payload.deviceId, certificates: authority.certificates })
+      }
       if (localGrant) await verifyWorkspaceGrant(localGrant, { workspaceId, personId: profile.identity.personId,
         ownerPersonId: envelope.ownerPersonId, ownerPublicKey: envelope.ownerPublicKey, ownerCertificates: envelope.ownerCertificates as any })
       const credential: WorkspaceMeshCredential = {
@@ -269,11 +302,12 @@ export class DurableMesh {
         ownerPersonId: envelope.ownerPersonId,
         ownerPublicKey: envelope.ownerPublicKey,
         ownerCertificates: envelope.ownerCertificates,
+        ownerHistory: envelope.ownerHistory,
         transportSecret: envelope.transportSecret,
         epoch: envelope.epoch,
         updatedAt: new Date().toISOString(),
         ...(localGrant ? { localGrant } : {}),
-        catalog: { revocations: [] },
+        catalog: { revocations: [], ownershipTransfers: envelope.ownershipTransfers ?? [] },
       }
       await this.store.putWorkspaceCredential(credential)
       if (envelope.revocations) await this.mergeRevocations(credential, envelope.revocations)
@@ -286,17 +320,21 @@ export class DurableMesh {
     const peers = (await this.store.listPeers(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
       .map(peer => peer.advertisement as WorkspaceMemberBundle)
     const credential = await this.store.getWorkspaceCredential(workspaceId)
-    return { version: 1, peers, revocations: credential ? revocations(credential) : [] }
+    return { version: 1, peers, revocations: credential ? revocations(credential) : [],
+      ownershipTransfers: credential ? ownershipTransfers(credential) : [] }
   }
 
   async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
     const value = raw as MeshExport
     if (!value || value.version !== 1 || !Array.isArray(value.peers) || value.peers.length > 512 ||
       !Array.isArray(value.revocations) || value.revocations.length > 512 ||
+      (value.ownershipTransfers !== undefined && (!Array.isArray(value.ownershipTransfers) || value.ownershipTransfers.length > 32)) ||
       new TextEncoder().encode(JSON.stringify(value)).byteLength > 8 * 1024 * 1024) throw new Error("Invalid mesh catalog")
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    let credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return
+    credential = await this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? [])
     await this.mergeRevocations(credential, value.revocations)
+    credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential
     for (const bundle of value.peers) await this.putVerifiedBundle(credential, bundle)
     await this.notify()
   }
@@ -307,6 +345,7 @@ export class DurableMesh {
       ownerPersonId: credential.ownerPersonId,
       ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as any,
+      ownerHistory: ownerAuthorities(credential).slice(1),
     })
     const p = verified.advertisement.payload
     if (revokedPersonIds(credential).has(p.personId)) throw new Error("Workspace member is revoked")
@@ -323,17 +362,86 @@ export class DurableMesh {
     await this.store.upsertPeer(record)
   }
 
+  private async mergeOwnershipTransfers(
+    initialCredential: WorkspaceMeshCredential,
+    raw: WorkspaceOwnershipTransfer[],
+  ): Promise<WorkspaceMeshCredential> {
+    let credential = initialCredential
+    const stored = ownershipTransfers(credential)
+    const known = new Map(stored.map(record => [record.signature, record]))
+    for (const record of raw) if (record?.signature) known.set(record.signature, record)
+    const accepted = new Map(stored.filter(record => (record.payload?.epoch ?? 0) <= credential.epoch)
+      .map(record => [record.signature, record]))
+    const pending = [...known.values()].filter(record => (record.payload?.epoch ?? 0) > credential.epoch)
+      .sort((a, b) => (a.payload?.epoch ?? 0) - (b.payload?.epoch ?? 0) || a.signature.localeCompare(b.signature))
+    for (const value of pending) {
+      if ((value.payload?.epoch ?? 0) <= credential.epoch) continue
+      const previousOwner = credential.ownerPersonId
+      const authority: WorkspaceAuthority = { personId: previousOwner, publicKey: credential.ownerPublicKey,
+        certificates: credential.ownerCertificates as any }
+      const record = await verifyWorkspaceOwnershipTransfer(value, credential.workspaceId, authority, credential.epoch)
+      const p = record.payload
+      if (revokedPersonIds(credential).has(p.toOwnerPersonId)) throw new Error("New owner access is revoked")
+      accepted.set(record.signature, record)
+      const profile = await this.options.getProfile()
+      const history = [...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
+      if (!history.some(owner => owner.personId === authority.personId)) history.push(authority)
+      const localGrant = profile.identity.personId === p.toOwnerPersonId
+        ? p.toOwnerGrant
+        : profile.identity.personId === p.fromOwnerPersonId
+          ? p.formerOwnerGrant
+          : credential.localGrant
+      const next: WorkspaceMeshCredential = {
+        ...credential,
+        ownerPersonId: p.toOwnerPersonId,
+        ownerPublicKey: p.toOwnerPublicKey,
+        ownerCertificates: p.toOwnerCertificates,
+        ownerHistory: history,
+        localGrant,
+        epoch: p.epoch,
+        updatedAt: p.transferredAt,
+        catalog: { ...meshCatalog(credential), ownershipTransfers: [...accepted.values()].sort((a, b) => a.payload.epoch - b.payload.epoch) },
+      }
+      await this.store.transferWorkspaceCredential(previousOwner, next)
+      credential = next
+
+      for (const peer of await this.store.listPeers(credential.workspaceId)) {
+        if (peer.personId !== p.fromOwnerPersonId && peer.personId !== p.toOwnerPersonId) continue
+        const grant = peer.personId === p.fromOwnerPersonId ? p.formerOwnerGrant : p.toOwnerGrant
+        const advertisement = peer.advertisement as WorkspaceMemberBundle | undefined
+        const roleChangedAt = new Date(Math.max(Date.parse(peer.lastSeen), Date.parse(p.transferredAt)) + 1).toISOString()
+        await this.store.upsertPeer({
+          ...peer,
+          role: peer.personId === p.toOwnerPersonId ? "owner" : "editor",
+          lastSeen: roleChangedAt,
+          ...(advertisement ? { advertisement: { ...advertisement, grant,
+            ownerPublicKey: p.toOwnerPublicKey, ownerCertificates: p.toOwnerCertificates } } : {}),
+        })
+      }
+    }
+    return credential
+  }
+
   private async mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect = true) {
     const current = new Map(revocations(credential).map(record => [record.payload.personId, record]))
     for (const value of raw) {
-      const record = await verifyWorkspaceRevocation(value, credential.workspaceId, credential.ownerPersonId,
-        credential.ownerPublicKey, credential.ownerCertificates as any)
+      let record: WorkspaceRevocation | undefined
+      for (const authority of ownerAuthorities(credential)) {
+        try {
+          record = await verifyWorkspaceRevocation(value, credential.workspaceId, authority.personId,
+            authority.publicKey, authority.certificates)
+          break
+        } catch {}
+      }
+      if (!record) throw new Error("Invalid workspace revocation signature")
+      if (record.payload.personId === credential.ownerPersonId) continue
       const previous = current.get(record.payload.personId)
       if (!previous || record.payload.epoch > previous.payload.epoch) current.set(record.payload.personId, record)
     }
     const merged = [...current.values()].sort((a, b) => a.payload.personId.localeCompare(b.payload.personId))
     const epoch = Math.max(credential.epoch, ...merged.map(record => record.payload.epoch))
-    await this.store.putWorkspaceCredential({ ...credential, epoch, updatedAt: new Date().toISOString(), catalog: { revocations: merged } })
+    await this.store.putWorkspaceCredential({ ...credential, epoch, updatedAt: new Date().toISOString(),
+      catalog: { ...meshCatalog(credential), revocations: merged } })
     const peers = await this.store.listPeers(credential.workspaceId)
     for (const peer of peers) {
       const record = current.get(peer.personId)
@@ -359,6 +467,42 @@ export class DurableMesh {
     await this.publishAll()
     await this.mergeRevocations(credential, [record])
     await this.notify()
+  }
+
+  async transferOwnership(workspaceId: string, personId: string): Promise<void> {
+    const profile = await this.options.getProfile()
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential || credential.ownerPersonId !== profile.identity.personId) {
+      throw new Error("Only the workspace owner can transfer ownership")
+    }
+    if (personId === profile.identity.personId) throw new Error("You already own this workspace")
+    const peers = (await this.store.listPeers(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt)
+    if (!peers.length) throw new Error("Select an active mesh member")
+    if (!peers.some(peer => this.sessions.has(`${workspaceId}:${peer.deviceId}`))) {
+      throw new Error("Member must be online to receive ownership")
+    }
+    const raw = peers.find(peer => peer.advertisement)?.advertisement as WorkspaceMemberBundle | undefined
+    if (!raw) throw new Error("Member identity is unavailable")
+    const target = await verifyWorkspaceMemberBundle(raw, {
+      workspaceId, ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
+      ownerCertificates: credential.ownerCertificates as any, ownerHistory: ownerAuthorities(credential).slice(1),
+    })
+    const doc = Automerge.load<any>(await this.options.workspaceStore.read(workspaceId))
+    const transfer = await createWorkspaceOwnershipTransfer(profile, workspaceId, {
+      personId: target.payload.personId,
+      publicKey: target.publicKey,
+      certificates: target.certificates,
+    }, Automerge.getHeads(doc), credential.epoch + 1)
+
+    // Publish proof while old authority is still active. Target applies it before this device demotes itself.
+    await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
+      catalog: { ...meshCatalog(credential), ownershipTransfers: [...ownershipTransfers(credential), transfer] } })
+    await this.publishAll()
+    const current = await this.store.getWorkspaceCredential(workspaceId)
+    if (!current) throw new Error("Workspace mesh credential disappeared")
+    await this.mergeOwnershipTransfers(current, [transfer])
+    await this.notify()
+    await this.publishAll()
   }
 
   async start(): Promise<void> {
@@ -495,13 +639,17 @@ export class DurableMesh {
       const header = inspectPairingFrame(frame)
       if (header.type !== "mesh-handshake-request") throw new Error("Unsupported mesh handshake")
       const credentials = await this.store.listWorkspaceCredentials()
-      const credential = credentials.find(item => item.transportSecret === header.secret)
+      let credential = credentials.find(item => item.transportSecret === header.secret)
       if (!credential) throw new Error("Unknown mesh credential")
       const request = JSON.parse(new TextDecoder().decode(decodePairingFrame(frame, "mesh-handshake-request", credential.transportSecret)))
       if (request.workspaceId !== credential.workspaceId) throw new Error("Wrong mesh workspace")
+      if (Array.isArray(request.ownershipTransfers)) {
+        credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers)
+      }
       const remote = await verifyWorkspaceMemberBundle(request.peer, {
         workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
         ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as any,
+        ownerHistory: ownerAuthorities(credential).slice(1),
       })
       if (revokedPersonIds(credential).has(remote.advertisement.payload.personId)) {
         // A disconnected member must learn the owner's signed revocation on reconnect.
@@ -517,7 +665,8 @@ export class DurableMesh {
       await this.putVerifiedBundle(credential, request.peer)
       const own = await this.ownBundle(credential)
       await stream.send(encodePairingFrame("mesh-handshake-response", credential.transportSecret,
-        new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: own }))))
+        new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: own,
+          ownershipTransfers: ownershipTransfers(credential) }))))
       await stream.closeSend()
       if (signal?.aborted) return
       await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
@@ -560,17 +709,22 @@ export class DurableMesh {
     this.connecting.add(key)
     try {
       if (!this.node || this.sessions.has(key)) return
-      const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
+      let credential = await this.store.getWorkspaceCredential(peer.workspaceId)
       if (!credential || credential.transportSecret !== peer.transportSecret) return
       connection = networkConnection(await networkIO(this.node.dial(peer.endpoint)))
       const stream = await connection.openStream()
       await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
-        new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential) }))))
+        new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
+          ownershipTransfers: ownershipTransfers(credential) }))))
       await stream.closeSend()
       const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
+      if (Array.isArray(response.ownershipTransfers)) {
+        credential = await this.mergeOwnershipTransfers(credential, response.ownershipTransfers)
+      }
       const verified = await verifyWorkspaceMemberBundle(response.peer, {
         workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
         ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as any,
+        ownerHistory: ownerAuthorities(credential).slice(1),
       })
       if (verified.advertisement.payload.deviceId !== peer.deviceId || signal.aborted) throw new Error("Unexpected mesh peer")
       if (Array.isArray(response.revocations)) await this.mergeRevocations(credential, response.revocations)

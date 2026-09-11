@@ -3,6 +3,7 @@ import { defaultProofStore } from "../domain/proofs"
 import { chatStore, type StoredChatMessage, type StoredChatProfile } from "./store"
 import { createChatRecord, verifyChatRecord, type ChatRecord, type ChatAuthority } from "./records"
 import { normalizeDisplayName, randomDisplayName, validateDisplayName } from "./names"
+import { peerStore } from "../sync/peerStore"
 
 export type ChatChange = { workspaceId: string; added: StoredChatMessage[]; remote: boolean; history: boolean }
 const listeners = new Set<(event: ChatChange) => void>()
@@ -37,13 +38,21 @@ function member(record: ChatRecord): StoredChatProfile {
 }
 
 async function credentials(workspaceId: string, profile: LocalProfile): Promise<ChatAuthority> {
-  const owner = await readOwner(workspaceId)
+  const credential = typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceCredential(workspaceId)
+  const owner = credential?.ownerPersonId ?? await readOwner(workspaceId)
   const certificates = await defaultProofStore.listCertificates()
-  if (owner === profile.identity.personId) return { publicKey: profile.identity.publicKey, certificates: certificates.filter(c => c.payload.personId === owner) }
+  if (owner === profile.identity.personId) return {
+    publicKey: credential?.ownerPublicKey ?? profile.identity.publicKey,
+    certificates: credential ? credential.ownerCertificates as any : certificates.filter(c => c.payload.personId === owner),
+  }
   const saved = await loadChat(workspaceId)
   const source = saved.profiles.map(p => p.record as ChatRecord).find(r => r?.authority?.publicKey)
-  const grant = (await defaultProofStore.listGrants(workspaceId)).find(g => g.payload.personId === profile.identity.personId)
-  if (!source || !grant) throw new Error("Connect to the workspace owner once to enable chat")
+  const grant = (credential?.localGrant as any) ??
+    (await defaultProofStore.listGrants(workspaceId)).find(g => g.payload.personId === profile.identity.personId)
+  if (!grant) throw new Error("Connect to the workspace owner once to enable chat")
+  if (credential) return { publicKey: credential.ownerPublicKey,
+    certificates: credential.ownerCertificates as any, grant }
+  if (!source) throw new Error("Connect to the workspace owner once to enable chat")
   return { ...source.authority, grant }
 }
 

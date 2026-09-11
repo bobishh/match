@@ -20,6 +20,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
       // Choose "Sync all" ("Add my device")
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
       await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
 
       // Should show enrollment invitation link / QR
@@ -88,6 +89,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await page.getByRole("button", { name: "Sync", exact: true }).click()
 
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
       // Active workspace "Job search" is already preselected
       await expect(hostDialog.getByLabel("Job search")).toBeChecked()
       // Directly click Generate link without preliminary chooser or dropdown navigation
@@ -131,6 +133,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       // Open Sync
       await page.getByRole("button", { name: "Sync", exact: true }).click()
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
 
       // Active workspace "Reading list" is preselected; check "Job search" too
       await expect(hostDialog.getByLabel("Reading list")).toBeChecked()
@@ -164,6 +167,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
     await page.goto("/")
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+    await hostDialog.getByRole("button", { name: "Add someone" }).click()
 
     // Active workspace is initially checked
     const checkbox = hostDialog.getByLabel("Job search")
@@ -199,6 +203,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await page.goto("/")
       await page.getByRole("button", { name: "Sync", exact: true }).click()
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
       await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
 
       await hostDialog.getByRole("button", { name: "Copy enrollment link" }).click()
@@ -237,6 +242,7 @@ test("Given a real pending device request, when declined, then guest sees refusa
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add someone" }).click()
   await host.getByRole("button", { name: "Add my device", exact: true }).click()
   const context = await browser.newContext()
   try {
@@ -257,6 +263,7 @@ test("Given approved enrollment but failed storage, when receiving identity, the
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add someone" }).click()
   await host.getByRole("button", { name: "Add my device", exact: true }).click()
   const context = await browser.newContext()
   try {
@@ -290,6 +297,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
     await page.getByRole("button", { name: "Close detail" }).click()
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const host = page.getByRole("dialog", { name: "Device sync" })
+    await host.getByRole("button", { name: "Add someone" }).click()
     await host.getByRole("button", { name: "Generate link" }).click()
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
@@ -302,7 +310,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
     const deviceId = await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).device.deviceId)
     await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await page.getByRole("button", { name: "Sync", exact: true }).click()
-    await host.getByRole("button", { name: "Invite peers", exact: true }).click()
+    await host.getByRole("button", { name: "Add someone", exact: true }).click()
     await host.getByRole("button", { name: "Add my device", exact: true }).click()
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     await dialog.getByRole("button", { name: "Add this device" }).click()
@@ -320,6 +328,7 @@ test("Given existing data under another identity, when enrollment is approved, t
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add someone" }).click()
   await host.getByRole("button", { name: "Add my device", exact: true }).click()
   const context = await browser.newContext()
   try {

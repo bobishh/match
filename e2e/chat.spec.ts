@@ -79,6 +79,7 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     await settings.getByRole("button", { name: "Dismiss", exact: true }).click()
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const hostSync = page.getByRole("dialog", { name: "Device sync" })
+    await hostSync.getByRole("button", { name: "Add someone" }).click()
     await hostSync.getByRole("button", { name: "Generate link" }).click()
     const inviteUrl = await hostSync.getByLabel("Pairing link").inputValue()
     await guest.goto("/")

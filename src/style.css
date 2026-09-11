@@ -75,6 +75,8 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .brand-mark.is-offline { background: var(--red); }
 .brand-mark.is-empty { background: var(--yellow); }
 .owner-crown { position: absolute; z-index: 1; top: -12px; left: 50%; color: var(--ink); font: 900 12px/1 Georgia, serif; transform: translateX(-50%); }
+.workspace-role-icon { position: absolute; z-index: 1; top: -14px; left: 50%; width: 13px; height: 13px; color: var(--ink); transform: translateX(-50%); }
+.workspace-role-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: square; stroke-linejoin: miter; }
 .brand h1 { font-size: clamp(1rem, 4vw, 2rem); font-weight: 950; line-height: 1; letter-spacing: -.06em; }
 .brand-separator { margin: 0 .12em; color: var(--muted); font-weight: 500; }.workspace-heading { color: var(--muted); font-weight: 750; letter-spacing: -.035em; }
 .brand p { display: none; }
@@ -604,6 +606,5 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .loading-track span { width: 100%; animation: none; }
 }
 
-.workspace-role { display: block; margin-bottom: 6px; color: var(--muted); font: 800 .65rem/1 ui-monospace, monospace; text-transform: uppercase; letter-spacing: .08em; }
 .join-request { padding: 16px; margin: 12px 0; border: 2px solid var(--ink); background: var(--yellow); }
 .join-request label { display: grid; gap: 6px; margin-top: 12px; }

@@ -14,7 +14,7 @@ describe("device sync errors", () => {
 })
 
 describe("useDeviceSync direct sync selection and custom workspace sets", () => {
-  it("opens workspace selection directly with active workspace preselected without starting transport node", () => {
+  it("Given Device Sync opens, then mesh members appear before the add flow without starting transport", () => {
     let transportStarted = false
     const mockTransport = {
       start: async () => {
@@ -36,7 +36,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
 
     sync.open()
     expect(sync.isOpen.value).toBe(true)
-    expect(sync.step.value).toBe("workspace-select")
+    expect(sync.step.value).toBe("members")
     expect(sync.selectedWorkspaceIds.value).toEqual(["ws_1"])
     expect(transportStarted).toBe(false)
   })
@@ -50,6 +50,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
     })
 
     sync.open()
+    sync.selectSyncWorkspace()
     sync.selectedWorkspaceIds.value = []
     await sync.generateWorkspaceInvite()
     // Generation must fail or be disabled when selection is empty

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import type { SyncStep } from "../sync/useDeviceSync"
 
 const props = defineProps<{
@@ -18,6 +18,18 @@ const props = defineProps<{
   availableWorkspaces?: { id: string; title: string }[]
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
+  meshMembers?: Array<{
+    personId: string
+    name: string
+    role: "owner" | "editor" | "visitor"
+    online: boolean
+    devices: number
+    self: boolean
+  }>
+  canManageMesh?: boolean
+  transferringOwnership?: string
+  meshActionError?: string
+  live?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -28,6 +40,7 @@ const emit = defineEmits<{
   (e: "update:selectedWorkspaceIds", val: string[]): void
   (e: "update:selectedWorkspaceId", val: string): void
   (e: "generateWorkspaceInvite"): void
+  (e: "transferOwnership", personId: string): void
   (e: "copy", url?: string): void
   (e: "requestEnrollment"): void
   (e: "approveDevice"): void
@@ -49,6 +62,8 @@ const selectedIds = computed(() => {
 })
 
 const hasSelection = computed(() => selectedIds.value.length > 0)
+const selectedMemberId = ref("")
+const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 
 function isWorkspaceSelected(id: string) {
   return selectedIds.value.includes(id)
@@ -102,8 +117,47 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <label>Role<select v-model="request.role" aria-label="Participant role"><option value="visitor">Visitor — view only</option><option value="editor">Editor — edit items</option></select></label>
         <div class="dialog-actions"><button class="button button-primary" @click="emit('decideJoin', request.id, true)">Approve access</button><button class="button" @click="emit('decideJoin', request.id, false)">Decline</button></div>
       </section>
+      <template v-if="step === 'members'">
+        <p class="dialog-copy">People and devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
+        <div class="mesh-member-list" role="list" aria-label="Mesh members">
+          <button
+            v-for="member in (meshMembers || [])"
+            :key="member.personId"
+            class="mesh-member"
+            :class="{ 'is-selected': selectedMemberId === member.personId }"
+            type="button"
+            :aria-pressed="selectedMemberId === member.personId"
+            :disabled="member.self"
+            @click="selectedMemberId = member.personId"
+          >
+            <span class="mesh-member-presence" :class="member.online ? 'is-online' : 'is-offline'" aria-hidden="true"></span>
+            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
+            <span class="mesh-member-role">{{ member.role }}</span>
+          </button>
+          <p v-if="!(meshMembers || []).length" class="mesh-member-empty">No mesh members yet.</p>
+        </div>
+
+        <section v-if="selectedMember" class="mesh-member-action" aria-label="Selected mesh member">
+          <strong>{{ selectedMember.name }}</strong>
+          <p v-if="canManageMesh && selectedMember.role !== 'owner' && !selectedMember.online" class="dialog-copy">This member must be online before ownership can move.</p>
+          <p v-else-if="canManageMesh && selectedMember.role !== 'owner'" class="dialog-copy">They become owner. You keep editor access.</p>
+          <button
+            v-if="canManageMesh && selectedMember.role !== 'owner'"
+            class="button button-danger"
+            type="button"
+            :disabled="!selectedMember.online || Boolean(transferringOwnership)"
+            @click="emit('transferOwnership', selectedMember.personId)"
+          >{{ transferringOwnership === selectedMember.personId ? 'Transferring…' : 'Transfer ownership' }}</button>
+        </section>
+        <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
+        <div class="dialog-actions sync-primary-actions">
+          <button v-if="canManageMesh" class="button button-primary" type="button" @click="emit('selectSyncWorkspace')">Add someone</button>
+          <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
+          <button v-if="live" class="button button-quiet" type="button" @click="emit('stop')">Stop live sync</button>
+        </div>
+      </template>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->
-      <template v-if="step === 'workspace-select' || step === 'workspace-host-select' || step === 'chooser'">
+      <template v-else-if="step === 'workspace-select' || step === 'workspace-host-select' || step === 'chooser'">
         <p class="dialog-copy">Invite another person. Choose workspaces; select their role when they request access.</p>
         <div class="sync-workspace-list">
           <label
@@ -299,6 +353,20 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
 <style scoped>
 .sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 16px 0; overflow-y: auto; }
+.mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; overflow-y: auto; }
+.mesh-member { width: 100%; min-height: 58px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); background: white; color: var(--ink); text-align: left; }
+.mesh-member:not(:disabled) { cursor: pointer; }
+.mesh-member:disabled { opacity: 1; }
+.mesh-member.is-selected { background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); transform: translate(-2px, -2px); }
+.mesh-member-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
+.mesh-member-presence.is-online { background: var(--green); }
+.mesh-member-name { min-width: 0; display: grid; gap: 4px; }
+.mesh-member-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mesh-member-name small, .mesh-member-role { color: var(--muted); font: 800 .64rem/1.2 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.mesh-member-action { display: grid; gap: 10px; padding: 14px; border: 2px solid var(--line); background: var(--panel); }
+.mesh-member-action p { margin: 0; }
+.mesh-member-action .button { justify-self: start; }
+.mesh-member-empty { margin: 0; padding: 16px; border: 2px dashed var(--soft); color: var(--muted); }
 .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 750; }
 .sync-checkbox-item:has(input:checked) { background: var(--yellow); }
 .sync-primary-actions { justify-content: flex-start; margin-top: 16px; }

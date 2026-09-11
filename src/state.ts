@@ -229,8 +229,8 @@ function updateReactiveState(doc: Automerge.Doc<WorkspaceDocumentV2>) {
 }
 
 async function upgradeJobSearchRejected(doc: Automerge.Doc<WorkspaceDocumentV2>, storage: WorkspaceStorage) {
-  if (doc.ownerPersonId !== currentProfile?.identity.personId) return doc
   if (!currentProfile) throw new Error("Identity not initialized")
+  if (await workspaceRole(doc, currentProfile) !== "owner") return doc
   for (const entity of Object.values(doc.entities)) {
     if (entity.kind !== "board" || entity.deleted || entity.preset?.key !== "job-search") continue
     if (entity.preset.bindings["status.rejected"] && entity.preset.bindings["field.rejectionReason"]) continue
@@ -578,7 +578,7 @@ export function useMatch() {
     } else {
       const loaded = await storage.loadWorkspaceDoc(workspaceId)
       if (!loaded) throw new Error("Workspace not found")
-      if (loaded.doc.ownerPersonId !== currentProfile.identity.personId) throw new Error("Only the owner can rename this workspace")
+      if (await workspaceRole(loaded.doc, currentProfile) !== "owner") throw new Error("Only the owner can rename this workspace")
       const result = await executeCommand(loaded.doc, { kind: "renameWorkspace", title: cleanTitle }, currentProfile)
       if (!result.ok) throw new Error(result.error.message)
       const change = Automerge.getLastLocalChange(result.value.newDoc)

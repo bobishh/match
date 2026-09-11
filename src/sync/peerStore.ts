@@ -35,6 +35,11 @@ export interface WorkspaceMeshCredential {
   updatedAt: string
   localGrant?: unknown
   ownerCertificates: unknown[]
+  ownerHistory?: Array<{
+    personId: string
+    publicKey: string
+    certificates: unknown[]
+  }>
   catalog?: unknown
 }
 
@@ -63,6 +68,9 @@ export function validateWorkspaceCredential(value: unknown): asserts value is Wo
     !Number.isSafeInteger(item.epoch) || item.epoch < 1 ||
     typeof item.updatedAt !== "string" || Number.isNaN(Date.parse(item.updatedAt)) ||
     !Array.isArray(item.ownerCertificates) || item.ownerCertificates.length > 32 ||
+    (item.ownerHistory !== undefined && (!Array.isArray(item.ownerHistory) || item.ownerHistory.length > 32 || item.ownerHistory.some(owner =>
+      !owner || typeof owner.personId !== "string" || !owner.personId || typeof owner.publicKey !== "string" || !owner.publicKey ||
+      !Array.isArray(owner.certificates) || owner.certificates.length > 32))) ||
     new TextEncoder().encode(JSON.stringify(item)).byteLength > MAX_AUTH_BUNDLE_LENGTH) {
     throw new Error("Invalid workspace mesh credential")
   }
@@ -527,6 +535,22 @@ export class PeerStore {
         if (current.credential.ownerPersonId !== credential.ownerPersonId) throw new Error("Workspace mesh owner cannot change")
         if (credential.epoch < current.credential.epoch) return
         if (credential.epoch === current.credential.epoch && credential.updatedAt < current.credential.updatedAt) return
+      }
+      await promisifyRequest(store.put({ key, credential: structuredClone(credential) }))
+    })
+  }
+
+  async transferWorkspaceCredential(expectedOwnerPersonId: string, credential: WorkspaceMeshCredential): Promise<void> {
+    validateWorkspaceCredential(credential)
+    await this.runTx([STORE_NODE], "readwrite", async tx => {
+      const store = tx.objectStore(STORE_NODE)
+      const key = `${WORKSPACE_CREDENTIAL_PREFIX}${credential.workspaceId}`
+      const current = await promisifyRequest<{ key: string; credential: WorkspaceMeshCredential } | undefined>(store.get(key))
+      if (!current) throw new Error("Missing workspace mesh credential")
+      validateWorkspaceCredential(current.credential)
+      if (current.credential.ownerPersonId !== expectedOwnerPersonId) throw new Error("Workspace owner changed before transfer")
+      if (credential.ownerPersonId === expectedOwnerPersonId || credential.epoch <= current.credential.epoch) {
+        throw new Error("Invalid workspace ownership transfer")
       }
       await promisifyRequest(store.put({ key, credential: structuredClone(credential) }))
     })

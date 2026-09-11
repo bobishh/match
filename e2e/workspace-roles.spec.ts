@@ -13,6 +13,7 @@ for (const role of ["visitor", "editor"] as const) {
     await page.getByRole("button", { name: "Close detail" }).click()
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const host = page.getByRole("dialog", { name: "Device sync" })
+    await host.getByRole("button", { name: "Add someone" }).click()
     await host.getByRole("button", { name: "Generate link" }).click()
     const context = await browser.newContext()
     try {
@@ -56,6 +57,7 @@ test("Given a pending access request, when the owner declines, then no shared wo
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add someone" }).click()
   await host.getByRole("button", { name: "Generate link" }).click()
   const context = await browser.newContext()
   try {

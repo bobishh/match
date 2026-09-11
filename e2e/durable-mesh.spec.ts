@@ -11,6 +11,7 @@ async function addLead(page: Page, company: string) {
 async function pairWorkspace(host: Page, guest: Page) {
   await host.getByRole("button", { name: "Sync", exact: true }).click()
   const hostDialog = host.getByRole("dialog", { name: "Device sync" })
+  await hostDialog.getByRole("button", { name: "Add someone" }).click()
   await hostDialog.getByRole("button", { name: "Generate link" }).click()
   const invite = await hostDialog.getByLabel("Pairing link").inputValue()
   await guest.goto(invite)
@@ -148,6 +149,45 @@ test("Given an editor is trusted, when owner removes access, then UI marks revoc
 
     await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Open Revoked write — Engineer" })).toHaveCount(0)
+  } finally {
+    await guestContext.close()
+  }
+})
+
+test("Given an online editor, when owner selects them in mesh members and transfers ownership, then roles swap across devices", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
+  const guestContext = await isolatedContext(browser)
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+    await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: "Device sync" })
+    const members = dialog.getByRole("list", { name: "Mesh members" })
+    await expect(members.locator(".mesh-member")).toHaveCount(2)
+    await members.locator(".mesh-member:not(:disabled)").click()
+    await expect(dialog.getByRole("button", { name: "Transfer ownership" })).toBeEnabled()
+    await dialog.getByRole("button", { name: "Transfer ownership" }).click()
+
+    await expect(page.getByLabel("Workspace role: editor")).toBeVisible({ timeout: 20_000 })
+    await expect(guest.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole("button", { name: "Edit board", exact: true })).toHaveCount(0)
+    await expect(guest.getByRole("button", { name: "Edit board", exact: true })).toBeVisible()
+    await expect(dialog.getByRole("button", { name: "Add someone" })).toHaveCount(0)
+    await guest.getByRole("button", { name: "Sync", exact: true }).click()
+    const newOwnerDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await newOwnerDialog.getByRole("button", { name: "Add someone" }).click()
+    await expect(newOwnerDialog.getByRole("button", { name: "Generate link" })).toBeEnabled()
+    await newOwnerDialog.getByRole("button", { name: "Generate link" }).click()
+    await expect(newOwnerDialog.getByLabel("Pairing link")).toHaveValue(/workspace-join/)
+
+    await Promise.all([page.reload(), guest.reload()])
+    await expect(page.getByLabel("Workspace role: editor")).toBeVisible({ timeout: 20_000 })
+    await expect(guest.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 20_000 })
   } finally {
     await guestContext.close()
   }

@@ -1,6 +1,6 @@
 <!-- Workspace role gates are enforced again at command and sync boundaries. -->
 <script setup lang="ts">
-import { workspaceRole, exportAuthorizations } from "./sync/changeAuthorization"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations } from "./sync/changeAuthorization"
 import type { WorkspaceRole } from "./domain/permissions"
 import { bootstrapIdentity } from "./domain/identity"
 import ModalLayer from "./components/ModalLayer.vue"
@@ -155,16 +155,7 @@ const chatOwnerId = computed(() => { void docVersion.value; return getActiveDoc(
 const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId)
 const currentRole = ref<WorkspaceRole>("visitor")
 const roleWorkspaceId = ref("")
-watch([() => activeWorkspace.id, docVersion, ready], async (_, __, onCleanup) => {
-  let cancelled = false
-  onCleanup(() => { cancelled = true })
-  const doc = getActiveDoc()
-  if (!doc) return
-  const id = doc.id
-  const role = await workspaceRole(doc, await bootstrapIdentity("My Device"))
-  if (!cancelled && activeWorkspace.id === id) { currentRole.value = role; roleWorkspaceId.value = id }
-}, { immediate: true })
-const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id && currentRole.value !== "visitor" && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
+const currentWorkspaceOwnerId = ref("")
 const sync = useDeviceSync({
   displayName: () => chat.displayName.value,
   identityChanged: refreshIdentity,
@@ -177,8 +168,26 @@ const sync = useDeviceSync({
   origin: () => window.location.origin,
   availableWorkspaces,
   activeWorkspaceId: () => activeWorkspace?.id || "default",
-  workspaceOwner: async id => Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id)).ownerPersonId,
+  workspaceOwner: async id => {
+    const doc = Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id))
+    return effectiveWorkspaceOwner(id, doc.ownerPersonId)
+  },
 })
+watch([() => activeWorkspace.id, docVersion, ready, sync.ownershipRevision], async (_, __, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  const doc = getActiveDoc()
+  if (!doc) return
+  const id = doc.id
+  const profile = await bootstrapIdentity("My Device")
+  const [role, ownerId] = await Promise.all([workspaceRole(doc, profile), effectiveWorkspaceOwner(id, doc.ownerPersonId)])
+  if (!cancelled && activeWorkspace.id === id) {
+    currentRole.value = role
+    currentWorkspaceOwnerId.value = ownerId
+    roleWorkspaceId.value = id
+  }
+}, { immediate: true })
+const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id && currentRole.value !== "visitor" && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
 const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
   peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
 ))
@@ -194,10 +203,44 @@ const meshPresenceLabel = computed(() => ({
 }[meshPresence.value]))
 const revokingPeer = ref("")
 const peerAccessError = ref("")
-const isWorkspaceOwner = computed(() => chat.personId.value !== "" && chat.personId.value === chatOwnerId.value)
+const isWorkspaceOwner = computed(() => currentRole.value === "owner")
 const meshParticipantDevices = computed(() => sync.meshPeers.value
   .filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value)
   .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
+const meshMembers = computed(() => {
+  const byPerson = new Map<string, { personId: string; name: string; role: WorkspaceRole; online: boolean; devices: number; self: boolean }>()
+  const selfId = chat.personId.value
+  if (selfId) byPerson.set(selfId, {
+    personId: selfId,
+    name: chat.displayName.value || "You",
+    role: currentRole.value,
+    online: true,
+    devices: Math.max(1, sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId === selfId && !peer.revokedAt).length),
+    self: true,
+  })
+  for (const peer of sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)) {
+    const previous = byPerson.get(peer.personId)
+    byPerson.set(peer.personId, {
+      personId: peer.personId,
+      name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}`,
+      role: peer.personId === currentWorkspaceOwnerId.value ? "owner" : peer.role === "owner" ? "editor" : peer.role,
+      online: Boolean(previous?.online || peer.online || peer.deviceId === sync.localDeviceId.value),
+      devices: (previous?.devices ?? 0) + (peer.deviceId === sync.localDeviceId.value && previous?.self ? 0 : 1),
+      self: peer.personId === selfId,
+    })
+  }
+  return [...byPerson.values()].sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
+})
+const transferringOwnership = ref("")
+
+async function transferWorkspaceOwnership(personId: string) {
+  if (transferringOwnership.value) return
+  transferringOwnership.value = personId
+  peerAccessError.value = ""
+  try { await sync.transferOwnership(personId) }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not transfer ownership" }
+  finally { transferringOwnership.value = "" }
+}
 
 async function revokeWorkspacePeer(personId: string) {
   if (revokingPeer.value) return
@@ -1022,10 +1065,18 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!ready.value" @click="showWorkspaces = true">
         <span class="brand-presence">
           <span v-if="ready.value && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
+          <span v-else-if="ready.value" class="workspace-role-icon" role="img" :aria-label="`Workspace role: ${currentRole}`">
+            <svg v-if="currentRole === 'editor'" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 11.5 2.5 14l2.5-.5L13 5.5 10.5 3zM9.5 4l2.5 2.5" />
+            </svg>
+            <svg v-else viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="6.5" cy="6.5" r="4" />
+              <path d="m9.5 9.5 4 4" />
+            </svg>
+          </span>
           <span class="brand-mark" :class="`is-${meshPresence}`" role="img" :aria-label="meshPresenceLabel">M</span>
         </span>
         <div>
-          <span v-if="ready.value && currentRole !== 'owner'" class="workspace-role" :aria-label="`Workspace role: ${currentRole}`">{{ currentRole }}</span>
           <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
         </div>
       </button>
@@ -1209,7 +1260,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         <section class="chat-members" aria-label="Known workspace participants">
           <h3>Participants</h3>
           <p>{{ isWorkspaceOwner ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
-          <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.personId === chatOwnerId ? "Owner" : member.personId === chat.personId.value ? currentRole : meshParticipantDevices.find(peer => peer.personId === member.personId)?.role ?? "Member" }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
+          <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.personId === currentWorkspaceOwnerId ? "Owner" : member.personId === chat.personId.value ? currentRole : meshParticipantDevices.find(peer => peer.personId === member.personId)?.role ?? "Member" }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
           <template v-if="isWorkspaceOwner && meshParticipantDevices.length">
             <h4>Trusted peer devices</h4>
             <ul>
@@ -1300,11 +1351,17 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :available-workspaces="sync.availableWorkspaces.value"
       :selected-workspace-ids="sync.selectedWorkspaceIds.value"
       :selected-workspace-id="sync.selectedWorkspaceId.value"
+      :mesh-members="meshMembers"
+      :can-manage-mesh="isWorkspaceOwner"
+      :transferring-ownership="transferringOwnership"
+      :mesh-action-error="peerAccessError"
+      :live="sync.isLive.value"
       @update:selected-workspace-ids="sync.selectedWorkspaceIds.value = $event"
       @update:selected-workspace-id="sync.selectedWorkspaceId.value = $event"
       @select-sync-all="sync.selectSyncAll"
       @select-sync-workspace="sync.selectSyncWorkspace"
       @generate-workspace-invite="sync.generateWorkspaceInvite"
+      @transfer-ownership="transferWorkspaceOwnership"
       @request-enrollment="sync.requestEnrollment"
       :enrollment-device-name="sync.enrollmentDeviceName.value"
       @approve-device="sync.approveEnrollment"

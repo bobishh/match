@@ -282,7 +282,9 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
 
     const downloadPromise = page.waitForEvent("download")
     await page.getByRole("button", { name: "Sync", exact: true }).click()
-    await page.getByRole("dialog", { name: "Device sync" }).getByRole("button", { name: "Export .match" }).click()
+    const syncDialog = page.getByRole("dialog", { name: "Device sync" })
+    await syncDialog.getByRole("button", { name: "Add someone" }).click()
+    await syncDialog.getByRole("button", { name: "Export .match" }).click()
     const download = await downloadPromise
     expect(download.suggestedFilename()).toContain(".match")
   })

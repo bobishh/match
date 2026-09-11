@@ -3,6 +3,7 @@ import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { certHashDefault } from "../domain/proofs"
 import { validateDisplayName, normalizeDisplayName } from "./names"
 import { peerStore } from "../sync/peerStore"
+import type { WorkspaceAuthority } from "../sync/meshRecords"
 
 export type ChatPayload = {
   kind: "chat-message" | "chat-profile"
@@ -77,18 +78,30 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
   const key = await deviceKey(p.personId, record.publicKey, p.deviceId, record.certificates)
   if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid message signature")
   const authority = record.authority
-  if (!authority || await keyId(authority.publicKey) !== ownerPersonId) throw new Error("Invalid workspace authority")
-  if (p.personId !== ownerPersonId) {
+  if (!authority) throw new Error("Invalid workspace authority")
+  const credential = typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceCredential(grantWorkspaceId)
+  const owners: WorkspaceAuthority[] = credential ? [{ personId: credential.ownerPersonId,
+    publicKey: credential.ownerPublicKey, certificates: credential.ownerCertificates as DeviceCertificate[] },
+    ...((credential.ownerHistory ?? []) as WorkspaceAuthority[])] : [{ personId: ownerPersonId,
+      publicKey: authority.publicKey, certificates: authority.certificates }]
+  const authorityPersonId = await keyId(authority.publicKey)
+  const signingOwner = owners.find(owner => owner.personId === authorityPersonId && owner.publicKey === authority.publicKey)
+  if (!signingOwner) throw new Error("Invalid workspace authority")
+  const actsAsCurrentOwner = p.personId === (credential?.ownerPersonId ?? ownerPersonId) &&
+    signingOwner.personId === (credential?.ownerPersonId ?? ownerPersonId) && !authority.grant
+  if (!actsAsCurrentOwner) {
     if (typeof indexedDB !== "undefined" && (await peerStore.listPeers(grantWorkspaceId)).some(peer => peer.personId === p.personId && peer.revokedAt)) {
       throw new Error("Workspace access revoked")
     }
     const grant = authority.grant
+    // A former owner produced grant-less records while it still held authority. Chat has no owner-only mutations.
+    if (!grant && owners.slice(1).some(owner => owner.personId === p.personId)) return record
     if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1 ||
         grant.payload.personId !== p.personId || grant.payload.workspaceId !== grantWorkspaceId ||
         !(p.kind === "chat-profile" ? ["owner", "editor", "visitor"] : ["owner", "editor"]).includes(grant.payload.role)) throw new Error("No permission to write to this chat")
-    // Existing workspace invitations sign with the root key but label the signer with a device ID.
-    if (!await verifyEnvelope(grant, authority.publicKey)) {
-      const ownerDeviceKey = await deviceKey(ownerPersonId, authority.publicKey, grant.signerKeyId, authority.certificates)
+    if (!await verifyEnvelope(grant, signingOwner.publicKey)) {
+      const ownerDeviceKey = await deviceKey(signingOwner.personId, signingOwner.publicKey,
+        grant.signerKeyId, signingOwner.certificates)
       if (!await verifyEnvelope(grant, ownerDeviceKey)) throw new Error("Invalid workspace grant")
     }
   }

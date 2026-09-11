@@ -7,7 +7,7 @@ import {
   type SignedEnvelope,
 } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import { certHashDefault } from "../domain/proofs"
+import { certHashDefault, createWorkspaceGrant } from "../domain/proofs"
 
 export const MAX_PEER_ADVERTISEMENT_SIZE = 65536 // 64 KiB
 export const MAX_ENDPOINT_LENGTH = 2048
@@ -39,6 +39,29 @@ export type WorkspaceRevocationPayload = {
 }
 
 export type WorkspaceRevocation = SignedEnvelope<WorkspaceRevocationPayload>
+
+export type WorkspaceAuthority = {
+  personId: string
+  publicKey: string
+  certificates: DeviceCertificate[]
+}
+
+export type WorkspaceOwnershipTransferPayload = {
+  kind: "workspace-ownership-transfer"
+  version: 1
+  workspaceId: string
+  fromOwnerPersonId: string
+  toOwnerPersonId: string
+  toOwnerPublicKey: string
+  toOwnerCertificates: DeviceCertificate[]
+  toOwnerGrant: WorkspaceGrant
+  formerOwnerGrant: WorkspaceGrant
+  workspaceHeads: string[]
+  epoch: number
+  transferredAt: string
+}
+
+export type WorkspaceOwnershipTransfer = SignedEnvelope<WorkspaceOwnershipTransferPayload>
 
 export type WorkspaceMemberBundle = {
   advertisement: PeerAdvertisement
@@ -77,6 +100,7 @@ export type VerifyWorkspaceMemberBundleOptions = {
   ownerPersonId?: string
   ownerPublicKey?: string
   ownerCertificates?: DeviceCertificate[]
+  ownerHistory?: WorkspaceAuthority[]
   maxByteLength?: number
   now?: number | Date | string
 }
@@ -565,11 +589,24 @@ export async function verifyWorkspaceMemberBundle(
     if (!ownerPersonId) ownerPersonId = p.personId
     if (!ownerPublicKey) ownerPublicKey = memberPublicKey
   } else {
-    role = await verifyWorkspaceGrant(grant, {
-      workspaceId: expectedWorkspaceId ?? p.workspaceId, personId: p.personId,
-      ownerPersonId: ownerPersonId!, ownerPublicKey: ownerPublicKey!,
-      ownerCertificates: opts.ownerCertificates ?? bundle.ownerCertificates as DeviceCertificate[] ?? (bundle.authority as any)?.certificates ?? [],
-    })
+    const authorities: WorkspaceAuthority[] = [{
+      personId: ownerPersonId!,
+      publicKey: ownerPublicKey!,
+      certificates: opts.ownerCertificates ?? bundle.ownerCertificates as DeviceCertificate[] ?? (bundle.authority as any)?.certificates ?? [],
+    }, ...(opts.ownerHistory ?? [])]
+    let verifiedRole: "owner" | "editor" | "visitor" | undefined
+    for (const authority of authorities) {
+      try {
+        verifiedRole = await verifyWorkspaceGrant(grant, {
+          workspaceId: expectedWorkspaceId ?? p.workspaceId, personId: p.personId,
+          ownerPersonId: authority.personId, ownerPublicKey: authority.publicKey,
+          ownerCertificates: authority.certificates,
+        })
+        break
+      } catch {}
+    }
+    if (!verifiedRole) throw new Error("Invalid workspace grant signature")
+    role = verifiedRole
   }
 
   return {
@@ -637,4 +674,71 @@ export async function verifyWorkspaceGrant(grant: WorkspaceGrant | undefined, sc
     if (await verifyEnvelope(grant, key)) return p.role
   } catch {}
   throw new Error("Invalid workspace grant signature")
+}
+
+export async function createWorkspaceOwnershipTransfer(
+  profile: LocalProfile,
+  workspaceId: string,
+  target: { personId: string; publicKey: string; certificates: DeviceCertificate[] },
+  workspaceHeads: string[],
+  epoch: number,
+  transferredAt = new Date().toISOString(),
+): Promise<WorkspaceOwnershipTransfer> {
+  if (!workspaceId || !target.personId || target.personId === profile.identity.personId ||
+    !Array.isArray(workspaceHeads) || workspaceHeads.length === 0 || workspaceHeads.length > 256 ||
+    workspaceHeads.some(head => typeof head !== "string" || !head) || !Number.isSafeInteger(epoch) || epoch < 2 ||
+    !Number.isFinite(Date.parse(transferredAt)) || new Date(transferredAt).toISOString() !== transferredAt) {
+    throw new Error("Invalid workspace ownership transfer")
+  }
+  if (await keyId(target.publicKey) !== target.personId) throw new Error("Invalid new owner identity")
+  await verifyDeviceChain({ personId: target.personId, publicKey: target.publicKey,
+    deviceId: target.certificates[0]?.payload.deviceId, certificates: target.certificates })
+  const toOwnerGrant = await createWorkspaceGrant(profile, workspaceId, target.personId, "owner")
+  const formerOwnerGrant = await createWorkspaceGrant(profile, workspaceId, profile.identity.personId, "editor")
+  return signEnvelope(profile.privateKeys.devicePrivateKey, {
+    kind: "workspace-ownership-transfer", version: 1, workspaceId,
+    fromOwnerPersonId: profile.identity.personId, toOwnerPersonId: target.personId,
+    toOwnerPublicKey: target.publicKey, toOwnerCertificates: target.certificates,
+    toOwnerGrant, formerOwnerGrant, workspaceHeads, epoch, transferredAt,
+  }, profile.device.deviceId)
+}
+
+export async function verifyWorkspaceOwnershipTransfer(
+  raw: unknown,
+  workspaceId: string,
+  authority: WorkspaceAuthority,
+  minimumEpoch: number,
+  now = Date.now(),
+): Promise<WorkspaceOwnershipTransfer> {
+  if (new TextEncoder().encode(JSON.stringify(raw)).byteLength > MAX_PEER_ADVERTISEMENT_SIZE) {
+    throw new Error("Workspace ownership transfer too large")
+  }
+  const record = raw as WorkspaceOwnershipTransfer
+  const p = record?.payload
+  if (!p || p.kind !== "workspace-ownership-transfer" || p.version !== 1 || p.workspaceId !== workspaceId ||
+    p.fromOwnerPersonId !== authority.personId || typeof p.toOwnerPersonId !== "string" || !p.toOwnerPersonId ||
+    p.toOwnerPersonId === p.fromOwnerPersonId || typeof p.toOwnerPublicKey !== "string" || !p.toOwnerPublicKey ||
+    !Array.isArray(p.toOwnerCertificates) || p.toOwnerCertificates.length === 0 || p.toOwnerCertificates.length > MAX_CERT_CHAIN_LENGTH ||
+    !Array.isArray(p.workspaceHeads) || p.workspaceHeads.length === 0 || p.workspaceHeads.length > 256 ||
+    p.workspaceHeads.some(head => typeof head !== "string" || !head) ||
+    !Number.isSafeInteger(p.epoch) || p.epoch <= minimumEpoch || typeof p.transferredAt !== "string" ||
+    !Number.isFinite(Date.parse(p.transferredAt)) || new Date(p.transferredAt).toISOString() !== p.transferredAt ||
+    Date.parse(p.transferredAt) > now + MAX_FUTURE_TOLERANCE_MS || await keyId(authority.publicKey) !== authority.personId ||
+    await keyId(p.toOwnerPublicKey) !== p.toOwnerPersonId) throw new Error("Invalid workspace ownership transfer")
+  await verifyDeviceChain({ personId: p.toOwnerPersonId, publicKey: p.toOwnerPublicKey,
+    deviceId: p.toOwnerCertificates[0].payload.deviceId, certificates: p.toOwnerCertificates })
+  if (record.signerKeyId === authority.personId) {
+    if (!await verifyEnvelope(record, authority.publicKey)) throw new Error("Invalid ownership transfer signature")
+  } else {
+    const signerKey = await verifyDeviceChain({ personId: authority.personId, publicKey: authority.publicKey,
+      deviceId: record.signerKeyId, certificates: authority.certificates })
+    if (!await verifyEnvelope(record, signerKey)) throw new Error("Invalid ownership transfer signature")
+  }
+  const scope = { workspaceId, ownerPersonId: authority.personId, ownerPublicKey: authority.publicKey,
+    ownerCertificates: authority.certificates }
+  if (await verifyWorkspaceGrant(p.toOwnerGrant, { ...scope, personId: p.toOwnerPersonId }) !== "owner" ||
+    await verifyWorkspaceGrant(p.formerOwnerGrant, { ...scope, personId: p.fromOwnerPersonId }) !== "editor") {
+    throw new Error("Invalid ownership transfer roles")
+  }
+  return record
 }

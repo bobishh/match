@@ -31,6 +31,7 @@ function dialPairingPeer(node: SyncNode, endpoint: string) {
 
 export type SyncStep =
   | "idle"
+  | "members"
   | "chooser"
   | "workspace-select"
   | "enroll-host"
@@ -123,6 +124,9 @@ export function useDeviceSync({
   const localDeviceId = ref("")
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
+  const ownershipRevision = ref(0)
+  const meshReachableUntil = new Map<string, number>()
+  let reachabilityTimer: ReturnType<typeof setTimeout> | undefined
 
   let node: SyncNode | undefined
   let liveSession: LiveWorkspaceSync | undefined
@@ -139,12 +143,25 @@ export function useDeviceSync({
     workspace,
     getProfile,
     onChange(ids, peers, revoked) {
-      meshLiveWorkspaceIds.value = ids
+      const now = Date.now()
+      const browserOffline = typeof navigator !== "undefined" && !navigator.onLine
+      if (browserOffline) meshReachableUntil.clear()
+      else for (const id of ids) meshReachableUntil.set(id, now + 15_000)
+      meshLiveWorkspaceIds.value = [...new Set([...ids, ...[...meshReachableUntil]
+        .filter(([, until]) => until > now).map(([id]) => id)])]
       meshPeers.value = peers
       revokedWorkspaceIds.value = revoked
+      ownershipRevision.value += 1
       if (ids.length > 0) isLive.value = true
       else if (!liveSession) isLive.value = false
-      if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "synced"
+      if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "members"
+      clearTimeout(reachabilityTimer)
+      const nextExpiry = Math.min(...[...meshReachableUntil.values()].filter(until => until > now))
+      if (Number.isFinite(nextExpiry)) reachabilityTimer = setTimeout(() => {
+        const current = Date.now()
+        for (const [id, until] of meshReachableUntil) if (until <= current) meshReachableUntil.delete(id)
+        meshLiveWorkspaceIds.value = meshLiveWorkspaceIds.value.filter(id => ids.includes(id) || meshReachableUntil.has(id))
+      }, Math.max(0, nextExpiry - now + 10))
     },
   }) : undefined
   if (durableMesh && meshWorkspaceStore) {
@@ -200,6 +217,7 @@ export function useDeviceSync({
   async function shutdown() {
     run += 1
     wakeRetry?.()
+    clearTimeout(reachabilityTimer)
     await durableMesh?.dispose()
     await stopNode("Page closed")
   }
@@ -212,6 +230,13 @@ export function useDeviceSync({
     const direct = directPeerSessions.get(personId)
     directPeerSessions.delete(personId)
     await direct?.close()
+  }
+
+  async function transferOwnership(personId: string) {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId || !durableMesh) throw new Error("No active workspace")
+    await durableMesh.transferOwnership(workspaceId, personId)
+    ownershipRevision.value += 1
   }
 
   function attachLiveSession(session: LiveWorkspaceSync, currentRun: number) {
@@ -272,13 +297,8 @@ export function useDeviceSync({
       isOpen.value = true
       return
     }
-    if (isLive.value) {
-      isOpen.value = true
-      step.value = "synced"
-      return
-    }
     isOpen.value = true
-    step.value = "workspace-select"
+    step.value = "members"
     error.value = ""
     copyNotice.value = ""
 
@@ -527,6 +547,9 @@ export function useDeviceSync({
               await stream.send(encodePairingFrame("workspace-join-response", secret,
                 new TextEncoder().encode(JSON.stringify({ error: "This invitation has expired." }))))
               await stream.closeSend()
+              const rejectionAck = await connection.acceptStream()
+              decodePairingFrame(await rejectionAck.read(), "sync-ack", secret)
+              await rejectionAck.closeSend()
               return
             }
             const requestId = crypto.randomUUID()
@@ -540,6 +563,9 @@ export function useDeviceSync({
             if (!role) {
               await stream.send(encodePairingFrame("workspace-join-response", secret, new TextEncoder().encode(JSON.stringify({ error: "The owner declined this request." }))))
               await stream.closeSend()
+              const rejectionAck = await connection.acceptStream()
+              decodePairingFrame(await rejectionAck.read(), "sync-ack", secret)
+              await rejectionAck.closeSend()
               return
             }
             result = await defaultInvitationService.approveWorkspaceJoinSet(
@@ -787,7 +813,12 @@ export function useDeviceSync({
           await stream.closeSend()
           const response = decodePairingFrame(await stream.read(), "workspace-join-response", invite.secret)
           const payload = JSON.parse(new TextDecoder().decode(response))
-          if (typeof payload.error === "string") throw new Error(payload.error)
+          if (typeof payload.error === "string") {
+            const rejectionAck = await connection.openStream()
+            await rejectionAck.send(encodePairingFrame("sync-ack", invite.secret, new Uint8Array()))
+            await rejectionAck.closeSend()
+            throw new Error(payload.error)
+          }
           if (durableMesh && payload.meshWorkspaces === undefined) {
             throw new Error("The other device needs an update. Reload it and generate a new invitation.")
           }
@@ -893,6 +924,7 @@ export function useDeviceSync({
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
     meshPeers,
     localDeviceId,
+    ownershipRevision,
     step,
     phase,
     title,
@@ -920,6 +952,7 @@ export function useDeviceSync({
     startDurableMesh,
     shutdown,
     revokePeer,
+    transferOwnership,
     copyInvite,
     close,
     dismiss,

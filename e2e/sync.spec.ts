@@ -169,7 +169,7 @@ test("Given two tabs on one device, when one tab saves a card, then the other re
   }
 })
 
-test("Given the board, when Sync is clicked, then workspace selection opens with active workspace checked without starting a node", async ({ page }) => {
+test("Given the board, when Sync is clicked, then members open before workspace selection without starting a node", async ({ page }) => {
   await page.goto("/")
   expect(await page.evaluate(() => performance.getEntriesByType("resource").some((entry) => entry.name.includes("match_iroh")))).toBe(false)
 
@@ -177,6 +177,9 @@ test("Given the board, when Sync is clicked, then workspace selection opens with
 
   const dialog = page.getByRole("dialog", { name: "Device sync" })
   await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole("list", { name: "Mesh members" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Transfer ownership" })).toHaveCount(0)
+  await dialog.getByRole("button", { name: "Add someone" }).click()
   await expect(dialog.getByRole("button", { name: "Generate link", exact: true })).toBeVisible()
   await expect(dialog.getByLabel("Job search")).toBeChecked()
   await expect(dialog.getByRole("button", { name: "Add my device", exact: true })).toBeVisible()
@@ -194,6 +197,7 @@ test("Given clipboard access is denied, when Sync opens, then its pairing link r
   await page.getByRole("button", { name: "Sync", exact: true }).click()
 
   const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add someone" }).click()
   await dialog.getByRole("button", { name: "Add my device", exact: true }).click()
   const pairingLink = dialog.getByRole("textbox", { name: "Pairing link", exact: true })
   await expect(pairingLink).toHaveValue(/\/pair#/)
@@ -268,6 +272,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
 
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+    await hostDialog.getByRole("button", { name: "Add someone" }).click()
     await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
     await expect(hostDialog.getByLabel("Pairing QR code")).toBeVisible({ timeout: 10_000 })
     await hostDialog.getByRole("button", { name: "Copy pairing link" }).click()
