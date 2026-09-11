@@ -99,7 +99,7 @@ export function useDeviceSync({
   identityChanged,
 }: DeviceSyncOptions) {
   const isOpen = ref(false)
-  const isLive = ref(false)
+  const directLive = ref(false)
   const liveWorkspaceIds = ref<string[]>([])
   const step = ref<SyncStep>("idle")
   const qrCode = ref("")
@@ -126,6 +126,7 @@ export function useDeviceSync({
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
   const ownershipRevision = ref(0)
+  const isLive = computed(() => directLive.value || meshLiveWorkspaceIds.value.length > 0)
 
   let node: SyncNode | undefined
   let liveSession: LiveWorkspaceSync | undefined
@@ -146,8 +147,6 @@ export function useDeviceSync({
       meshPeers.value = peers
       revokedWorkspaceIds.value = revoked
       ownershipRevision.value += 1
-      if (ids.length > 0) isLive.value = true
-      else if (!liveSession || directPeerSessions.size === 0) isLive.value = false
       if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "members"
     },
     onDiagnostic(message) {
@@ -187,7 +186,7 @@ export function useDeviceSync({
     stopWatchingWorkspace = undefined
     const session = liveSession
     liveSession = undefined
-    isLive.value = false
+    directLive.value = false
     liveWorkspaceIds.value = []
     await session?.close()
     const current = node
@@ -230,7 +229,7 @@ export function useDeviceSync({
 
   function attachLiveSession(session: LiveWorkspaceSync, currentRun: number) {
     liveSession = session
-    isLive.value = true
+    directLive.value = true
     stopWatchingWorkspace = workspace.subscribe?.(() => {
       void session.publish().catch((syncError) => {
         if (currentRun !== run) return
@@ -474,7 +473,7 @@ export function useDeviceSync({
       const done = new Promise<void>((_, reject) => { fail = reject })
       function disconnected() {
         if (currentRun !== run || stopped || peers.size) return
-        isLive.value = false
+        directLive.value = false
         if (everConnected) {
           step.value = "workspace-reconnecting"
           if (!handoffStarted) {
@@ -508,7 +507,7 @@ export function useDeviceSync({
         },
       }
       attachLiveSession(group, currentRun)
-      isLive.value = false
+      directLive.value = false
       async function receivePeer(connection: SyncConnection) {
         let session: LiveWorkspaceSync | undefined
         let heartbeat: ReturnType<typeof setInterval> | undefined
@@ -585,7 +584,7 @@ export function useDeviceSync({
           directPeerSessions.set(personId, session)
           await previous?.close()
           everConnected = true
-          isLive.value = true
+          directLive.value = true
           step.value = "synced"
           heartbeat = setInterval(() => {
             void session?.heartbeat?.().catch(() => { void session?.close() })
@@ -782,7 +781,7 @@ export function useDeviceSync({
         const offline = () => {
           if (currentRun !== run) return
           disconnectError = new SyncNetworkError("Network offline")
-          isLive.value = false
+          directLive.value = false
           step.value = "workspace-reconnecting"
           void connection?.close()
           if (!connection) void started?.close("Network offline").catch(() => {})
@@ -836,7 +835,7 @@ export function useDeviceSync({
           clearTimeout(timeout)
           session = liveWorkspaceSetSync(connection, invite.secret, replica)
           liveSession = session
-          isLive.value = true
+          directLive.value = true
           step.value = "workspace-guest-done"
           liveWorkspaceIds.value = invite.workspaces.map(w => w.id)
           connectedBefore = true
@@ -865,7 +864,7 @@ export function useDeviceSync({
             stopWatchingWorkspace?.()
             stopWatchingWorkspace = undefined
             liveSession = undefined
-            isLive.value = false
+            directLive.value = false
           }
           await session?.close()
           await connection?.close()
@@ -881,7 +880,7 @@ export function useDeviceSync({
       }
     } catch (err) {
       if (currentRun !== run) return
-      isLive.value = false
+      directLive.value = false
       step.value = "error"
       if (/access revoked/i.test(err instanceof Error ? err.message : String(err))) {
         revokedWorkspaceIds.value = [...new Set([...revokedWorkspaceIds.value, ...invite.workspaces.map(w => w.id)])]
@@ -914,7 +913,7 @@ export function useDeviceSync({
     pendingJoins,
     decideJoin,
     isLive,
-    isWorkspaceLive: (id: string) => (isLive.value && liveWorkspaceIds.value.includes(id)) || meshLiveWorkspaceIds.value.includes(id),
+    isWorkspaceLive: (id: string) => (directLive.value && liveWorkspaceIds.value.includes(id)) || meshLiveWorkspaceIds.value.includes(id),
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
     meshPeers,
     meshDiagnostic,
