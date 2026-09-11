@@ -1,5 +1,5 @@
 import type { LocalProfile } from "../domain/identity"
-import type { WorkspaceGrant } from "../domain/model"
+import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
@@ -212,6 +212,19 @@ export class DurableMesh {
     this.pauseWaiters.clear()
   }
 
+  private async refreshOwnerCertificates(credential: WorkspaceMeshCredential, profile: LocalProfile,
+    certificates: DeviceCertificate[]): Promise<WorkspaceMeshCredential> {
+    if (credential.ownerPersonId !== profile.identity.personId) return credential
+    const ownerCertificates = [...new Map([
+      ...credential.ownerCertificates as DeviceCertificate[],
+      ...certificates,
+    ].map(certificate => [certificate.signature, certificate])).values()]
+    if (ownerCertificates.length === credential.ownerCertificates.length) return credential
+    const next = { ...credential, ownerCertificates, updatedAt: new Date().toISOString() }
+    await this.store.putWorkspaceCredential(next)
+    return next
+  }
+
   async ensureOwnerWorkspaces(workspaceIds: string[], endpoint: string, profile: LocalProfile): Promise<void> {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (const workspaceId of workspaceIds) {
@@ -229,6 +242,8 @@ export class DurableMesh {
           updatedAt: new Date().toISOString(),
         }
         await this.store.putWorkspaceCredential(credential)
+      } else {
+        credential = await this.refreshOwnerCertificates(credential, profile, certificates)
       }
       const bundle = await createPeerAdvertisement(profile, workspaceId, endpoint, { certificates })
       await this.putVerifiedBundle(credential, bundle)
@@ -588,7 +603,8 @@ export class DurableMesh {
         if (signal.aborted) return void node.close("Mesh cancelled")
         this.node = node
         const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
-        for (const credential of credentials) {
+        for (let credential of credentials) {
+          credential = await this.refreshOwnerCertificates(credential, profile, certificates)
           const bundle = await createPeerAdvertisement(profile, credential.workspaceId, node.endpointId, {
             certificates,
             grant: credential.localGrant as WorkspaceGrant | undefined,
