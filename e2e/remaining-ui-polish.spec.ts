@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function createBlankBoard(page: Page, title: string) {
   await page.goto("/")
@@ -47,6 +48,7 @@ test("Given archive persistence fails, when a task is archived, then the task re
 test("Given a mobile board, when navigating columns, then the next column peeks and the switcher changes the active column", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
 
   const board = page.locator(".board")
   await expect(page.locator(".mobile-column-switcher")).toBeVisible()
@@ -64,6 +66,7 @@ test("Given a mobile board, when navigating columns, then the next column peeks 
 
 test("Given a Job search lead, when Archive status is selected, then Undo stays available inside Lead details", async ({ page }) => {
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
   await page.getByRole("region", { name: "Lead" }).getByRole("button", { name: "Add lead to Lead" }).click()
   const form = page.getByRole("dialog", { name: "Add item" })
   await form.getByLabel(/Company/).fill("Undo Corp")
@@ -81,6 +84,7 @@ for (const width of [360, 390, 430]) {
   test(`Given ${width}px mobile, when the board opens, then the next column peeks and Add follows the header`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     const values = await page.getByRole("region", { name: "Job search", exact: true }).evaluate((board) => {
       const column = board.querySelector<HTMLElement>(".column:not(.bin-column)")!
       const add = column.querySelector<HTMLElement>(".column-add-button")!
@@ -100,6 +104,7 @@ test("Given a lead dragged to Archive, when Undo fails then retries, then its or
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.setViewportSize({ width: 1920, height: 1000 })
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
   for (const company of ["First", "Second"]) {
     await page.getByRole("button", { name: "Add lead to Lead", exact: true }).click()
     const form = page.getByRole("dialog", { name: "Add item", exact: true })
@@ -120,6 +125,8 @@ test("Given a lead dragged to Archive, when Undo fails then retries, then its or
   await expect(archive.locator(".lead-card").filter({ hasText: "First" })).toHaveCount(1)
   await page.mouse.up()
   await expect(archive.getByRole("button", { name: "Open First — Engineer", exact: true })).toBeVisible()
+  await expect(page.getByRole("status").filter({ hasText: "Item archived" })).toBeVisible()
+  await expect(page.locator(".save-state:visible")).toContainText("Saved")
   await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
   await page.getByRole("button", { name: "Undo", exact: true }).click()
   await expect(page.getByRole("status").filter({ hasText: "Restore failed" })).toBeVisible()
@@ -140,7 +147,7 @@ test("Given an archived item, when the workspace changes, then its Undo cannot a
   await page.getByRole("button", { name: "Archive task", exact: true }).click()
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Open workspaces", exact: true }).click()
-  await page.getByRole("dialog", { name: "Workspaces", exact: true }).getByRole("button", { name: "jobs", exact: true }).click()
-  await expect(page.getByRole("region", { name: "Job search", exact: true })).toBeVisible()
+  await page.getByRole("dialog", { name: "Workspaces", exact: true }).getByRole("button", { name: "Untitled", exact: true }).click()
+  await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: /Undo/ })).toHaveCount(0)
 })

@@ -1,6 +1,29 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
+  test("Given a new profile, when Match opens, then it starts with a collision-safe blank Untitled workspace", async ({ page }) => {
+    await page.goto("/")
+
+    await expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
+    await expect(page.getByRole("region", { name: "To do" })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Lead" })).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("match.active_workspace_id"))).not.toBe("default")
+  })
+
+  test("Given two first tabs, when both open together, then they share one generated Untitled workspace", async ({ page }) => {
+    const peer = await page.context().newPage()
+    try {
+      await Promise.all([page.goto("/"), peer.goto("/")])
+      const activeId = (target: typeof page) => target.evaluate(() => localStorage.getItem("match.active_workspace_id"))
+      await expect.poll(() => activeId(peer)).toBe(await activeId(page))
+      await page.getByRole("button", { name: "Open workspaces" }).click()
+      await expect(page.getByRole("dialog", { name: "Workspaces" }).locator(".workspace-item")).toHaveCount(1)
+    } finally {
+      await peer.close()
+    }
+  })
+
   test("Given two workspaces, when either is renamed from the workspace list, then its data and new name persist", async ({ page }) => {
     await page.goto("/")
     await page.getByRole("button", { name: "Open workspaces" }).click()
@@ -20,7 +43,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("Client board")
     await workspaces.getByRole("button", { name: "Save name" }).click()
     await expect(workspaces.locator(".workspace-switch", { hasText: "Client board" })).toBeVisible()
-    await workspaces.getByRole("button", { name: /jobs/ }).click()
+    await workspaces.getByRole("button", { name: /Untitled/ }).click()
     await page.getByRole("button", { name: "Open workspaces" }).click()
     await workspaces.locator(".workspace-item", { hasText: "Client board" }).getByRole("button", { name: "Rename", exact: true }).click()
     await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("")
@@ -59,11 +82,11 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await temporary.getByRole("button", { name: "Delete", exact: true }).click()
     await confirmation.getByRole("button", { name: "Delete workspace" }).click()
     await expect(dialog.getByRole("button", { name: /Temporary board/ })).toHaveCount(0)
-    await expect(dialog.getByRole("button", { name: /jobs Active/ })).toBeVisible()
+    await expect(dialog.getByRole("button", { name: /Untitled Active/ })).toBeVisible()
     await dialog.getByRole("button", { name: "Close" }).last().click()
-    await expect(page.getByRole("heading", { name: "MATCH // jobs" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
     await page.reload()
-    await expect(page.getByRole("heading", { name: "MATCH // jobs" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Open Temporary data" })).toHaveCount(0)
   })
 
@@ -211,6 +234,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
 
   test("Gate A evidence: Reading board with Author field and nested task alongside Job search, with reload and export", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
 
     // 1. On default Job search board, create a lead
     await page.getByRole("button", { name: /Add lead to/ }).first().click()

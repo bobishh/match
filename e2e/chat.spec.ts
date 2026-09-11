@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function openChat(page: Page) {
   await page.getByRole("button", { name: "Workspace chat", exact: true }).filter({ visible: true }).click()
@@ -72,6 +73,7 @@ test("Given paired workspaces, when matching names and messages sync, then both 
   const guest = await context.newPage()
   try {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     const settings = await profileSettings(page)
     await settings.getByRole("textbox", { name: "Your name", exact: true }).fill("Тревожная мимоза")
     await settings.getByRole("button", { name: "Save name", exact: true }).click()
@@ -113,18 +115,24 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     await page.bringToFront()
     await guest.evaluate(async () => {
       const path = "/src/chat/service.ts"
+      const statePath = "/src/state.ts"
       const service = await import(/* @vite-ignore */ path)
-      await service.sendChatMessage("default", "Background message")
+      const state = await import(/* @vite-ignore */ statePath)
+      await service.sendChatMessage(state.useMatch().activeWorkspace.id, "Background message")
     })
     await expect(page.locator(".chat-toast")).toContainText("Background message", { timeout: 15_000 })
     await page.getByRole("button", { name: "Dismiss chat notification" }).click()
     const replay = await guest.evaluate(async () => {
       const path = "/src/chat/service.ts"
-      return (await import(/* @vite-ignore */ path)).exportChat("default")
+      const statePath = "/src/state.ts"
+      const state = await import(/* @vite-ignore */ statePath)
+      return (await import(/* @vite-ignore */ path)).exportChat(state.useMatch().activeWorkspace.id)
     })
     await page.evaluate(async wire => {
       const path = "/src/chat/service.ts"
-      await (await import(/* @vite-ignore */ path)).receiveChat("default", wire, false)
+      const statePath = "/src/state.ts"
+      const state = await import(/* @vite-ignore */ statePath)
+      await (await import(/* @vite-ignore */ path)).receiveChat(state.useMatch().activeWorkspace.id, wire, false)
     }, replay)
     await expect(page.locator(".chat-toast")).toHaveCount(0)
     await openChat(page)
@@ -137,7 +145,7 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     await expect(hostChat.locator(".chat-message-body")).toHaveCount(3)
     await guestChat.getByRole("button", { name: "Close", exact: true }).click()
     await guest.getByRole("button", { name: "Open workspaces", exact: true }).click()
-    await guest.getByRole("button", { name: /^Job search \(local\)/ }).click()
+    await guest.getByRole("button", { name: /^Untitled/ }).click()
     const restoredPrivate = await openChat(guest)
     await expect(restoredPrivate.getByText("Private local chat", { exact: true })).toBeVisible()
     await expect(restoredPrivate.getByText("Hello from guest", { exact: true })).toHaveCount(0)

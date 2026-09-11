@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test"
+import { createJobSearchWorkspace, ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function addLead(page: Page, company: string) {
+  await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
   await page.getByLabel("Company *").fill(company)
   await page.getByLabel("Role *").fill("Engineer")
@@ -92,7 +94,7 @@ test("Given no network before accepting, when the connection returns, then the s
   }
 })
 
-test("Given both devices have different populated workspaces with the same ID, when joining, then the local one is kept as a separate renamable workspace", async ({ browser, page }) => {
+test("Given both devices have independent populated workspaces, when joining, then random IDs keep the local one separate without conflict renaming", async ({ browser, page }) => {
   test.setTimeout(60_000)
   await page.goto("/")
   await addLead(page, "Host workspace card")
@@ -105,6 +107,7 @@ test("Given both devices have different populated workspaces with the same ID, w
   try {
     const guest = await context.newPage()
     await guest.goto("/")
+    await createJobSearchWorkspace(guest, "Guest jobs")
     await addLead(guest, "Guest local card")
     await guest.goto(invite)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
@@ -117,9 +120,10 @@ test("Given both devices have different populated workspaces with the same ID, w
     await expect(guest.getByRole("button", { name: "Open Guest local card — Engineer" })).toHaveCount(0)
     await guest.getByRole("button", { name: "Open workspaces" }).click()
     const workspaces = guest.getByRole("dialog", { name: "Workspaces" })
-    await expect(workspaces.getByRole("button", { name: /jobs/ })).toBeVisible()
-    await expect(workspaces.getByRole("button", { name: /Job search \(local\)/ })).toBeVisible()
-    await workspaces.getByRole("button", { name: /Job search \(local\)/ }).click()
+    await expect(workspaces.getByRole("button", { name: /^jobs/ })).toBeVisible()
+    await expect(workspaces.getByRole("button", { name: /^Guest jobs/ })).toBeVisible()
+    await expect(workspaces.getByText(/\(local\)/)).toHaveCount(0)
+    await workspaces.getByRole("button", { name: /^Guest jobs/ }).click()
     await expect(guest.getByRole("button", { name: "Open Guest local card — Engineer" })).toBeVisible()
     await expect(guest.getByRole("button", { name: "Open Host workspace card — Engineer" })).toHaveCount(0)
   } finally {

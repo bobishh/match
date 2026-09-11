@@ -377,10 +377,12 @@ export function useDeviceSync({
             }
             if (!workspaces.length) throw new Error("No owned workspaces are available to sync.")
             const ids = workspaces.map(item => item.id)
+            const requestedActive = activeWorkspaceId?.()
+            const enrollmentActive = requestedActive && ids.includes(requestedActive) ? requestedActive : ids[0]!
             await durableMesh.ensureOwnerWorkspaces(ids, started.endpointId, profile)
             const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore!, ids)
             const payload = await enrollmentPayload(invite, profile, result.certificate, root, workspaces,
-              await durableMesh.invitationPayload(ids), await replica.snapshot())
+              enrollmentActive, await durableMesh.invitationPayload(ids), await replica.snapshot())
             await stream.send(encodePairingFrame("enroll-approved", secret, payload))
             await stream.closeSend()
             const ack = await connection.acceptStream()
@@ -714,7 +716,7 @@ export function useDeviceSync({
       const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore, ids)
       await replica.receive(fromBase64Url(enrolled.snapshot))
       await durableMesh.ensureOwnerWorkspaces(ids, started.endpointId, enrolled.profile)
-      await workspaceStore.activate(ids[0]!)
+      await workspaceStore.activate(enrolled.activeWorkspaceId)
       const ack = await connection.openStream()
       await ack.send(encodePairingFrame("enroll-ack", invite.secret, await replica.snapshot()))
       await ack.closeSend()

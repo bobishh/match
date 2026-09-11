@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function addLead(page: import("@playwright/test").Page, input: { company: string; role: string; priority: string; workMode: string; fit: string }) {
+  await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
   const form = page.locator("form.dialog")
   await form.getByLabel("Company *").fill(input.company)
@@ -33,12 +35,13 @@ test("Given cards still loading on first visit, when Match opens, then delayed p
   await expect(page.getByRole("region", { name: "Job search" })).toHaveCount(0)
 
   await page.evaluate(() => window.dispatchEvent(new Event("match:release-automerge")))
-  await expect(page.getByRole("region", { name: "Job search" })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Untitled" })).toBeVisible()
   await expect(preloader).toHaveCount(0)
 })
 
 test("Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts", async ({ page }) => {
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Settings" }).click()
   const templates = page.getByRole("dialog", { name: "Workspace settings" })
   await templates.getByLabel("Name").fill("General software CV")
@@ -116,6 +119,7 @@ test("Given several leads, when filters intersect, then only matching cards rema
 test("Given a mid-size desktop viewport, when Match opens, then the title and filters stay legible without clipped controls", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 })
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
 
   await expect(page.getByRole("heading", { name: "MATCH" })).toBeVisible()
   const toolbar = await page.getByRole("region", { name: "Match controls" }).evaluate((element) => {
@@ -160,6 +164,7 @@ test("Given two tabs on one device, when one tab saves a card, then the other re
   const peer = await page.context().newPage()
   try {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     await peer.goto("/")
 
     await addLead(page, { company: "Local-first", role: "Stored workspace", priority: "p1", workMode: "remote", fit: "8" })
@@ -171,6 +176,7 @@ test("Given two tabs on one device, when one tab saves a card, then the other re
 
 test("Given the board, when Sync is clicked, then members open before workspace selection without starting a node", async ({ page }) => {
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
   expect(await page.evaluate(() => performance.getEntriesByType("resource").some((entry) => entry.name.includes("match_iroh")))).toBe(false)
 
   await page.getByRole("button", { name: "Sync", exact: true }).click()
@@ -249,7 +255,7 @@ for (const exit of ["Dismiss", "Close", "Escape"]) {
     await expect(dialog).toBeHidden()
     await expect(page).toHaveURL("http://127.0.0.1:4244/?view=board")
     await page.reload()
-    await expect(page.getByRole("region", { name: "Job search", exact: true })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
     await expect(dialog).toBeHidden()
   })
 }
@@ -263,6 +269,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
 
   try {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     await page.getByRole("button", { name: /Add lead to/ }).first().click()
     await page.getByLabel("Company *").fill("Cleo")
     await page.getByLabel("Role *").fill("Senior Ruby Engineer")
@@ -287,6 +294,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await expect(hostDialog.getByText("Device enrolled", { exact: true })).toBeVisible({ timeout: 25_000 })
     await expect(peer.getByText("1 card · 0 docs")).toBeVisible()
     await peerDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
 
     // When the peer makes a later visible change, the already-paired host receives it.
     await peer.getByRole("button", { name: /Add lead to/ }).first().click()

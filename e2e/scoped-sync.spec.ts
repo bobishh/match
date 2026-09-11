@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test.describe("Scoped Sync Outer Scenarios", () => {
   test("Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment", async ({ browser, page }) => {
@@ -11,6 +12,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
     try {
       await page.goto("/")
+      await ensureJobSearchWorkspace(page)
       await page.getByRole("button", { name: /Add lead to/ }).first().click()
       await page.getByLabel("Company *").fill("Enrollment proof")
       await page.getByLabel("Role *").fill("Engineer")
@@ -86,6 +88,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
     try {
       await page.goto("/")
+      await ensureJobSearchWorkspace(page)
       await page.getByRole("button", { name: "Sync", exact: true }).click()
 
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
@@ -123,6 +126,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
     try {
       await page.goto("/")
+      await ensureJobSearchWorkspace(page)
       // Create a second workspace "Reading list"
       await page.getByRole("button", { name: "Workspaces" }).click()
       await page.getByRole("button", { name: "New workspace" }).click()
@@ -170,7 +174,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
     await hostDialog.getByRole("button", { name: "Add someone" }).click()
 
     // Active workspace is initially checked
-    const checkbox = hostDialog.getByLabel("Job search")
+    const checkbox = hostDialog.getByLabel("Untitled")
     await expect(checkbox).toBeChecked()
     await expect(hostDialog.getByRole("button", { name: "Generate link" })).toBeEnabled()
 
@@ -290,6 +294,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
   const guest = await context.newPage()
   try {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     await page.getByRole("button", { name: /Add lead to/ }).first().click()
     await page.getByLabel("Company *").fill("Existing shared board")
     await page.getByLabel("Role *").fill("Engineer")
@@ -334,6 +339,7 @@ test("Given existing data under another identity, when enrollment is approved, t
   try {
     const guest = await context.newPage()
     await guest.goto("/")
+    await ensureJobSearchWorkspace(guest)
     await guest.getByRole("button", { name: /Add lead to/ }).first().click()
     await guest.getByLabel("Company *").fill("Keep my data")
     await guest.getByLabel("Role *").fill("Engineer")
@@ -354,7 +360,7 @@ test("Given existing data under another identity, when enrollment is approved, t
     expect(enrolled.identity.personId).toBe(await page.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId))
     expect(await guest.evaluate(personId => localStorage.getItem(`match.local_profile.v1.backup.${personId}`), JSON.parse(original!).identity.personId)).toBe(original)
     await guest.getByRole("button", { name: "Open workspaces" }).click()
-    await guest.getByRole("dialog", { name: "Workspaces" }).getByRole("button", { name: /Job search \(local\)/ }).click()
+    await guest.getByRole("dialog", { name: "Workspaces" }).getByRole("button", { name: /^jobs/ }).click()
     await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toBeVisible()
   } finally { await context.close() }
 })

@@ -1,6 +1,8 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function addLead(page: Page, company: string) {
+  await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
   await page.getByLabel("Company *").fill(company)
   await page.getByLabel("Role *").fill("Engineer")
@@ -9,6 +11,7 @@ async function addLead(page: Page, company: string) {
 }
 
 async function pairWorkspace(host: Page, guest: Page) {
+  await ensureJobSearchWorkspace(host)
   await host.getByRole("button", { name: "Sync", exact: true }).click()
   const hostDialog = host.getByRole("dialog", { name: "Device sync" })
   await hostDialog.getByRole("button", { name: "Add someone" }).click()

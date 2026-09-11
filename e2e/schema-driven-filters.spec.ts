@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function openSettingsJson(page: Page) {
   await page.getByRole("button", { name: "Workspace settings" }).click()
@@ -10,6 +11,7 @@ async function openSettingsJson(page: Page) {
 test.describe("Schema-driven board filters", () => {
   test("Given a renamed select option, when filters render, then they use the current schema title and stable option ID", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     const { dialog, editor } = await openSettingsJson(page)
     const settings = JSON.parse(await editor.inputValue())
     const priority = settings.board.fields.find((field: any) => field.title === "Priority")
@@ -58,6 +60,7 @@ test.describe("Schema-driven board filters", () => {
 
   test("Given a numeric schema field, when filters render, then bounds come from the schema without preset buckets", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     const filters = page.getByRole("group", { name: "Filters" })
     await expect(filters.getByLabel("Fit score minimum")).toHaveAttribute("min", "0")
     await expect(filters.getByLabel("Fit score maximum")).toHaveAttribute("max", "10")

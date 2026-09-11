@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test.describe("Job Search Rejected Column & Retrospective Notes (Gate F)", () => {
   test("Given a Job search board with a lead, when moved to Rejected and a retrospective note is added, it persists across reload", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
 
     // Verify Job search board has the Rejected column visible
     await expect(page.getByRole("region", { name: "Job search" })).toBeVisible()
@@ -53,6 +55,7 @@ test.describe("Job Search Rejected Column & Retrospective Notes (Gate F)", () =>
 
   test("Given a lead created directly in Rejected status, optional rejection reason is saved upon creation", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
 
     await page.getByRole("button", { name: /Add lead to/ }).first().click()
     const leadForm = page.getByRole("dialog", { name: "Add item" })

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function createBlankWorkspace(page: Page) {
   await page.goto("/")
@@ -26,6 +27,7 @@ test.describe("Component layout audit", () => {
   test("Given a wide desktop, when all job columns fit, then the board uses available width without horizontal scrolling", async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1000 })
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
 
     const geometry = await page.getByRole("region", { name: "Job search" }).evaluate((board) => ({
       clientWidth: board.clientWidth,

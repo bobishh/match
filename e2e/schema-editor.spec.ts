@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function createBlankWorkspace(page: import("@playwright/test").Page, title: string) {
   await page.getByRole("button", { name: "Open workspaces" }).click()
@@ -33,6 +34,7 @@ test.describe("Visual board and entity editing", () => {
 
   test("Given entity editing, when its name is blank, then applying changes is blocked", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     await page.getByRole("button", { name: "Edit board" }).click()
     await page.getByRole("button", { name: "Edit lead" }).click()
     const editor = page.locator(".schema-editor-dialog")

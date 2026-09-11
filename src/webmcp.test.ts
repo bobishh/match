@@ -220,6 +220,7 @@ describe("WebMCP tools and legacy aliases (Task 1.12)", () => {
   })
 
   it("preserves legacy create_lead duplicate prevention and field mapping", async () => {
+    await match.createWorkspaceAsync("Job search", "job-search")
     await registerWebMcp({
       workspace: match.workspace,
       createLead: match.createLead,

@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 for (const role of ["visitor", "editor"] as const) {
   test(`Given an owner and pending guest, when approved as ${role}, then role controls writes and board settings`, async ({ page, browser }) => {
     test.setTimeout(60000)
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
     await expect(page.getByLabel("Mesh empty")).toBeVisible()
     await page.getByRole("button", { name: /Add lead to/ }).first().click()

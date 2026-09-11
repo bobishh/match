@@ -25,6 +25,7 @@ const approvalSchema = z.object({
   payload: z.object({ kind: z.literal("device-enrollment-approval"), version: z.literal(2), invitationId: text,
     recipientDeviceId: text, certificate: certificateSchema, certificates: z.array(certificateSchema).min(1).max(32),
     personalRoot: rootSchema, workspaces: z.array(z.object({ id: text, title: text })).min(1).max(512),
+    activeWorkspaceId: text,
     meshWorkspaces: z.array(z.object({ workspaceId: text, ownerPersonId: text, ownerPublicKey: text }).passthrough()).max(512),
     snapshot: z.string().min(1),
   }), signerKeyId: text, signature: text,
@@ -50,14 +51,14 @@ export async function readEnrollmentRequest(bytes: Uint8Array, invite: DeviceEnr
 
 export async function enrollmentPayload(invite: DeviceEnrollmentInvitation, profile: LocalProfile,
   certificate: DeviceCertificate, personalRoot: PersonalRootDocumentV1, workspaces: { id: string; title: string }[],
-  meshWorkspaces: unknown[], snapshot: Uint8Array) {
+  activeWorkspaceId: string, meshWorkspaces: unknown[], snapshot: Uint8Array) {
   const certificates = [profile.certificate, ...(await defaultProofStore.listCertificates())]
     .filter(cert => cert.payload.personId === profile.identity.personId)
   const payload = {
     kind: "device-enrollment-approval", version: 2, invitationId: invite.invitationId,
     recipientDeviceId: certificate.payload.deviceId, certificate,
     certificates: [...new Map(certificates.map(cert => [cert.signature, cert])).values()],
-    personalRoot, workspaces, meshWorkspaces, snapshot: toBase64Url(snapshot),
+    personalRoot, workspaces, activeWorkspaceId, meshWorkspaces, snapshot: toBase64Url(snapshot),
   }
   // Optional mesh fields must have exactly the same shape when signed and sent as JSON.
   return encode(await signEnvelope(profile.privateKeys.devicePrivateKey, JSON.parse(JSON.stringify(payload)), profile.device.deviceId))
@@ -80,6 +81,7 @@ export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollm
     payload.certificate.payload.devicePublicKey !== profile.device.publicKey ||
     payload.certificate.payload.personId !== invite.issuerPersonId ||
     new Set(payload.workspaces.map(item => item.id)).size !== payload.workspaces.length ||
+    !payload.workspaces.some(item => item.id === payload.activeWorkspaceId) ||
     payload.meshWorkspaces.length !== payload.workspaces.length ||
     new Set(payload.meshWorkspaces.map(item => item.workspaceId)).size !== payload.workspaces.length ||
     payload.meshWorkspaces.some(item => item.ownerPersonId !== invite.issuerPersonId ||

@@ -150,7 +150,7 @@ test("Given fast startup, when data arrives before the progress delay, then no l
     }).observe(document, { childList: true, subtree: true })
   })
   await page.goto("/")
-  await expect(page.getByRole("region", { name: "Job search", exact: true })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
   await page.clock.runFor(250)
   expect(await page.evaluate(() => (window as any).__MATCH_SAW_LOADING__)).toBe(false)
 })

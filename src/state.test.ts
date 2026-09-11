@@ -23,6 +23,7 @@ describe("Repository-backed state and projections (Task 1.8)", () => {
     resetStateForTest()
     await bootstrapIdentity("State Test User")
     await hydrate()
+    await useMatch().createWorkspaceAsync("Job search", "job-search")
   })
 
   it("notifies subscribers only after durable commit succeeds", async () => {

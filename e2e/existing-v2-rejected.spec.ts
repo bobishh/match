@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test("Given a saved v2 board predating Rejected, when upgraded, existing cards can move to Rejected with notes after reload", async ({ page }) => {
   await page.goto("/")
+  await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
   await page.getByLabel("Company *").fill("Existing V2")
   await page.getByLabel("Role *").fill("Engineer")

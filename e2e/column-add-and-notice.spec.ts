@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test.describe("Column add actions and overlay notices", () => {
   test("Given a job board, when adding from Applied, then the form starts in Applied and no add action occupies the header", async ({ page }) => {
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
 
     const header = page.locator(".topbar")
     await expect(header.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)

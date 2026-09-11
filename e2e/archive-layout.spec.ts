@@ -1,9 +1,11 @@
 import { expect, test } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 for (const width of [1920, 1440, 1024, 390]) {
   test(`Given all job-search statuses at ${width}px, when archive opens and closes, then every column stays in one horizontal row`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await page.goto("/")
+    await ensureJobSearchWorkspace(page)
     const archive = page.getByRole("region", { name: "Archive", exact: true })
     await expect(archive).toBeAttached()
 

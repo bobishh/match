@@ -54,10 +54,31 @@ let reconcilePromise: Promise<void> | undefined
 
 const availableWorkspaces = ref<{ id: string; title: string; updatedAt: string }[]>([])
 const activeWorkspaceMeta = reactive<{ id: string; title: string; presetKey: "job-search" | "blank" }>({
-  id: "default",
-  title: "Job search",
-  presetKey: "job-search",
+  id: "",
+  title: "Untitled",
+  presetKey: "blank",
 })
+
+async function initializeFirstWorkspace(storage: WorkspaceStorage, ownerPersonId: string) {
+  const initialize = async () => {
+    const existing = await storage.listWorkspaces()
+    const first = existing[0]
+    if (first) return (await storage.loadWorkspaceDoc(first.id))?.doc ?? null
+
+    const workspaceId = crypto.randomUUID()
+    const fresh = createWorkspaceDoc(workspaceId, "Untitled", ownerPersonId, "blank")
+    const doc = Automerge.from<WorkspaceDocumentV2>(fresh)
+    await storage.saveSnapshot(workspaceId, doc, Automerge.save(doc))
+    await storage.registerWorkspace(workspaceId, "Untitled")
+    if (typeof localStorage !== "undefined") localStorage.setItem("match.active_workspace_id", workspaceId)
+    return doc
+  }
+
+  if (typeof navigator !== "undefined" && navigator.locks) {
+    return navigator.locks.request("match-first-workspace", initialize)
+  }
+  return initialize()
+}
 
 export function resetStateForTest(): void {
   activeDoc = null
@@ -71,9 +92,9 @@ export function resetStateForTest(): void {
   workspace.templates.splice(0, workspace.templates.length)
   workspace.artifacts.splice(0, workspace.artifacts.length)
   availableWorkspaces.value = []
-  activeWorkspaceMeta.id = "default"
-  activeWorkspaceMeta.title = "Job search"
-  activeWorkspaceMeta.presetKey = "job-search"
+  activeWorkspaceMeta.id = ""
+  activeWorkspaceMeta.title = "Untitled"
+  activeWorkspaceMeta.presetKey = "blank"
   docVersion.value++
   localChangeListeners.clear()
 }
@@ -309,10 +330,8 @@ export async function hydrate(storage = defaultStorage) {
   if (loaded) {
     updateReactiveState(await upgradeJobSearchRejected(loaded.doc, storage))
   } else {
-    const fresh = createWorkspaceDoc("default", "Job search", currentProfile.identity.personId, "job-search")
-    const doc = Automerge.from<WorkspaceDocumentV2>(fresh)
-    await storage.saveSnapshot("default", doc, Automerge.save(doc))
-    await storage.registerWorkspace("default", "Job search")
+    const doc = await initializeFirstWorkspace(storage, currentProfile.identity.personId)
+    if (!doc) throw new Error("Workspace initialization failed")
     updateReactiveState(doc)
   }
 
@@ -603,7 +622,7 @@ export function useMatch() {
     if (replacement) {
       await switchWorkspace(replacement.id, storage)
     } else {
-      await createWorkspaceAsync("Job search", "job-search", storage)
+      await createWorkspaceAsync("Untitled", "blank", storage)
     }
   }
 
