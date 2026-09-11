@@ -5,6 +5,7 @@ for (const role of ["visitor", "editor"] as const) {
     test.setTimeout(60000)
     await page.goto("/")
     await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
+    await expect(page.getByLabel("Mesh empty")).toBeVisible()
     await page.getByRole("button", { name: /Add lead to/ }).first().click()
     await page.getByLabel("Company *").fill("Role test")
     await page.getByLabel("Role *").fill("Engineer")

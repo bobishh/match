@@ -69,13 +69,16 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-button { min-height: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
 .brand-button:hover { transform: none; box-shadow: none; }
-.brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--red); }
+.brand-presence { position: relative; width: 18px; height: 18px; flex: 0 0 18px; }
+.brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--yellow); }
+.brand-mark.is-connected { background: var(--green); }
+.brand-mark.is-offline { background: var(--red); }
+.brand-mark.is-empty { background: var(--yellow); }
+.owner-crown { position: absolute; z-index: 1; top: -12px; left: 50%; color: var(--ink); font: 900 12px/1 Georgia, serif; transform: translateX(-50%); }
 .brand h1 { font-size: clamp(1rem, 4vw, 2rem); font-weight: 950; line-height: 1; letter-spacing: -.06em; }
 .brand-separator { margin: 0 .12em; color: var(--muted); font-weight: 500; }.workspace-heading { color: var(--muted); font-weight: 750; letter-spacing: -.035em; }
 .brand p { display: none; }
 .top-actions, .toolbar, .card-meta, .card-docs, .dialog-actions, .section-heading, .column-actions { display: flex; align-items: center; gap: 10px; }
-.local-state { display: flex; align-items: center; gap: 7px; margin-right: 6px; color: var(--muted); font: 800 .7rem/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
-.pulse { width: 8px; height: 8px; border: 1px solid var(--ink); border-radius: 50%; background: var(--green); }
 .button { min-height: 46px; border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; background: white; font-weight: 800; }
 .button:hover { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--ink); }
 .button-primary { color: white; background: var(--ink); }
@@ -572,7 +575,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
 }
 @media (max-width: 500px) {
-  .topbar-mobile-controls .local-state { font-size: 0; gap: 0; margin-right: 0; }
   .brand {
     flex: 0 0 auto;
   }

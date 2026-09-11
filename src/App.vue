@@ -188,6 +188,19 @@ const sync = useDeviceSync({
   activeWorkspaceId: () => activeWorkspace?.id || "default",
   workspaceOwner: async id => Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id)).ownerPersonId,
 })
+const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
+  peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value && !peer.revokedAt,
+))
+const meshPresence = computed<"connected" | "offline" | "empty">(() => {
+  if (sync.isWorkspaceAccessRevoked(activeWorkspace.id)) return "offline"
+  if (sync.isWorkspaceLive(activeWorkspace.id) || activeMeshPeers.value.some(peer => peer.online)) return "connected"
+  return activeMeshPeers.value.length ? "offline" : "empty"
+})
+const meshPresenceLabel = computed(() => ({
+  connected: "Mesh connected",
+  offline: "Mesh offline",
+  empty: "Mesh empty",
+}[meshPresence.value]))
 const revokingPeer = ref("")
 const peerAccessError = ref("")
 const isWorkspaceOwner = computed(() => chat.personId.value !== "" && chat.personId.value === chatOwnerId.value)
@@ -1016,15 +1029,17 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
   <main class="shell" :aria-busy="!ready.value && !startupError">
     <header class="topbar">
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!ready.value" @click="showWorkspaces = true">
-        <span class="brand-mark">M</span>
+        <span class="brand-presence">
+          <span v-if="ready.value && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
+          <span class="brand-mark" :class="`is-${meshPresence}`" role="img" :aria-label="meshPresenceLabel">M</span>
+        </span>
         <div>
-          <span v-if="ready.value" class="workspace-role" :aria-label="`Workspace role: ${currentRole}`">{{ currentRole }}</span>
+          <span v-if="ready.value && currentRole !== 'owner'" class="workspace-role" :aria-label="`Workspace role: ${currentRole}`">{{ currentRole }}</span>
           <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
         </div>
       </button>
       <div class="topbar-mobile-controls">
         <button class="button button-quiet button-small" type="button" aria-label="Workspace chat" :disabled="!ready.value" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
-        <span class="local-state"><span class="pulse"></span> {{ sync.isWorkspaceAccessRevoked(activeWorkspace.id) ? "Access removed" : sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button
           ref="menuButtonRef"
           class="button button-quiet mobile-menu-button"
@@ -1040,7 +1055,6 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       </div>
       <div class="top-actions top-actions-desktop" :inert="!ready.value || undefined">
         <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
-        <span class="local-state"><span class="pulse"></span> {{ sync.isWorkspaceAccessRevoked(activeWorkspace.id) ? "Access removed" : sync.isLive.value ? "Live" : sync.step.value === "workspace-reconnecting" ? "Reconnecting" : "Local" }}</span>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Settings</button>
         <button v-if="isWorkspaceOwner" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>

@@ -50,8 +50,8 @@ test("Given trusted peers closed every tab, when both reopen without an invitati
     await host.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
     guest = await guestContext.newPage()
     await Promise.all([host.goto("/"), guest.goto("/")])
-    await expect(host.locator(".local-state").first()).toContainText("Live", { timeout: 35_000 })
-    await expect(guest.locator(".local-state").first()).toContainText("Live", { timeout: 35_000 })
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
 
     await addLead(guest, "After restart")
     await expect(host.getByRole("button", { name: "Open After restart — Engineer" })).toBeVisible({ timeout: 20_000 })
@@ -59,7 +59,7 @@ test("Given trusted peers closed every tab, when both reopen without an invitati
     const followerTab = await hostContext.newPage()
     await followerTab.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
     await followerTab.goto("/")
-    await expect(followerTab.locator(".local-state").first()).toContainText("Live", { timeout: 10_000 })
+    await expect(followerTab.getByLabel("Mesh connected")).toBeVisible({ timeout: 10_000 })
     await addLead(followerTab, "From follower tab")
     await expect(guest.getByRole("button", { name: "Open From follower tab — Engineer" })).toBeVisible({ timeout: 20_000 })
 
@@ -87,8 +87,8 @@ test("Given owner introduced two editors, when owner goes offline, then editors 
     await pairWorkspace(page, c)
     await page.close()
 
-    await expect(b.locator(".local-state").first()).toContainText("Live", { timeout: 40_000 })
-    await expect(c.locator(".local-state").first()).toContainText("Live", { timeout: 40_000 })
+    await expect(b.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
+    await expect(c.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
     await addLead(b, "B without owner")
     await expect(c.getByRole("button", { name: "Open B without owner — Engineer" })).toBeVisible({ timeout: 25_000 })
   } finally {
@@ -111,7 +111,7 @@ test("Given an editor is trusted, when owner removes access, then UI marks revoc
     const remove = settings.getByRole("button", { name: "Remove access" }).first()
     await remove.click()
     await expect(settings.getByText("Revoked")).toBeVisible()
-    await expect(guest.locator(".local-state").first()).toContainText("Access removed", { timeout: 20_000 })
+    await expect(guest.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
 
     await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Open Revoked write — Engineer" })).toHaveCount(0)
