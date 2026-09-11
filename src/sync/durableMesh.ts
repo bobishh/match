@@ -322,7 +322,7 @@ export class DurableMesh {
       }
       await this.store.putWorkspaceCredential(credential)
       if (envelope.revocations) await this.mergeRevocations(credential, envelope.revocations)
-      for (const bundle of envelope.peers) await this.putVerifiedBundle(credential, bundle)
+      await this.mergePeerBundles(credential, envelope.peers)
     }
     await this.notify()
   }
@@ -346,8 +346,19 @@ export class DurableMesh {
     credential = await this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? [])
     await this.mergeRevocations(credential, value.revocations)
     credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential
-    for (const bundle of value.peers) await this.putVerifiedBundle(credential, bundle)
+    await this.mergePeerBundles(credential, value.peers)
     await this.notify()
+  }
+
+  private async mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]) {
+    for (const bundle of bundles) {
+      try {
+        await this.putVerifiedBundle(credential, bundle)
+      } catch {
+        // Peer catalogs are gossip. Reject one invalid member without letting it
+        // tear down an authenticated session between other valid members.
+      }
+    }
   }
 
   private async putVerifiedBundle(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle) {
