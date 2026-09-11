@@ -165,6 +165,7 @@ export class DurableMesh {
   private disposed = false
   private restartRequested = false
   private takeoverNode = false
+  private preferFreshNode = true
   private adoptedNode: SyncNode | undefined
   private pauseWaiters = new Map<string, (wasLeader: boolean) => void>()
   private lastDiagnostic = ""
@@ -836,6 +837,7 @@ export class DurableMesh {
     while (!signal.aborted) {
       const offline = () => { void this.dropSessions() }
       const abort = () => { void this.shutdown() }
+      let freshNodeProbe: ReturnType<typeof setTimeout> | undefined
       try {
         const credentials = await this.store.listWorkspaceCredentials()
         if (signal.aborted || credentials.length === 0) return
@@ -847,7 +849,9 @@ export class DurableMesh {
         this.adoptedNode = undefined
         const takeoverNode = this.takeoverNode
         this.takeoverNode = false
-        const node = adoptedNode ?? (takeoverNode
+        const useFreshNode = !adoptedNode && (takeoverNode || this.preferFreshNode)
+        this.preferFreshNode = false
+        const node = adoptedNode ?? (useFreshNode
           ? await this.options.transport.start()
           : await startPersistentNode(this.options.transport, this.store))
         if (signal.aborted) return void node.close("Mesh cancelled")
@@ -856,12 +860,24 @@ export class DurableMesh {
         for (let credential of credentials) {
           credential = await this.refreshOwnerCertificates(credential, profile, certificates)
           await this.refreshOwnBundle(credential, profile, node.endpointId, certificates)
+          await this.pruneInvalidStoredPeers(credential, profile.device.deviceId)
         }
         this.acceptor = await node.accept()
         signal.addEventListener("abort", abort, { once: true })
         if (typeof window !== "undefined") window.addEventListener("offline", offline)
         this.stopWatch = this.options.workspace.subscribe?.(() => { void this.publishAll() })
         void this.acceptLoop(signal)
+        // A browser reload can leave the relay holding the previous connection for the
+        // durable node ID. First reconnect from a fresh endpoint. If every peer is also
+        // offline, fall back to the durable ID so independently restarted peers meet again.
+        if (useFreshNode) {
+          freshNodeProbe = setTimeout(() => {
+            if (signal.aborted || this.node !== node || this.sessions.size > 0) return
+            this.restartRequested = true
+            this.node = undefined
+            void node.close("Fresh endpoint found no peers").catch(() => {})
+          }, 4_000)
+        }
         await this.dialLoop(signal)
       } catch (error) {
         if (!signal.aborted) {
@@ -869,6 +885,7 @@ export class DurableMesh {
           console.warn("Durable mesh restarting", error)
         }
       } finally {
+        clearTimeout(freshNodeProbe)
         signal.removeEventListener("abort", abort)
         if (typeof window !== "undefined") window.removeEventListener("offline", offline)
         await this.shutdown()
@@ -975,8 +992,27 @@ export class DurableMesh {
 
   private async refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
     endpoint: string, certificates: DeviceCertificate[]) {
-    const current = await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
-    const bundle = current?.advertisement as WorkspaceMemberBundle | undefined
+    let current = await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
+    // Device enrollment keeps the browser's device key while replacing its person identity.
+    // Never let the old identity win PeerStore's timestamp merge for the same device key.
+    if (current && current.personId !== profile.identity.personId) {
+      await this.store.removePeer(credential.workspaceId, profile.device.deviceId)
+      current = null
+    }
+    let bundle = current?.advertisement as WorkspaceMemberBundle | undefined
+    if (bundle) {
+      try {
+        await verifyWorkspaceMemberBundle(bundle, {
+          workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
+          ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
+          ownerHistory: ownerAuthorities(credential).slice(1),
+        })
+      } catch {
+        await this.store.removePeer(credential.workspaceId, profile.device.deviceId)
+        current = null
+        bundle = undefined
+      }
+    }
     const localGrant = credential.localGrant as WorkspaceGrant | undefined
     const role = credential.ownerPersonId === profile.identity.personId ? "owner" : localGrant?.payload.role
     const signatures = (items: DeviceCertificate[] | undefined) =>
@@ -996,6 +1032,24 @@ export class DurableMesh {
     })
     await this.putVerifiedBundle(credential, next)
     return next
+  }
+
+  private async pruneInvalidStoredPeers(credential: WorkspaceMeshCredential, localDeviceId: string) {
+    for (const peer of await this.store.listPeers(credential.workspaceId)) {
+      if (peer.deviceId === localDeviceId || peer.revokedAt || !peer.advertisement) continue
+      try {
+        await verifyWorkspaceMemberBundle(peer.advertisement, {
+          workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
+          ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
+          ownerHistory: ownerAuthorities(credential).slice(1),
+        })
+      } catch {
+        await this.store.removePeer(credential.workspaceId, peer.deviceId)
+        const key = `${credential.workspaceId}:${peer.deviceId}`
+        this.failures.delete(key)
+        this.failedAt.delete(key)
+      }
+    }
   }
 
   private async dialLoop(signal: AbortSignal) {

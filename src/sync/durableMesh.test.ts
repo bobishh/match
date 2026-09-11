@@ -5,6 +5,81 @@ import { verifyWorkspaceGrant } from "./meshRecords"
 import { DurableMesh } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given a stored peer with an invalid grant, when the mesh validates its catalog, then it removes the poisoned peer before dialing", async () => {
+    const removed: string[] = []
+    const credential = {
+      version: 1 as const,
+      workspaceId: "workspace-1",
+      ownerPersonId: "owner-person",
+      ownerPublicKey: "owner-key",
+      ownerCertificates: [],
+      transportSecret: "mesh-secret",
+      epoch: 1,
+      updatedAt: new Date().toISOString(),
+    }
+    const store = {
+      listPeers: async () => [{
+        workspaceId: "workspace-1", personId: "stale-person", deviceId: "stale-device",
+        endpoint: "stale-endpoint", transportSecret: "mesh-secret", role: "editor" as const,
+        lastSeen: new Date().toISOString(), advertisement: { poisoned: true },
+      }],
+      removePeer: async (workspaceId: string, deviceId: string) => { removed.push(`${workspaceId}:${deviceId}`); return true },
+    }
+    const mesh = new DurableMesh({
+      transport: {} as never,
+      workspaceStore: {} as never,
+      workspace: {} as never,
+      getProfile: async () => ({ device: { deviceId: "local-device" } } as never),
+      store: store as never,
+    })
+
+    await (mesh as any).pruneInvalidStoredPeers(credential, "local-device")
+
+    expect(removed).toEqual(["workspace-1:stale-device"])
+    await mesh.dispose()
+  })
+
+  it("Given this device changed identity, when its own advertisement refreshes, then the stale record is replaced instead of merged", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Owner")
+    const removed: string[] = []
+    const saved: any[] = []
+    const credential = {
+      version: 1 as const,
+      workspaceId: "workspace-1",
+      ownerPersonId: owner.identity.personId,
+      ownerPublicKey: owner.identity.publicKey,
+      ownerCertificates: [owner.certificate],
+      transportSecret: "mesh-secret",
+      epoch: 1,
+      updatedAt: new Date().toISOString(),
+    }
+    const store = {
+      getPeer: async () => ({
+        workspaceId: "workspace-1", personId: "previous-person", deviceId: owner.device.deviceId,
+        endpoint: "old-endpoint", transportSecret: "mesh-secret", role: "visitor" as const,
+        lastSeen: new Date(Date.now() + 60_000).toISOString(), advertisement: { stale: true },
+      }),
+      removePeer: async (workspaceId: string, deviceId: string) => { removed.push(`${workspaceId}:${deviceId}`); return true },
+      upsertPeer: async (peer: any) => { saved.push(peer); return peer },
+      putWorkspaceCredential: async () => {},
+    }
+    const mesh = new DurableMesh({
+      transport: {} as never,
+      workspaceStore: {} as never,
+      workspace: {} as never,
+      getProfile: async () => owner,
+      store: store as never,
+    })
+
+    await (mesh as any).refreshOwnBundle(credential, owner, "new-endpoint", [owner.certificate])
+
+    expect(removed).toEqual([`workspace-1:${owner.device.deviceId}`])
+    expect(saved.at(-1)?.personId).toBe(owner.identity.personId)
+    expect(saved.at(-1)?.endpoint).toBe("new-endpoint")
+    await mesh.dispose()
+  })
+
   it("Given one invalid peer record, when a catalog merges, then later valid peers still import", async () => {
     const credential = { workspaceId: "workspace-1" }
     const mesh = new DurableMesh({
