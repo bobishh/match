@@ -135,11 +135,11 @@ function getStorageItem(key: string): string | null {
   return fallbackMemoryStorage.get(key) ?? null
 }
 
-function setStorageItem(key: string, value: string): void {
+function setStorageItem(key: string, value: string, strict = false): void {
   if (typeof localStorage !== "undefined") {
     try {
       localStorage.setItem(key, value)
-    } catch {}
+    } catch (error) { if (strict) throw error }
   }
   fallbackMemoryStorage.set(key, value)
 }
@@ -224,7 +224,7 @@ async function loadStoredProfile(): Promise<LocalProfile | null> {
   }
 }
 
-async function persistProfile(profile: LocalProfile): Promise<void> {
+async function persistProfile(profile: LocalProfile, strict = false): Promise<void> {
   try {
     const devicePkcs8 = toBase64Url(
       new Uint8Array(await crypto.subtle.exportKey("pkcs8", profile.privateKeys.devicePrivateKey))
@@ -245,8 +245,9 @@ async function persistProfile(profile: LocalProfile): Promise<void> {
         devicePrivateKeyPkcs8: devicePkcs8,
       },
     }
-    setStorageItem(IDENTITY_STORAGE_KEY, JSON.stringify(serialized))
+    setStorageItem(IDENTITY_STORAGE_KEY, JSON.stringify(serialized), strict)
   } catch (e) {
+    if (strict) throw e
     console.warn("Failed to persist profile", e)
   }
 }
@@ -338,6 +339,20 @@ export async function bootstrapIdentity(displayName = "Match User"): Promise<Loc
   const result = await bootstrapPromise
   bootstrapPromise = null
   return result
+}
+
+// Enrollment retains the device key; the identity root private key never leaves its device.
+export async function adoptEnrolledIdentity(identity: PublicIdentity, certificate: DeviceCertificate): Promise<LocalProfile> {
+  const current = await bootstrapIdentity()
+  const previous = getStorageItem(IDENTITY_STORAGE_KEY)
+  if (previous) setStorageItem(`${IDENTITY_STORAGE_KEY}.backup.${current.identity.personId}`, previous, true)
+  const profile: LocalProfile = {
+    identity, certificate, device: current.device,
+    privateKeys: current.identity.personId === identity.personId ? current.privateKeys : { devicePrivateKey: current.privateKeys.devicePrivateKey },
+  }
+  await persistProfile(profile, true)
+  storedProfile = profile
+  return profile
 }
 
 export async function createActorBinding(

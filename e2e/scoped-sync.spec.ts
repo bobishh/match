@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test"
 
 test.describe("Scoped Sync Outer Scenarios", () => {
   test("Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment", async ({ browser, page }) => {
+    test.setTimeout(60000)
     const origin = "http://127.0.0.1:4244"
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondContext = await browser.newContext()
@@ -10,25 +11,35 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
     try {
       await page.goto("/")
+      await page.getByRole("button", { name: /Add lead to/ }).first().click()
+      await page.getByLabel("Company *").fill("Enrollment proof")
+      await page.getByLabel("Role *").fill("Engineer")
+      await page.getByRole("button", { name: "Create item" }).click()
+      await page.getByRole("button", { name: "Close detail" }).click()
       await page.getByRole("button", { name: "Sync", exact: true }).click()
 
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
       // Choose "Sync all" ("Add my device")
-      await hostDialog.getByRole("button", { name: "Sync all", exact: true }).click()
+      await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
 
       // Should show enrollment invitation link / QR
       await expect(hostDialog.getByText("Add your second device")).toBeVisible()
       await hostDialog.getByRole("button", { name: "Copy enrollment link" }).click()
       const inviteLink = await page.evaluate(() => navigator.clipboard.readText())
 
+      await expect(hostDialog.getByRole("button", { name: "Approve device" })).toHaveCount(0)
+
       // Second device opens invitation
       await secondPage.goto(inviteLink)
       const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
-      await expect(secondDialog.getByRole("heading", { name: "Enroll this device" })).toBeVisible()
+      await expect(secondDialog.getByRole("heading", { name: "Add your device" })).toBeVisible()
 
       // Target device starts pairing and enters waiting approval state
-      await secondDialog.getByRole("button", { name: "Request enrollment" }).click()
+      await secondDialog.getByRole("button", { name: "Add this device" }).click()
       await expect(secondDialog.getByText("Waiting for approval")).toBeVisible()
+
+      await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toHaveCount(0)
+      await expect(hostDialog.getByLabel("Participant role")).toHaveCount(0)
 
       // Both devices show the matching authentication code
       const authCodeHost = await hostDialog.locator(".auth-code").innerText()
@@ -40,8 +51,26 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await hostDialog.getByRole("button", { name: "Approve device" }).click()
 
       // Both devices become connected
+      await expect.poll(async () => {
+        const failure = await secondDialog.getByRole("alert").textContent({ timeout: 100 }).catch(() => null)
+        return failure || await secondDialog.getByText("Device enrolled", { exact: true }).count()
+      }, { timeout: 15000 }).toBe(1)
       await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
-      await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
+      await secondDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toBeVisible()
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+      const identity = (target: typeof page) => target.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)
+      expect(await identity(secondPage)).toBe(await identity(page))
+      await secondPage.reload()
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+      await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toBeVisible()
+      await secondPage.getByRole("button", { name: /Add lead to/ }).first().click()
+      await secondPage.getByLabel("Company *").fill("After reload")
+      await secondPage.getByLabel("Role *").fill("Engineer")
+      await secondPage.getByRole("button", { name: "Create item" }).click()
+      await expect(page.getByRole("button", { name: "Open After reload — Engineer" })).toBeVisible({ timeout: 20000 })
+
     } finally {
       await secondContext.close()
     }
@@ -169,14 +198,14 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await page.goto("/")
       await page.getByRole("button", { name: "Sync", exact: true }).click()
       const hostDialog = page.getByRole("dialog", { name: "Device sync" })
-      await hostDialog.getByRole("button", { name: "Sync all", exact: true }).click()
+      await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
 
       await hostDialog.getByRole("button", { name: "Copy enrollment link" }).click()
       const inviteLink = await page.evaluate(() => navigator.clipboard.readText())
 
       await secondPage.goto(inviteLink)
       const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
-      await secondDialog.getByRole("button", { name: "Request enrollment" }).click()
+      await secondDialog.getByRole("button", { name: "Add this device" }).click()
       await hostDialog.getByRole("button", { name: "Approve device" }).click()
 
       await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
@@ -189,9 +218,80 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.getByRole("button", { name: "Sync", exact: true }).click()
       const reloadedDialog = secondPage.getByRole("dialog", { name: "Device sync" })
       // Opening sync opens chooser without starting a node or claiming an un-enrolled state
-      await expect(reloadedDialog.getByRole("button", { name: "Sync all" })).toBeVisible()
+      await expect(reloadedDialog.getByRole("button", { name: "Add my device" })).toBeVisible()
     } finally {
       await secondContext.close()
     }
   })
+})
+
+
+test("Given a real pending device request, when declined, then guest sees refusal and keeps its identity", async ({ page, browser }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add my device", exact: true }).click()
+  const context = await browser.newContext()
+  try {
+    const guest = await context.newPage()
+    await guest.goto(await host.getByLabel("Pairing link").inputValue())
+    const profile = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
+    const dialog = guest.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("button", { name: "Add this device" }).click()
+    await host.getByRole("button", { name: "Decline device" }).click()
+    await expect(dialog.getByRole("alert")).toContainText("declined")
+    await expect(host.getByRole("alert")).toContainText("declined")
+    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(profile)
+    await expect(dialog.getByText("Device enrolled", { exact: true })).toHaveCount(0)
+  } finally { await context.close() }
+})
+
+test("Given approved enrollment but failed storage, when receiving identity, then both devices report failure without claiming success", async ({ page, browser }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add my device", exact: true }).click()
+  const context = await browser.newContext()
+  try {
+    const guest = await context.newPage()
+    await guest.goto(await host.getByLabel("Pairing link").inputValue())
+    const original = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
+    await guest.evaluate(async () => {
+      const { setStorageFailureHookForTest } = await import('/src/storage.ts')
+      setStorageFailureHookForTest(true)
+    })
+    const dialog = guest.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("button", { name: "Add this device" }).click()
+    await host.getByRole("button", { name: "Approve device" }).click()
+    await expect(dialog.getByRole("alert")).toContainText(/storage|save|injected/i)
+    await expect(host.getByRole("alert")).toBeVisible()
+    await expect(host.getByText("Device enrolled", { exact: true })).toHaveCount(0)
+    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(original)
+  } finally { await context.close() }
+})
+
+test("Given existing data under another identity, when adding a device, then data and identity remain intact with workspace-invite guidance", async ({ page, browser }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add my device", exact: true }).click()
+  const context = await browser.newContext()
+  try {
+    const guest = await context.newPage()
+    await guest.goto("/")
+    await guest.getByRole("button", { name: /Add lead to/ }).first().click()
+    await guest.getByLabel("Company *").fill("Keep my data")
+    await guest.getByLabel("Role *").fill("Engineer")
+    await guest.getByRole("button", { name: "Create item" }).click()
+    await guest.getByRole("button", { name: "Close detail" }).click()
+    const original = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
+    await guest.goto(await host.getByLabel("Pairing link").inputValue())
+    const dialog = guest.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("button", { name: "Add this device" }).click()
+    await expect(dialog.getByRole("alert")).toContainText("workspace invitation")
+    await expect(host.getByRole("button", { name: "Approve device" })).toHaveCount(0)
+    await dialog.getByRole("button", { name: "Dismiss" }).click()
+    await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toBeVisible()
+    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(original)
+  } finally { await context.close() }
 })

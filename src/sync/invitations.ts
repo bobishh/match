@@ -1,3 +1,4 @@
+import { certHashDefault } from "../domain/proofs"
 import type { ScopedInvitation } from "./protocol"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import {
@@ -112,18 +113,20 @@ export class InvitationService {
       return { ok: false, error: "Invitation not currently redeeming for this device" }
     }
 
+    if (!profile.certificate.payload.canEnrollDevices) return { ok: false, error: "This device cannot enroll other devices" }
+
     const certPayload = {
       kind: "device-certificate" as const,
       version: 1 as const,
       personId: profile.identity.personId,
       deviceId: recipientDevice.deviceId,
       devicePublicKey: recipientDevice.publicKey,
-      issuerCertificateHash: null,
+      issuerCertificateHash: profile.privateKeys.identityPrivateKey ? null : await certHashDefault(profile.certificate),
       canEnrollDevices: true as const,
     }
 
     const signingKey = profile.privateKeys.identityPrivateKey || profile.privateKeys.devicePrivateKey
-    const signedCert = await signEnvelope(signingKey, certPayload, profile.device.deviceId)
+    const signedCert = await signEnvelope(signingKey, certPayload, profile.privateKeys.identityPrivateKey ? profile.identity.personId : profile.device.deviceId)
 
     invite.status = "consumed"
     invite.approvedAt = new Date().toISOString()

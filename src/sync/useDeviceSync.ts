@@ -12,16 +12,16 @@ import {
   type ScopedInvitation,
   type DeviceEnrollmentInvitation,
   type WorkspaceJoinInvitation,
-  PairingError,
 } from "./protocol"
 import { irohTransport } from "./irohTransport"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
 import { bootstrapIdentity, fromBase64Url, toBase64Url, type LocalProfile } from "../domain/identity"
-import { acceptWorkspaceSync, joinWorkspaceSync, liveWorkspaceSync, type LiveWorkspaceSync, type WorkspaceReplica } from "./session"
+import { type LiveWorkspaceSync, type WorkspaceReplica } from "./session"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport } from "./transport"
 import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
-import { ReplicationService } from "./replication"
+import { createEnrollmentRequest, readEnrollmentRequest, installEnrollment, enrollmentPayload } from "./enrollment"
+import { registerDeviceInRoot } from "../domain/personalRoot"
 import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
 import { DurableMesh, startPersistentNode, type MeshPeerView } from "./durableMesh"
 
@@ -32,6 +32,7 @@ export type SyncStep =
   | "enroll-host"
   | "enroll-host-pending"
   | "enroll-host-done"
+  | "enroll-syncing"
   | "workspace-host-select"
   | "workspace-host"
   | "enroll-guest"
@@ -54,6 +55,8 @@ type DeviceSyncOptions = {
   availableWorkspaces?: Ref<{ id: string; title: string }[]>
   activeWorkspaceId?: () => string
   displayName?: () => string
+  beforeEnrollment?: (personId: string) => Promise<void>
+  identityChanged?: () => Promise<void>
   workspaceOwner?: (id: string) => Promise<string>
 }
 
@@ -89,6 +92,8 @@ export function useDeviceSync({
   activeWorkspaceId,
   workspaceOwner,
   displayName,
+  beforeEnrollment,
+  identityChanged,
 }: DeviceSyncOptions) {
   const isOpen = ref(false)
   const isLive = ref(false)
@@ -122,9 +127,8 @@ export function useDeviceSync({
   let stopWatchingWorkspace: (() => void) | undefined
   let run = 0
   let wakeRetry: (() => void) | undefined
-  let approveResolve: (() => void) | undefined
-  let currentIssuedInvite: DeviceEnrollmentInvitation | WorkspaceJoinInvitation | undefined
-  let pendingEnrollGuest: { deviceId: string; publicKey: string; displayName?: string } | undefined
+  let approveResolve: ((approved: boolean) => void) | undefined
+  const enrollmentDeviceName = ref("")
   const meshWorkspaceStore: WorkspaceSetStore | undefined = workspaceStore ? { ...workspaceStore } : undefined
   const durableMesh = workspaceStore && meshWorkspaceStore ? new DurableMesh({
     transport,
@@ -143,40 +147,6 @@ export function useDeviceSync({
     meshWorkspaceStore.mergeMesh = (id, value) => durableMesh.mergeWorkspace(id, value)
   }
 
-  const channel = typeof window !== "undefined" && typeof BroadcastChannel !== "undefined"
-    ? new BroadcastChannel("match-scoped-sync")
-    : null
-
-  if (channel) {
-    channel.onmessage = async (event) => {
-      const data = event.data
-      if (!data) return
-      if (data.type === "enroll-request" && step.value === "enroll-host") {
-        authCode.value = data.authCode
-        if (data.guestInfo) {
-          pendingEnrollGuest = data.guestInfo
-        }
-        step.value = "enroll-host-pending"
-      } else if (data.type === "enroll-approved") {
-        if (data.certificate) {
-          try {
-            const certHash = await certHashDefault(data.certificate)
-            await defaultProofStore.putCertificate(certHash, data.certificate)
-          } catch {}
-        }
-        if (data.personalRoot) {
-          try {
-            await defaultStorage.savePersonalRoot(data.personalRoot)
-          } catch {}
-        }
-        if (step.value === "enroll-guest-waiting") {
-          step.value = "enroll-guest-done"
-        }
-
-      }
-    }
-  }
-
   const phase = computed<SyncPhase>(() => {
     if (step.value === "error") return "error"
     if (step.value === "synced") return "synced"
@@ -186,7 +156,7 @@ export function useDeviceSync({
   const title = computed(() => {
     if (step.value === "error") return "Couldn’t sync"
     if (step.value === "enroll-guest" || step.value === "enroll-guest-waiting" || step.value === "enroll-guest-done") {
-      return "Enroll this device"
+      return "Add your device"
     }
     if (step.value === "workspace-guest" || step.value === "workspace-guest-waiting" || step.value === "workspace-guest-done") {
       return "Join workspace"
@@ -196,6 +166,8 @@ export function useDeviceSync({
   })
 
   async function stopNode(reason: string) {
+    approveResolve?.(false)
+    approveResolve = undefined
     for (const resolve of joinDecisions.values()) resolve(null)
     joinDecisions.clear()
     pendingJoins.value = []
@@ -208,7 +180,7 @@ export function useDeviceSync({
     await session?.close()
     const current = node
     node = undefined
-    await current?.close(reason)
+    await current?.close(reason).catch(() => {})
   }
 
   async function pauseDurableMesh() {
@@ -225,7 +197,6 @@ export function useDeviceSync({
     wakeRetry?.()
     await durableMesh?.dispose()
     await stopNode("Page closed")
-    channel?.close()
   }
 
   async function revokePeer(personId: string) {
@@ -270,7 +241,6 @@ export function useDeviceSync({
     error.value = ""
     authCode.value = ""
     parsedInvite.value = null
-    approveResolve = undefined
     await stopNode("Pairing closed")
     void startDurableMesh()
   }
@@ -293,7 +263,7 @@ export function useDeviceSync({
 
   // Open workspace selection without starting a node
   function open() {
-    if (step.value === "workspace-reconnecting" || step.value === "workspace-guest-waiting") {
+    if (["workspace-reconnecting", "workspace-guest-waiting", "enroll-host-pending", "enroll-guest-waiting", "enroll-syncing"].includes(step.value)) {
       isOpen.value = true
       return
     }
@@ -324,135 +294,106 @@ export function useDeviceSync({
     return bootstrapIdentity("My Device")
   }
 
-  // Flow 1: Host selects "Sync all"
+  // Device enrollment uses the same authenticated transport and workspace mesh as invitations.
   async function selectSyncAll() {
-    await pauseDurableMesh()
-    await stopNode("Starting enroll host")
     const currentRun = ++run
+    await pauseDurableMesh()
+    await stopNode("Starting device enrollment")
     copyNotice.value = ""
     error.value = ""
-
+    authCode.value = ""
+    enrollmentDeviceName.value = ""
     try {
+      if (!workspaceStore || !durableMesh) throw new Error("Device sync is unavailable.")
       const profile = await getProfile()
       const started = await startPersistentNode(transport)
       if (currentRun !== run) return void started.close("Replaced")
       node = started
-
       const secret = createPairingSecret()
       const invite = createDeviceEnrollmentInvite(started.endpointId, secret, profile)
-      currentIssuedInvite = invite
       await defaultInvitationService.saveIssuedInvitation(invite)
-
       inviteUrl.value = invitationUrl(origin(), invite)
       qrCode.value = await QRCode.toDataURL(inviteUrl.value, { width: 240, margin: 2, errorCorrectionLevel: "M" })
-
-      // Pre-compute expected auth code
-      const computedAuthCode = await deriveTranscriptAuthCode(secret, invite.invitationId, invite.issuerPublicKey)
-      authCode.value = computedAuthCode
       step.value = "enroll-host"
-
-      const hostEnrollPoll = setInterval(async () => {
-        if (step.value !== "enroll-host") {
-          clearInterval(hostEnrollPoll)
-          return
-        }
-        try {
-          const res = await fetch("/api/sync-signal?topic=enroll")
-          const ct = res.headers.get("content-type") || ""
-          if (res.ok && ct.includes("application/json")) {
-            const list = await res.json()
-            if (Array.isArray(list)) {
-              const req = list.find((m: any) => m.type === "enroll-request")
-              if (req) {
-                authCode.value = req.authCode
-                if (req.guestInfo) pendingEnrollGuest = req.guestInfo
-                step.value = "enroll-host-pending"
-              }
-            }
-          }
-        } catch {}
-      }, 200)
-
-      // Unified incoming connection handler
+      const acceptor = await started.accept()
       void (async () => {
-        let acceptor: SyncAcceptor | undefined
+        let connection: SyncConnection | undefined
+        const timeout = setTimeout(() => {
+          approveResolve?.(false)
+          void started.close("Enrollment timed out").catch(() => {})
+        }, 600_000)
         try {
-          acceptor = await started.accept()
-          const connection = await acceptor.accept()
-          if (!connection) return
-
-          const stream = await connection.acceptStream()
-          const rawBytes = await stream.read()
-          const separator = rawBytes.indexOf(10)
-          if (separator < 0) return
-
-          let header: { type?: string } = {}
-          try {
-            header = JSON.parse(new TextDecoder().decode(rawBytes.slice(0, separator)))
-          } catch {}
-
-          if (header.type === "enroll-request") {
-            const reqBytes = decodePairingFrame(rawBytes, "enroll-request", secret)
-            let guestInfo = { deviceId: "guest_device", publicKey: "guest_pubkey", displayName: "Guest device" }
-            try {
-              guestInfo = JSON.parse(new TextDecoder().decode(reqBytes))
-            } catch {}
-            pendingEnrollGuest = guestInfo
-
+          while (currentRun === run) {
+            connection = await acceptor.accept()
+            if (!connection) throw new Error("Device enrollment connection closed. Create a new link.")
+            const stream = await connection.acceptStream()
+            const raw = await stream.read()
+            const header = inspectPairingFrame(raw)
+            if (header.type !== "enroll-request" || header.secret !== secret) {
+              await connection.close()
+              continue
+            }
+            const guest = await readEnrollmentRequest(decodePairingFrame(raw, "enroll-request", secret), invite)
+            const claim = await defaultInvitationService.claimInvitation(invite.invitationId, guest.deviceId)
+            if (!claim.ok) throw new Error(claim.error)
+            authCode.value = await deriveTranscriptAuthCode(secret, invite.invitationId, guest.publicKey)
+            enrollmentDeviceName.value = guest.displayName
+            const decision = new Promise<boolean>(resolve => { approveResolve = resolve })
             step.value = "enroll-host-pending"
-            await new Promise<void>((resolve) => {
-              approveResolve = resolve
-            })
-
-            const certRes = await defaultInvitationService.approveEnrollment(
-              invite.invitationId,
-              { deviceId: guestInfo.deviceId, publicKey: guestInfo.publicKey },
-              profile
-            )
-
-            if (certRes.ok) {
-              const certHash = await certHashDefault(certRes.certificate)
-              await defaultProofStore.putCertificate(certHash, certRes.certificate)
+            isOpen.value = true
+            if (!await decision) {
+              await stream.send(encodePairingFrame("enroll-approved", secret, new TextEncoder().encode(JSON.stringify({ error: "Device enrollment was declined or cancelled." }))))
+              await stream.closeSend()
+              throw new Error("Device enrollment was declined or cancelled.")
             }
-
-            const personalRoot = await defaultStorage.loadPersonalRoot()
-            const responsePayload = {
-              certificate: certRes.ok ? certRes.certificate : null,
-              personalRoot,
+            approveResolve = undefined
+            step.value = "enroll-syncing"
+            const result = await defaultInvitationService.approveEnrollment(invite.invitationId, guest, profile)
+            if (!result.ok) throw new Error(result.error)
+            const certificateHash = await certHashDefault(result.certificate)
+            await defaultProofStore.putCertificate(certificateHash, result.certificate)
+            const root = await defaultStorage.loadPersonalRoot()
+            if (!root) throw new Error("Personal identity is unavailable. Reload and try again.")
+            registerDeviceInRoot(root, { deviceId: guest.deviceId, publicKey: guest.publicKey, displayName: guest.displayName, certificateHash, addedAt: new Date().toISOString() })
+            await defaultStorage.savePersonalRoot(root)
+            const workspaces = []
+            for (const item of availableWorkspaces.value) {
+              if (!workspaceOwner || await workspaceOwner(item.id) === profile.identity.personId) workspaces.push(item)
             }
-
-            const certBytes = new TextEncoder().encode(JSON.stringify(responsePayload))
-            await stream.send(encodePairingFrame("enroll-approved", secret, certBytes))
+            if (!workspaces.length) throw new Error("No owned workspaces are available to sync.")
+            const ids = workspaces.map(item => item.id)
+            await durableMesh.ensureOwnerWorkspaces(ids, started.endpointId, profile)
+            const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore!, ids)
+            const payload = await enrollmentPayload(invite, profile, result.certificate, root, workspaces,
+              await durableMesh.invitationPayload(ids), await replica.snapshot())
+            await stream.send(encodePairingFrame("enroll-approved", secret, payload))
             await stream.closeSend()
+            const ack = await connection.acceptStream()
+            await replica.receive(decodePairingFrame(await ack.read(), "enroll-ack", secret))
+            await ack.send(encodePairingFrame("enroll-complete", secret, new Uint8Array()))
+            await ack.closeSend()
+            if (currentRun !== run) return
             step.value = "enroll-host-done"
-          } else if (header.type === "sync-request") {
-            await workspace.mergeBytes(decodePairingFrame(rawBytes, "sync-request", secret))
-            await stream.send(encodePairingFrame("sync-response", secret, workspace.getBytes()))
-            await stream.closeSend()
-
-            const ackStream = await connection.acceptStream()
-            decodePairingFrame(await ackStream.read(), "sync-ack", secret)
-            await ackStream.closeSend()
-
-            const repl = new ReplicationService(profile.device.deviceId, defaultProofStore)
-            repl.registerPeer("guest", { kind: "all" })
-
-            const session = liveWorkspaceSync(connection, secret, workspace, {
-              peerId: "guest",
-              workspaceId: "default",
-              replicationService: repl,
-            })
-            attachLiveSession(session, currentRun)
-            step.value = "synced"
+            return
           }
-        } catch (e) {
-          console.warn("Unified host connection error", e)
+        } catch (err) {
+          if (currentRun !== run) return
+          step.value = "error"
+          console.error("Device enrollment host failed", err)
+          error.value = userMessage(err, "Couldn’t add this device.")
         } finally {
-          await acceptor?.close()
+          clearTimeout(timeout)
+          approveResolve = undefined
+          await connection?.close().catch(() => {})
+          await acceptor.close().catch(() => {})
+          if (currentRun === run) {
+            await stopNode("Enrollment finished")
+            void startDurableMesh()
+          }
         }
       })()
     } catch (err) {
-      console.error("selectSyncAll failed", err)
+      if (currentRun !== run) return
       step.value = "error"
       error.value = userMessage(err, "Couldn’t start device sync.")
     }
@@ -497,7 +438,6 @@ export function useDeviceSync({
 
       const secret = createPairingSecret()
       const invite = createWorkspaceJoinInvite(started.endpointId, secret, profile, workspacesToInvite)
-      currentIssuedInvite = invite
       await defaultInvitationService.saveIssuedInvitation(invite)
 
       inviteUrl.value = invitationUrl(origin(), invite)
@@ -649,49 +589,15 @@ export function useDeviceSync({
     }
   }
 
-  // Host clicks "Approve device"
-  async function approveEnrollment() {
-    let certRes: any
-    let personalRoot: any
-    try {
-      const profile = await getProfile()
-      const invite = currentIssuedInvite as DeviceEnrollmentInvitation | undefined
-      if (invite && pendingEnrollGuest) {
-        certRes = await defaultInvitationService.approveEnrollment(
-          invite.invitationId,
-          { deviceId: pendingEnrollGuest.deviceId, publicKey: pendingEnrollGuest.publicKey },
-          profile
-        )
-        if (certRes.ok) {
-          const certHash = await certHashDefault(certRes.certificate)
-          await defaultProofStore.putCertificate(certHash, certRes.certificate)
-        }
-      }
-      personalRoot = await defaultStorage.loadPersonalRoot()
-    } catch (e) {
-      console.warn("approveEnrollment error", e)
-    }
+  function approveEnrollment() {
+    if (step.value !== "enroll-host-pending") return
+    approveResolve?.(true)
+    approveResolve = undefined
+  }
 
-    if (approveResolve) {
-      approveResolve()
-      approveResolve = undefined
-    }
-    step.value = "enroll-host-done"
-    const approvalPayload = {
-      type: "enroll-approved",
-      certificate: certRes?.ok ? certRes.certificate : null,
-      personalRoot,
-    }
-    if (channel) {
-      channel.postMessage(approvalPayload)
-    }
-    try {
-      await fetch("/api/sync-signal?topic=enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(approvalPayload),
-      })
-    } catch {}
+  function declineEnrollment() {
+    approveResolve?.(false)
+    approveResolve = undefined
   }
 
   // Guest visits /pair#...
@@ -718,96 +624,68 @@ export function useDeviceSync({
     }
   }
 
-  // Guest clicks "Request enrollment"
   async function requestEnrollment() {
     const invite = parsedInvite.value
-    if (!invite || invite.kind !== "device-enrollment") return
-    await pauseDurableMesh()
-
+    if (!invite || invite.kind !== "device-enrollment" || step.value !== "enroll-guest") return
+    const currentRun = ++run
+    let connection: SyncConnection | undefined
+    let timeout: ReturnType<typeof setTimeout> | undefined
     step.value = "enroll-guest-waiting"
-    const profile = await getProfile()
-    const guestInfo = {
-      deviceId: profile.device.deviceId,
-      publicKey: profile.device.publicKey,
-      displayName: profile.device.displayName,
-    }
-
-    if (channel) {
-      channel.postMessage({
-        type: "enroll-request",
-        invitationId: invite.invitationId,
-        authCode: authCode.value,
-        guestInfo,
-      })
-    }
-
+    error.value = ""
     try {
-      await fetch("/api/sync-signal?topic=enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "enroll-request",
-          invitationId: invite.invitationId,
-          authCode: authCode.value,
-          guestInfo,
-        }),
-      })
-    } catch {}
-
-    const pollInterval = setInterval(async () => {
-      if (step.value === "enroll-guest-done") {
-        clearInterval(pollInterval)
-        return
-      }
-      try {
-        const res = await fetch("/api/sync-signal?topic=enroll")
-        const contentType = res.headers.get("content-type") || ""
-        if (res.ok && contentType.includes("application/json")) {
-          const list = await res.json()
-          if (Array.isArray(list)) {
-            const approved = list.find((m: any) => m.type === "enroll-approved")
-            if (approved) {
-              if (approved.certificate) {
-                const certHash = await certHashDefault(approved.certificate)
-                await defaultProofStore.putCertificate(certHash, approved.certificate)
-              }
-              if (approved.personalRoot) {
-                await defaultStorage.savePersonalRoot(approved.personalRoot)
-              }
-              clearInterval(pollInterval)
-              step.value = "enroll-guest-done"
-            }
-          }
-        }
-      } catch {}
-    }, 200)
-
-    try {
+      if (!workspaceStore || !durableMesh) throw new Error("Device sync is unavailable.")
+      await beforeEnrollment?.(invite.issuerPersonId)
+      await pauseDurableMesh()
+      await stopNode("Starting device enrollment")
+      step.value = "enroll-guest-waiting"
+      const profile = await getProfile()
+      authCode.value = await deriveTranscriptAuthCode(invite.secret, invite.invitationId, profile.device.publicKey)
       const started = await startPersistentNode(transport)
+      if (currentRun !== run) return void started.close("Replaced")
       node = started
-      const connection = await started.dial(invite.issuerEndpoint)
+      timeout = setTimeout(() => { void started.close("Enrollment timed out").catch(() => {}) }, 600_000)
+      // Endpoint discovery may lag behind the QR. Retry dialing before sending a request.
+      for (let attempt = 0; currentRun === run; attempt++) {
+        try { connection = await started.dial(invite.issuerEndpoint); break }
+        catch (err) {
+          if (attempt >= 4) throw err
+          await waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
+        }
+      }
+      if (!connection || currentRun !== run) return
       const stream = await connection.openStream()
-      const reqBytes = new TextEncoder().encode(JSON.stringify(guestInfo))
-      await stream.send(encodePairingFrame("enroll-request", invite.secret, reqBytes))
-
-      const response = await stream.read()
-      const respBytes = decodePairingFrame(response, "enroll-approved", invite.secret)
-      try {
-        const payload = JSON.parse(new TextDecoder().decode(respBytes))
-        if (payload.certificate) {
-          const certHash = await certHashDefault(payload.certificate)
-          await defaultProofStore.putCertificate(certHash, payload.certificate)
-        }
-        if (payload.personalRoot) {
-          await defaultStorage.savePersonalRoot(payload.personalRoot)
-        }
-      } catch {}
+      await stream.send(encodePairingFrame("enroll-request", invite.secret, await createEnrollmentRequest(invite, profile)))
       await stream.closeSend()
-
-      clearInterval(pollInterval)
+      const response = decodePairingFrame(await stream.read(), "enroll-approved", invite.secret)
+      if (currentRun !== run) return
+      step.value = "enroll-syncing"
+      const enrolled = await installEnrollment(response, invite, profile)
+      await identityChanged?.()
+      const ids = enrolled.workspaces.map(item => item.id)
+      await durableMesh.receiveInvitation(enrolled.meshWorkspaces, ids, enrolled.profile, [])
+      const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore, ids)
+      await replica.receive(fromBase64Url(enrolled.snapshot))
+      await durableMesh.ensureOwnerWorkspaces(ids, started.endpointId, enrolled.profile)
+      await workspaceStore.activate(ids[0]!)
+      const ack = await connection.openStream()
+      await ack.send(encodePairingFrame("enroll-ack", invite.secret, await replica.snapshot()))
+      await ack.closeSend()
+      decodePairingFrame(await ack.read(), "enroll-complete", invite.secret)
+      if (currentRun !== run) return
       step.value = "enroll-guest-done"
-    } catch (e) {
-      console.warn("P2P enrollment dial in progress or handled by channel", e)
+      if (typeof window !== "undefined") window.history.replaceState(window.history.state, "", "/")
+    } catch (err) {
+      if (currentRun !== run) return
+      step.value = "error"
+      console.error("Device enrollment guest failed", err)
+      error.value = userMessage(err, "Couldn’t add this device. Create a new link and try again.")
+    } finally {
+      clearTimeout(timeout)
+      await connection?.close().catch(() => {})
+      if (currentRun === run) {
+        await stopNode("Enrollment finished")
+        void startDurableMesh()
+      }
     }
   }
 
@@ -976,43 +854,6 @@ export function useDeviceSync({
     }
   }
 
-  async function connectToMesh() {
-    const invite = parsedInvite.value
-    if (!invite) return
-    await pauseDurableMesh()
-    if (invite.kind === "workspace-join") return acceptWorkspaceJoin()
-    const currentRun = ++run
-    try {
-      const started = await startPersistentNode(transport)
-      node = started
-      const profile = await getProfile()
-      const repl = new ReplicationService(profile.device.deviceId, defaultProofStore)
-      repl.registerPeer("host", { kind: "all" })
-
-      const session = await joinWorkspaceSync(
-        started,
-        {
-          version: "0.0.1",
-          endpoint: invite.issuerEndpoint,
-          secret: invite.secret,
-        },
-        workspace,
-        {
-          peerId: "host",
-          workspaceId: "default",
-          replicationService: repl,
-        }
-      )
-      if (currentRun !== run) return void session.close()
-      attachLiveSession(session, currentRun)
-      step.value = "synced"
-    } catch (e) {
-      console.warn("connectToMesh error", e)
-      step.value = "error"
-      error.value = userMessage(e, "Couldn’t connect to peer.")
-    }
-  }
-
   return {
     isOpen,
     pendingJoins,
@@ -1039,9 +880,10 @@ export function useDeviceSync({
     selectSyncWorkspace,
     generateWorkspaceInvite,
     approveEnrollment,
+    declineEnrollment,
+    enrollmentDeviceName,
     requestEnrollment,
     acceptWorkspaceJoin,
-    connectToMesh,
     prepareJoin,
     joinFromLocation,
     startDurableMesh,

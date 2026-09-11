@@ -11,6 +11,7 @@ const props = defineProps<{
   inviteUrl: string
   copyNotice: string
   error: string
+  enrollmentDeviceName?: string
   authCode?: string
   invitationWorkspaceTitle?: string
   invitationWorkspaces?: { id: string; title: string }[]
@@ -30,8 +31,8 @@ const emit = defineEmits<{
   (e: "copy", url?: string): void
   (e: "requestEnrollment"): void
   (e: "approveDevice"): void
+  (e: "declineDevice"): void
   (e: "acceptAndJoin"): void
-  (e: "connect"): void
   (e: "stop"): void
   (e: "export"): void
   (e: "import"): void
@@ -103,7 +104,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       </section>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->
       <template v-if="step === 'workspace-select' || step === 'workspace-host-select' || step === 'chooser'">
-        <p class="dialog-copy">Select which workspaces to include in this invitation:</p>
+        <p class="dialog-copy">Invite another person. Choose workspaces; select their role when they request access.</p>
         <div class="sync-workspace-list">
           <label
             v-for="ws in (availableWorkspaces || [])"
@@ -136,15 +137,15 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
         <!-- Distinct Secondary Action: Add my device / Sync all -->
         <section class="sync-section">
-          <p class="sync-section-copy">Add another device under your personal identity:</p>
+          <p class="sync-section-copy">Your own device only. Uses your identity and Owner access to workspaces you own.</p>
           <button
             class="sync-section-action"
             type="button"
-            aria-label="Sync all"
+            aria-label="Add my device"
             @click="emit('selectSyncAll')"
           >
             <span>Add my device</span>
-            <small>Sync all</small>
+            <small>Your identity</small>
           </button>
         </section>
 
@@ -173,18 +174,20 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </label>
 
         <!-- Authentication code and approval -->
-        <div v-if="authCode" class="approval-card">
+        <div v-if="step === 'enroll-host-pending'" class="approval-card">
+          <p class="dialog-copy">{{ enrollmentDeviceName }} requests your identity and Owner access.</p>
           <span class="detail-label">Authentication code</span>
           <div class="auth-code">{{ authCode }}</div>
           <p class="dialog-copy sync-help">Verify this code matches on your second device before approving.</p>
           <button class="button button-primary" type="button" @click="emit('approveDevice')">Approve device</button>
+          <button class="button" type="button" @click="emit('declineDevice')">Decline device</button>
         </div>
       </template>
 
       <!-- Step 2: Enroll host completed -->
       <template v-else-if="step === 'enroll-host-done'">
         <p class="sync-success sync-result" role="status">Device enrolled</p>
-        <p class="dialog-copy">Your device is now securely connected to your personal account.</p>
+        <p class="dialog-copy">Your device has received your workspaces. Changes sync automatically.</p>
         <div class="dialog-actions">
           <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
         </div>
@@ -206,10 +209,9 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
       <!-- Step 5: Enroll guest request -->
       <template v-else-if="step === 'enroll-guest'">
-        <p class="dialog-copy">Connect this device to your Match account.</p>
+        <p class="dialog-copy">Add your own device. It receives your identity and Owner access to your workspaces. To invite another person as Visitor or Editor, use a workspace invitation.</p>
         <div class="dialog-actions sync-step-actions">
-          <button class="button button-primary" type="button" @click="emit('requestEnrollment')">Request enrollment</button>
-          <button class="button button-quiet" type="button" @click="emit('connect')">Connect to mesh</button>
+          <button class="button button-primary" type="button" @click="emit('requestEnrollment')">Add this device</button>
         </div>
       </template>
 
@@ -218,12 +220,17 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <p class="dialog-copy sync-step-title">Waiting for approval</p>
         <p class="dialog-copy sync-help">Confirm that this code matches on your primary device:</p>
         <div class="auth-code">{{ authCode }}</div>
+        <button class="button" type="button" @click="emit('stop')">Cancel</button>
+      </template>
+
+      <template v-else-if="step === 'enroll-syncing'">
+        <p role="status" class="dialog-copy">Approved. Saving workspaces and connecting…</p>
       </template>
 
       <!-- Step 7: Enroll guest done -->
       <template v-else-if="step === 'enroll-guest-done'">
         <p class="sync-success sync-result" role="status">Device enrolled</p>
-        <p class="dialog-copy">Your device is now securely enrolled.</p>
+        <p class="dialog-copy">Your workspaces are saved on this device. Changes sync automatically.</p>
         <div class="dialog-actions">
           <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
         </div>

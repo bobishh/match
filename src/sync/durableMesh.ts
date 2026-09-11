@@ -244,10 +244,11 @@ export class DurableMesh {
       const envelope = raw.find((item: any) => item?.workspaceId === workspaceId)
       if (!isEnvelope(envelope)) throw new Error("Invalid mesh invitation")
       const localGrant = grants.find(grant => grant.payload.workspaceId === workspaceId)
-      if (!localGrant || localGrant.payload.personId !== profile.identity.personId) throw new Error("Missing local workspace grant")
+      const isOwner = envelope.ownerPersonId === profile.identity.personId
+      if (!isOwner && (!localGrant || localGrant.payload.personId !== profile.identity.personId)) throw new Error("Missing local workspace grant")
       await verifyDeviceChain({ personId: envelope.ownerPersonId, publicKey: envelope.ownerPublicKey,
         deviceId: (envelope.ownerCertificates[0] as any)?.payload?.deviceId, certificates: envelope.ownerCertificates as any })
-      await verifyWorkspaceGrant(localGrant, { workspaceId, personId: profile.identity.personId,
+      if (localGrant) await verifyWorkspaceGrant(localGrant, { workspaceId, personId: profile.identity.personId,
         ownerPersonId: envelope.ownerPersonId, ownerPublicKey: envelope.ownerPublicKey, ownerCertificates: envelope.ownerCertificates as any })
       const credential: WorkspaceMeshCredential = {
         version: 1,
@@ -258,7 +259,7 @@ export class DurableMesh {
         transportSecret: envelope.transportSecret,
         epoch: envelope.epoch,
         updatedAt: new Date().toISOString(),
-        localGrant,
+        ...(localGrant ? { localGrant } : {}),
         catalog: { revocations: [] },
       }
       await this.store.putWorkspaceCredential(credential)

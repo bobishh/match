@@ -919,6 +919,7 @@ export function useMatch() {
     executeCommandAsync: commitAndPersist,
     getActiveDoc: () => activeDoc,
     getCurrentProfile: () => currentProfile,
+    async refreshIdentity() { currentProfile = await bootstrapIdentity(); docVersion.value++ },
     createLead,
     createLeadAsync,
     updateLead,

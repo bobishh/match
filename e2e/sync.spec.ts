@@ -179,7 +179,7 @@ test("Given the board, when Sync is clicked, then workspace selection opens with
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole("button", { name: "Generate link", exact: true })).toBeVisible()
   await expect(dialog.getByLabel("Job search")).toBeChecked()
-  await expect(dialog.getByRole("button", { name: "Sync all", exact: true })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Add my device", exact: true })).toBeVisible()
   expect(await page.evaluate(() => performance.getEntriesByType("resource").some((entry) => entry.name.includes("match_iroh")))).toBe(false)
 })
 
@@ -194,7 +194,7 @@ test("Given clipboard access is denied, when Sync opens, then its pairing link r
   await page.getByRole("button", { name: "Sync", exact: true }).click()
 
   const dialog = page.getByRole("dialog", { name: "Device sync" })
-  await dialog.getByRole("button", { name: "Sync all", exact: true }).click()
+  await dialog.getByRole("button", { name: "Add my device", exact: true }).click()
   const pairingLink = dialog.getByRole("textbox", { name: "Pairing link", exact: true })
   await expect(pairingLink).toHaveValue(/\/pair#/)
   await dialog.getByRole("button", { name: "Copy pairing link" }).click()
@@ -217,18 +217,18 @@ test("Given a QR invitation opened in a scanner, when its current URL opens in a
   const invite = "/pair#v=1&kind=workspace-join&invitationId=handoff-test&issuerPersonId=p1&issuerDeviceId=d1&issuerPublicKey=pk1&endpoint=ep1&createdAt=2026-01-01T00:00:00.000Z&expiresAt=2099-01-01T00:00:00.000Z&secret=handoff-secret&workspaceId=ws1&workspaceTitle=Handoff+board&role=editor"
   await page.goto(invite)
   const dialog = page.getByRole("dialog", { name: "Device sync" })
-  await expect(dialog.getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
+  await expect(dialog.getByText("You have been invited to join Handoff board", { exact: true })).toBeVisible()
   await expect(page).toHaveURL(/\/pair#/)
   const handoffUrl = page.url()
   await dialog.getByRole("button", { name: "Close", exact: true }).click()
   await expect(page).toHaveURL(handoffUrl)
   await page.reload()
-  await expect(dialog.getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
+  await expect(dialog.getByText("You have been invited to join Handoff board", { exact: true })).toBeVisible()
   const otherContext = await browser.newContext()
   try {
     const other = await otherContext.newPage()
     await other.goto(handoffUrl)
-    await expect(other.getByRole("dialog", { name: "Device sync" }).getByText("You have been invited to edit Handoff board", { exact: true })).toBeVisible()
+    await expect(other.getByRole("dialog", { name: "Device sync" }).getByText("You have been invited to join Handoff board", { exact: true })).toBeVisible()
     await expect(other).toHaveURL(handoffUrl)
   } finally {
     await otherContext.close()
@@ -268,21 +268,20 @@ test("Given paired browser profiles, when either peer changes a card, then the o
 
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const hostDialog = page.getByRole("dialog", { name: "Device sync" })
-    await hostDialog.getByRole("button", { name: "Sync all", exact: true }).click()
+    await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
     await expect(hostDialog.getByLabel("Pairing QR code")).toBeVisible({ timeout: 10_000 })
     await hostDialog.getByRole("button", { name: "Copy pairing link" }).click()
     const invite = await page.evaluate(() => navigator.clipboard.readText())
 
     await peer.goto(invite)
     const peerDialog = peer.getByRole("dialog", { name: "Device sync" })
-    await expect(peerDialog.getByRole("button", { name: "Connect to mesh" })).toBeVisible()
-    await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toHaveCount(0)
-    await peerDialog.getByRole("button", { name: "Connect to mesh" }).click()
-    await expect(peerDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
-    await expect(peer).toHaveURL(invite)
-    await expect(hostDialog.getByText("Live sync is on. Changes appear in both tabs.")).toBeVisible({ timeout: 25_000 })
+    await expect(peerDialog.getByRole("button", { name: "Connect to mesh" })).toHaveCount(0)
+    await peerDialog.getByRole("button", { name: "Add this device" }).click()
+    await hostDialog.getByRole("button", { name: "Approve device" }).click()
+    await expect(peerDialog.getByText("Device enrolled", { exact: true })).toBeVisible({ timeout: 25_000 })
+    await expect(hostDialog.getByText("Device enrolled", { exact: true })).toBeVisible({ timeout: 25_000 })
     await expect(peer.getByText("1 card · 0 docs")).toBeVisible()
-    await peerDialog.getByRole("button", { name: "Close" }).click()
+    await peerDialog.getByRole("button", { name: "Close", exact: true }).first().click()
 
     // When the peer makes a later visible change, the already-paired host receives it.
     await peer.getByRole("button", { name: /Add lead to/ }).first().click()

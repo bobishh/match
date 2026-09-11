@@ -9,7 +9,7 @@ Match is a local-first, peer-to-peer workspace board and task kernel with increm
 - **Trash & Needs Placement Recovery**: Soft-deleted columns and cards can be restored safely. Tasks with missing parents or cyclic references are deterministically surfaced under *Needs placement* for recovery without destructive repair writes.
 - **Local Automerge Durability**: All mutations are recorded as signed Automerge changes persisted atomically with change hashes, receipts, and public proofs in IndexedDB. Focus changes and `BroadcastChannel` synchronize same-device tabs instantly without network pairing.
 - **Two Scoped Connection Flows**:
-  1. **Sync all (Add my device)**: Enrolls a secondary device into your personal identity root. Generates a fresh device key, derives a short mutual transcript authentication code for visual approval, signs a delegated device certificate, and syncs your live workspace catalog.
+  1. **Add my device**: Enrolls your own secondary device into your identity using its device key and a verified certificate chain. Both devices compare a code bound to the request; approval sends the current owned workspaces and durable mesh credentials. Success appears only after the recipient saves the data and acknowledges receipt. Root private keys stay on their original device. This is not a participant invitation and has no role selector. Existing independent workspace data requires a workspace invitation or a fresh browser profile; identity merging is not supported. Future workspaces and workspaces owned by someone else are not automatically added by this enrollment flow.
   2. **Sync workspaces**: Requests explicit owner approval and issues owner-signed *visitor* (default) or *editor* grants scoped exclusively to a designated fixed set of workspaces (one or multiple). Guests never receive or learn about unselected workspaces, titles, future workspaces, or your private root.
 - **Incremental Mesh Replication & Blob Transfer**:
   - Employs native Automerge per-peer per-document sync states. Live updates transmit only small change deltas (typically <1% of full document size).
@@ -90,4 +90,4 @@ Complete settings writes should preserve returned entity IDs and pass returned h
   ```bash
   npx playwright test
   ```
-  Runs real-route BDD scenarios covering generic workspaces, column renames, subtask movements, Trash recovery, save failures, isolated-profile device enrollment (`Sync all`), scoped guest collaboration (`Sync workspace`), expired invitation rejection, and post-reload durable trust.
+  Runs real-route BDD scenarios covering generic workspaces, column renames, subtask movements, Trash recovery, save failures, isolated-profile device enrollment (`Add my device`), scoped guest collaboration (`Sync workspace`), expired invitation rejection, and post-reload durable trust.

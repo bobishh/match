@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } from "./domain/identity"
+import { createPersonalRoot } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { executeCommand, type Command } from "./domain/commands"
 import {
@@ -29,6 +30,15 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     setStorageFailureHookForTest(false)
     profile = await bootstrapIdentity("Storage User")
     storage = new WorkspaceStorage()
+  })
+
+  it("selects the current identity root after enrollment instead of the first stored root", async () => {
+    await storage.savePersonalRoot(createPersonalRoot(profile, "old-cert", "00000000-0000-4000-8000-000000000001"))
+    resetIdentityStorageForTest()
+    const enrolled = await bootstrapIdentity("Enrolled identity")
+    await storage.savePersonalRoot(createPersonalRoot(enrolled, "new-cert", "00000000-0000-4000-8000-000000000002"))
+    expect((await storage.loadPersonalRoot())?.rootId).toBe("00000000-0000-4000-8000-000000000002")
+    expect((await storage.loadPersonalRoot("00000000-0000-4000-8000-000000000001"))?.identity.personId).toBe(profile.identity.personId)
   })
 
   it("atomically commits change bytes, proof, and transaction receipt", async () => {

@@ -1,6 +1,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate"
 import * as Automerge from "@automerge/automerge/slim"
 import { normalizeWorkspace, type Workspace } from "./types"
+import { bootstrapIdentity } from "./domain/identity"
 import type {
   TransactionReceipt,
   ChangeProof,
@@ -448,8 +449,9 @@ export class WorkspaceStorage {
       const found = this.inMemory.personalRoots.get(rootId)
       return found ? JSON.parse(JSON.stringify(found)) : null
     }
-    const first = this.inMemory.personalRoots.values().next().value
-    return first ? JSON.parse(JSON.stringify(first)) : null
+    const personId = (await bootstrapIdentity()).identity.personId
+    const current = [...this.inMemory.personalRoots.values()].find(root => root.identity.personId === personId)
+    return current ? JSON.parse(JSON.stringify(current)) : null
   }
 }
 
