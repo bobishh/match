@@ -523,6 +523,24 @@ describe("MeshLeader unit specifications", () => {
     await node2.stop()
   })
 
+  it("resumes leadership after a cached page is restored, without pairing or a new instance", async () => {
+    const win = new InMemoryMockWindow()
+    const node = new MeshLeader({ name: "restored-page", env: { locks: new InMemoryLocks(), window: win } })
+    const signals: AbortSignal[] = []
+    try {
+      await node.start(signal => { signals.push(signal) })
+      expect(node.isLeader).toBe(true)
+      win.dispatchEvent("pagehide")
+      expect(signals[0]!.aborted).toBe(true)
+      await delay(10)
+      win.dispatchEvent("pageshow")
+      await delay(10)
+      expect(node.isLeader).toBe(true)
+      expect(signals).toHaveLength(2)
+      expect(signals[1]!.aborted).toBe(false)
+    } finally { await node.stop() }
+  })
+
   it("fallback mode: unload removes lease and hands over to follower", async () => {
     InMemoryBroadcastChannel.reset()
     const storage = new InMemoryStorage()

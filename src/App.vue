@@ -189,7 +189,7 @@ const sync = useDeviceSync({
   workspaceOwner: async id => Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id)).ownerPersonId,
 })
 const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
-  peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value && !peer.revokedAt,
+  peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
 ))
 const meshPresence = computed<"connected" | "offline" | "empty">(() => {
   if (sync.isWorkspaceAccessRevoked(activeWorkspace.id)) return "offline"

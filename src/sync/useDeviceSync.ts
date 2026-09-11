@@ -118,6 +118,7 @@ export function useDeviceSync({
   const invitationWorkspaces = ref<{ id: string; title: string }[]>([])
   const parsedInvite = ref<ScopedInvitation | null>(null)
   const meshPeers = ref<MeshPeerView[]>([])
+  const localDeviceId = ref("")
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
 
@@ -135,11 +136,13 @@ export function useDeviceSync({
     workspaceStore: meshWorkspaceStore,
     workspace,
     getProfile,
-    onChange(ids, peers) {
+    onChange(ids, peers, revoked) {
       meshLiveWorkspaceIds.value = ids
       meshPeers.value = peers
+      revokedWorkspaceIds.value = revoked
       if (ids.length > 0) isLive.value = true
       else if (!liveSession) isLive.value = false
+      if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "synced"
     },
   }) : undefined
   if (durableMesh && meshWorkspaceStore) {
@@ -291,7 +294,9 @@ export function useDeviceSync({
   }
 
   async function getProfile(): Promise<LocalProfile> {
-    return bootstrapIdentity("My Device")
+    const profile = await bootstrapIdentity("My Device")
+    localDeviceId.value = profile.device.deviceId
+    return profile
   }
 
   // Device enrollment uses the same authenticated transport and workspace mesh as invitations.
@@ -502,8 +507,11 @@ export function useDeviceSync({
           const stream = await connection.acceptStream()
           const rawRequest = await stream.read()
           const header = inspectPairingFrame(rawRequest)
-          // A durable peer may dial this stable endpoint while a fresh invitation is open.
-          // Its mesh handshake belongs to the background mesh listener, not this invitation.
+          // Trusted peers reconnect on the same endpoint even while an invitation is open.
+          if (header.type === "mesh-handshake-request" && durableMesh) {
+            await durableMesh.acceptOnInvitationNode(connection, stream, rawRequest)
+            return
+          }
           if (header.type !== "workspace-join-request" || header.secret !== secret) return
           const request = decodePairingFrame(rawRequest, "workspace-join-request", secret)
           const guest = JSON.parse(new TextDecoder().decode(request))
@@ -603,10 +611,21 @@ export function useDeviceSync({
   // Guest visits /pair#...
   async function prepareJoin(rawInvite: string) {
     await close()
-    await pauseDurableMesh()
     isOpen.value = true
 
     try {
+      // A saved relationship outlives its invitation. Never re-enroll or replace its grant.
+      let savedInvite: ScopedInvitation | undefined
+      try { savedInvite = parseInvitation(rawInvite, Number.NEGATIVE_INFINITY) } catch { /* Normal parsing below reports the invitation error. */ }
+      if (savedInvite?.kind === "workspace-join" &&
+        savedInvite.workspaces.every(ws => availableWorkspaces.value.some(item => item.id === ws.id)) &&
+        await durableMesh?.knowsWorkspaceIssuer(savedInvite.workspaces.map(ws => ws.id), savedInvite.issuerPersonId, savedInvite.issuerDeviceId)) {
+        await workspaceStore?.activate(savedInvite.workspaces[0]!.id)
+        clearPairingLocation()
+        isOpen.value = false
+        await startDurableMesh()
+        return
+      }
       const invite = parseInvitation(rawInvite)
       parsedInvite.value = invite
 
@@ -622,6 +641,15 @@ export function useDeviceSync({
       step.value = "error"
       error.value = userMessage(err, "This pairing link is invalid.")
     }
+  }
+
+  function clearPairingLocation() {
+    if (typeof window === "undefined") return
+    const url = new URL(window.location.href)
+    if (url.pathname.replace(/\/$/, "") !== "/pair") return
+    url.pathname = "/"
+    url.hash = ""
+    window.history.replaceState(window.history.state, "", url)
   }
 
   async function requestEnrollment() {
@@ -786,6 +814,7 @@ export function useDeviceSync({
           step.value = "workspace-guest-done"
           liveWorkspaceIds.value = invite.workspaces.map(w => w.id)
           connectedBefore = true
+          clearPairingLocation()
           attempts = 0
           const currentSession = session
           stopWatchingWorkspace = workspace.subscribe?.(() => {
@@ -795,9 +824,9 @@ export function useDeviceSync({
             })
           })
           await session.publish()
-          await session.done
-          if (disconnectError) throw disconnectError
-          if (currentRun === run) throw new SyncNetworkError("Connection closed")
+          // Pairing has durably installed trust and data. Start the mesh immediately;
+          // do not wait for a dead invitation connection to be detected by the transport.
+          handoffToMesh = true
         } catch (err) {
           if (currentRun !== run) return
           if (!isNetworkFailure(err)) throw err
@@ -862,6 +891,7 @@ export function useDeviceSync({
     isWorkspaceLive: (id: string) => (isLive.value && liveWorkspaceIds.value.includes(id)) || meshLiveWorkspaceIds.value.includes(id),
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
     meshPeers,
+    localDeviceId,
     step,
     phase,
     title,

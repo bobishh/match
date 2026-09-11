@@ -232,6 +232,7 @@ export class MeshLeader {
     if (this.env.window) {
       this.env.window.addEventListener("beforeunload", this.handleUnload)
       this.env.window.addEventListener("pagehide", this.handleUnload)
+      this.env.window.addEventListener("pageshow", this.handlePageShow)
     }
   }
 
@@ -239,7 +240,12 @@ export class MeshLeader {
     if (this.env.window) {
       this.env.window.removeEventListener("beforeunload", this.handleUnload)
       this.env.window.removeEventListener("pagehide", this.handleUnload)
+      this.env.window.removeEventListener("pageshow", this.handlePageShow)
     }
+  }
+
+  private handlePageShow = () => {
+    if (this._started && !this._stopped && !this._isLeader) void this.attemptElection()
   }
 
   private handleUnload = () => {

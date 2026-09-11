@@ -188,6 +188,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
   })
 
   test("Given enrolled devices, when either device reloads, then it retains durable trust without requiring another QR", async ({ browser, page }) => {
+    test.setTimeout(120_000)
     const origin = "http://127.0.0.1:4244"
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondContext = await browser.newContext()
@@ -211,14 +212,20 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
       await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
 
-      // Reopen the board directly; reloading an invitation intentionally keeps its join screen.
-      await secondPage.goto(`${origin}/`)
-      // Durable trust persists in storage, board loads properly
-      await expect(secondPage.getByRole("heading", { name: "Match" })).toBeVisible()
-      await secondPage.getByRole("button", { name: "Sync", exact: true }).click()
-      const reloadedDialog = secondPage.getByRole("dialog", { name: "Device sync" })
-      // Opening sync opens chooser without starting a node or claiming an un-enrolled state
-      await expect(reloadedDialog.getByRole("button", { name: "Add my device" })).toBeVisible()
+      const identity = await secondPage.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)
+      await secondPage.reload()
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+      await page.reload()
+      await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+      await secondContext.setOffline(true)
+      await secondPage.evaluate(() => window.dispatchEvent(new Event("offline")))
+      await expect(secondPage.getByLabel("Mesh offline")).toBeVisible({ timeout: 15_000 })
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+      await secondContext.setOffline(false)
+      await secondPage.evaluate(() => window.dispatchEvent(new Event("online")))
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+      expect(await secondPage.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)).toBe(identity)
     } finally {
       await secondContext.close()
     }

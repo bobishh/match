@@ -21,6 +21,7 @@ async function pairWorkspace(host: Page, guest: Page) {
   await expect(guestDialog.getByText(/Connected to/)).toBeVisible({ timeout: 30_000 })
   await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
   await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+  return invite
 }
 
 async function isolatedContext(browser: Browser): Promise<BrowserContext> {
@@ -28,6 +29,38 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
   await context.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
   return context
 }
+
+test("Given a paired editor, when the invitation tab reloads repeatedly, then trust and editing survive and sync resumes without approval", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    const invite = await pairWorkspace(page, guest)
+    const identity = await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)
+    for (let i = 0; i < 2; i++) {
+      await guest.reload()
+      await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+      await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
+      await expect(guest.getByRole("dialog", { name: "Device sync" })).toHaveCount(0)
+      expect(await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)).toBe(identity)
+      await addLead(guest, `Reload ${i}`)
+      await expect(page.getByRole("button", { name: `Open Reload ${i} — Engineer` })).toBeVisible({ timeout: 20_000 })
+      await addLead(page, `Host after reload ${i}`)
+      await expect(guest.getByRole("button", { name: `Open Host after reload ${i} — Engineer` })).toBeVisible({ timeout: 20_000 })
+    }
+    // An older client could leave the consumed invitation in its address bar.
+    const stale = new URL(invite)
+    const params = new URLSearchParams(stale.hash.slice(1))
+    params.set("expiresAt", "2020-01-01T00:00:00.000Z")
+    stale.hash = params.toString()
+    await guest.goto(stale.href)
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(guest.getByRole("dialog", { name: "Device sync" })).toHaveCount(0)
+    await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
+    expect(new URL(guest.url()).pathname).toBe("/")
+  } finally { await context.close() }
+})
 
 test("Given trusted peers closed every tab, when both reopen without an invitation URL, then they reconnect and exchange offline changes", async ({ browser, page }) => {
   test.setTimeout(120_000)
