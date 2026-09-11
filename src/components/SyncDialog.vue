@@ -209,7 +209,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
       <!-- Step 5: Enroll guest request -->
       <template v-else-if="step === 'enroll-guest'">
-        <p class="dialog-copy">Add your own device. It receives your identity and Owner access to your workspaces. To invite another person as Visitor or Editor, use a workspace invitation.</p>
+        <p class="dialog-copy">Add this device to your identity. It becomes Owner for your workspaces; existing workspace data stays on this device.</p>
         <div class="dialog-actions sync-step-actions">
           <button class="button button-primary" type="button" @click="emit('requestEnrollment')">Add this device</button>
         </div>

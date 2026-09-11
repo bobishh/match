@@ -168,15 +168,6 @@ const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id
 const sync = useDeviceSync({
   displayName: () => chat.displayName.value,
   identityChanged: refreshIdentity,
-  beforeEnrollment: async personId => {
-    if ((await bootstrapIdentity()).identity.personId === personId) return
-    for (const item of availableWorkspaces.value) {
-      const doc = Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(item.id))
-      if (item.id !== "default" || Object.values(doc.entities).some(entity => ["task", "document", "artifact"].includes(entity.kind))) {
-        throw new Error("This browser already has workspace data under another identity. Use a workspace invitation to join with a role, or add your device from a fresh browser profile.")
-      }
-    }
-  },
   workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: listener => {
     const stopWorkspace = subscribeLocalChanges(listener)
     const stopChat = subscribeChat(() => listener())

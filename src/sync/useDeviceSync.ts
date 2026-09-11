@@ -55,7 +55,6 @@ type DeviceSyncOptions = {
   availableWorkspaces?: Ref<{ id: string; title: string }[]>
   activeWorkspaceId?: () => string
   displayName?: () => string
-  beforeEnrollment?: (personId: string) => Promise<void>
   identityChanged?: () => Promise<void>
   workspaceOwner?: (id: string) => Promise<string>
 }
@@ -92,7 +91,6 @@ export function useDeviceSync({
   activeWorkspaceId,
   workspaceOwner,
   displayName,
-  beforeEnrollment,
   identityChanged,
 }: DeviceSyncOptions) {
   const isOpen = ref(false)
@@ -634,7 +632,6 @@ export function useDeviceSync({
     error.value = ""
     try {
       if (!workspaceStore || !durableMesh) throw new Error("Device sync is unavailable.")
-      await beforeEnrollment?.(invite.issuerPersonId)
       await pauseDurableMesh()
       await stopNode("Starting device enrollment")
       step.value = "enroll-guest-waiting"
