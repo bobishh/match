@@ -258,6 +258,42 @@ export class DurableMesh {
     return next
   }
 
+  private async credentialBelongsToProfile(credential: WorkspaceMeshCredential, profile: LocalProfile): Promise<boolean> {
+    if (credential.ownerPersonId === profile.identity.personId) {
+      return credential.ownerPublicKey === profile.identity.publicKey
+    }
+    const grant = credential.localGrant as WorkspaceGrant | undefined
+    if (!grant || grant.payload.personId !== profile.identity.personId) return false
+    for (const authority of ownerAuthorities(credential)) {
+      try {
+        await verifyWorkspaceGrant(grant, {
+          workspaceId: credential.workspaceId,
+          personId: profile.identity.personId,
+          ownerPersonId: authority.personId,
+          ownerPublicKey: authority.publicKey,
+          ownerCertificates: authority.certificates,
+        })
+        return true
+      } catch {}
+    }
+    return false
+  }
+
+  private async detachCredentialsFromPreviousIdentity(credentials: WorkspaceMeshCredential[], profile: LocalProfile) {
+    const active: WorkspaceMeshCredential[] = []
+    for (const credential of credentials) {
+      if (await this.credentialBelongsToProfile(credential, profile)) {
+        active.push(credential)
+        continue
+      }
+      // Enrollment replaces the person identity but intentionally keeps local workspace data.
+      // A credential issued to the previous identity cannot authenticate the new profile.
+      await this.store.removeWorkspaceMeshData(credential.workspaceId)
+      await defaultProofStore.removeWorkspaceGrants(credential.workspaceId)
+    }
+    return active
+  }
+
   async ensureOwnerWorkspaces(workspaceIds: string[], endpoint: string, profile: LocalProfile): Promise<void> {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (const workspaceId of workspaceIds) {
@@ -839,9 +875,11 @@ export class DurableMesh {
       const abort = () => { void this.shutdown() }
       let freshNodeProbe: ReturnType<typeof setTimeout> | undefined
       try {
-        const credentials = await this.store.listWorkspaceCredentials()
-        if (signal.aborted || credentials.length === 0) return
+        const storedCredentials = await this.store.listWorkspaceCredentials()
+        if (signal.aborted || storedCredentials.length === 0) return
         const profile = await this.options.getProfile()
+        const credentials = await this.detachCredentialsFromPreviousIdentity(storedCredentials, profile)
+        if (signal.aborted || credentials.length === 0) return
         // A tab taking over from another tab uses a distinct transport endpoint. Some
         // relays retain the closed tab's connection for the stable node ID briefly.
         // The endpoint remains authenticated by the same signed device advertisement.

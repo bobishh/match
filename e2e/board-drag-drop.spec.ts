@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 
 async function createBlankWorkspace(page: Page, title: string) {
   await page.goto("/")
@@ -31,7 +31,41 @@ async function drag(page: Page, sourceSelector: string, targetSelector: string) 
   await page.mouse.up()
 }
 
+async function touchDrag(context: BrowserContext, page: Page, sourceSelector: string, targetSelector: string) {
+  const source = await page.locator(sourceSelector).boundingBox()
+  const target = await page.locator(targetSelector).boundingBox()
+  if (!source || !target) throw new Error("Touch drag target missing")
+  const session = await context.newCDPSession(page)
+  const start = { x: source.x + source.width / 2, y: source.y + Math.min(40, source.height / 2) }
+  const end = { x: target.x + target.width / 2, y: target.y + Math.min(40, target.height / 2) }
+  await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] })
+  for (let step = 1; step <= 24; step++) {
+    const ratio = step / 24
+    await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{
+      x: start.x + (end.x - start.x) * ratio,
+      y: start.y + (end.y - start.y) * ratio,
+    }] })
+    await page.waitForTimeout(20)
+  }
+  await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+}
+
 test.describe("Trello-like board dragging", () => {
+  test("Given a mobile board, when an editor drags a card sideways, then the board scrolls and the card changes column", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+    const page = await context.newPage()
+    try {
+      await createBlankWorkspace(page, "Mobile drag board")
+      await createItem(page, "Touch me", "To do")
+      await touchDrag(context, page, '.lead-card[data-task-id]:has-text("Touch me")', '[role="region"][aria-label="Doing"] .card-stack')
+
+      await expect(page.getByRole("region", { name: "Doing" }).getByText("Touch me")).toBeVisible()
+      await expect(page.getByRole("status")).toContainText("Item moved")
+      await page.reload()
+      await expect(page.getByRole("region", { name: "Doing" }).getByText("Touch me")).toBeVisible()
+    } finally { await context.close() }
+  })
+
   test("Given an empty column, when a card hovers then drops, then its hint hides without displacing the card", async ({ page }) => {
     await createBlankWorkspace(page, "Empty drop target")
     await createItem(page, "Moving item", "To do")

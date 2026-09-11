@@ -102,6 +102,40 @@ test("Given a paired editor, when the invitation tab reloads repeatedly, then tr
   } finally { await context.close() }
 })
 
+test("Given an existing editor, when the owner enrolls another device, then the owner device verifies that editor after reload", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  const editorContext = await isolatedContext(browser)
+  const phoneContext = await isolatedContext(browser)
+  const editor = await editorContext.newPage()
+  const phone = await phoneContext.newPage()
+  try {
+    await Promise.all([page.goto("/"), editor.goto("/"), phone.goto("/")])
+    await addLead(page, "Before owner enrollment")
+    await pairWorkspace(page, editor)
+
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+    await hostDialog.getByRole("button", { name: "Add someone" }).click()
+    await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
+    await phone.goto(await hostDialog.getByLabel("Pairing link").inputValue())
+    const phoneDialog = phone.getByRole("dialog", { name: "Device sync" })
+    await phoneDialog.getByRole("button", { name: "Add this device" }).click()
+    await hostDialog.getByRole("button", { name: "Approve device" }).click()
+    await expect(phoneDialog.getByText("Device enrolled", { exact: true })).toBeVisible({ timeout: 30_000 })
+    await phoneDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+
+    await phone.reload()
+    await expect(phone.getByLabel("Workspace role: owner")).toBeVisible()
+    await expect(phone.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(phone.getByText(/Invalid workspace grant signature/)).toHaveCount(0)
+    await addLead(editor, "Editor after owner enrollment")
+    await expect(phone.getByRole("button", { name: "Open Editor after owner enrollment — Engineer" })).toBeVisible({ timeout: 20_000 })
+  } finally {
+    await Promise.all([editorContext.close(), phoneContext.close()])
+  }
+})
+
 test("Given trusted peers closed every tab, when both reopen without an invitation URL, then they reconnect and exchange offline changes", async ({ browser, page }) => {
   test.setTimeout(120_000)
   await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))

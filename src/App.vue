@@ -464,6 +464,11 @@ async function setupBoardSortables() {
       emptyInsertThreshold: 48,
       forceFallback: true,
       fallbackTolerance: 4,
+      fallbackOnBody: true,
+      scroll: true,
+      bubbleScroll: true,
+      scrollSensitivity: 96,
+      scrollSpeed: 16,
       onEnd(event) {
         const item = event.item as HTMLElement
         const taskId = item.dataset.taskId

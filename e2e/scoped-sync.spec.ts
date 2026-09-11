@@ -330,6 +330,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
 })
 
 test("Given existing data under another identity, when enrollment is approved, then the same device joins the owner and keeps its local board", async ({ page, browser }) => {
+  test.setTimeout(90_000)
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
@@ -345,6 +346,12 @@ test("Given existing data under another identity, when enrollment is approved, t
     await guest.getByLabel("Role *").fill("Engineer")
     await guest.getByRole("button", { name: "Create item" }).click()
     await guest.getByRole("button", { name: "Close detail" }).click()
+    // This identity previously enabled mesh for its own local board.
+    await guest.getByRole("button", { name: "Sync", exact: true }).click()
+    const oldIdentityDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await oldIdentityDialog.getByRole("button", { name: "Add someone" }).click()
+    await oldIdentityDialog.getByRole("button", { name: "Generate link" }).click()
+    await expect(oldIdentityDialog.getByLabel("Pairing link")).toHaveValue(/workspace-join/)
     const original = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
@@ -359,6 +366,8 @@ test("Given existing data under another identity, when enrollment is approved, t
     expect(enrolled.device.deviceId).toBe(JSON.parse(original!).device.deviceId)
     expect(enrolled.identity.personId).toBe(await page.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId))
     expect(await guest.evaluate(personId => localStorage.getItem(`match.local_profile.v1.backup.${personId}`), JSON.parse(original!).identity.personId)).toBe(original)
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(guest.getByText(/Invalid workspace grant signature/)).toHaveCount(0)
     await guest.getByRole("button", { name: "Open workspaces" }).click()
     await guest.getByRole("dialog", { name: "Workspaces" }).getByRole("button", { name: /^jobs/ }).click()
     await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toBeVisible()
