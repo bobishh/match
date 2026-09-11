@@ -270,11 +270,10 @@ test("Given approved enrollment but failed storage, when receiving identity, the
   } finally { await context.close() }
 })
 
-test("Given a device with existing workspace data, when its owner enrolls it, then it keeps the data and receives the owner identity", async ({ page, browser }) => {
+test("Given existing data under another identity, when adding a device, then data and identity remain intact with workspace-invite guidance", async ({ page, browser }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
-  const hostProfile = await page.evaluate(() => localStorage.getItem("match.local_profile.v1"))
   await host.getByRole("button", { name: "Add my device", exact: true }).click()
   const context = await browser.newContext()
   try {
@@ -289,16 +288,10 @@ test("Given a device with existing workspace data, when its owner enrolls it, th
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add this device" }).click()
-    await host.getByRole("button", { name: "Approve device" }).click()
-    await expect(dialog.getByText("Device enrolled", { exact: true })).toBeVisible()
-    await dialog.locator("button.button-quiet", { hasText: "Close" }).click()
-    await guest.getByRole("button", { name: "Open workspaces" }).click()
-    const workspaces = guest.getByRole("dialog", { name: "Workspaces" })
-    await expect(workspaces.getByRole("button", { name: /Job search \(local\)/ })).toBeVisible()
-    await workspaces.getByRole("button", { name: /Job search \(local\)/ }).click()
+    await expect(dialog.getByRole("alert")).toContainText("workspace invitation")
+    await expect(host.getByRole("button", { name: "Approve device" })).toHaveCount(0)
+    await dialog.getByRole("button", { name: "Dismiss" }).click()
     await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toBeVisible()
-    const enrolled = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
-    expect(enrolled).not.toBe(original)
-    expect(JSON.parse(enrolled!).identity.personId).toBe(JSON.parse(hostProfile!).identity.personId)
+    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(original)
   } finally { await context.close() }
 })
