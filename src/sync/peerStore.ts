@@ -719,6 +719,17 @@ export class PeerStore {
     })
   }
 
+  /** Removes one workspace's trust and transport state while preserving its local document. */
+  async removeWorkspaceMeshData(workspaceId: string): Promise<void> {
+    if (typeof workspaceId !== "string" || !workspaceId) throw new Error("Invalid workspaceId")
+    await this.runTx([STORE_PEERS, STORE_NODE], "readwrite", async tx => {
+      const peers = tx.objectStore(STORE_PEERS)
+      const items = await promisifyRequest<WorkspacePeerRecord[]>(peers.index(INDEX_PEERS_WORKSPACE).getAll(workspaceId))
+      for (const item of items) await promisifyRequest(peers.delete([item.workspaceId, item.deviceId]))
+      await promisifyRequest(tx.objectStore(STORE_NODE).delete(`${WORKSPACE_CREDENTIAL_PREFIX}${workspaceId}`))
+    })
+  }
+
   /**
    * Clears all stores (peers and node secret). Useful for test isolation.
    */

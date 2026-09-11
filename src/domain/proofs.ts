@@ -317,6 +317,14 @@ export class ProofStore {
     if (!workspaceId) return list
     return list.filter((g) => g.payload.workspaceId === workspaceId)
   }
+
+  async removeWorkspaceGrants(workspaceId: string): Promise<void> {
+    if (!workspaceId) throw new Error("Invalid workspaceId")
+    for (const [grantId, grant] of this.grants) {
+      if (grant.payload.workspaceId === workspaceId) this.grants.delete(grantId)
+    }
+    this.save()
+  }
 }
 
 export const defaultProofStore = new ProofStore()

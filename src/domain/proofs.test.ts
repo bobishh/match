@@ -25,6 +25,20 @@ describe("Cryptographic proofs, authority, and certificate chains (Task 2.2)", (
     resetIdentityStorageForTest()
   })
 
+  it("Given grants for two workspaces, when one leaves the mesh, then only that workspace grants are removed", async () => {
+    const owner = await bootstrapIdentity("Owner")
+    const store = new ProofStore()
+    const alpha = await createWorkspaceGrant(owner, "ws_alpha", "member", "editor")
+    const beta = await createWorkspaceGrant(owner, "ws_beta", "member", "visitor")
+    await store.putGrant(alpha.payload.grantId, alpha)
+    await store.putGrant(beta.payload.grantId, beta)
+
+    await store.removeWorkspaceGrants("ws_alpha")
+
+    expect(await store.listGrants("ws_alpha")).toEqual([])
+    expect(await store.listGrants("ws_beta")).toEqual([beta])
+  })
+
   it("canonicalizes JSON according to RFC 8785 and rejects non-finite numbers", () => {
     const a = { z: 1, a: "hello", m: [3, 2, 1] }
     const b = { a: "hello", m: [3, 2, 1], z: 1 }

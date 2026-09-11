@@ -44,6 +44,7 @@ export type SyncStep =
   | "enroll-guest-waiting"
   | "enroll-guest-done"
   | "workspace-guest"
+  | "workspace-merge-confirm"
   | "workspace-reconnecting"
   | "workspace-guest-waiting"
   | "workspace-guest-done"
@@ -169,6 +170,7 @@ export function useDeviceSync({
     if (step.value === "enroll-guest" || step.value === "enroll-guest-waiting" || step.value === "enroll-guest-done") {
       return "Add your device"
     }
+    if (step.value === "workspace-merge-confirm") return "Merge local copy?"
     if (step.value === "workspace-guest" || step.value === "workspace-guest-waiting" || step.value === "workspace-guest-done") {
       return "Join workspace"
     }
@@ -225,6 +227,24 @@ export function useDeviceSync({
     if (!workspaceId || !durableMesh) throw new Error("No active workspace")
     await durableMesh.transferOwnership(workspaceId, personId)
     ownershipRevision.value += 1
+  }
+
+  async function leaveMesh() {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId || !durableMesh) throw new Error("No active workspace")
+    run += 1
+    wakeRetry?.()
+    await pauseDurableMesh()
+    await stopNode("Leaving workspace mesh")
+    for (const session of directPeerSessions.values()) await session.close().catch(() => {})
+    directPeerSessions.clear()
+    await durableMesh.leaveWorkspace(workspaceId)
+    meshLiveWorkspaceIds.value = meshLiveWorkspaceIds.value.filter(id => id !== workspaceId)
+    meshPeers.value = meshPeers.value.filter(peer => peer.workspaceId !== workspaceId)
+    revokedWorkspaceIds.value = revokedWorkspaceIds.value.filter(id => id !== workspaceId)
+    ownershipRevision.value += 1
+    step.value = "members"
+    void startDurableMesh()
   }
 
   function attachLiveSession(session: LiveWorkspaceSync, currentRun: number) {
@@ -656,9 +676,10 @@ export function useDeviceSync({
         step.value = "enroll-guest"
         authCode.value = await deriveTranscriptAuthCode(invite.secret, invite.invitationId, invite.issuerPublicKey)
       } else if (invite.kind === "workspace-join") {
-        step.value = "workspace-guest"
         invitationWorkspaces.value = invite.workspaces || [{ id: invite.workspaceId, title: invite.workspaceTitle }]
         invitationWorkspaceTitle.value = invitationWorkspaces.value.map((w) => w.title).join(", ")
+        const hasLocalCopy = invitationWorkspaces.value.some(ws => availableWorkspaces.value.some(local => local.id === ws.id))
+        step.value = hasLocalCopy ? "workspace-merge-confirm" : "workspace-guest"
       }
     } catch (err) {
       step.value = "error"
@@ -949,6 +970,7 @@ export function useDeviceSync({
     shutdown,
     revokePeer,
     transferOwnership,
+    leaveMesh,
     copyInvite,
     close,
     dismiss,

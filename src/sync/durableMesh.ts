@@ -551,6 +551,21 @@ export class DurableMesh {
     await this.publishAll()
   }
 
+  async leaveWorkspace(workspaceId: string): Promise<void> {
+    if (!workspaceId) throw new Error("No active workspace")
+    for (const [key, entry] of [...this.sessions]) {
+      if (entry.workspaceId !== workspaceId) continue
+      this.sessions.delete(key)
+      await entry.session.close().catch(() => {})
+      await entry.connection.close().catch(() => {})
+    }
+    await this.store.removeWorkspaceMeshData(workspaceId)
+    await defaultProofStore.removeWorkspaceGrants(workspaceId)
+    this.failures.delete(workspaceId)
+    this.failedAt.delete(workspaceId)
+    await this.notify()
+  }
+
   async start(): Promise<void> {
     if (!this.stopped || this.externallyPaused || this.disposed) return
     if ((await this.store.listWorkspaceCredentials()).length === 0) return

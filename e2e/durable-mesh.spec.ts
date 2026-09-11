@@ -34,6 +34,38 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
   return context
 }
 
+test("Given a joined workspace with local data, when an editor leaves the mesh, then its copy remains and rejoining requires merge confirmation", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await addLead(page, "Kept locally")
+    await pairWorkspace(page, guest)
+
+    await guest.getByRole("button", { name: "Sync", exact: true }).click()
+    const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await guestDialog.getByRole("button", { name: "Leave mesh" }).click()
+    await expect(guestDialog.getByText("Workspace data stays on this device.")).toBeVisible()
+    await guestDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
+    await expect(guest.getByLabel("Mesh empty")).toBeVisible()
+    await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await expect(guest.getByRole("button", { name: "Open Kept locally — Engineer" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+    await hostDialog.getByRole("button", { name: "Add someone" }).click()
+    await hostDialog.getByRole("button", { name: "Generate link" }).click()
+    await guest.goto(await hostDialog.getByLabel("Pairing link").inputValue())
+    await expect(guestDialog.getByRole("heading", { name: "Merge local copy?" })).toBeVisible()
+    await expect(guestDialog.getByText("Existing local changes and incoming workspace history will be merged.")).toBeVisible()
+    await guestDialog.getByRole("button", { name: "Merge and join" }).click()
+    await hostDialog.getByLabel("Participant role").selectOption("editor")
+    await hostDialog.getByRole("button", { name: "Approve access" }).click()
+    await expect(guestDialog.getByText(/Connected to/)).toBeVisible({ timeout: 30_000 })
+  } finally { await context.close() }
+})
+
 test("Given a paired editor, when the invitation tab reloads repeatedly, then trust and editing survive and sync resumes without approval", async ({ browser, page }) => {
   test.setTimeout(120_000)
   const context = await isolatedContext(browser)

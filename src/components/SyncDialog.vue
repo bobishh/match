@@ -43,6 +43,7 @@ const emit = defineEmits<{
   (e: "update:selectedWorkspaceId", val: string): void
   (e: "generateWorkspaceInvite"): void
   (e: "transferOwnership", personId: string): void
+  (e: "leaveMesh"): void
   (e: "copy", url?: string): void
   (e: "requestEnrollment"): void
   (e: "approveDevice"): void
@@ -65,6 +66,7 @@ const selectedIds = computed(() => {
 
 const hasSelection = computed(() => selectedIds.value.length > 0)
 const selectedMemberId = ref("")
+const confirmingLeave = ref(false)
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 
 function isWorkspaceSelected(id: string) {
@@ -157,10 +159,19 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           >{{ transferringOwnership === selectedMember.personId ? 'Transferring…' : 'Transfer ownership' }}</button>
         </section>
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
+        <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">
+          <strong>Leave this workspace mesh?</strong>
+          <p class="dialog-copy">Workspace data stays on this device. Trusted peers, access grant, and automatic sync are removed.</p>
+          <div class="dialog-actions">
+            <button class="button button-danger" type="button" @click="emit('leaveMesh'); confirmingLeave = false">Leave mesh, keep copy</button>
+            <button class="button button-quiet" type="button" @click="confirmingLeave = false">Cancel</button>
+          </div>
+        </section>
         <div class="dialog-actions sync-primary-actions">
           <button v-if="canManageMesh" class="button button-primary" type="button" @click="emit('selectSyncWorkspace')">Add someone</button>
           <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
           <button v-if="live" class="button button-quiet" type="button" @click="emit('stop')">Stop live sync</button>
+          <button class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
         </div>
       </template>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->
@@ -307,6 +318,15 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </ul>
         <div class="dialog-actions sync-step-actions">
           <button class="button button-primary" type="button" @click="emit('acceptAndJoin')">Accept and join</button>
+        </div>
+      </template>
+
+      <template v-else-if="step === 'workspace-merge-confirm'">
+        <p class="dialog-copy">A local copy of {{ invitationWorkspaceTitle || "this workspace" }} already exists.</p>
+        <p class="dialog-copy">Existing local changes and incoming workspace history will be merged.</p>
+        <div class="dialog-actions sync-step-actions">
+          <button class="button button-primary" type="button" @click="emit('acceptAndJoin')">Merge and join</button>
+          <button class="button button-quiet" type="button" @click="emit('dismiss')">Cancel</button>
         </div>
       </template>
 

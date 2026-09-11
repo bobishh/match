@@ -7,6 +7,7 @@ import {
   validatePeerRecord,
   validateNodeSecret,
   type WorkspacePeerRecord,
+  type WorkspaceMeshCredential,
   type PeerRole,
 } from "./peerStore"
 
@@ -361,6 +362,25 @@ describe("Peer Catalog & Node Secret Module (src/sync/peerStore.ts)", () => {
       expect(storageSpy.setItem).not.toHaveBeenCalled()
       expect(storageSpy.removeItem).not.toHaveBeenCalled()
       expect(storageSpy.clear).not.toHaveBeenCalled()
+    })
+
+    it("Given multiple workspace credentials, when one workspace leaves the mesh, then only its peers and credential are removed", async () => {
+      const store = new PeerStore("match-test-leave-workspace", mockIdb as any)
+      const credential = (workspaceId: string): WorkspaceMeshCredential => ({
+        version: 1, workspaceId, ownerPersonId: `owner_${workspaceId}`, ownerPublicKey: `key_${workspaceId}`,
+        transportSecret: `secret_${workspaceId}`, epoch: 1, updatedAt: "2026-09-11T00:00:00.000Z", ownerCertificates: [],
+      })
+      await store.putWorkspaceCredential(credential("ws_alpha"))
+      await store.putWorkspaceCredential(credential("ws_beta"))
+      await store.upsertPeer({ workspaceId: "ws_alpha", deviceId: "a", personId: "pa", endpoint: "ep-a", transportSecret: "s", role: "editor", lastSeen: "2026-09-11T00:00:00.000Z" })
+      await store.upsertPeer({ workspaceId: "ws_beta", deviceId: "b", personId: "pb", endpoint: "ep-b", transportSecret: "s", role: "editor", lastSeen: "2026-09-11T00:00:00.000Z" })
+
+      await store.removeWorkspaceMeshData("ws_alpha")
+
+      expect(await store.getWorkspaceCredential("ws_alpha")).toBeNull()
+      expect(await store.listPeers("ws_alpha")).toEqual([])
+      expect(await store.getWorkspaceCredential("ws_beta")).toEqual(credential("ws_beta"))
+      expect(await store.listPeers("ws_beta")).toHaveLength(1)
     })
   })
 

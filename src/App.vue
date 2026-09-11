@@ -239,6 +239,12 @@ async function transferWorkspaceOwnership(personId: string) {
   finally { transferringOwnership.value = "" }
 }
 
+async function leaveWorkspaceMesh() {
+  peerAccessError.value = ""
+  try { await sync.leaveMesh() }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not leave mesh" }
+}
+
 async function revokeWorkspacePeer(personId: string) {
   if (revokingPeer.value) return
   revokingPeer.value = personId
@@ -1362,6 +1368,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @select-sync-workspace="sync.selectSyncWorkspace"
       @generate-workspace-invite="sync.generateWorkspaceInvite"
       @transfer-ownership="transferWorkspaceOwnership"
+      @leave-mesh="leaveWorkspaceMesh"
       @request-enrollment="sync.requestEnrollment"
       :enrollment-device-name="sync.enrollmentDeviceName.value"
       @approve-device="sync.approveEnrollment"
