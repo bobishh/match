@@ -18,6 +18,7 @@ export type SyncAcceptor = {
 export type SyncNode = {
   endpointId: string
   dial: (remoteEndpoint: string) => Promise<SyncConnection>
+  dialRelay?: (remoteEndpoint: string) => Promise<SyncConnection>
   accept: () => Promise<SyncAcceptor>
   close: (reason?: string) => Promise<void>
 }

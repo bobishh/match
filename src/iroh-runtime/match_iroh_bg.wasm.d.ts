@@ -14,6 +14,7 @@ export const browserconnection_remoteEndpointId: (a: number) => [number, number]
 export const browsernode_accept: (a: number) => any;
 export const browsernode_close: (a: number, b: number, c: number) => any;
 export const browsernode_dial: (a: number, b: number, c: number) => any;
+export const browsernode_dialRelay: (a: number, b: number, c: number) => any;
 export const browsernode_endpointId: (a: number) => [number, number];
 export const browsernode_start: (a: number, b: number) => any;
 export const browserstream_closeSend: (a: number) => any;

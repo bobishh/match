@@ -55,6 +55,15 @@ impl BrowserNode {
         Ok(BrowserConnection { inner: connection })
     }
 
+    #[wasm_bindgen(js_name = dialRelay)]
+    pub async fn dial_relay(&self, remote_endpoint: String) -> Result<BrowserConnection, JsValue> {
+        let connection = self
+            .inner
+            .dial(&remote_endpoint, ALPN, BrowserDialOptions::iroh_relay())
+            .await?;
+        Ok(BrowserConnection { inner: connection })
+    }
+
     #[wasm_bindgen(js_name = accept)]
     pub async fn accept(&self) -> Result<BrowserAcceptor, JsValue> {
         Ok(BrowserAcceptor {

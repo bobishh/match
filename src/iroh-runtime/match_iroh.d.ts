@@ -33,6 +33,7 @@ export class BrowserNode {
     accept(): Promise<BrowserAcceptor>;
     close(reason?: string | null): Promise<void>;
     dial(remote_endpoint: string): Promise<BrowserConnection>;
+    dialRelay(remote_endpoint: string): Promise<BrowserConnection>;
     static start(secret?: Uint8Array | null): Promise<BrowserNode>;
     readonly endpointId: string;
 }
@@ -93,6 +94,7 @@ export interface InitOutput {
     readonly browsernode_accept: (a: number) => any;
     readonly browsernode_close: (a: number, b: number, c: number) => any;
     readonly browsernode_dial: (a: number, b: number, c: number) => any;
+    readonly browsernode_dialRelay: (a: number, b: number, c: number) => any;
     readonly browsernode_endpointId: (a: number) => [number, number];
     readonly browsernode_start: (a: number, b: number) => any;
     readonly browserstream_closeSend: (a: number) => any;

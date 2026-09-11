@@ -37,7 +37,7 @@ async function dialPairingPeer(node: SyncNode, endpoint: string, options: JoinOp
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await node.dial(endpoint)
+      return await (node.dialRelay ? node.dialRelay(endpoint) : node.dial(endpoint))
     } catch (error) {
       lastError = error
       if (!retryableDialError(error) || attempt === attempts) throw error

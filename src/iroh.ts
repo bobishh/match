@@ -5,6 +5,7 @@ export type IrohStatus = "unavailable" | "starting" | "ready" | "error"
 export type IrohNode = {
   endpointId: string
   dial: (remoteEndpoint: string) => Promise<IrohConnection>
+  dialRelay: (remoteEndpoint: string) => Promise<IrohConnection>
   accept: () => Promise<IrohAcceptor>
   close: (reason?: string) => Promise<void>
 }

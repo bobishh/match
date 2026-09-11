@@ -25,6 +25,10 @@ import { registerDeviceInRoot } from "../domain/personalRoot"
 import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
 import { DurableMesh, startPersistentNode, type MeshPeerView } from "./durableMesh"
 
+function dialPairingPeer(node: SyncNode, endpoint: string) {
+  return node.dialRelay ? node.dialRelay(endpoint) : node.dial(endpoint)
+}
+
 export type SyncStep =
   | "idle"
   | "chooser"
@@ -671,7 +675,7 @@ export function useDeviceSync({
       timeout = setTimeout(() => { void started.close("Enrollment timed out").catch(() => {}) }, 600_000)
       // Endpoint discovery may lag behind the QR. Retry dialing before sending a request.
       for (let attempt = 0; currentRun === run; attempt++) {
-        try { connection = await started.dial(invite.issuerEndpoint); break }
+        try { connection = await dialPairingPeer(started, invite.issuerEndpoint); break }
         catch (err) {
           if (attempt >= 4) throw err
           await waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
@@ -769,7 +773,7 @@ export function useDeviceSync({
           if (currentRun !== run) return
           node = started
           timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 600_000)
-          connection = networkConnection(await networkIO(started.dial(invite.issuerEndpoint)))
+          connection = networkConnection(await networkIO(dialPairingPeer(started, invite.issuerEndpoint)))
           if (currentRun !== run) return
           const stream = await connection.openStream()
           if (!connectedBefore) step.value = "workspace-guest-waiting"
