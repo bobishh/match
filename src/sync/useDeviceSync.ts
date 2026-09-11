@@ -242,6 +242,7 @@ export function useDeviceSync({
     meshLiveWorkspaceIds.value = meshLiveWorkspaceIds.value.filter(id => id !== workspaceId)
     meshPeers.value = meshPeers.value.filter(peer => peer.workspaceId !== workspaceId)
     revokedWorkspaceIds.value = revokedWorkspaceIds.value.filter(id => id !== workspaceId)
+    meshDiagnostic.value = ""
     ownershipRevision.value += 1
     step.value = "members"
     void startDurableMesh()

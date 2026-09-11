@@ -209,6 +209,7 @@ const meshParticipantDevices = computed(() => sync.meshPeers.value
   .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
 const meshMembers = computed(() => {
   const peers = sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)
+  if (!peers.length) return []
   const selfId = chat.personId.value
   const personIds = new Set(peers.map(peer => peer.personId))
   if (selfId) personIds.add(selfId)
@@ -1356,6 +1357,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :selected-workspace-ids="sync.selectedWorkspaceIds.value"
       :selected-workspace-id="sync.selectedWorkspaceId.value"
       :mesh-members="meshMembers"
+      :has-mesh="meshMembers.length > 0"
       :can-manage-mesh="isWorkspaceOwner"
       :transferring-ownership="transferringOwnership"
       :mesh-action-error="peerAccessError"

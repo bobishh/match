@@ -26,6 +26,7 @@ const props = defineProps<{
     devices: number
     self: boolean
   }>
+  hasMesh?: boolean
   canManageMesh?: boolean
   transferringOwnership?: string
   meshActionError?: string
@@ -126,7 +127,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <strong>{{ workspaceConnected ? "Connected" : "Offline" }}</strong>
           · {{ workspaceConnected ? "Live channel active." : "No live channel. Reconnecting automatically." }}
         </p>
-        <p v-if="!workspaceConnected && meshDiagnostic" class="sync-error" role="status">Reconnect: {{ meshDiagnostic }}</p>
+        <p v-if="!workspaceConnected && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">Reconnect: {{ meshDiagnostic }}</p>
         <p class="dialog-copy">People and devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
           <button
@@ -171,7 +172,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <button v-if="canManageMesh" class="button button-primary" type="button" @click="emit('selectSyncWorkspace')">Add someone</button>
           <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
           <button v-if="live" class="button button-quiet" type="button" @click="emit('stop')">Stop live sync</button>
-          <button class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
+          <button v-if="hasMesh" class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
         </div>
       </template>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->

@@ -561,6 +561,8 @@ export class DurableMesh {
     }
     await this.store.removeWorkspaceMeshData(workspaceId)
     await defaultProofStore.removeWorkspaceGrants(workspaceId)
+    this.lastDiagnostic = ""
+    this.options.onDiagnostic?.("")
     this.failures.delete(workspaceId)
     this.failedAt.delete(workspaceId)
     await this.notify()

@@ -49,6 +49,10 @@ test("Given a joined workspace with local data, when an editor leaves the mesh, 
     await expect(guestDialog.getByText("Workspace data stays on this device.")).toBeVisible()
     await guestDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
     await expect(guest.getByLabel("Mesh empty")).toBeVisible()
+    await expect(guestDialog.getByText(/^Reconnect:/)).toHaveCount(0)
+    await expect(guestDialog.getByRole("alert")).toHaveCount(0)
+    await expect(guestDialog.getByRole("list", { name: "Mesh members" }).getByRole("button")).toHaveCount(0)
+    await expect(guestDialog.getByRole("button", { name: "Leave mesh" })).toHaveCount(0)
     await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
     await expect(guest.getByRole("button", { name: "Open Kept locally — Engineer" })).toBeVisible()
 
