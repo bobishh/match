@@ -9,6 +9,7 @@ export type WorkspaceReplica = {
 
 export type LiveWorkspaceSync = {
   publish: () => Promise<void>
+  heartbeat?: () => Promise<void>
   close: () => Promise<void>
   done: Promise<void>
 }

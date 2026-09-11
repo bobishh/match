@@ -125,8 +125,6 @@ export function useDeviceSync({
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
   const ownershipRevision = ref(0)
-  const meshReachableUntil = new Map<string, number>()
-  let reachabilityTimer: ReturnType<typeof setTimeout> | undefined
 
   let node: SyncNode | undefined
   let liveSession: LiveWorkspaceSync | undefined
@@ -143,25 +141,13 @@ export function useDeviceSync({
     workspace,
     getProfile,
     onChange(ids, peers, revoked) {
-      const now = Date.now()
-      const browserOffline = typeof navigator !== "undefined" && !navigator.onLine
-      if (browserOffline) meshReachableUntil.clear()
-      else for (const id of ids) meshReachableUntil.set(id, now + 15_000)
-      meshLiveWorkspaceIds.value = [...new Set([...ids, ...[...meshReachableUntil]
-        .filter(([, until]) => until > now).map(([id]) => id)])]
+      meshLiveWorkspaceIds.value = [...new Set(ids)]
       meshPeers.value = peers
       revokedWorkspaceIds.value = revoked
       ownershipRevision.value += 1
       if (ids.length > 0) isLive.value = true
       else if (!liveSession) isLive.value = false
       if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "members"
-      clearTimeout(reachabilityTimer)
-      const nextExpiry = Math.min(...[...meshReachableUntil.values()].filter(until => until > now))
-      if (Number.isFinite(nextExpiry)) reachabilityTimer = setTimeout(() => {
-        const current = Date.now()
-        for (const [id, until] of meshReachableUntil) if (until <= current) meshReachableUntil.delete(id)
-        meshLiveWorkspaceIds.value = meshLiveWorkspaceIds.value.filter(id => ids.includes(id) || meshReachableUntil.has(id))
-      }, Math.max(0, nextExpiry - now + 10))
     },
   }) : undefined
   if (durableMesh && meshWorkspaceStore) {
@@ -217,7 +203,6 @@ export function useDeviceSync({
   async function shutdown() {
     run += 1
     wakeRetry?.()
-    clearTimeout(reachabilityTimer)
     await durableMesh?.dispose()
     await stopNode("Page closed")
   }

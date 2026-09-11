@@ -97,6 +97,7 @@ for (const width of [360, 390, 430]) {
 }
 
 test("Given a lead dragged to Archive, when Undo fails then retries, then its original position survives reload", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" })
   await page.setViewportSize({ width: 1920, height: 1000 })
   await page.goto("/")
   for (const company of ["First", "Second"]) {

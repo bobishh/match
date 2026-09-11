@@ -1,5 +1,5 @@
 import { fromBase64Url, toBase64Url } from "../domain/identity"
-import { decodePairingFrame, encodePairingFrame } from "./protocol"
+import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
 import type { LiveWorkspaceSync } from "./session"
 import type { DuplexStream, SyncConnection } from "./transport"
 
@@ -79,12 +79,20 @@ export function liveWorkspaceSetSync(
   let stopped = false
   let lastSent = ""
   let queue = Promise.resolve()
+  let heartbeatQueue = Promise.resolve()
   const knownChat = new Map<string, Set<string>>()
   const done = (async () => {
     while (!stopped) {
       const stream = await connection.acceptStream()
       if (stopped) return
-      await replica.receive(decodePairingFrame(await stream.read(), "sync-update", secret), false)
+      const frame = await stream.read()
+      if (inspectPairingFrame(frame).type === "sync-heartbeat") {
+        decodePairingFrame(frame, "sync-heartbeat", secret)
+        await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))
+        await stream.closeSend()
+        continue
+      }
+      await replica.receive(decodePairingFrame(frame, "sync-update", secret), false)
       await stream.closeSend()
     }
   })().catch(error => { if (!stopped) throw error })
@@ -102,6 +110,27 @@ export function liveWorkspaceSetSync(
         lastSent = content
       })
       return queue
+    },
+    heartbeat() {
+      heartbeatQueue = heartbeatQueue.then(async () => {
+        if (stopped) return
+        const stream = await connection.openStream()
+        await stream.send(encodePairingFrame("sync-heartbeat", secret, new Uint8Array()))
+        await stream.closeSend()
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const frame = await Promise.race([
+            stream.read(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new SyncNetworkError("Mesh heartbeat timed out")), 4_000)
+            }),
+          ])
+          decodePairingFrame(frame, "sync-heartbeat-ack", secret)
+        } finally {
+          clearTimeout(timer)
+        }
+      })
+      return heartbeatQueue
     },
     async close() {
       stopped = true

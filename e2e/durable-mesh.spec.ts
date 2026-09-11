@@ -106,6 +106,31 @@ test("Given trusted peers closed every tab, when both reopen without an invitati
   }
 })
 
+test("Given a connected peer closes its tab, when it returns, then presence turns offline and queued changes sync", async ({ browser, page }) => {
+  test.setTimeout(90_000)
+  await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
+  const guestContext = await isolatedContext(browser)
+  let guest = await guestContext.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+    await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+
+    await guest.close()
+    await expect(page.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
+    await addLead(page, "Queued while closed")
+
+    guest = await guestContext.newPage()
+    await guest.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
+    await guest.goto("/")
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(guest.getByRole("button", { name: "Open Queued while closed — Engineer" })).toBeVisible({ timeout: 20_000 })
+  } finally {
+    await guestContext.close()
+  }
+})
+
 test("Given owner introduced two editors, when owner goes offline, then editors discover each other and keep syncing", async ({ browser, page }) => {
   test.setTimeout(150_000)
   await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))

@@ -692,7 +692,7 @@ export class DurableMesh {
         const key = `${peer.workspaceId}:${peer.deviceId}`
         if (signal.aborted || this.sessions.has(key) || this.connecting.has(key)) continue
         const attempts = this.failures.get(key) ?? 0
-        if (attempts > 0 && Date.now() - (this.failedAt.get(key) ?? 0) < Math.min(1000 * 2 ** attempts, 15_000)) continue
+        if (attempts > 0 && Date.now() - (this.failedAt.get(key) ?? 0) < Math.min(500 * 2 ** attempts, 3_000)) continue
         void this.dialPeer(peer, signal)
       }
       await new Promise<void>(resolve => {
@@ -758,8 +758,12 @@ export class DurableMesh {
     this.sessions.set(key, { workspaceId, deviceId, remoteIssuedAt, direction, connection, session })
     await previous?.session.close()
     await this.notify()
-    void session.publish()
+    void session.publish().catch(() => { void session.close() })
+    const heartbeat = setInterval(() => {
+      void session.heartbeat?.().catch(() => { void session.close() })
+    }, 3_000)
     void session.done.catch(() => {}).finally(async () => {
+      clearInterval(heartbeat)
       const wasCurrent = this.sessions.get(key)?.session === session
       if (wasCurrent) this.sessions.delete(key)
       await connection.close()
@@ -776,7 +780,13 @@ export class DurableMesh {
   }
 
   private async publishAll() {
-    await Promise.allSettled([...this.sessions.values()].map(entry => entry.session.publish()))
+    await Promise.allSettled([...this.sessions.entries()].map(async ([key, entry]) => {
+      try {
+        await entry.session.publish()
+      } catch {
+        if (this.sessions.get(key)?.session === entry.session) await entry.session.close()
+      }
+    }))
   }
 
   async views(workspaceId?: string): Promise<MeshPeerView[]> {

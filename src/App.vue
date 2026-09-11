@@ -562,7 +562,8 @@ watch(
 
 watch(notice, (message) => {
   if (noticeTimer) clearTimeout(noticeTimer)
-  if (message) noticeTimer = setTimeout(() => { notice.value = "" }, 4_000)
+  const hasUndo = archiveUndo.value && (message === "Item archived" || message.startsWith("Restore failed"))
+  if (message && !hasUndo) noticeTimer = setTimeout(() => { notice.value = "" }, 4_000)
 })
 
 watch(() => activeWorkspace.id, () => {
