@@ -6,66 +6,66 @@
 const CONTROL_CHARS_REGEX = /\p{Cc}/u
 const BIDI_CONTROL_REGEX = /\p{Bidi_Control}/u
 
-const FEMININE_ADJECTIVES = [
-  "Тревожная",
-  "Задумчивая",
-  "Дерзкая",
-  "Солнечная",
-  "Искристая",
-  "Лучезарная",
-  "Смелая",
-  "Ласковая",
-  "Уютная",
-  "Пушистая",
-  "Внимательная",
-  "Быстрая",
-  "Мудрая",
-  "Весёлая",
-  "Звонкая",
-  "Нежная",
-  "Игривая",
-  "Бодрая",
-  "Любопытная",
-  "Чуткая",
-  "Мечтательная",
-  "Озорная",
-  "Спокойная",
-  "Радостная",
-  "Шустрая",
-  "Отважная",
-  "Вдохновенная",
-  "Загадочная",
+const ADJECTIVES = [
+  "Restless",
+  "Thoughtful",
+  "Bold",
+  "Sunny",
+  "Sparkling",
+  "Radiant",
+  "Brave",
+  "Gentle",
+  "Cozy",
+  "Fluffy",
+  "Attentive",
+  "Swift",
+  "Wise",
+  "Cheerful",
+  "Lively",
+  "Tender",
+  "Playful",
+  "Spry",
+  "Curious",
+  "Kind",
+  "Dreamy",
+  "Mischievous",
+  "Calm",
+  "Joyful",
+  "Nimble",
+  "Valiant",
+  "Inspired",
+  "Mysterious",
 ] as const
 
-const FEMININE_NOUNS = [
-  "мимоза",
-  "капибара",
-  "петуния",
-  "выдра",
-  "панда",
-  "лама",
-  "комета",
-  "ромашка",
-  "корица",
-  "карамель",
-  "черника",
-  "малина",
-  "лисица",
-  "сова",
-  "белка",
-  "ласточка",
-  "искорка",
-  "фиалка",
-  "ваниль",
-  "мята",
-  "папайя",
-  "магнолия",
-  "улитка",
-  "черепаха",
-  "цапля",
-  "акация",
-  "коала",
-  "куница",
+const NOUNS = [
+  "Mimosa",
+  "Capybara",
+  "Petunia",
+  "Otter",
+  "Panda",
+  "Llama",
+  "Comet",
+  "Daisy",
+  "Cinnamon",
+  "Caramel",
+  "Blueberry",
+  "Raspberry",
+  "Fox",
+  "Owl",
+  "Squirrel",
+  "Swallow",
+  "Spark",
+  "Violet",
+  "Vanilla",
+  "Mint",
+  "Papaya",
+  "Magnolia",
+  "Snail",
+  "Turtle",
+  "Heron",
+  "Acacia",
+  "Koala",
+  "Marten",
 ] as const
 
 /**
@@ -123,12 +123,12 @@ function getRandomIndex(length: number): number {
 }
 
 /**
- * Generates a friendly Russian feminine adjective + noun.
+ * Generates a friendly English adjective + noun.
  * Cryptographically random from broad dictionaries (~28 each).
  */
 export function randomDisplayName(): string {
-  const adj = FEMININE_ADJECTIVES[getRandomIndex(FEMININE_ADJECTIVES.length)]
-  const noun = FEMININE_NOUNS[getRandomIndex(FEMININE_NOUNS.length)]
+  const adj = ADJECTIVES[getRandomIndex(ADJECTIVES.length)]
+  const noun = NOUNS[getRandomIndex(NOUNS.length)]
   return `${adj} ${noun}`
 }
 

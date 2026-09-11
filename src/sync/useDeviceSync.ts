@@ -121,6 +121,7 @@ export function useDeviceSync({
   const invitationWorkspaces = ref<{ id: string; title: string }[]>([])
   const parsedInvite = ref<ScopedInvitation | null>(null)
   const meshPeers = ref<MeshPeerView[]>([])
+  const meshDiagnostic = ref("")
   const localDeviceId = ref("")
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
@@ -146,8 +147,11 @@ export function useDeviceSync({
       revokedWorkspaceIds.value = revoked
       ownershipRevision.value += 1
       if (ids.length > 0) isLive.value = true
-      else if (!liveSession) isLive.value = false
+      else if (!liveSession || directPeerSessions.size === 0) isLive.value = false
       if (ids.length > 0 && step.value === "workspace-reconnecting") step.value = "members"
+    },
+    onDiagnostic(message) {
+      meshDiagnostic.value = message
     },
   }) : undefined
   if (durableMesh && meshWorkspaceStore) {
@@ -507,6 +511,7 @@ export function useDeviceSync({
       isLive.value = false
       async function receivePeer(connection: SyncConnection) {
         let session: LiveWorkspaceSync | undefined
+        let heartbeat: ReturnType<typeof setInterval> | undefined
         let personId = ""
         const timeout = setTimeout(() => { void connection.close() }, 600_000)
         connections.add(connection)
@@ -582,12 +587,16 @@ export function useDeviceSync({
           everConnected = true
           isLive.value = true
           step.value = "synced"
+          heartbeat = setInterval(() => {
+            void session?.heartbeat?.().catch(() => { void session?.close() })
+          }, 3_000)
           // Share merged offline changes with all connected devices.
           await group.publish()
           await session.done
         } catch (err) {
           if (!stopped && currentRun === run && !isNetworkFailure(err)) fail(err)
         } finally {
+          clearInterval(heartbeat)
           clearTimeout(timeout)
           if (session && peers.get(personId) === session) peers.delete(personId)
           if (session && directPeerSessions.get(personId) === session) directPeerSessions.delete(personId)
@@ -908,6 +917,7 @@ export function useDeviceSync({
     isWorkspaceLive: (id: string) => (isLive.value && liveWorkspaceIds.value.includes(id)) || meshLiveWorkspaceIds.value.includes(id),
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
     meshPeers,
+    meshDiagnostic,
     localDeviceId,
     ownershipRevision,
     step,

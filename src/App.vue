@@ -208,28 +208,25 @@ const meshParticipantDevices = computed(() => sync.meshPeers.value
   .filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value)
   .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
 const meshMembers = computed(() => {
-  const byPerson = new Map<string, { personId: string; name: string; role: WorkspaceRole; online: boolean; devices: number; self: boolean }>()
+  const peers = sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)
   const selfId = chat.personId.value
-  if (selfId) byPerson.set(selfId, {
-    personId: selfId,
-    name: chat.displayName.value || "You",
-    role: currentRole.value,
-    online: true,
-    devices: Math.max(1, sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId === selfId && !peer.revokedAt).length),
-    self: true,
-  })
-  for (const peer of sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)) {
-    const previous = byPerson.get(peer.personId)
-    byPerson.set(peer.personId, {
-      personId: peer.personId,
-      name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}`,
-      role: peer.personId === currentWorkspaceOwnerId.value ? "owner" : peer.role === "owner" ? "editor" : peer.role,
-      online: Boolean(previous?.online || peer.online || peer.deviceId === sync.localDeviceId.value),
-      devices: (previous?.devices ?? 0) + (peer.deviceId === sync.localDeviceId.value && previous?.self ? 0 : 1),
-      self: peer.personId === selfId,
-    })
-  }
-  return [...byPerson.values()].sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
+  const personIds = new Set(peers.map(peer => peer.personId))
+  if (selfId) personIds.add(selfId)
+  return [...personIds].map(personId => {
+    const devices = peers.filter(peer => peer.personId === personId)
+    const self = personId === selfId
+    const deviceIds = new Set(devices.map(peer => peer.deviceId))
+    if (self && sync.localDeviceId.value) deviceIds.add(sync.localDeviceId.value)
+    const peerRole = devices[0]?.role ?? "visitor"
+    return {
+      personId,
+      name: self ? chat.displayName.value || "You" : chat.members.value.find(member => member.personId === personId)?.name ?? `Participant · ${personId.slice(0, 6)}`,
+      role: personId === currentWorkspaceOwnerId.value ? "owner" as const : peerRole === "owner" ? "editor" as const : peerRole,
+      online: devices.some(peer => peer.deviceId !== sync.localDeviceId.value && peer.online),
+      devices: Math.max(self ? 1 : 0, deviceIds.size),
+      self,
+    }
+  }).sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
 })
 const transferringOwnership = ref("")
 
@@ -1356,6 +1353,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :can-manage-mesh="isWorkspaceOwner"
       :transferring-ownership="transferringOwnership"
       :mesh-action-error="peerAccessError"
+      :workspace-connected="meshPresence === 'connected'"
+      :mesh-diagnostic="sync.meshDiagnostic.value"
       :live="sync.isLive.value"
       @update:selected-workspace-ids="sync.selectedWorkspaceIds.value = $event"
       @update:selected-workspace-id="sync.selectedWorkspaceId.value = $event"

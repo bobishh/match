@@ -60,6 +60,7 @@ type DurableMeshOptions = {
   getProfile: () => Promise<LocalProfile>
   store?: PeerStore
   onChange?: (workspaces: string[], peers: MeshPeerView[], revoked: string[]) => void
+  onDiagnostic?: (message: string) => void
 }
 
 type MeshTabMessage =
@@ -67,7 +68,7 @@ type MeshTabMessage =
   | { type: "paused"; requestId: string; senderId: string; wasLeader: boolean }
   | { type: "resume"; senderId: string }
   | { type: "state-request"; senderId: string }
-  | { type: "state"; senderId: string; workspaces: string[]; peers: MeshPeerView[]; revoked: string[] }
+  | { type: "state"; senderId: string; workspaces: string[]; peers: MeshPeerView[]; revoked: string[]; diagnostic?: string }
 
 function uniqueCertificates(profile: LocalProfile, certificates: Awaited<ReturnType<typeof defaultProofStore.listCertificates>>) {
   const all = [profile.certificate, ...certificates]
@@ -140,6 +141,7 @@ export class DurableMesh {
   private restartRequested = false
   private takeoverNode = false
   private pauseWaiters = new Map<string, (wasLeader: boolean) => void>()
+  private lastDiagnostic = ""
 
   constructor(private readonly options: DurableMeshOptions) {
     this.store = options.store ?? peerStore
@@ -165,7 +167,15 @@ export class DurableMesh {
       await this.notify()
     } else if (message.type === "state" && !this.leader?.isLeader) {
       this.options.onChange?.(message.workspaces, message.peers, message.revoked ?? [])
+      this.options.onDiagnostic?.(message.diagnostic ?? "")
     }
+  }
+
+  private report(stage: string, error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error)
+    this.lastDiagnostic = `${stage}: ${detail || "unknown transport error"}`
+    this.options.onDiagnostic?.(this.lastDiagnostic)
+    void this.notify()
   }
 
   async pauseAll(): Promise<void> {
@@ -583,7 +593,10 @@ export class DurableMesh {
         void this.acceptLoop(signal)
         await this.dialLoop(signal)
       } catch (error) {
-        if (!signal.aborted) console.warn("Durable mesh restarting", error)
+        if (!signal.aborted) {
+          this.report("Mesh restart", error)
+          console.warn("Durable mesh restarting", error)
+        }
       } finally {
         signal.removeEventListener("abort", abort)
         if (typeof window !== "undefined") window.removeEventListener("offline", offline)
@@ -673,7 +686,8 @@ export class DurableMesh {
       await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
         remote.advertisement.payload.issuedAt, "incoming", connection,
         Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"))
-    } catch {
+    } catch (error) {
+      this.report("Incoming handshake", error)
       await connection.close()
     }
   }
@@ -736,7 +750,8 @@ export class DurableMesh {
       await this.installSession(peer.workspaceId, peer.deviceId, verified.advertisement.payload.issuedAt, "outgoing", connection,
         Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"))
       connection = undefined
-    } catch {
+    } catch (error) {
+      this.report(`Dial ${peer.deviceId.slice(0, 6)}`, error)
       this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 5))
       this.failedAt.set(key, Date.now())
       await connection?.close().catch(() => {})
@@ -759,13 +774,21 @@ export class DurableMesh {
     if (!credential) return void connection.close()
     const session = liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
     this.sessions.set(key, { workspaceId, deviceId, remoteIssuedAt, direction, connection, session })
+    this.lastDiagnostic = ""
+    this.options.onDiagnostic?.("")
     await previous?.session.close()
     await this.notify()
-    void session.publish().catch(() => { void session.close() })
+    void session.publish().catch(error => {
+      this.report(`Publish ${deviceId.slice(0, 6)}`, error)
+      void session.close()
+    })
     const heartbeat = heartbeatSupported ? setInterval(() => {
-      void session.heartbeat?.().catch(() => { void session.close() })
+      void session.heartbeat?.().catch(error => {
+        this.report(`Heartbeat ${deviceId.slice(0, 6)}`, error)
+        void session.close()
+      })
     }, 3_000) : undefined
-    void session.done.catch(() => {}).finally(async () => {
+    void session.done.catch(error => { this.report(`Receive ${deviceId.slice(0, 6)}`, error) }).finally(async () => {
       if (heartbeat) clearInterval(heartbeat)
       const wasCurrent = this.sessions.get(key)?.session === session
       if (wasCurrent) this.sessions.delete(key)
@@ -786,7 +809,8 @@ export class DurableMesh {
     await Promise.allSettled([...this.sessions.entries()].map(async ([key, entry]) => {
       try {
         await entry.session.publish()
-      } catch {
+      } catch (error) {
+        this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
         if (this.sessions.get(key)?.session === entry.session) await entry.session.close()
       }
     }))
@@ -816,7 +840,14 @@ export class DurableMesh {
     const revoked = await this.revokedWorkspaceIds()
     this.options.onChange?.(workspaces, peers, revoked)
     if (this.leader?.isLeader) {
-      this.tabChannel?.postMessage({ type: "state", senderId: this.tabId, workspaces, peers, revoked } satisfies MeshTabMessage)
+      this.tabChannel?.postMessage({
+        type: "state",
+        senderId: this.tabId,
+        workspaces,
+        peers,
+        revoked,
+        diagnostic: this.lastDiagnostic,
+      } satisfies MeshTabMessage)
     }
   }
 }

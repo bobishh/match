@@ -29,6 +29,8 @@ const props = defineProps<{
   canManageMesh?: boolean
   transferringOwnership?: string
   meshActionError?: string
+  workspaceConnected?: boolean
+  meshDiagnostic?: string
   live?: boolean
 }>()
 
@@ -118,6 +120,11 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <div class="dialog-actions"><button class="button button-primary" @click="emit('decideJoin', request.id, true)">Approve access</button><button class="button" @click="emit('decideJoin', request.id, false)">Decline</button></div>
       </section>
       <template v-if="step === 'members'">
+        <p class="dialog-copy mesh-connection-summary" role="status">
+          <strong>{{ workspaceConnected ? "Connected" : "Offline" }}</strong>
+          · {{ workspaceConnected ? "Live channel active." : "No live channel. Reconnecting automatically." }}
+        </p>
+        <p v-if="!workspaceConnected && meshDiagnostic" class="sync-error" role="status">Reconnect: {{ meshDiagnostic }}</p>
         <p class="dialog-copy">People and devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
           <button

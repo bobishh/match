@@ -94,15 +94,15 @@ describe("nameKey", () => {
 })
 
 describe("randomDisplayName", () => {
-  it("generates Russian feminine adjective + noun", () => {
+  it("generates an English title-cased adjective + noun", () => {
     for (let i = 0; i < 20; i++) {
       const name = randomDisplayName()
-      expect(name).toMatch(/^[\u0400-\u04FF\s-]+$/)
+      expect(name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/)
       const parts = name.split(" ")
       expect(parts).toHaveLength(2)
-      // Adjective capitalized, noun lowercase
+      // Adjective and noun are title-cased.
       expect(parts[0][0]).toBe(parts[0][0].toUpperCase())
-      expect(parts[1][0]).toBe(parts[1][0].toLowerCase())
+      expect(parts[1][0]).toBe(parts[1][0].toUpperCase())
       // Must be a valid display name
       expect(validateDisplayName(name)).toBeNull()
       expect(normalizeDisplayName(name)).toBe(name)
