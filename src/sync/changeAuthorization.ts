@@ -80,6 +80,16 @@ async function verifiedGrantRole(grant: WorkspaceGrant | undefined, workspaceId:
   if (grant) throw new Error("Invalid workspace grant signature")
 }
 
+function authoritiesWithEmbeddedCertificates(owners: WorkspaceAuthority[], record: Authorization): WorkspaceAuthority[] {
+  if (!Array.isArray(record.ownerCertificates) || record.ownerCertificates.length > 32) return owners
+  return owners.map(owner => {
+    if (owner.publicKey !== record.ownerPublicKey) return owner
+    const certificates = [...new Map([...owner.certificates, ...record.ownerCertificates]
+      .map(certificate => [certificate.signature, certificate])).values()]
+    return { ...owner, certificates }
+  })
+}
+
 function historicalOwnerHashes(remote: Automerge.Doc<WorkspaceDocumentV2>, transfers: WorkspaceOwnershipTransfer[]) {
   const changes = Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change))
   const byHash = new Map(changes.map(change => [change.hash, change]))
@@ -150,8 +160,9 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
     if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid write signature")
     let role: WorkspaceRole = "owner"
     if (p.personId !== expectedOwner) {
-      const grantOwners = ownerSet.length ? ownerSet : [{ personId: expectedOwner,
+      const storedOwners = ownerSet.length ? ownerSet : [{ personId: expectedOwner,
         publicKey: record.ownerPublicKey, certificates: record.ownerCertificates }]
+      const grantOwners = authoritiesWithEmbeddedCertificates(storedOwners, record)
       const grantRole = await verifiedGrantRole(record.grant, remote.id, p.personId, grantOwners)
       const historical = historicalHashes.get(p.personId)
       if (grantRole !== "editor" && !historical) throw new Error("Visitors cannot write workspace changes")

@@ -9,7 +9,8 @@ import { executeCommand, type Command } from "../domain/commands"
 import { validateIncomingChanges } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
 
-vi.mock("./peerStore", () => ({ peerStore: { getWorkspaceCredential: async () => null, listPeers: async () => [] } }))
+const peerStoreState = vi.hoisted(() => ({ credential: null as any }))
+vi.mock("./peerStore", () => ({ peerStore: { getWorkspaceCredential: async () => peerStoreState.credential, listPeers: async () => [] } }))
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
@@ -17,6 +18,7 @@ beforeAll(async () => {
 })
 let owner: LocalProfile, member: LocalProfile
 beforeEach(async () => {
+  peerStoreState.credential = null
   resetIdentityStorageForTest(); owner = await bootstrapIdentity("Owner")
   resetIdentityStorageForTest(); member = await bootstrapIdentity("Member")
 })
@@ -44,6 +46,20 @@ it("accepts signed editor task changes, including when forwarded by another peer
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Allowed" }), "editor")
   await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
   expect(() => assertWorkspaceTransition("editor", local, remote)).not.toThrow()
+})
+it("accepts a historical editor grant when its signed authorization carries a missing owner device certificate", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Forwarded" }), "editor")
+  peerStoreState.credential = {
+    workspaceId: local.id,
+    ownerPersonId: owner.identity.personId,
+    ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [],
+    localGrant: undefined,
+    ownerHistory: [],
+    catalog: {},
+  }
+
+  await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
 })
 for (const action of ["renameWorkspace", "createColumn"] as const) {
   it(`rejects editor ${action} through the same policy used for local commands`, async () => {

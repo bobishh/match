@@ -364,3 +364,57 @@ test("Given existing data under another identity, when enrollment is approved, t
     await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toBeVisible()
   } finally { await context.close() }
 })
+
+test("Given a delegated owner device, when it grants an editor access twice, then the editor verifies both grants", async ({ page, browser }) => {
+  test.setTimeout(120_000)
+  const ownerContext = await browser.newContext()
+  const editorContext = await browser.newContext()
+  const owner2 = await ownerContext.newPage()
+  const editor = await editorContext.newPage()
+  try {
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const owner1Dialog = page.getByRole("dialog", { name: "Device sync" })
+    await owner1Dialog.getByRole("button", { name: "Add someone" }).click()
+    await owner1Dialog.getByRole("button", { name: "Add my device", exact: true }).click()
+    await owner2.goto(await owner1Dialog.getByLabel("Pairing link").inputValue())
+    const owner2Dialog = owner2.getByRole("dialog", { name: "Device sync" })
+    await owner2Dialog.getByRole("button", { name: "Add this device" }).click()
+    await owner1Dialog.getByRole("button", { name: "Approve device" }).click()
+    await expect(owner2Dialog.getByText("Device enrolled", { exact: true })).toBeVisible()
+    await owner2Dialog.getByRole("button", { name: "Close", exact: true }).first().click()
+
+    const inviteEditor = async () => {
+      await owner2.getByRole("button", { name: "Sync", exact: true }).click()
+      await owner2Dialog.getByRole("button", { name: "Add someone" }).click()
+      await owner2Dialog.getByRole("button", { name: "Generate link" }).click()
+      await editor.goto(await owner2Dialog.getByLabel("Pairing link").inputValue())
+      const editorDialog = editor.getByRole("dialog", { name: "Device sync" })
+      if (await editorDialog.getByRole("button", { name: "Merge and join" }).count()) await editorDialog.getByRole("button", { name: "Merge and join" }).click()
+      else await editorDialog.getByRole("button", { name: "Accept and join" }).click()
+      await owner2Dialog.getByLabel("Participant role").selectOption("editor")
+      await owner2Dialog.getByRole("button", { name: "Approve access" }).click()
+      await expect(editorDialog.getByText(/Connected to/)).toBeVisible({ timeout: 30_000 })
+      await editorDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await owner2Dialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    }
+
+    await inviteEditor()
+    await editor.getByRole("button", { name: /Add lead to/ }).first().click()
+    await editor.getByLabel("Company *").fill("Offline editor history")
+    await editor.getByLabel("Role *").fill("Engineer")
+    await editor.getByRole("button", { name: "Create item" }).click()
+    await editor.getByRole("button", { name: "Close detail" }).click()
+    await editor.getByRole("button", { name: "Sync", exact: true }).click()
+    const editorDialog = editor.getByRole("dialog", { name: "Device sync" })
+    await editorDialog.getByRole("button", { name: "Leave mesh" }).click()
+    await editorDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
+    await editorDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await inviteEditor()
+    await expect(editor.getByLabel("Workspace role: editor")).toBeVisible()
+  } finally {
+    await ownerContext.close()
+    await editorContext.close()
+  }
+})
