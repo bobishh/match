@@ -21,5 +21,28 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+  browser:
+    name: Browser (${{ matrix.suite }})
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: core
+            projects: --project=core
+          - suite: mesh
+            projects: --project=chat --project=durable-mesh --project=sync --project=workspace-roles --project=workspace-sync-data
+          - suite: coordination
+            projects: --project=scoped-sync --project=scoped-enrollment --project=scoped-existing-board --project=scoped-existing-identity --project=scoped-delegated-owner --project=succession-named --project=succession-quorum
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - run: npx playwright test ${{ matrix.projects }}
