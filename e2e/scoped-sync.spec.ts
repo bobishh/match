@@ -375,7 +375,7 @@ test("Given existing data under another identity, when enrollment is approved, t
 })
 
 test("Given a delegated owner device, when it grants an editor access twice, then the editor verifies both grants", async ({ page, browser }) => {
-  test.setTimeout(180_000)
+  test.setTimeout(120_000)
   const ownerContext = await browser.newContext()
   const editorContext = await browser.newContext()
   const owner2 = await ownerContext.newPage()
