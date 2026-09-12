@@ -6,6 +6,7 @@ import type { Command } from "./domain/commands"
 import type { WorkspaceDocumentV2, WorkspaceEntity, Task, Column, Board } from "./domain/model"
 import { isEntityVisible } from "./domain/ancestry"
 import { projectWorkspaceSettings, type WorkspaceSettingsDraft } from "./domain/workspaceSettings"
+import { projectTaskPriority } from "./domain/priority"
 
 export type ModelContext = {
   registerTool: (tool: {
@@ -102,6 +103,42 @@ const workspaceSettingsSchema = {
             required: ["title", "valueType", "required"],
             additionalProperties: false,
           },
+        },
+        priorityPolicy: {
+          type: ["object", "null"],
+          description: "Declarative automatic priority policy. Rules are data evaluated by weighted-rules-v1; executable code is never stored.",
+          properties: {
+            version: { type: "number", const: 1 },
+            evaluator: { type: "string", const: "weighted-rules-v1" },
+            priorityFieldId: { type: "string" },
+            fitFieldId: { type: ["string", "null"] },
+            rules: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  fieldId: { type: "string" },
+                  operator: { type: "string", enum: ["equals", "contains", "at_least", "at_most", "is_set"] },
+                  value: { type: ["string", "number", "boolean", "null"] },
+                  weight: { type: "number", minimum: -10, maximum: 10 },
+                },
+                required: ["id", "fieldId", "operator", "value", "weight"],
+                additionalProperties: false,
+              },
+            },
+            bands: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: { optionId: { type: "string" }, minScore: { type: "number", minimum: 0, maximum: 10 } },
+                required: ["optionId", "minScore"],
+                additionalProperties: false,
+              },
+            },
+          },
+          required: ["version", "evaluator", "priorityFieldId", "fitFieldId", "rules", "bands"],
+          additionalProperties: false,
         },
       },
       required: ["boardId", "boardTitle", "entityName", "columns", "fields"],
@@ -339,9 +376,11 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
 
       const doc = store.getActiveDoc?.()
       if (!doc) return []
+      const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.deleted)
 
       return Object.values(doc.entities)
         .filter((e): e is Task => e.kind === "task" && isEntityVisible(doc.entities, e.id))
+        .map(task => projectTaskPriority(board, task))
         .filter((t) => (!parentId || t.placement.parentId === parentId))
         .filter((t) => (!search || `${t.title} ${t.body}`.toLowerCase().includes(search)))
         .map((t) => ({

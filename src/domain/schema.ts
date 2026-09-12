@@ -5,9 +5,12 @@ import type {
   FieldDefinition,
   FieldOption,
   EntityId,
+  PriorityPolicy,
 } from "./model"
 import { getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
+import { priorityPolicySchema } from "./entitySchemas"
+import { validatePriorityPolicy } from "./priority"
 
 export type BoardSchemaColumn = {
   id?: string
@@ -36,6 +39,7 @@ export type BoardSchemaDraft = {
   entityName: string
   columns: BoardSchemaColumn[]
   fields: BoardSchemaField[]
+  priorityPolicy?: PriorityPolicy | null
 }
 
 export type SchemaValidationError = {
@@ -115,12 +119,13 @@ export function projectBoardSchema(
     entityName,
     columns,
     fields,
+    priorityPolicy: board?.priorityPolicy ? JSON.parse(JSON.stringify(board.priorityPolicy)) : null,
   }
 }
 
 const ALLOWED_VALUE_TYPES = new Set(["text", "number", "boolean", "select", "url", "date", "datetime"])
 
-export function validateBoardSchemaDraft(draft: unknown): SchemaValidationResult {
+export function validateBoardSchemaDraft(draft: unknown, doc?: WorkspaceDocumentV2): SchemaValidationResult {
   const errors: SchemaValidationError[] = []
 
   if (!draft || typeof draft !== "object") {
@@ -198,6 +203,26 @@ export function validateBoardSchemaDraft(draft: unknown): SchemaValidationResult
         }
       }
     })
+  }
+
+  if (d.priorityPolicy !== undefined && d.priorityPolicy !== null) {
+    const parsed = priorityPolicySchema.safeParse(d.priorityPolicy)
+    if (!parsed.success) {
+      errors.push(...parsed.error.issues.map(issue => ({
+        path: `/priorityPolicy/${issue.path.join("/")}`.replace(/\/$/, ""),
+        message: issue.message,
+      })))
+    } else {
+      errors.push(...validatePriorityPolicy(parsed.data, doc, String(d.boardId ?? "")))
+      if (Array.isArray(d.fields)) {
+        const keptFieldIds = new Set(d.fields.map((field: any) => field?.id).filter((fieldId: unknown): fieldId is string => typeof fieldId === "string"))
+        for (const [index, rule] of parsed.data.rules.entries()) {
+          if (!keptFieldIds.has(rule.fieldId)) errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "Rule field must remain on this board" })
+        }
+        if (!keptFieldIds.has(parsed.data.priorityFieldId)) errors.push({ path: "/priorityPolicy/priorityFieldId", message: "Priority output field must remain on this board" })
+        if (parsed.data.fitFieldId && !keptFieldIds.has(parsed.data.fitFieldId)) errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output field must remain on this board" })
+      }
+    }
   }
 
   return {

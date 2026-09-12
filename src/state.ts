@@ -38,6 +38,7 @@ import type {
 } from "./types"
 import { normalizeWorkspace, statusOrder } from "./types"
 import { getVisibleChildren, derivePlacementIssues, getChildren, isEntityVisible } from "./domain/ancestry"
+import { projectTaskPriority } from "./domain/priority"
 
 const workspace = reactive<Workspace>({ leads: [], documents: [], templates: [], artifacts: [] })
 const ready = reactive({ value: false })
@@ -135,7 +136,8 @@ function projectWorkspace(doc: Automerge.Doc<WorkspaceDocumentV2>): Workspace {
   )
 
   const leads: Lead[] = []
-  for (const task of tasks) {
+  for (const sourceTask of tasks) {
+    const task = projectTaskPriority(board, sourceTask)
     let colId: string | null = task.placement.parentId
     let curr: WorkspaceEntity | undefined = colId ? doc.entities[colId] : undefined
     const visited = new Set<string>()
@@ -526,7 +528,8 @@ export function useMatch() {
 
       return {
         ...col,
-        tasks: tasks.map((task) => {
+        tasks: tasks.map((sourceTask) => {
+          const task = projectTaskPriority(activeBoard.value, sourceTask)
           const subtasks = getChildren(activeDoc!.entities, task.id)
             .filter((e): e is Task => e.kind === "task" && !e.deleted)
           return {
@@ -664,8 +667,9 @@ export function useMatch() {
     if (urlFieldId && input.url) values[urlFieldId] = input.url
     const locFieldId = resolveFieldId("location")
     if (locFieldId && input.location) values[locFieldId] = input.location
+    const automaticPriority = Boolean(activeBoard.value?.priorityPolicy)
     const fitFieldId = resolveFieldId("fitScore")
-    if (fitFieldId && input.fitScore !== undefined) values[fitFieldId] = input.fitScore
+    if (!automaticPriority && fitFieldId && input.fitScore !== undefined) values[fitFieldId] = input.fitScore
     const notesFieldId = resolveFieldId("notes")
     if (notesFieldId && input.notes) values[notesFieldId] = input.notes
     const rejFieldId = resolveFieldId("rejectionReason")
@@ -678,7 +682,7 @@ export function useMatch() {
       const fieldId = resolveFieldId("workMode")
       if (fieldId && optId) values[fieldId] = optId
     }
-    if (input.priority) {
+    if (!automaticPriority && input.priority) {
       const optId = resolveOptionId("priority", input.priority)
       const fieldId = resolveFieldId("priority")
       if (fieldId && optId) values[fieldId] = optId
@@ -734,12 +738,13 @@ export function useMatch() {
       const opt = resolveOptionId("workMode", patch.workMode)
       if (fid && opt) values[fid] = opt
     }
-    if (patch.priority) {
+    const automaticPriority = Boolean(activeBoard.value?.priorityPolicy)
+    if (!automaticPriority && patch.priority) {
       const fid = resolveFieldId("priority")
       const opt = resolveOptionId("priority", patch.priority)
       if (fid && opt) values[fid] = opt
     }
-    if (patch.fitScore !== undefined) {
+    if (!automaticPriority && patch.fitScore !== undefined) {
       const fid = resolveFieldId("fitScore")
       if (fid) values[fid] = patch.fitScore
     }

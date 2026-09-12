@@ -9,9 +9,27 @@ const entityBaseSchema = z.strictObject({
   deleted: z.boolean(), createdAt: z.string(), updatedAt: z.string(),
 })
 const common = entityBaseSchema.shape
+export const fieldValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
+export const priorityRuleSchema = z.strictObject({
+  id,
+  fieldId: id,
+  operator: z.enum(["equals", "contains", "at_least", "at_most", "is_set"]),
+  value: fieldValueSchema,
+  weight: z.number().min(-10).max(10),
+})
+export const priorityBandSchema = z.strictObject({ optionId: id, minScore: z.number().min(0).max(10) })
+export const priorityPolicySchema = z.strictObject({
+  version: z.literal(1),
+  evaluator: z.literal("weighted-rules-v1"),
+  priorityFieldId: id,
+  fitFieldId: id.nullable(),
+  rules: z.array(priorityRuleSchema),
+  bands: z.array(priorityBandSchema),
+})
 export const boardSchema = z.strictObject({
   ...common, kind: z.literal("board"), entityName: z.string().refine(value => Boolean(value.trim())).optional(),
   preset: z.strictObject({ key: z.enum(["job-search", "blank"]), version: z.literal(1), bindings: z.record(z.string(), z.string()) }).nullable(),
+  priorityPolicy: priorityPolicySchema.nullable().optional(),
 })
 export const columnSchema = z.strictObject({
   ...common,
@@ -19,7 +37,6 @@ export const columnSchema = z.strictObject({
   displayHint: z.enum(["normal", "collapsed"]),
   archive: z.literal(true).optional(),
 })
-export const fieldValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
 export const taskSchema = z.strictObject({ ...common, kind: z.literal("task"), body: z.string(), values: z.record(z.string(), fieldValueSchema) })
 export const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, deleted: z.boolean() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
@@ -57,6 +74,9 @@ export type EntityBase = z.infer<typeof entityBaseSchema>
 export type Board = z.infer<typeof boardSchema>
 export type Column = z.infer<typeof columnSchema>
 export type FieldValue = z.infer<typeof fieldValueSchema>
+export type PriorityRule = z.infer<typeof priorityRuleSchema>
+export type PriorityBand = z.infer<typeof priorityBandSchema>
+export type PriorityPolicy = z.infer<typeof priorityPolicySchema>
 export type Task = z.infer<typeof taskSchema>
 export type FieldOption = z.infer<typeof fieldOptionSchema>
 export type FieldDefinition = z.infer<typeof fieldSchema>

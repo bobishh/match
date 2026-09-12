@@ -133,6 +133,7 @@ const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const workspaceLabel = computed(() => activeWorkspace.title.toLowerCase() === "job search" ? "jobs" : activeWorkspace.title)
 const entityName = computed(() => activeBoard.value?.entityName || (activeBoard.value?.preset?.key === "job-search" ? "lead" : "item"))
 const addItemLabel = computed(() => `+ Add ${entityName.value}`)
+const automaticPriorityEnabled = computed(() => Boolean(activeBoard.value?.priorityPolicy))
 
 function toggleMobileMenu() {
   showMobileMenu.value = !showMobileMenu.value
@@ -1494,8 +1495,11 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
           <label><span>Location</span><input v-model="newLead.location" /></label>
           <label><span>Work mode</span><select v-model="newLead.workMode"><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option><option value="unknown">Unknown</option></select></label>
           <label><span>Status</span><select v-model="newLead.status"><option v-for="(label, status) in statusLabels" :key="status" :value="status">{{ label }}</option></select></label>
-          <label><span>Priority</span><select v-model="newLead.priority"><option v-for="(label, priority) in priorityLabels" :key="priority" :value="priority">{{ label }}</option></select></label>
-          <label><span>Fit score</span><input v-model.number="newLead.fitScore" type="number" min="0" max="10" placeholder="0–10" /></label>
+          <p v-if="automaticPriorityEnabled" class="wide computed-priority-note">Priority and fit are calculated from workspace preferences.</p>
+          <template v-else>
+            <label><span>Priority</span><select v-model="newLead.priority"><option v-for="(label, priority) in priorityLabels" :key="priority" :value="priority">{{ label }}</option></select></label>
+            <label><span>Fit score</span><input v-model.number="newLead.fitScore" type="number" min="0" max="10" placeholder="0–10" /></label>
+          </template>
           <label class="wide"><span>Notes</span><textarea v-model="newLead.notes" rows="3" placeholder="Why this matters, gaps, next move…"></textarea></label>
           <label class="wide"><span>Source snapshot</span><textarea v-model="newLead.sourceText" rows="4" placeholder="Paste description if useful for later tailoring…"></textarea></label>
           <label v-if="newLead.status === 'rejected'" class="wide"><span>Rejection notes / retrospective</span><textarea v-model="newLead.rejectionReason" rows="3" placeholder="Optional retrospective note on what went wrong…"></textarea></label>

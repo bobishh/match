@@ -140,6 +140,8 @@ function applyBoardSchemaSettings(
   const board = draft.entities[boardId] as Board
   board.title = schema.boardTitle.trim()
   board.entityName = schema.entityName.trim()
+  if (schema.priorityPolicy) board.priorityPolicy = JSON.parse(JSON.stringify(schema.priorityPolicy))
+  else delete board.priorityPolicy
   board.updatedAt = nowIso
   changedEntityIds.push(boardId)
 
@@ -876,7 +878,7 @@ export async function executeCommand(
         }
       }
 
-      const validation = validateBoardSchemaDraft(command.schema)
+      const validation = validateBoardSchemaDraft(command.schema, doc)
       if (!validation.valid) {
         const first = validation.errors[0]
         return err("invalid_input", first.message, first.path)
@@ -894,6 +896,8 @@ export async function executeCommand(
           b.entityName = command.schema.entityName.trim()
           b.updatedAt = nowIso
         }
+        if (command.schema.priorityPolicy) b.priorityPolicy = JSON.parse(JSON.stringify(command.schema.priorityPolicy))
+        else delete b.priorityPolicy
 
         // 1. Process columns
         const existingColumns = Object.values(draft.entities).filter(

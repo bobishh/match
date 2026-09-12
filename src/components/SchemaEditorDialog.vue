@@ -16,6 +16,8 @@ import {
   validateWorkspaceSettingsDraft,
   type WorkspaceSettingsDraft,
 } from "../domain/workspaceSettings"
+import { compareRanks } from "../domain/ancestry"
+import { createDefaultPriorityPolicy } from "../domain/priority"
 
 const props = defineProps<{
   readOnly?: boolean
@@ -35,7 +37,7 @@ const emit = defineEmits<{
   (e: "applyWorkspaceSettings", payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }): void
 }>()
 
-const activeTab = ref<"templates" | "json" | "profile">("templates")
+const activeTab = ref<"templates" | "priority" | "json" | "profile">("templates")
 const draft = ref<BoardSchemaDraft>(projectBoardSchema(props.doc, props.board.id))
 const editorEntityName = computed(() => draft.value.entityName || props.board.entityName || "item")
 const jsonText = ref<string>(JSON.stringify(draft.value, null, 2))
@@ -46,6 +48,19 @@ const conflictNotice = ref("")
 const workspaceSettings = ref<WorkspaceSettingsDraft>(projectWorkspaceSettings(props.doc, props.board.id))
 const workspaceJson = ref(JSON.stringify(workspaceSettings.value, null, 2))
 const workspaceErrors = ref<SchemaValidationError[]>([])
+const priorityErrors = ref<string[]>([])
+const supportsAutomaticPriority = computed(() => Boolean(
+  props.board.preset?.bindings["field.priority"] && props.board.preset?.bindings["field.fitScore"]
+))
+const priorityPolicy = computed(() => workspaceSettings.value.board.priorityPolicy ?? null)
+const criterionFields = computed(() => props.fields.filter(field =>
+  !field.deleted && field.id !== priorityPolicy.value?.priorityFieldId && field.id !== priorityPolicy.value?.fitFieldId
+))
+const priorityOptions = computed(() => {
+  const field = props.fields.find(item => item.id === priorityPolicy.value?.priorityFieldId)
+  if (!field || field.valueType !== "select") return []
+  return Object.values(field.options).filter(option => !option.deleted).sort((a, b) => compareRanks(a.rank, b.rank))
+})
 
 // Tree view add field form state
 const showAddField = ref(false)
@@ -116,6 +131,86 @@ function handleWorkspaceJsonInput(e: Event) {
 function applyWorkspaceJson() {
   handleWorkspaceJsonInput({ target: { value: workspaceJson.value } } as unknown as Event)
   if (workspaceErrors.value.length) return
+  emit("applyWorkspaceSettings", { settings: workspaceSettings.value, expectedHeads: props.heads })
+}
+
+function fieldForRule(fieldId: string) {
+  return props.fields.find(field => field.id === fieldId)
+}
+
+function optionsForRule(fieldId: string) {
+  const field = fieldForRule(fieldId)
+  if (!field || field.valueType !== "select") return []
+  return Object.values(field.options).filter(option => !option.deleted).sort((a, b) => compareRanks(a.rank, b.rank))
+}
+
+function operatorsFor(fieldId: string) {
+  const field = fieldForRule(fieldId)
+  if (field?.valueType === "number") return [
+    { value: "equals", label: "equals" },
+    { value: "at_least", label: "at least" },
+    { value: "at_most", label: "at most" },
+    { value: "is_set", label: "is set" },
+  ]
+  if (field && ["text", "url"].includes(field.valueType)) return [
+    { value: "contains", label: "contains" },
+    { value: "equals", label: "equals" },
+    { value: "is_set", label: "is set" },
+  ]
+  return [{ value: "equals", label: "equals" }, { value: "is_set", label: "is set" }]
+}
+
+function defaultRuleValue(field: FieldDefinition) {
+  if (field.valueType === "select") return Object.values(field.options).find(option => !option.deleted)?.id ?? ""
+  if (field.valueType === "boolean") return true
+  if (field.valueType === "number") return field.min ?? 0
+  return ""
+}
+
+function resetRule(index: number) {
+  const policy = priorityPolicy.value
+  if (!policy) return
+  const rule = policy.rules[index]
+  const field = fieldForRule(rule.fieldId)
+  if (!field) return
+  rule.operator = field.valueType === "number" || field.valueType === "select" || field.valueType === "boolean" ? "equals" : "contains"
+  rule.value = defaultRuleValue(field)
+}
+
+function enableAutomaticPriority() {
+  workspaceSettings.value.board.priorityPolicy = createDefaultPriorityPolicy(props.board, props.fields)
+  priorityErrors.value = workspaceSettings.value.board.priorityPolicy ? [] : ["Priority and fit fields are unavailable"]
+}
+
+function addPriorityRule() {
+  const policy = priorityPolicy.value
+  const field = criterionFields.value[0]
+  if (!policy || !field) return
+  policy.rules.push({
+    id: crypto.randomUUID(),
+    fieldId: field.id,
+    operator: field.valueType === "number" || field.valueType === "select" || field.valueType === "boolean" ? "equals" : "contains",
+    value: defaultRuleValue(field),
+    weight: 1,
+  })
+}
+
+function removePriorityRule(index: number) {
+  priorityPolicy.value?.rules.splice(index, 1)
+}
+
+function savePriorityRules() {
+  priorityErrors.value = []
+  if (priorityPolicy.value && !priorityPolicy.value.rules.length) {
+    priorityErrors.value = ["Add at least one priority rule"]
+    return
+  }
+  const errors = validateWorkspaceSettingsDraft(workspaceSettings.value, props.doc).errors
+    .filter(error => error.path.startsWith("/board/priorityPolicy"))
+  if (errors.length) {
+    priorityErrors.value = errors.map(error => error.message)
+    return
+  }
   emit("applyWorkspaceSettings", { settings: workspaceSettings.value, expectedHeads: props.heads })
 }
 
@@ -326,6 +421,7 @@ function handleConfirmApply() {
       <template v-else>
         <div class="schema-tabs" role="tablist" aria-label="Workspace settings views">
           <button v-if="$slots.profile" class="schema-tab-btn" :class="{ active: activeTab === 'profile' }" type="button" role="tab" :aria-selected="activeTab === 'profile'" @click="activeTab = 'profile'">Your profile</button>
+          <button v-if="supportsAutomaticPriority" class="schema-tab-btn" :class="{ active: activeTab === 'priority' }" type="button" role="tab" :aria-selected="activeTab === 'priority'" @click="activeTab = 'priority'">Priority rules</button>
           <button class="schema-tab-btn" :class="{ active: activeTab === 'templates' }" type="button" role="tab" :aria-selected="activeTab === 'templates'" @click="activeTab = 'templates'">Document templates</button>
           <button class="schema-tab-btn" :class="{ active: activeTab === 'json' }" type="button" role="tab" :aria-selected="activeTab === 'json'" @click="activeTab = 'json'">JSON</button>
         </div>
@@ -346,6 +442,66 @@ function handleConfirmApply() {
         </div>
 
         <div v-else-if="activeTab === 'profile'" class="schema-tab-content"><slot name="profile" /></div>
+        <div v-else-if="activeTab === 'priority'" class="schema-tab-content priority-settings">
+          <div v-if="priorityErrors.length" class="schema-error-banner" role="alert">{{ priorityErrors[0] }}</div>
+          <template v-if="priorityPolicy">
+            <div class="priority-settings-head">
+              <div>
+                <h3>Automatic priority</h3>
+                <p>Matching rules add points. Fit is clamped to 0–10; priority follows the thresholds.</p>
+              </div>
+              <button class="button button-danger" type="button" :disabled="readOnly" @click="workspaceSettings.board.priorityPolicy = null">Disable automatic priority</button>
+            </div>
+
+            <fieldset :disabled="readOnly" class="priority-rules" aria-label="Weighted criteria">
+              <div v-for="(rule, index) in priorityPolicy.rules" :key="rule.id" class="priority-rule-row">
+                <label>
+                  <span>Criterion</span>
+                  <select v-model="rule.fieldId" :aria-label="`Criterion field ${index + 1}`" @change="resetRule(index)">
+                    <option v-for="field in criterionFields" :key="field.id" :value="field.id">{{ field.title }}</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Match</span>
+                  <select v-model="rule.operator" :aria-label="`Rule operator ${index + 1}`">
+                    <option v-for="operator in operatorsFor(rule.fieldId)" :key="operator.value" :value="operator.value">{{ operator.label }}</option>
+                  </select>
+                </label>
+                <label v-if="rule.operator !== 'is_set'">
+                  <span>Value</span>
+                  <select v-if="fieldForRule(rule.fieldId)?.valueType === 'select'" v-model="rule.value" :aria-label="`Preferred value ${index + 1}`">
+                    <option v-for="option in optionsForRule(rule.fieldId)" :key="option.id" :value="option.id">{{ option.title }}</option>
+                  </select>
+                  <select v-else-if="fieldForRule(rule.fieldId)?.valueType === 'boolean'" v-model="rule.value" :aria-label="`Preferred value ${index + 1}`">
+                    <option :value="true">Yes</option><option :value="false">No</option>
+                  </select>
+                  <input v-else-if="fieldForRule(rule.fieldId)?.valueType === 'number'" v-model.number="rule.value" type="number" :aria-label="`Preferred value ${index + 1}`" />
+                  <input v-else v-model="rule.value" :aria-label="`Preferred value ${index + 1}`" />
+                </label>
+                <label>
+                  <span>Points</span>
+                  <input v-model.number="rule.weight" type="number" min="-10" max="10" :aria-label="`Points ${index + 1}`" />
+                </label>
+                <button class="button button-small button-danger priority-rule-remove" type="button" :aria-label="`Remove ${fieldForRule(rule.fieldId)?.title ?? 'criterion'} rule`" @click="removePriorityRule(index)">Remove</button>
+              </div>
+              <button class="button button-small" type="button" :disabled="!criterionFields.length" @click="addPriorityRule">+ Add criterion</button>
+            </fieldset>
+
+            <fieldset :disabled="readOnly" class="priority-thresholds" aria-label="Priority thresholds">
+              <legend>Priority thresholds</legend>
+              <label v-for="band in priorityPolicy.bands" :key="band.optionId">
+                <span>{{ priorityOptions.find(option => option.id === band.optionId)?.title ?? 'Priority' }} minimum</span>
+                <input v-model.number="band.minScore" type="number" min="0" max="10" />
+              </label>
+            </fieldset>
+          </template>
+          <div v-else class="priority-empty">
+            <h3>Manual priority</h3>
+            <p>Enable rules to calculate fit and priority from card fields. Add fields such as Culture or Reputation in Edit board, then score their values here.</p>
+            <button class="button button-primary" type="button" :disabled="readOnly" @click="enableAutomaticPriority">Enable automatic priority</button>
+          </div>
+          <div class="dialog-actions"><button class="button button-primary" type="button" :disabled="readOnly" @click="savePriorityRules">Save priority rules</button></div>
+        </div>
         <div v-else class="schema-tab-content workspace-json-editor">
           <p>Advanced workspace configuration. One apply updates workspace title, board, columns, fields, and document templates.</p>
           <div v-if="workspaceErrors.length" class="schema-error-banner" role="alert">
@@ -644,6 +800,18 @@ function handleConfirmApply() {
 .workspace-json-editor > p { margin: 0; color: var(--muted); line-height: 1.5; }
 .workspace-json-label { display: grid; gap: 8px; min-height: 0; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .workspace-json-label textarea { min-height: min(52vh, 560px); resize: vertical; color: var(--ink); letter-spacing: 0; text-transform: none; }
+.priority-settings { gap: 18px; }
+.priority-settings h3, .priority-settings p { margin: 0; }
+.priority-settings p { color: var(--muted); line-height: 1.45; }
+.priority-settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.priority-settings-head > div, .priority-empty { display: grid; gap: 8px; }
+.priority-rules, .priority-thresholds { display: grid; gap: 12px; margin: 0; padding: 16px; border: 2px solid var(--line); }
+.priority-rule-row { display: grid; grid-template-columns: 1.2fr 1fr 1.2fr 92px auto; align-items: end; gap: 10px; }
+.priority-rule-row label, .priority-thresholds label { display: grid; gap: 6px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.priority-rule-row input, .priority-rule-row select, .priority-thresholds input { min-width: 0; min-height: 42px; border: 2px solid var(--line); border-radius: 0; background: white; padding: 8px 10px; font: 700 .9rem/1.2 Inter, ui-sans-serif, sans-serif; }
+.priority-rule-remove { min-height: 42px; }
+.priority-thresholds { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.priority-thresholds legend { padding: 0 8px; font: 800 .75rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .preview-body { display: grid; gap: 16px; max-height: 50vh; margin: 20px 0; overflow-y: auto; }
 .preview-body h4 { margin: 0 0 8px; font-size: .9rem; text-transform: uppercase; }
 .preview-danger { color: var(--red); }
@@ -672,6 +840,10 @@ function handleConfirmApply() {
   .schema-column-item .schema-select { grid-column: 2 / 3; }
   .schema-column-item .button-danger { grid-column: 3 / 4; grid-row: 1 / 3; align-self: stretch; }
   .schema-add-field-form { grid-template-columns: 1fr; }
+  .priority-settings-head { display: grid; }
+  .priority-rule-row { grid-template-columns: 1fr 1fr; }
+  .priority-rule-remove { grid-column: 1 / -1; }
+  .priority-thresholds { grid-template-columns: 1fr 1fr; }
   .schema-add-field-form label:has(.schema-input), .schema-add-field-form label:has(.schema-input):nth-child(3) { grid-column: auto; }
 }
 

@@ -7,6 +7,7 @@ import { createWorkspaceDoc } from "./seeds"
 import { executeCommand } from "./commands"
 import { projectWorkspaceSettings, validateWorkspaceSettingsDraft } from "./workspaceSettings"
 import type { WorkspaceDocumentV2 } from "./model"
+import { createDefaultPriorityPolicy } from "./priority"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -96,6 +97,31 @@ describe("workspace settings transaction", () => {
     expect(validateWorkspaceSettingsDraft(projected, result.value.newDoc).errors).toContainEqual({
       path: "/board/columns/1/archive",
       message: "Only one archive column is allowed",
+    })
+  })
+
+  it("stores declarative priority rules in the board CRDT and rejects dangling criteria", async () => {
+    doc = Automerge.from(createWorkspaceDoc("jobs", "Jobs", profile.identity.personId, "job-search"))
+    const settings = projectWorkspaceSettings(doc)
+    const board = doc.entities[settings.board.boardId]
+    if (board.kind !== "board") throw new Error("board missing")
+    const fields = Object.values(doc.entities).filter(entity => entity.kind === "field")
+    settings.board.priorityPolicy = createDefaultPriorityPolicy(board, fields)
+
+    const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings }, profile)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(projectWorkspaceSettings(result.value.newDoc).board.priorityPolicy).toMatchObject({
+      version: 1,
+      evaluator: "weighted-rules-v1",
+      rules: expect.arrayContaining([expect.objectContaining({ weight: 8 })]),
+    })
+
+    const invalid = projectWorkspaceSettings(result.value.newDoc)
+    invalid.board.priorityPolicy!.rules[0].fieldId = "missing"
+    expect(validateWorkspaceSettingsDraft(invalid, result.value.newDoc).errors).toContainEqual({
+      path: "/board/priorityPolicy/rules/0/fieldId",
+      message: "Rule field must be active on this board",
     })
   })
 })

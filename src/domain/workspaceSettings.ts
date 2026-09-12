@@ -68,13 +68,13 @@ export function validateWorkspaceSettingsDraft(
     }
   }
 
-  const boardValidation = validateBoardSchemaDraft(value.board)
+  const boardValidation = validateBoardSchemaDraft(value.board, doc)
   errors.push(...boardValidation.errors.map((error) => ({
     path: `/board${error.path}`,
     message: error.message,
   })))
   if (value.board && typeof value.board === "object" && !Array.isArray(value.board)) {
-    unknownKeys(value.board, ["boardId", "boardTitle", "entityName", "columns", "fields"], "/board", errors)
+    unknownKeys(value.board, ["boardId", "boardTitle", "entityName", "columns", "fields", "priorityPolicy"], "/board", errors)
     if (typeof value.board.boardId !== "string" || !value.board.boardId) {
       errors.push({ path: "/board/boardId", message: "boardId is required" })
     } else if (doc) {
