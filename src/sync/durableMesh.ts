@@ -11,6 +11,7 @@ import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorksp
   type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { MeshLeader } from "./meshLeader"
+import { MeshReconnectPolicy } from "./meshReconnectPolicy"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
 import { isNetworkFailure, liveWorkspaceSetSync, MESH_HEARTBEAT_INTERVAL_MS, networkConnection, networkIO, workspaceSet, type WorkspaceSetStore } from "./workspaceSet"
@@ -162,6 +163,7 @@ export class DurableMesh {
   private retryTimer: ReturnType<typeof setTimeout> | undefined
   private failures = new Map<string, number>()
   private failedAt = new Map<string, number>()
+  private readonly reconnectPolicy = new MeshReconnectPolicy()
   private readonly tabId = crypto.randomUUID()
   private readonly tabChannel: BroadcastChannel | undefined
   private externallyPaused = false
@@ -1134,7 +1136,7 @@ export class DurableMesh {
       if (!this.node || this.sessions.has(key)) return
       let credential = await this.store.getWorkspaceCredential(peer.workspaceId)
       if (!credential || credential.transportSecret !== peer.transportSecret) return
-      connection = networkConnection(await networkIO(this.node.dial(peer.endpoint)))
+      connection = networkConnection(await networkIO(this.reconnectPolicy.dial(this.node, key, peer.endpoint)))
       const stream = await connection.openStream()
       await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
         new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
@@ -1161,6 +1163,7 @@ export class DurableMesh {
         Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"))
       connection = undefined
     } catch (error) {
+      this.reconnectPolicy.recordFailure(key, error)
       this.report(`Dial ${peer.deviceId.slice(0, 6)}`, error)
       this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 5))
       this.failedAt.set(key, Date.now())
@@ -1195,16 +1198,21 @@ export class DurableMesh {
     await previous?.session.close()
     await this.notify()
     void session.publish().catch(error => {
+      this.reconnectPolicy.recordFailure(key, error)
       this.report(`Publish ${deviceId.slice(0, 6)}`, error)
       void session.close()
     })
     const heartbeat = heartbeatSupported ? setInterval(() => {
       void session.heartbeat?.().catch(error => {
+        this.reconnectPolicy.recordFailure(key, error)
         this.report(`Heartbeat ${deviceId.slice(0, 6)}`, error)
         void session.close()
       })
     }, MESH_HEARTBEAT_INTERVAL_MS) : undefined
-    void session.done.catch(error => { this.report(`Receive ${deviceId.slice(0, 6)}`, error) }).finally(async () => {
+    void session.done.catch(error => {
+      this.reconnectPolicy.recordFailure(key, error)
+      this.report(`Receive ${deviceId.slice(0, 6)}`, error)
+    }).finally(async () => {
       if (heartbeat) clearInterval(heartbeat)
       const wasCurrent = this.sessions.get(key)?.session === session
       if (wasCurrent) this.sessions.delete(key)
@@ -1218,6 +1226,7 @@ export class DurableMesh {
       try {
         await entry.session.publish()
       } catch (error) {
+        this.reconnectPolicy.recordFailure(key, error)
         this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
         if (this.sessions.get(key)?.session === entry.session) await entry.session.close()
       }
