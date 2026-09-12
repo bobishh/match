@@ -22,21 +22,11 @@ jobs:
       - run: npm run build
       - run: npm test
 
-  browser:
-    name: Browser (${{ matrix.suite }})
+  browser-core:
+    name: Browser (core)
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: core
-            projects: --project=core
-          - suite: mesh
-            projects: --project=chat --project=durable-mesh --project=sync --project=workspace-roles --project=workspace-sync-data
-          - suite: coordination
-            projects: --project=scoped-sync --project=scoped-enrollment --project=scoped-existing-board --project=scoped-existing-identity --project=scoped-delegated-owner --project=succession-named --project=succession-quorum
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,4 +35,38 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test ${{ matrix.projects }}
+      - run: npx playwright test --project=core
+
+  browser-network:
+    name: Browser (${{ matrix.project }})
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      # Iroh relay sessions can linger after Chromium exits. Serial projects keep
+      # remote relay traffic isolated; each project still gets a fresh runner.
+      max-parallel: 1
+      matrix:
+        project:
+          - chat
+          - durable-mesh
+          - sync
+          - workspace-roles
+          - workspace-sync-data
+          - scoped-sync
+          - scoped-enrollment
+          - scoped-existing-board
+          - scoped-existing-identity
+          - scoped-delegated-owner
+          - succession-named
+          - succession-quorum
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=${{ matrix.project }}
