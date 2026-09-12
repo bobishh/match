@@ -96,12 +96,19 @@ The system SHALL retain legacy job-search WebMCP adapters while exposing generic
 - **THEN** the board expands to the viewport instead of stopping at a fixed desktop maximum
 - **AND** no horizontal board scrollbar appears.
 
-#### Scenario: Expanded collapsed-style column shares normal sizing
+#### Scenario: Expanded Archive column shares normal sizing
 
-- **GIVEN** a column has the collapsed display hint
+- **GIVEN** a column has the `archive: true` role
 - **WHEN** the user expands it
 - **THEN** it uses the same flex sizing and minimum width as ordinary columns at every viewport
 - **AND** only its closed state uses the narrow fixed width.
+
+#### Scenario: Archive role is unique and title-independent
+
+- **GIVEN** a board has one Archive column under any title
+- **WHEN** settings assign `archive: true` to a second column
+- **THEN** validation rejects the second assignment at its exact JSON path
+- **AND** Archive rendering and move behavior use the role rather than a title, ID, or preset binding.
 
 ### Requirement: Mobile-first navigation and accessible drawer
 

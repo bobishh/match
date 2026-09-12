@@ -72,7 +72,7 @@ Validate local parent edges and cycles against the proposed transaction result. 
 
 Fresh workspace creation selects "Job search" or "Blank board". Both use the same entities and Vue renderer. Blank board seeds To do / Doing / Done, no company/role/CV requirements. Job search seeds Lead / Applied / Interview / Offer / Archive and board-owned fields for the existing lead data.
 
-The Archive column is an ordinary live column with `displayHint: "collapsed"`. Archive is NOT soft delete. The existing archived/rejected/bin leads map there and remain available when expanded. Trash is a separate utility.
+The Archive column is an ordinary live column with the explicit `archive: true` role. A board permits at most one. Its collapsed presentation is derived from that role; title and preset binding do not define behavior. Legacy `displayHint: "collapsed"` columns project as Archive until settings rewrite them. Archive is NOT soft delete. The existing archived/rejected/bin leads map there and remain available when expanded. Trash is a separate utility.
 
 Document templates are generic workspace-root entities with title and Markdown. No template-kind enum is stored; use and generation behavior comes from the operation invoking a template. Job-specific PDF commands remain an adapter over generic tasks and document-template/artifact records. Do not build a plugin runtime. The preset copies data on creation; later preset updates never rewrite a user's board.
 
@@ -161,7 +161,7 @@ Document readiness and file readiness are separate: "Workspace ready; 3 files pe
 
 Use the existing Vue stack and real application routes. Route contract: `/` selects/restores the last workspace; `/w/:workspaceId/b/:boardId` opens a board; `/pair#...` opens the typed invitation flow. Static hosting must serve the app for deep links. Keep existing mobile snap columns, 1024px controls, template/artifact workflows, and keyboard-accessible task movement.
 
-Sync modal opens directly with workspace selection checkboxes, with the active workspace preselected, and a single "Generate link" action on the same screen (empty selection disables generation). "Add my device" ("Sync all") is provided as a distinct secondary action for personal identity enrollment. No invitation or transport starts merely from opening the dialog. Flows run Scope -> Invitation -> Approval/Acceptance -> Transfer -> Connected, with waiting, retry, cancelled, expired, and failed states. Persist peers; after reload a live known peer can reconnect without another QR.
+Sync modal opens directly with workspace selection checkboxes, with the active workspace preselected, and a single "Generate link" action on the same screen (empty selection disables generation). "Add my device" ("Sync all") is provided as a distinct secondary action for personal identity enrollment. No invitation or transport starts merely from opening the dialog. Flows run Scope -> Invitation -> Approval/Acceptance -> Transfer -> Connected, with waiting, retry, cancelled, expired, and failed states. Persist peers; after reload a live known peer can reconnect without another QR. Selecting a mesh member expands their known devices with presence, shortened device ID, last-seen time, signed self-reported device name and user agent, and a clearly best-effort browser/OS description. Device metadata never grants identity, membership, or authority; missing metadata from an older peer renders as unknown.
 
 ### Legacy requirement precedence
 

@@ -25,6 +25,7 @@ import WorkspaceNameSettings from "./components/WorkspaceNameSettings.vue"
 import { configureChat, exportChat, receiveChat, subscribeChat } from "./chat/service"
 import { useWorkspaceChat } from "./chat/useWorkspaceChat"
 import type { BoardSchemaDraft } from "./domain/schema"
+import { isArchiveColumn } from "./domain/archive"
 import type { WorkspaceSettingsDraft } from "./domain/workspaceSettings"
 import TaskFormDialog from "./components/TaskFormDialog.vue"
 import TaskDetailDialog from "./components/TaskDetailDialog.vue"
@@ -36,6 +37,7 @@ import { useDeviceSync } from "./sync/useDeviceSync"
 import { projectEntityHistory } from "./domain/history"
 import { useDelayedFlag } from "./ui/useDelayedFlag"
 import { hideLeavingElement, showEnteringElement } from "./ui/modal"
+import { describeUserAgent } from "./ui/deviceInfo"
 
 const {
   workspace,
@@ -237,15 +239,33 @@ const meshMembers = computed(() => {
   return [...personIds].map(personId => {
     const devices = peers.filter(peer => peer.personId === personId)
     const self = personId === selfId
-    const deviceIds = new Set(devices.map(peer => peer.deviceId))
-    if (self && sync.localDeviceId.value) deviceIds.add(sync.localDeviceId.value)
+    const deviceList = devices.map(peer => ({
+      deviceId: peer.deviceId,
+      name: peer.deviceName || `Device ${peer.deviceId.slice(0, 6)}`,
+      online: peer.online || (self && peer.deviceId === sync.localDeviceId.value),
+      lastSeen: peer.lastSeen,
+      userAgent: peer.userAgent,
+      description: describeUserAgent(peer.userAgent),
+    }))
+    if (self && sync.localDeviceId.value && !deviceList.some(device => device.deviceId === sync.localDeviceId.value)) {
+      const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : undefined
+      deviceList.push({
+        deviceId: sync.localDeviceId.value,
+        name: "This device",
+        online: true,
+        lastSeen: new Date().toISOString(),
+        userAgent,
+        description: describeUserAgent(userAgent),
+      })
+    }
     const peerRole = devices[0]?.role ?? "visitor"
     return {
       personId,
       name: self ? chat.displayName.value || "You" : chat.members.value.find(member => member.personId === personId)?.name ?? `Participant · ${personId.slice(0, 6)}`,
       role: personId === currentWorkspaceOwnerId.value ? "owner" as const : peerRole === "owner" ? "editor" as const : peerRole,
       online: devices.some(peer => peer.deviceId !== sync.localDeviceId.value && peer.online),
-      devices: Math.max(self ? 1 : 0, deviceIds.size),
+      devices: deviceList.length,
+      deviceList,
       self,
     }
   }).sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
@@ -503,7 +523,8 @@ async function setupBoardSortables() {
         const sourceColumn = genericColumns.value.find((column) => column.id === event.from.dataset.columnId)
         const sourceIndex = sourceColumn?.tasks.findIndex((task) => task.id === taskId) ?? -1
         const sourceBeforeId = sourceIndex >= 0 ? sourceColumn?.tasks[sourceIndex + 1]?.id ?? null : null
-        const isArchiveTarget = columnStatus(parentId) === "archived"
+        const targetColumn = genericColumns.value.find((column) => column.id === parentId)
+        const isArchiveTarget = targetColumn ? isArchiveColumn(targetColumn) : false
         void executeCommandAsync({ kind: "moveEntity", entityId: taskId, parentId, beforeId })
           .then(() => {
             highlightMoved(taskId, "task")
@@ -801,7 +822,7 @@ async function setStatus(status: LeadStatus) {
   try {
     archiveError.value = ""
     await executeCommandAsync({ kind: "moveEntity", entityId: task.id, parentId: targetColumn.id, beforeId: null })
-    if (status === "archived") {
+    if (isArchiveColumn(targetColumn)) {
       archiveUndo.value = { workspaceId: activeWorkspace.id, taskId: task.id, title: task.title, action: "move", parentId: priorParentId, beforeId }
       notice.value = "Item archived"
     }
@@ -1258,13 +1279,13 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         :data-column-id="column.id"
         role="region"
         :aria-label="column.title"
-        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': column.displayHint === 'collapsed', 'bin-column-open': column.displayHint === 'collapsed' && (isArchiveOpen || hasFilters), 'column-moved': movedColumnId === column.id }]"
+        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && (isArchiveOpen || hasFilters), 'column-moved': movedColumnId === column.id }]"
       >
-        <button v-if="column.displayHint === 'collapsed' && !isArchiveOpen && !hasFilters" class="bin-closed" type="button" :aria-label="`Open ${column.title} with ${tasksForColumn(column).length} cards`" @click="isArchiveOpen = true"><span class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ tasksForColumn(column).length }}</small></button>
+        <button v-if="isArchiveColumn(column) && !isArchiveOpen && !hasFilters" class="bin-closed" type="button" :aria-label="`Open ${column.title} with ${tasksForColumn(column).length} cards`" @click="isArchiveOpen = true"><span class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ tasksForColumn(column).length }}</small></button>
         <template v-else>
           <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
             <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
-            <div class="column-actions"><span class="count">{{ tasksForColumn(column).length }}</span><button v-if="column.displayHint === 'collapsed' && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
+            <div class="column-actions"><span class="count">{{ tasksForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
           </header>
           <div class="card-stack" :data-column-id="column.id">
             <button v-for="task in tasksForColumn(column)" :key="task.id" class="lead-card task-card" :class="{ 'card-moved': movedTaskId === task.id }" :data-task-id="task.id" type="button" :aria-label="`Open ${task.title}`" @click="openBoardTask(task)">

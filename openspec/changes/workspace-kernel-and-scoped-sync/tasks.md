@@ -110,3 +110,15 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 
 - [x] 12.1 Remove the fixed board-width ceiling and unnecessary stable scrollbar gutter while retaining narrow-screen horizontal navigation.
 - [x] 12.2 Verify a 1920px board fills the viewport and has no horizontal overflow when its columns fit.
+
+## 13. User Steering: Explicit Archive column role
+
+- [x] 13.1 Replace public `displayHint` configuration with one optional `archive: true` column role while retaining legacy collapsed-column reads.
+- [x] 13.2 Validate at most one Archive column and make generic rendering and archive moves title/ID/preset-independent.
+- [x] 13.3 Verify renamed Archive persistence and exact duplicate-role validation through real Workspace Settings JSON flow.
+
+## 14. User Steering: Mesh member device details
+
+- [x] 14.1 Extend signed peer advertisements and durable peer views with bounded optional device name and user agent metadata without using either for authority.
+- [x] 14.2 Expand selected mesh members into device rows with presence, shortened ID, last seen, best-effort browser/OS, and raw user agent details.
+- [x] 14.3 Keep old advertisements valid and render missing UA as unknown; verify known and unknown UI paths, unit parsing, full tests, and OpenSpec validation.

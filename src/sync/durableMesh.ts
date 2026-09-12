@@ -52,6 +52,8 @@ export type MeshPeerView = {
   online: boolean
   lastSeen: string
   revokedAt?: string | null
+  deviceName?: string
+  userAgent?: string
 }
 
 export type MeshSuccessionView = {
@@ -1060,8 +1062,11 @@ export class DurableMesh {
     const signatures = (items: DeviceCertificate[] | undefined) =>
       (items ?? []).map(item => item.signature).sort().join("\0")
     const issuedAt = bundle?.advertisement.payload.issuedAt
+    const currentUserAgent = (typeof navigator !== "undefined" ? navigator.userAgent : "").trim().slice(0, 256) || undefined
     const reusable = bundle && issuedAt && Date.parse(issuedAt) > Date.now() - 7 * 24 * 60 * 60 * 1000 &&
       current?.endpoint === endpoint && current.role === role &&
+      bundle.advertisement.payload.deviceName === profile.device.displayName.slice(0, 256) &&
+      bundle.advertisement.payload.userAgent === currentUserAgent &&
       bundle.publicKey === profile.identity.publicKey && bundle.ownerPublicKey === credential.ownerPublicKey &&
       bundle.grant?.signature === localGrant?.signature && signatures(bundle.certificates) === signatures(certificates) &&
       signatures(bundle.ownerCertificates) === signatures(credential.ownerCertificates as DeviceCertificate[])
@@ -1221,11 +1226,16 @@ export class DurableMesh {
 
   async views(workspaceId?: string): Promise<MeshPeerView[]> {
     const online = new Set([...this.sessions.keys()])
-    return (await this.store.listPeers(workspaceId)).map(peer => ({
-      workspaceId: peer.workspaceId, personId: peer.personId, deviceId: peer.deviceId, role: peer.role,
-      endpoint: peer.endpoint, lastSeen: peer.lastSeen, revokedAt: peer.revokedAt,
-      online: online.has(`${peer.workspaceId}:${peer.deviceId}`),
-    }))
+    return (await this.store.listPeers(workspaceId)).map(peer => {
+      const payload = (peer.advertisement as WorkspaceMemberBundle | undefined)?.advertisement?.payload
+      return {
+        workspaceId: peer.workspaceId, personId: peer.personId, deviceId: peer.deviceId, role: peer.role,
+        endpoint: peer.endpoint, lastSeen: peer.lastSeen, revokedAt: peer.revokedAt,
+        online: online.has(`${peer.workspaceId}:${peer.deviceId}`),
+        ...(payload?.deviceName ? { deviceName: payload.deviceName } : {}),
+        ...(payload?.userAgent ? { userAgent: payload.userAgent } : {}),
+      }
+    })
   }
 
   async revokedWorkspaceIds(): Promise<string[]> {

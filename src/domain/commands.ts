@@ -20,6 +20,7 @@ import type {
   Heads,
 } from "./model"
 import { validateBoardSchemaDraft, type BoardSchemaDraft } from "./schema"
+import { setArchiveColumn } from "./archive"
 import { validateWorkspaceSettingsDraft, type WorkspaceSettingsDraft } from "./workspaceSettings"
 import { validatePlacementParent } from "./model"
 import {
@@ -152,21 +153,23 @@ function applyBoardSchemaSettings(
     const existing = draft.entities[id]
     if (existing?.kind === "column") {
       existing.title = column.title.trim()
-      existing.displayHint = column.displayHint || "normal"
+      setArchiveColumn(existing, column.archive === true)
       existing.placement = { parentId: boardId, rank: `${index}/1` }
       existing.deleted = false
       existing.updatedAt = nowIso
     } else {
-      draft.entities[id] = {
+      const created: Column = {
         id,
         kind: "column",
         title: column.title.trim(),
-        displayHint: column.displayHint || "normal",
+        displayHint: column.archive ? "collapsed" : "normal",
         placement: { parentId: boardId, rank: `${index}/1` },
         deleted: false,
         createdAt: nowIso,
         updatedAt: nowIso,
       }
+      if (column.archive) created.archive = true
+      draft.entities[id] = created
     }
     changedEntityIds.push(id)
   })
@@ -904,7 +907,7 @@ export async function executeCommand(
             draftColIds.add(c.id)
             const col = draft.entities[c.id] as any
             col.title = c.title.trim()
-            if (c.displayHint) col.displayHint = c.displayHint
+            setArchiveColumn(col, c.archive === true)
             col.placement = { parentId: command.boardId, rank: colRank }
             col.deleted = false
             col.updatedAt = nowIso
@@ -912,16 +915,18 @@ export async function executeCommand(
           } else {
             const newId = c.id || `col-${crypto.randomUUID()}`
             draftColIds.add(newId)
-            draft.entities[newId] = {
+            const created: Column = {
               id: newId,
               kind: "column",
               title: c.title.trim(),
-              displayHint: c.displayHint || "normal",
+              displayHint: c.archive ? "collapsed" : "normal",
               placement: { parentId: command.boardId, rank: colRank },
               deleted: false,
               createdAt: nowIso,
               updatedAt: nowIso,
             }
+            if (c.archive) created.archive = true
+            draft.entities[newId] = created
             changedEntityIds.push(newId)
           }
         })

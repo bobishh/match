@@ -7,11 +7,12 @@ import type {
   EntityId,
 } from "./model"
 import { getChildren, compareRanks } from "./ancestry"
+import { isArchiveColumn } from "./archive"
 
 export type BoardSchemaColumn = {
   id?: string
   title: string
-  displayHint?: "normal" | "collapsed"
+  archive?: true
 }
 
 export type BoardSchemaSelectOption = {
@@ -76,7 +77,7 @@ export function projectBoardSchema(
   const columns: BoardSchemaColumn[] = activeColumns.map((col) => ({
     id: col.id,
     title: col.title,
-    displayHint: col.displayHint,
+    ...(isArchiveColumn(col) ? { archive: true as const } : {}),
   }))
 
   // Get active fields for this board
@@ -138,16 +139,25 @@ export function validateBoardSchemaDraft(draft: unknown): SchemaValidationResult
   if (!Array.isArray(d.columns)) {
     errors.push({ path: "/columns", message: "Columns must be an array" })
   } else {
+    let archiveSeen = false
     d.columns.forEach((col: any, idx: number) => {
       if (!col || typeof col !== "object") {
         errors.push({ path: `/columns/${idx}`, message: "Column definition must be an object" })
         return
       }
+      for (const key of Object.keys(col)) {
+        if (!["id", "title", "archive"].includes(key)) {
+          errors.push({ path: `/columns/${idx}/${key}`, message: "Unknown column setting" })
+        }
+      }
       if (!col.title || typeof col.title !== "string" || !col.title.trim()) {
         errors.push({ path: `/columns/${idx}/title`, message: "Column title is required" })
       }
-      if (col.displayHint && col.displayHint !== "normal" && col.displayHint !== "collapsed") {
-        errors.push({ path: `/columns/${idx}/displayHint`, message: "displayHint must be 'normal' or 'collapsed'" })
+      if (col.archive !== undefined && col.archive !== true) {
+        errors.push({ path: `/columns/${idx}/archive`, message: "archive must be true when present" })
+      } else if (col.archive === true) {
+        if (archiveSeen) errors.push({ path: `/columns/${idx}/archive`, message: "Only one archive column is allowed" })
+        archiveSeen = true
       }
     })
   }

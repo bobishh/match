@@ -71,7 +71,7 @@ const workspaceSettingsSchema = {
             properties: {
               id: { type: "string", description: "Keep returned IDs when editing. Omit only for new columns." },
               title: { type: "string" },
-              displayHint: { type: "string", enum: ["normal", "collapsed"] },
+              archive: { type: "boolean", enum: [true], description: "Optional. Marks the board's sole Archive column; its collapsed presentation is derived." },
             },
             required: ["title"],
             additionalProperties: false,

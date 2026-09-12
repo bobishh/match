@@ -50,6 +50,7 @@ describe("Workspace creation and seeds (Task 1.3)", () => {
 
     const archiveCol = columns.find((c) => c.title === "Archive")
     expect(archiveCol?.displayHint).toBe("collapsed")
+    expect(archiveCol?.archive).toBe(true)
 
     // Check bound status keys
     const bindings = board.preset!.bindings

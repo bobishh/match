@@ -80,4 +80,22 @@ describe("workspace settings transaction", () => {
       message: "Field type cannot change",
     })
   })
+
+  it("applies the archive role and rejects duplicate archive columns", async () => {
+    const settings = projectWorkspaceSettings(doc)
+    settings.board.columns[0].title = "Cold storage"
+    settings.board.columns[0].archive = true
+
+    const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings }, profile)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const projected = projectWorkspaceSettings(result.value.newDoc)
+    expect(projected.board.columns[0]).toMatchObject({ title: "Cold storage", archive: true })
+
+    projected.board.columns[1].archive = true
+    expect(validateWorkspaceSettingsDraft(projected, result.value.newDoc).errors).toContainEqual({
+      path: "/board/columns/1/archive",
+      message: "Only one archive column is allowed",
+    })
+  })
 })

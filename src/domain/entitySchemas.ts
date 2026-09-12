@@ -13,7 +13,12 @@ export const boardSchema = z.strictObject({
   ...common, kind: z.literal("board"), entityName: z.string().refine(value => Boolean(value.trim())).optional(),
   preset: z.strictObject({ key: z.enum(["job-search", "blank"]), version: z.literal(1), bindings: z.record(z.string(), z.string()) }).nullable(),
 })
-export const columnSchema = z.strictObject({ ...common, kind: z.literal("column"), displayHint: z.enum(["normal", "collapsed"]) })
+export const columnSchema = z.strictObject({
+  ...common,
+  kind: z.literal("column"),
+  displayHint: z.enum(["normal", "collapsed"]),
+  archive: z.literal(true).optional(),
+})
 export const fieldValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
 export const taskSchema = z.strictObject({ ...common, kind: z.literal("task"), body: z.string(), values: z.record(z.string(), fieldValueSchema) })
 export const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, deleted: z.boolean() })

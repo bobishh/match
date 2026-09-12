@@ -69,6 +69,22 @@ The system SHALL expire invitations after ten minutes by default, redeem them on
 
 The system SHALL retain successful enrollment/grants and reconnect known authorized peers while the app is open or after reopening. Sync all SHALL follow future catalog changes; workspace scope SHALL remain limited to the granted workspace.
 
+The system SHALL make mesh-member selection useful by listing that person's known devices. Each device row SHALL show online/offline state, a shortened device ID, last-seen time, and signed self-reported device name. A bounded optional user agent SHALL be carried in the peer advertisement and rendered both verbatim on demand and as an explicitly best-effort browser/OS description. User-agent metadata SHALL NOT participate in identity, authorization, or capability decisions. Older advertisements without metadata SHALL remain valid and render an unknown browser/OS state.
+
+#### Scenario: Selecting a member shows known devices
+
+- **GIVEN** a trusted member advertised a device name and user agent
+- **WHEN** another member selects that person in Mesh members
+- **THEN** their device list shows presence, shortened device ID, last-seen state, and the reported name
+- **AND** the UI labels inferred browser/OS as likely and exposes the raw user agent on demand.
+
+#### Scenario: Older device metadata remains honest
+
+- **GIVEN** a valid older peer advertisement has no user agent
+- **WHEN** its member is selected
+- **THEN** the device remains listed
+- **AND** the UI reports Browser / OS unknown without inventing a platform.
+
 #### Scenario: Later workspace appears on own device
 
 - **GIVEN** two own devices completed Sync all

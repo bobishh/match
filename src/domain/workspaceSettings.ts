@@ -84,6 +84,9 @@ export function validateWorkspaceSettingsDraft(
     if (doc && typeof value.board.boardId === "string") {
       const seenColumnIds = new Set<string>()
       for (const [index, column] of (Array.isArray(value.board.columns) ? value.board.columns : []).entries()) {
+        if (column && typeof column === "object" && !Array.isArray(column)) {
+          unknownKeys(column, ["id", "title", "archive"], `/board/columns/${index}`, errors)
+        }
         if (typeof column?.id !== "string") continue
         if (seenColumnIds.has(column.id)) errors.push({ path: `/board/columns/${index}/id`, message: "Column id is duplicated" })
         seenColumnIds.add(column.id)

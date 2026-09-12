@@ -62,6 +62,7 @@ export function createWorkspaceDoc(
         createdAt: nowIso,
         updatedAt: nowIso,
       }
+      if (col.key === "status.archived") colEntity.archive = true
       entities[colId] = colEntity
     }
 

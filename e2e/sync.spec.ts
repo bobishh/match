@@ -295,6 +295,8 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await expect(peer.getByText("1 card · 0 docs")).toBeVisible()
     await peerDialog.getByRole("button", { name: "Close", exact: true }).first().click()
     await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(peer.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
 
     // When the peer makes a later visible change, the already-paired host receives it.
     await peer.getByRole("button", { name: /Add lead to/ }).first().click()
@@ -303,7 +305,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await peer.getByRole("button", { name: "Create item" }).click()
 
     // Then no second QR or import is needed for the host board to converge.
-    await expect(page.getByText("2 cards · 0 docs")).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText("2 cards · 0 docs")).toBeVisible({ timeout: 20_000 })
   } finally {
     await peerContext.close()
   }

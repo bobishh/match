@@ -38,6 +38,7 @@ export type Board = EntityBase & {
 export type Column = EntityBase & {
   kind: "column"
   displayHint: "normal" | "collapsed"
+  archive?: true
 }
 
 export type FieldValue = string | number | boolean | null
@@ -106,7 +107,7 @@ export type WorkspaceSettingsDraft = {
     boardId: EntityId
     boardTitle: string
     entityName: string
-    columns: Array<{ id?: EntityId; title: string; displayHint?: "normal" | "collapsed" }>
+    columns: Array<{ id?: EntityId; title: string; archive?: true }>
     fields: Array<{
       id?: EntityId
       title: string
@@ -245,6 +246,19 @@ export type Invitation = SignedEnvelope<InvitationBase & (
   | { kind: "device-enrollment"; rootId: string }
   | { kind: "workspace-join"; workspaceId: WorkspaceId; role: "editor" }
 )>
+
+export type PeerAdvertisement = SignedEnvelope<{
+  kind: "peer-advertisement"
+  version: 1
+  workspaceId: WorkspaceId
+  personId: PersonId
+  deviceId: DeviceId
+  endpoint: string
+  issuedAt: IsoTime
+  /** Signed self-reported presentation metadata; never authority input. */
+  deviceName?: string
+  userAgent?: string
+}>
 
 export type LocalFileLocation = {
   fileId: EntityId

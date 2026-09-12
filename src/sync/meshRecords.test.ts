@@ -487,9 +487,13 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
         profile: owner,
         workspaceId,
         endpoint: "iroh://opt-call",
+        deviceName: "Work laptop",
+        userAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0.0.0 Safari/537.36",
       })
       const verified = await verifyWorkspaceMemberBundle(bundle, workspaceId, owner.identity.publicKey)
       expect(verified.role).toBe("owner")
+      expect(verified.payload.deviceName).toBe("Work laptop")
+      expect(verified.payload.userAgent).toContain("Linux x86_64")
     })
   })
 

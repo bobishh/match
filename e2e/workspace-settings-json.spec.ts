@@ -47,4 +47,36 @@ test.describe("Workspace settings JSON", () => {
     await expect(dialog.getByText("/board/entityName")).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Apply JSON" })).toBeDisabled()
   })
+
+  test("Given a renamed archive column, when settings are applied, then its archive behavior persists", async ({ page }) => {
+    await createBlankWorkspace(page)
+    await page.getByRole("button", { name: "Workspace settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await dialog.getByRole("tab", { name: "JSON" }).click()
+    const editor = dialog.getByLabel("Workspace settings JSON")
+    const config = JSON.parse(await editor.inputValue())
+    config.board.columns[0].title = "Cold storage"
+    config.board.columns[0].archive = true
+    await editor.fill(JSON.stringify(config, null, 2))
+    await dialog.getByRole("button", { name: "Apply JSON" }).click()
+
+    await expect(page.getByRole("button", { name: "Open Cold storage with 0 cards" })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Open Cold storage with 0 cards" })).toBeVisible()
+  })
+
+  test("Given two archive columns, when settings are edited, then validation rejects the second", async ({ page }) => {
+    await createBlankWorkspace(page)
+    await page.getByRole("button", { name: "Workspace settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await dialog.getByRole("tab", { name: "JSON" }).click()
+    const editor = dialog.getByLabel("Workspace settings JSON")
+    const config = JSON.parse(await editor.inputValue())
+    config.board.columns[0].archive = true
+    config.board.columns[1].archive = true
+    await editor.fill(JSON.stringify(config, null, 2))
+
+    await expect(dialog.getByText("/board/columns/1/archive")).toBeVisible()
+    await expect(dialog.getByRole("button", { name: "Apply JSON" })).toBeDisabled()
+  })
 })

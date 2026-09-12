@@ -25,6 +25,8 @@ export type PeerAdvertisementPayload = {
   deviceId: string
   endpoint: string
   issuedAt: string // ISO 8601 string
+  deviceName?: string
+  userAgent?: string
 }
 
 export type PeerAdvertisement = SignedEnvelope<PeerAdvertisementPayload>
@@ -108,6 +110,8 @@ export type CreatePeerAdvertisementOptions = {
   ownerPublicKey?: string
   ownerCertificates?: DeviceCertificate[]
   issuedAt?: string
+  deviceName?: string
+  userAgent?: string
 }
 
 export type VerifyDeviceChainOptions = {
@@ -321,6 +325,8 @@ export async function createPeerAdvertisement(
   let ownerPublicKey: string | undefined
   let ownerCertificates: DeviceCertificate[] | undefined
   let issuedAt: string | undefined
+  let deviceName: string | undefined
+  let userAgent: string | undefined
 
   if (
     typeof profileOrOptions === "object" &&
@@ -336,6 +342,8 @@ export async function createPeerAdvertisement(
     ownerPublicKey = opts.ownerPublicKey
     ownerCertificates = opts.ownerCertificates
     issuedAt = opts.issuedAt
+    deviceName = opts.deviceName
+    userAgent = opts.userAgent
   } else {
     profile = profileOrOptions as LocalProfile
     if (typeof workspaceIdOrOptions === "object" && workspaceIdOrOptions !== null) {
@@ -346,6 +354,8 @@ export async function createPeerAdvertisement(
       ownerPublicKey = workspaceIdOrOptions.ownerPublicKey
       ownerCertificates = workspaceIdOrOptions.ownerCertificates
       issuedAt = workspaceIdOrOptions.issuedAt
+      deviceName = workspaceIdOrOptions.deviceName
+      userAgent = workspaceIdOrOptions.userAgent
     } else {
       workspaceId = workspaceIdOrOptions as string
       ep = endpoint as string
@@ -355,6 +365,8 @@ export async function createPeerAdvertisement(
         ownerPublicKey = extraOptions.ownerPublicKey
         ownerCertificates = extraOptions.ownerCertificates
         issuedAt = extraOptions.issuedAt
+        deviceName = extraOptions.deviceName
+        userAgent = extraOptions.userAgent
       }
     }
   }
@@ -369,6 +381,8 @@ export async function createPeerAdvertisement(
     throw new Error("Invalid endpoint: must be a non-empty string")
   }
 
+  const reportedDeviceName = (deviceName ?? profile.device.displayName).trim().slice(0, MAX_STRING_LENGTH)
+  const reportedUserAgent = (userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "")).trim().slice(0, MAX_STRING_LENGTH)
   const payload: PeerAdvertisementPayload = {
     kind: "peer-advertisement",
     version: 1,
@@ -377,6 +391,8 @@ export async function createPeerAdvertisement(
     deviceId: profile.device.deviceId,
     endpoint: ep,
     issuedAt: issuedAt ?? new Date().toISOString(),
+    ...(reportedDeviceName ? { deviceName: reportedDeviceName } : {}),
+    ...(reportedUserAgent ? { userAgent: reportedUserAgent } : {}),
   }
 
   const advertisement = (await signEnvelope(
@@ -490,7 +506,9 @@ export async function verifyWorkspaceMemberBundle(
     p.deviceId.length > MAX_STRING_LENGTH ||
     typeof p.endpoint !== "string" ||
     !p.endpoint ||
-    p.endpoint.length > MAX_ENDPOINT_LENGTH
+    p.endpoint.length > MAX_ENDPOINT_LENGTH ||
+    (p.deviceName !== undefined && (typeof p.deviceName !== "string" || !p.deviceName.trim() || p.deviceName.length > MAX_STRING_LENGTH)) ||
+    (p.userAgent !== undefined && (typeof p.userAgent !== "string" || !p.userAgent.trim() || p.userAgent.length > MAX_STRING_LENGTH))
   ) {
     throw new Error("Invalid peer advertisement payload")
   }

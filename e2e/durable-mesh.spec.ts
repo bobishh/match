@@ -257,6 +257,9 @@ test("Given an online editor, when owner selects them in mesh members and transf
   test.setTimeout(120_000)
   await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
   const guestContext = await isolatedContext(browser)
+  await guestContext.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "userAgent", { configurable: true, get: () => "" })
+  })
   const guest = await guestContext.newPage()
   try {
     await Promise.all([page.goto("/"), guest.goto("/")])
@@ -269,6 +272,9 @@ test("Given an online editor, when owner selects them in mesh members and transf
     const members = dialog.getByRole("list", { name: "Mesh members" })
     await expect(members.locator(".mesh-member")).toHaveCount(2)
     await members.getByRole("button").filter({ hasText: "editor" }).click()
+    const unknownDevices = dialog.getByRole("list", { name: /Devices for/ })
+    await expect(unknownDevices.getByRole("listitem")).toHaveCount(1)
+    await expect(unknownDevices).toContainText("Browser / OS unknown")
     await expect(dialog.getByRole("button", { name: "Transfer ownership" })).toBeEnabled()
     await dialog.getByRole("button", { name: "Transfer ownership" }).click()
 
@@ -279,6 +285,10 @@ test("Given an online editor, when owner selects them in mesh members and transf
     await expect(dialog.getByRole("button", { name: "Add someone" })).toHaveCount(0)
     await guest.getByRole("button", { name: "Sync", exact: true }).click()
     const newOwnerDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await newOwnerDialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "editor" }).click()
+    const knownDevices = newOwnerDialog.getByRole("list", { name: /Devices for/ })
+    await expect(knownDevices).toContainText(/Likely Chrome ·/)
+    await expect(knownDevices.getByText("User agent", { exact: true })).toBeVisible()
     await newOwnerDialog.getByRole("button", { name: "Add someone" }).click()
     await expect(newOwnerDialog.getByRole("button", { name: "Generate link" })).toBeEnabled()
     await newOwnerDialog.getByRole("button", { name: "Generate link" }).click()

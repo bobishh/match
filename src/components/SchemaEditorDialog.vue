@@ -137,7 +137,6 @@ function addColumn() {
   if (!newColumnTitle.value.trim()) return
   draft.value.columns.push({
     title: newColumnTitle.value.trim(),
-    displayHint: "normal",
   })
   newColumnTitle.value = ""
   syncToJson()

@@ -69,7 +69,7 @@ Existing lead commands keep working only against a selected job-search board wit
 | `lead.id` | Same entity ID, `kind: task` |
 | company + role | Initial task title `${company} — ${role}` plus separate text fields preserving original strings |
 | `lead.status` | Task placement referencing seeded column through bindings `status.lead`, `status.applied`, etc. |
-| `archived`, `rejected`, `bin` | Live Archive column with collapsed display hint |
+| `archived`, `rejected`, `bin` | Single live column with `archive: true`; collapsed presentation is derived |
 | unknown status | Live "Unsorted" column, created once in plan; preserve original status in a legacy-status text field |
 | url, location, notes, sourceText | Corresponding optional URL/text fields, exact stored strings preserved |
 | description | Task body |

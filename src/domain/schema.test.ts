@@ -96,6 +96,28 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(validateBoardSchemaDraft(validDraftWithDatetime).valid).toBe(true)
   })
 
+  it("projects one explicit archive role and rejects a second archive column", () => {
+    const raw = createWorkspaceDoc("ws_test", "Applications", profile.identity.personId, "job-search")
+    const legacyArchive = Object.values(raw.entities).find(
+      (entity) => entity.kind === "column" && entity.displayHint === "collapsed",
+    )
+    if (legacyArchive?.kind === "column") delete legacyArchive.archive
+    const doc = Automerge.from<WorkspaceDocumentV2>(raw)
+    const board = Object.values(doc.entities).find((entity) => entity.kind === "board")!
+    const draft = projectBoardSchema(doc, board.id)
+    const archiveIndex = draft.columns.findIndex((column) => column.archive)
+
+    expect(archiveIndex).toBeGreaterThanOrEqual(0)
+    expect(draft.columns[archiveIndex]).toMatchObject({ title: "Archive", archive: true })
+    expect(draft.columns[archiveIndex]).not.toHaveProperty("displayHint")
+
+    draft.columns[0].archive = true
+    expect(validateBoardSchemaDraft(draft)).toMatchObject({
+      valid: false,
+      errors: [{ path: `/columns/${archiveIndex}/archive`, message: "Only one archive column is allowed" }],
+    })
+  })
+
   it("diffs schema draft against canonical doc showing renames, soft-deletions, and option retention", () => {
     const raw = createWorkspaceDoc("ws_test", "Test Board", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)

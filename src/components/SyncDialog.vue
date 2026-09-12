@@ -25,6 +25,14 @@ const props = defineProps<{
     online: boolean
     devices: number
     self: boolean
+    deviceList: Array<{
+      deviceId: string
+      name: string
+      online: boolean
+      lastSeen: string
+      userAgent?: string
+      description: string
+    }>
   }>
   hasMesh?: boolean
   currentPersonId?: string
@@ -162,6 +170,21 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
         <section v-if="selectedMember" class="mesh-member-action" aria-label="Selected mesh member">
           <strong>{{ selectedMember.name }}</strong>
+          <ul class="mesh-device-list" role="list" :aria-label="`Devices for ${selectedMember.name}`">
+            <li v-for="device in selectedMember.deviceList" :key="device.deviceId" class="mesh-device">
+              <div class="mesh-device-head">
+                <span class="mesh-device-presence" :class="device.online ? 'is-online' : 'is-offline'" aria-hidden="true"></span>
+                <strong>{{ device.name }}</strong>
+                <code>{{ device.deviceId.slice(0, 8) }}</code>
+              </div>
+              <small>{{ device.description }}</small>
+              <small>{{ device.online ? 'Online now' : `Last seen ${new Date(device.lastSeen).toLocaleString()}` }}</small>
+              <details v-if="device.userAgent" class="mesh-device-ua">
+                <summary>User agent</summary>
+                <code>{{ device.userAgent }}</code>
+              </details>
+            </li>
+          </ul>
           <p v-if="canManageMesh && selectedMember.role !== 'owner' && !selectedMember.online" class="dialog-copy">This member must be online before ownership can move.</p>
           <p v-else-if="canManageMesh && selectedMember.role !== 'owner'" class="dialog-copy">They become owner. You keep editor access.</p>
           <button
@@ -435,6 +458,16 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-member-action p { margin: 0; }
 .mesh-member-action .button { justify-self: start; }
 .mesh-member-empty { margin: 0; padding: 16px; border: 2px dashed var(--soft); color: var(--muted); }
+.mesh-device-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mesh-device { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--soft); background: white; min-width: 0; }
+.mesh-device-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
+.mesh-device-presence.is-online { background: var(--green); }
+.mesh-device-head { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-width: 0; }
+.mesh-device-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mesh-device-head code, .mesh-device small { color: var(--muted); }
+.mesh-device small { font: 700 .72rem/1.3 ui-monospace, monospace; }
+.mesh-device-ua summary { cursor: pointer; color: var(--muted); font: 800 .68rem/1.3 ui-monospace, monospace; text-transform: uppercase; }
+.mesh-device-ua code { display: block; margin-top: 6px; overflow-wrap: anywhere; white-space: normal; font-size: .68rem; }
 .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 750; }
 .sync-checkbox-item:has(input:checked) { background: var(--yellow); }
 .sync-primary-actions { justify-content: flex-start; margin-top: 16px; }
