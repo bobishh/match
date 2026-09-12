@@ -241,6 +241,17 @@ export class DurableMesh {
     this.tabChannel?.postMessage({ type: "resume", senderId: this.tabId } satisfies MeshTabMessage)
   }
 
+  async waitUntilListening(timeoutMs = 30_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (!this.disposed && !this.externallyPaused && this.leader?.isLeader && (!this.node || !this.acceptor)) {
+      if (Date.now() >= deadline) throw new Error("Workspace mesh did not resume in time")
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    if (this.disposed || this.externallyPaused || !this.leader?.isLeader) {
+      throw new Error("Workspace mesh stopped before it resumed")
+    }
+  }
+
   async dispose(): Promise<void> {
     this.disposed = true
     await this.stop()
@@ -327,6 +338,20 @@ export class DurableMesh {
   async createGuestAdvertisements(workspaceIds: string[], endpoint: string, profile: LocalProfile): Promise<WorkspaceMemberBundle[]> {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     return Promise.all(workspaceIds.map(workspaceId => createPeerAdvertisement(profile, workspaceId, endpoint, { certificates })))
+  }
+
+  async forgetEnrolledDevice(workspaceIds: string[], deviceId: string): Promise<void> {
+    for (const workspaceId of new Set(workspaceIds)) {
+      const key = `${workspaceId}:${deviceId}`
+      const entry = this.sessions.get(key)
+      this.sessions.delete(key)
+      this.connecting.delete(key)
+      this.failures.delete(key)
+      this.failedAt.delete(key)
+      await entry?.session.close().catch(() => {})
+      await entry?.connection.close().catch(() => {})
+      await this.store.removePeer(workspaceId, deviceId)
+    }
   }
 
   async knowsWorkspaceIssuer(workspaceIds: string[], personId: string, deviceId: string): Promise<boolean> {

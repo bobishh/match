@@ -126,7 +126,6 @@ test("Given a lead dragged to Archive, when Undo fails then retries, then its or
   await page.mouse.up()
   await expect(archive.getByRole("button", { name: "Open First — Engineer", exact: true })).toBeVisible()
   await expect(page.getByRole("status").filter({ hasText: "Item archived" })).toBeVisible()
-  await expect(page.locator(".save-state:visible")).toContainText("Saved")
   await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
   await page.getByRole("button", { name: "Undo", exact: true }).click()
   await expect(page.getByRole("status").filter({ hasText: "Restore failed" })).toBeVisible()

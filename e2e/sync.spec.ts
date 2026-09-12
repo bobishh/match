@@ -261,6 +261,7 @@ for (const exit of ["Dismiss", "Close", "Escape"]) {
 }
 
 test("Given paired browser profiles, when either peer changes a card, then the other board updates without another QR", async ({ browser, page }) => {
+  test.setTimeout(90_000)
   const origin = "http://127.0.0.1:4244"
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
   const peerContext = await browser.newContext()

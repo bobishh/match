@@ -76,6 +76,13 @@ test("Given editor quorum recovery, when a majority votes, then one vote stays p
     await second.getByRole("button", { name: "Sync", exact: true }).click()
     const secondDialog = second.getByRole("dialog", { name: "Device sync" })
     await expect(secondDialog.getByText("Editor quorum: 2 of 2.")).toBeVisible({ timeout: 30_000 })
+    for (const dialog of [firstDialog, secondDialog]) {
+      const otherEditor = dialog.getByRole("list", { name: "Mesh members" }).getByRole("button")
+        .filter({ hasText: "editor", hasNotText: "You" }).first()
+      await expect(otherEditor).toBeVisible({ timeout: 30_000 })
+      await otherEditor.click()
+      await expect(dialog.getByLabel("Selected mesh member").getByText("Online now")).toBeVisible({ timeout: 30_000 })
+    }
     await page.close()
 
     await selectMember(firstDialog, "You")

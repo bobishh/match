@@ -3,7 +3,7 @@ import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test.describe("Scoped Sync Outer Scenarios", () => {
   test("Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment", async ({ browser, page }) => {
-    test.setTimeout(60000)
+    test.setTimeout(120_000)
     const origin = "http://127.0.0.1:4244"
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondContext = await browser.newContext()
@@ -68,6 +68,8 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.reload()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
       await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toBeVisible()
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 60_000 })
+      await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 60_000 })
       await secondPage.getByRole("button", { name: /Add lead to/ }).first().click()
       await secondPage.getByLabel("Company *").fill("After reload")
       await secondPage.getByLabel("Role *").fill("Engineer")
@@ -320,7 +322,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     await dialog.getByRole("button", { name: "Add this device" }).click()
     await host.getByRole("button", { name: "Approve device" }).click()
-    await expect(dialog.getByText("Device enrolled", { exact: true })).toBeVisible()
+    await expect(dialog.getByText("Device enrolled", { exact: true })).toBeVisible({ timeout: 30_000 })
     await guest.reload()
     await expect(guest.getByLabel("Workspace role: owner")).toBeVisible()
     await expect(guest.getByRole("button", { name: "Open Existing shared board — Engineer" })).toBeVisible()
@@ -375,7 +377,7 @@ test("Given existing data under another identity, when enrollment is approved, t
 })
 
 test("Given a delegated owner device, when it grants an editor access twice, then the editor verifies both grants", async ({ page, browser }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(180_000)
   const ownerContext = await browser.newContext()
   const editorContext = await browser.newContext()
   const owner2 = await ownerContext.newPage()

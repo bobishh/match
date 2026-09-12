@@ -389,6 +389,7 @@ export function useDeviceSync({
       const acceptor = await started.accept()
       void (async () => {
         let connection: SyncConnection | undefined
+        let handedOff = false
         const timeout = setTimeout(() => {
           approveResolve?.(false)
           void started.close("Enrollment timed out").catch(() => {})
@@ -435,6 +436,9 @@ export function useDeviceSync({
             const ids = workspaces.map(item => item.id)
             const requestedActive = activeWorkspaceId?.()
             const enrollmentActive = requestedActive && ids.includes(requestedActive) ? requestedActive : ids[0]!
+            // Enrollment keeps the device ID but replaces its person identity. Remove any
+            // visitor/editor advertisement signed by the previous identity before exporting the mesh.
+            await durableMesh.forgetEnrolledDevice(ids, guest.deviceId)
             await durableMesh.ensureOwnerWorkspaces(ids, started.endpointId, profile)
             const replica = workspaceSet(meshWorkspaceStore ?? workspaceStore!, ids)
             const payload = await enrollmentPayload(invite, profile, result.certificate, root, workspaces,
@@ -443,8 +447,15 @@ export function useDeviceSync({
             await stream.closeSend()
             const ack = await connection.acceptStream()
             await replica.receive(decodePairingFrame(await ack.read(), "enroll-ack", secret))
+            if (currentRun !== run) return
+            await acceptor.close().catch(() => {})
+            await handoffDirectNode("Enrollment finished")
+            handedOff = true
+            await durableMesh.waitUntilListening()
             await ack.send(encodePairingFrame("enroll-complete", secret, new Uint8Array()))
             await ack.closeSend()
+            await connection.close().catch(() => {})
+            connection = undefined
             if (currentRun !== run) return
             step.value = "enroll-host-done"
             return
@@ -459,7 +470,7 @@ export function useDeviceSync({
           approveResolve = undefined
           await connection?.close().catch(() => {})
           await acceptor.close().catch(() => {})
-          if (currentRun === run) {
+          if (currentRun === run && !handedOff) {
             await handoffDirectNode("Enrollment finished")
           }
         }
@@ -740,6 +751,7 @@ export function useDeviceSync({
     const currentRun = ++run
     let connection: SyncConnection | undefined
     let timeout: ReturnType<typeof setTimeout> | undefined
+    let handedOff = false
     step.value = "enroll-guest-waiting"
     error.value = ""
     try {
@@ -781,6 +793,12 @@ export function useDeviceSync({
       await ack.closeSend()
       decodePairingFrame(await ack.read(), "enroll-complete", invite.secret)
       if (currentRun !== run) return
+      await connection.close().catch(() => {})
+      connection = undefined
+      await handoffDirectNode("Enrollment finished")
+      handedOff = true
+      await durableMesh.waitUntilListening()
+      if (currentRun !== run) return
       step.value = "enroll-guest-done"
       if (typeof window !== "undefined") window.history.replaceState(window.history.state, "", "/")
     } catch (err) {
@@ -791,7 +809,7 @@ export function useDeviceSync({
     } finally {
       clearTimeout(timeout)
       await connection?.close().catch(() => {})
-      if (currentRun === run) {
+      if (currentRun === run && !handedOff) {
         await handoffDirectNode("Enrollment finished")
       }
     }
@@ -848,7 +866,10 @@ export function useDeviceSync({
         }
         window.addEventListener("offline", offline)
         try {
-          started = await startPersistentNode(transport)
+          // A recently stopped durable node can remain reserved by the relay. Keep
+          // the stable endpoint for the first attempt, then rotate the transport
+          // endpoint so reconnecting an existing local copy cannot retry forever.
+          started = attempts === 0 ? await startPersistentNode(transport) : await transport.start()
           if (currentRun !== run) return
           node = started
           timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 600_000)
@@ -933,6 +954,11 @@ export function useDeviceSync({
         }
         if (currentRun !== run) return
         if (handoffToMesh) {
+          // Let the host observe the direct session closing and replace its invitation
+          // acceptor before this peer starts durable handshakes on the same endpoints.
+          // Without the handoff gap, the host can accept a mesh session and immediately
+          // tear it down while closing the invitation session, causing a reconnect loop.
+          await new Promise(resolve => setTimeout(resolve, 1_000))
           await startDurableMesh(started)
           return
         }

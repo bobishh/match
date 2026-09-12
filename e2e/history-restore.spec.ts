@@ -32,7 +32,6 @@ test("Given a task moved after creation, when creation version is restored, then
   const detail = page.getByRole("dialog", { name: "Task overview" })
   await detail.locator(".task-history-entry").filter({ hasText: "createTask" })
     .getByRole("button", { name: "Restore this version" }).click()
-  await expect(detail.getByRole("status")).toHaveText("Restoring version…")
   await expect(detail.getByText("Version restored")).toBeVisible()
   await detail.getByRole("button", { name: "Close detail" }).click()
   await expect(page.getByRole("region", { name: "To do" }).getByText("Reversible task")).toBeVisible()

@@ -100,6 +100,43 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given a workspace guest enrolls as an owner device, when enrollment is approved, then its old peer aliases are removed", async () => {
+    const removed: string[] = []
+    const closed: string[] = []
+    const mesh = new DurableMesh({
+      transport: {} as never,
+      workspaceStore: {} as never,
+      workspace: {} as never,
+      getProfile: async () => ({} as never),
+      store: {
+        removePeer: async (workspaceId: string, deviceId: string) => {
+          removed.push(`${workspaceId}:${deviceId}`)
+          return true
+        },
+      } as never,
+    })
+    const internal = mesh as any
+    internal.sessions.set("workspace-1:guest-device", {
+      workspaceId: "workspace-1",
+      deviceId: "guest-device",
+      session: { close: async () => { closed.push("session") } },
+      connection: { close: async () => { closed.push("connection") } },
+    })
+    internal.connecting.add("workspace-1:guest-device")
+    internal.failures.set("workspace-1:guest-device", 2)
+    internal.failedAt.set("workspace-1:guest-device", Date.now())
+
+    await mesh.forgetEnrolledDevice(["workspace-1", "workspace-1", "workspace-2"], "guest-device")
+
+    expect(removed).toEqual(["workspace-1:guest-device", "workspace-2:guest-device"])
+    expect(closed).toEqual(["session", "connection"])
+    expect(internal.sessions.has("workspace-1:guest-device")).toBe(false)
+    expect(internal.connecting.has("workspace-1:guest-device")).toBe(false)
+    expect(internal.failures.has("workspace-1:guest-device")).toBe(false)
+    expect(internal.failedAt.has("workspace-1:guest-device")).toBe(false)
+    await mesh.dispose()
+  })
+
   it("Given one invalid peer record, when a catalog merges, then later valid peers still import", async () => {
     const credential = { workspaceId: "workspace-1" }
     const mesh = new DurableMesh({
