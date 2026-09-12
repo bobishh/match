@@ -21,6 +21,7 @@ export const priorityBandSchema = z.strictObject({ optionId: id, minScore: z.num
 export const priorityPolicySchema = z.strictObject({
   version: z.literal(1),
   evaluator: z.literal("weighted-rules-v1"),
+  sort: z.enum(["fit_desc", "fit_asc", "manual"]).optional(),
   priorityFieldId: id,
   fitFieldId: id.nullable(),
   rules: z.array(priorityRuleSchema),

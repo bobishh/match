@@ -34,6 +34,34 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
   return context
 }
 
+test("Given a legacy local device without metadata, when Sync opens in a known browser, then it shows the current browser and OS", async ({ browser }) => {
+  test.setTimeout(120_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  await hostContext.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "userAgent", { configurable: true, get: () => "" })
+  })
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await pairWorkspace(host, guest)
+    await host.evaluate(() => {
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36",
+      })
+    })
+
+    await host.getByRole("button", { name: "Sync", exact: true }).click()
+    const dialog = host.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "You" }).click()
+    await expect(dialog.getByRole("list", { name: /Devices for/ })).toContainText("Likely Chrome · Linux")
+  } finally {
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
 test("Given a joined workspace with local data, when an editor leaves the mesh, then its copy remains and rejoining requires merge confirmation", async ({ browser, page }) => {
   test.setTimeout(120_000)
   const context = await isolatedContext(browser)

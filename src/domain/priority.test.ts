@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { evaluatePriority, projectTaskPriority } from "./priority"
+import { evaluatePriority, orderTasksByPriority, projectTaskPriority } from "./priority"
 import type { Board, PriorityPolicy, Task } from "./model"
 
 const policy: PriorityPolicy = {
   version: 1,
   evaluator: "weighted-rules-v1",
+  sort: "fit_desc",
   priorityFieldId: "priority",
   fitFieldId: "fit",
   rules: [
@@ -45,5 +46,25 @@ describe("priority projection", () => {
   it("returns source task unchanged when automatic priority is disabled", () => {
     const task = { values: { priority: "manual" } } as unknown as Task
     expect(projectTaskPriority({ priorityPolicy: null } as Board, task)).toBe(task)
+  })
+})
+
+describe("priority order", () => {
+  const remote = { id: "remote", values: { mode: "remote" } } as unknown as Task
+  const onsite = { id: "onsite", values: { mode: "onsite" } } as unknown as Task
+
+  it("orders highest fit first by default and keeps equal scores stable", () => {
+    const legacyPolicy = { ...policy, sort: undefined }
+    expect(orderTasksByPriority({ priorityPolicy: legacyPolicy } as Board, [onsite, remote]).map(task => task.id))
+      .toEqual(["remote", "onsite"])
+    expect(orderTasksByPriority({ priorityPolicy: policy } as Board, [remote, { ...remote, id: "remote-2" }]).map(task => task.id))
+      .toEqual(["remote", "remote-2"])
+  })
+
+  it("supports lowest-fit and manual order", () => {
+    expect(orderTasksByPriority({ priorityPolicy: { ...policy, sort: "fit_asc" } } as Board, [remote, onsite]).map(task => task.id))
+      .toEqual(["onsite", "remote"])
+    expect(orderTasksByPriority({ priorityPolicy: { ...policy, sort: "manual" } } as Board, [onsite, remote]))
+      .toEqual([onsite, remote])
   })
 })

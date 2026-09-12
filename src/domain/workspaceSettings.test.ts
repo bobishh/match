@@ -114,10 +114,18 @@ describe("workspace settings transaction", () => {
     expect(projectWorkspaceSettings(result.value.newDoc).board.priorityPolicy).toMatchObject({
       version: 1,
       evaluator: "weighted-rules-v1",
+      sort: "fit_desc",
       rules: expect.arrayContaining([expect.objectContaining({ weight: 8 })]),
     })
 
-    const invalid = projectWorkspaceSettings(result.value.newDoc)
+    const reordered = projectWorkspaceSettings(result.value.newDoc)
+    reordered.board.priorityPolicy!.sort = "fit_asc"
+    const reorderedResult = await executeCommand(result.value.newDoc, { kind: "updateWorkspaceSettings", settings: reordered }, profile)
+    expect(reorderedResult.ok).toBe(true)
+    if (!reorderedResult.ok) return
+    expect(projectWorkspaceSettings(reorderedResult.value.newDoc).board.priorityPolicy?.sort).toBe("fit_asc")
+
+    const invalid = projectWorkspaceSettings(reorderedResult.value.newDoc)
     invalid.board.priorityPolicy!.rules[0].fieldId = "missing"
     expect(validateWorkspaceSettingsDraft(invalid, result.value.newDoc).errors).toContainEqual({
       path: "/board/priorityPolicy/rules/0/fieldId",

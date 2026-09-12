@@ -453,6 +453,15 @@ function handleConfirmApply() {
               <button class="button button-danger" type="button" :disabled="readOnly" @click="workspaceSettings.board.priorityPolicy = null">Disable automatic priority</button>
             </div>
 
+            <label class="priority-order">
+              <span>Card order</span>
+              <select v-model="priorityPolicy.sort" aria-label="Card order" :disabled="readOnly">
+                <option value="fit_desc">Highest fit first</option>
+                <option value="fit_asc">Lowest fit first</option>
+                <option value="manual">Manual order</option>
+              </select>
+            </label>
+
             <fieldset :disabled="readOnly" class="priority-rules" aria-label="Weighted criteria">
               <div v-for="(rule, index) in priorityPolicy.rules" :key="rule.id" class="priority-rule-row">
                 <label>
@@ -805,6 +814,8 @@ function handleConfirmApply() {
 .priority-settings p { color: var(--muted); line-height: 1.45; }
 .priority-settings-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .priority-settings-head > div, .priority-empty { display: grid; gap: 8px; }
+.priority-order { display: grid; gap: 6px; max-width: 320px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.priority-order select { min-height: 42px; border: 2px solid var(--line); border-radius: 0; background: white; padding: 8px 10px; font: 700 .9rem/1.2 Inter, ui-sans-serif, sans-serif; }
 .priority-rules, .priority-thresholds { display: grid; gap: 12px; margin: 0; padding: 16px; border: 2px solid var(--line); }
 .priority-rule-row { display: grid; grid-template-columns: 1.2fr 1fr 1.2fr 92px auto; align-items: end; gap: 10px; }
 .priority-rule-row label, .priority-thresholds label { display: grid; gap: 6px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }

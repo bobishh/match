@@ -39,6 +39,16 @@ export function projectTaskPriority(board: Board | null | undefined, task: Task)
   }
 }
 
+export function orderTasksByPriority(board: Board | null | undefined, tasks: Task[]): Task[] {
+  const policy = board?.priorityPolicy
+  const order = policy?.sort ?? "fit_desc"
+  if (!policy || order === "manual") return tasks
+  const direction = order === "fit_desc" ? -1 : 1
+  return tasks.map((task, index) => ({ task, index, score: evaluatePriority(policy, task.values).score }))
+    .sort((a, b) => direction * (a.score - b.score) || a.index - b.index)
+    .map(item => item.task)
+}
+
 export function createDefaultPriorityPolicy(board: Board, fields: FieldDefinition[]): PriorityPolicy | null {
   const bindings = board.preset?.bindings ?? {}
   const priorityFieldId = bindings["field.priority"]
@@ -66,7 +76,7 @@ export function createDefaultPriorityPolicy(board: Board, fields: FieldDefinitio
     const optionId = byTitle.get(String(name)) ?? bindings[`option.priority.${name}`]
     return optionId ? [{ optionId, minScore: Number(minScore) }] : []
   })
-  return { version: 1, evaluator: "weighted-rules-v1", priorityFieldId, fitFieldId, rules, bands }
+  return { version: 1, evaluator: "weighted-rules-v1", sort: "fit_desc", priorityFieldId, fitFieldId, rules, bands }
 }
 
 export function validatePriorityPolicy(

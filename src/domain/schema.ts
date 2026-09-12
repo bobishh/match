@@ -119,7 +119,9 @@ export function projectBoardSchema(
     entityName,
     columns,
     fields,
-    priorityPolicy: board?.priorityPolicy ? JSON.parse(JSON.stringify(board.priorityPolicy)) : null,
+    priorityPolicy: board?.priorityPolicy
+      ? { ...JSON.parse(JSON.stringify(board.priorityPolicy)), sort: board.priorityPolicy.sort ?? "fit_desc" }
+      : null,
   }
 }
 

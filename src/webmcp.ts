@@ -110,6 +110,7 @@ const workspaceSettingsSchema = {
           properties: {
             version: { type: "number", const: 1 },
             evaluator: { type: "string", const: "weighted-rules-v1" },
+            sort: { type: "string", enum: ["fit_desc", "fit_asc", "manual"] },
             priorityFieldId: { type: "string" },
             fitFieldId: { type: ["string", "null"] },
             rules: {

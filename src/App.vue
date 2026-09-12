@@ -38,6 +38,7 @@ import { projectEntityHistory } from "./domain/history"
 import { useDelayedFlag } from "./ui/useDelayedFlag"
 import { hideLeavingElement, showEnteringElement } from "./ui/modal"
 import { describeUserAgent } from "./ui/deviceInfo"
+import { orderTasksByPriority } from "./domain/priority"
 
 const {
   workspace,
@@ -240,23 +241,26 @@ const meshMembers = computed(() => {
   return [...personIds].map(personId => {
     const devices = peers.filter(peer => peer.personId === personId)
     const self = personId === selfId
-    const deviceList = devices.map(peer => ({
-      deviceId: peer.deviceId,
-      name: peer.deviceName || `Device ${peer.deviceId.slice(0, 6)}`,
-      online: peer.online || (self && peer.deviceId === sync.localDeviceId.value),
-      lastSeen: peer.lastSeen,
-      userAgent: peer.userAgent,
-      description: describeUserAgent(peer.userAgent),
-    }))
+    const localUserAgent = typeof navigator !== "undefined" ? navigator.userAgent : undefined
+    const deviceList = devices.map(peer => {
+      const userAgent = peer.userAgent || (self && peer.deviceId === sync.localDeviceId.value ? localUserAgent : undefined)
+      return {
+        deviceId: peer.deviceId,
+        name: peer.deviceName || `Device ${peer.deviceId.slice(0, 6)}`,
+        online: peer.online || (self && peer.deviceId === sync.localDeviceId.value),
+        lastSeen: peer.lastSeen,
+        userAgent,
+        description: describeUserAgent(userAgent),
+      }
+    })
     if (self && sync.localDeviceId.value && !deviceList.some(device => device.deviceId === sync.localDeviceId.value)) {
-      const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : undefined
       deviceList.push({
         deviceId: sync.localDeviceId.value,
         name: "This device",
         online: true,
         lastSeen: new Date().toISOString(),
-        userAgent,
-        description: describeUserAgent(userAgent),
+        userAgent: localUserAgent,
+        description: describeUserAgent(localUserAgent),
       })
     }
     const peerRole = devices[0]?.role ?? "visitor"
@@ -414,7 +418,7 @@ function taskIsVisible(task: Task, columnId: string) {
 }
 
 function tasksForColumn(column: { id: string; tasks: Task[] }) {
-  return column.tasks.filter((task) => taskIsVisible(task, column.id))
+  return orderTasksByPriority(activeBoard.value, column.tasks.filter((task) => taskIsVisible(task, column.id)))
 }
 
 function highlightMoved(entityId: string, kind: "task" | "column") {
@@ -985,6 +989,7 @@ async function handleSaveTask(payload: { title: string; body: string; parentId?:
 }
 
 const currentDocHeads = computed(() => {
+  void docVersion.value
   const doc = getActiveDoc()
   return doc ? Automerge.getHeads(doc) : []
 })
