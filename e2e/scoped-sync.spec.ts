@@ -1,5 +1,17 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type BrowserContext } from "@playwright/test"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
+
+async function closeNetworkContext(context: BrowserContext) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      context.close(),
+      new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 test.describe("Scoped Sync Outer Scenarios", () => {
   test("Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment", async ({ browser, page }) => {
@@ -425,7 +437,8 @@ test("Given a delegated owner device, when it grants an editor access twice, the
     await inviteEditor()
     await expect(editor.getByLabel("Workspace role: editor")).toBeVisible()
   } finally {
-    await ownerContext.close()
-    await editorContext.close()
+    // Chromium can wait for remote Iroh/WebRTC shutdown until the whole test
+    // timeout. Behaviour is already asserted; bound teardown independently.
+    await Promise.all([closeNetworkContext(ownerContext), closeNetworkContext(editorContext)])
   }
 })
