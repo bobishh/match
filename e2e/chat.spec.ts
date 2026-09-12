@@ -172,7 +172,8 @@ test("Given owner and editor connected, when editor types, then typing and devic
     await guestSync.getByRole("button", { name: "Close", exact: true }).first().click()
     await hostSync.getByRole("button", { name: "Close", exact: true }).first().click()
 
-    await expect(page.getByLabel("Workspace presence")).toHaveText("1 editor · 2 devices")
+    await expect(page.getByLabel("Workspace presence")).toContainText("2 devices")
+    await expect(page.getByLabel("Workspace presence")).not.toContainText("editor")
     const hostChat = await openChat(page)
     const guestChat = await openChat(guest)
     await guestChat.getByRole("textbox", { name: "Message", exact: true }).fill("Unsaved draft")

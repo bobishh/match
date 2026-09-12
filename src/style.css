@@ -106,7 +106,6 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .filter-label, .filter-label span { display: flex; align-items: center; gap: 8px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
 select, input, textarea { min-width: 0; border: 2px solid var(--line); border-radius: 0; background: white; }
 select { min-height: 42px; padding: 8px 26px 8px 10px; }
-.stats { color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; white-space: nowrap; }
 .filters-panel { min-width: 0; }
 .lead-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; margin: 0; padding: 0; border: 0; }
 .lead-filters legend { grid-column: 1 / -1; padding: 0; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
@@ -298,7 +297,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 @media (max-width: 1320px) and (min-width: 721px) {
   .toolbar { grid-template-columns: minmax(220px, 360px) minmax(0, 1fr); align-items: center; }
   .filters-panel { grid-column: 1 / -1; }
-  .stats { justify-self: end; }
 }
 /* Mobile Menu & Drawer */
 .topbar-mobile-controls {
@@ -528,9 +526,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .filter-label select {
     width: 100%;
   }
-  .stats {
-    margin-left: auto;
-  }
   .board {
     width: 100%;
     gap: 16px;
@@ -582,10 +577,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
   .filters-panel .lead-filters {
     grid-template-columns: 1fr;
-  }
-  .stats {
-    width: 100%;
-    margin-left: 0;
   }
   .workspace-item { grid-template-columns: minmax(0, 1fr); }
   .workspace-item-actions { border-top: 1px solid var(--line); border-left: 0; }

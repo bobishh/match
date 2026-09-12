@@ -215,17 +215,6 @@ const onlineWorkspaceDevices = computed(() => {
   if (sync.localDeviceId.value) ids.add(sync.localDeviceId.value)
   return Math.max(1, ids.size)
 })
-const onlineWorkspaceEditors = computed(() => {
-  const ids = new Set(sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt && peer.online &&
-    peer.role === "editor" && peer.personId !== currentWorkspaceOwnerId.value).map(peer => peer.personId))
-  if (currentRole.value === "editor" && chat.personId.value) ids.add(chat.personId.value)
-  return ids.size
-})
-const workspacePresenceSummary = computed(() => {
-  const editors = onlineWorkspaceEditors.value
-  const devices = onlineWorkspaceDevices.value
-  return `${editors} ${editors === 1 ? "editor" : "editors"} · ${devices} ${devices === 1 ? "device" : "devices"}`
-})
 const revokingPeer = ref("")
 const peerAccessError = ref("")
 const isWorkspaceOwner = computed(() => currentRole.value === "owner")
@@ -365,6 +354,14 @@ const totalDocuments = computed(() => workspace.documents.length + workspace.art
 const totalTasks = computed(() => genericColumns.value.reduce((total, column) => total + column.tasks.length, 0))
 const visibleTasks = computed(() => genericColumns.value.reduce((total, column) => total + tasksForColumn(column).length, 0))
 const hasFilters = computed(() => Boolean(search.value.trim()) || activeFilterCount(filters.value) > 0)
+const workspacePresenceSummary = computed(() => {
+  const cards = hasFilters.value
+    ? `${visibleTasks.value} of ${totalTasks.value} cards`
+    : `${totalTasks.value} ${totalTasks.value === 1 ? "card" : "cards"}`
+  const docs = `${totalDocuments.value} ${totalDocuments.value === 1 ? "doc" : "docs"}`
+  const devices = onlineWorkspaceDevices.value
+  return `${cards} · ${docs} · ${devices} ${devices === 1 ? "device" : "devices"}`
+})
 const visibleColumns = computed(() => {
   if (!hasFilters.value || isEditingBoard.value) return genericColumns.value
   // An explicitly selected empty state remains a useful destination for new cards.
@@ -1261,7 +1258,6 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       <LeadFilters v-model="filters" :columns="genericColumns" :fields="boardFields" />
       <div class="toolbar-meta">
         <SaveState :state="saveState" :settled-label="workspacePresenceSummary" aria-label="Workspace presence" />
-        <span class="stats">{{ hasFilters ? `${visibleTasks} of ${totalTasks} cards` : `${totalTasks} ${totalTasks === 1 ? 'card' : 'cards'}` }} · {{ totalDocuments }} {{ totalDocuments === 1 ? 'doc' : 'docs' }}</span>
       </div>
     </section>
 
