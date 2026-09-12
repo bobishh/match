@@ -2,7 +2,8 @@ import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue"
 import { bootstrapIdentity } from "../domain/identity"
 import { messageOrderKey, type ChatSnapshot } from "./store"
 import { resolveDisplayNames, randomDisplayName } from "./names"
-import { ensureChatProfile, renameChatProfile, sendChatMessage, subscribeChat, loadChat, readChatCursor, markChatRead } from "./service"
+import { ensureChatProfile, renameChatProfile, sendChatMessage, sendChatTyping, subscribeChat, loadChat,
+  loadChatTyping, readChatCursor, markChatRead, type ChatTyping } from "./service"
 
 export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>) {
   const open = ref(false)
@@ -16,7 +17,12 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
   const snapshot = ref<ChatSnapshot>({ messages: [], profiles: [] })
   const suggestedName = ref<string | null>(null)
   const toast = ref<{ workspaceId: string; text: string } | null>(null)
+  const typing = ref<ChatTyping[]>([])
   let toastTimer: ReturnType<typeof setTimeout> | undefined
+  let typingExpiryTimer: ReturnType<typeof setTimeout> | undefined
+  let typingIdleTimer: ReturnType<typeof setTimeout> | undefined
+  let typingAnnounced = false
+  let lastTypingPublished = 0
   let generation = 0
   const names = computed(() => resolveDisplayNames(snapshot.value.profiles.map(p => ({ personId: p.personId, name: p.name }))))
   const ownName = computed(() => suggestedName.value ?? snapshot.value.profiles.find(p => p.personId === personId.value)?.name ?? "")
@@ -27,6 +33,35 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
   })).sort((a, b) => a.personId < b.personId ? -1 : a.personId > b.personId ? 1 : 0))
   const messages = computed(() => snapshot.value.messages.map(m => ({ ...m, name: names.value[m.personId] ?? `Participant · ${m.personId.slice(0, 6)}` })))
   const unread = computed(() => snapshot.value.messages.filter(m => m.personId !== personId.value && (!cursor.value || messageOrderKey(m) > cursor.value)).length)
+  const typingPeople = computed(() => [...new Set(typing.value.filter(item => item.personId !== personId.value)
+    .map(item => item.personId))].map(id => names.value[id] ?? `Participant · ${id.slice(0, 6)}`))
+
+  function refreshTyping() {
+    typing.value = loadChatTyping(workspaceId.value)
+    clearTimeout(typingExpiryTimer)
+    if (typing.value.length) typingExpiryTimer = setTimeout(refreshTyping, 6_100)
+  }
+
+  function publishTyping(active: boolean) {
+    if (!workspaceId.value || !personId.value) return
+    void sendChatTyping(workspaceId.value, active).catch(() => {})
+  }
+
+  function setTyping(active: boolean) {
+    clearTimeout(typingIdleTimer)
+    if (!active) {
+      if (typingAnnounced) publishTyping(false)
+      typingAnnounced = false
+      return
+    }
+    const now = Date.now()
+    if (!typingAnnounced || now - lastTypingPublished >= 2_500) {
+      typingAnnounced = true
+      lastTypingPublished = now
+      publishTyping(true)
+    }
+    typingIdleTimer = setTimeout(() => setTyping(false), 1_500)
+  }
 
   async function markRead() {
     if (!open.value || document.visibilityState !== "visible") return
@@ -52,12 +87,14 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
   }
 
   watch([workspaceId, ownerId], async () => {
+    setTyping(false)
     generation++
     suggestedName.value = null
     snapshot.value = { messages: [], profiles: [] }
     error.value = ""
     nameError.value = ""
     toast.value = null
+    typing.value = []
     if (!workspaceId.value || !ownerId.value) return
     const id = workspaceId.value
     loading.value = true
@@ -70,12 +107,16 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
     finally { if (id === workspaceId.value) loading.value = false }
   }, { immediate: true })
 
-  watch(open, () => { if (open.value) { toast.value = null; void refresh() } })
+  watch(open, () => {
+    if (open.value) { toast.value = null; void refresh(); refreshTyping() }
+    else setTyping(false)
+  })
   const visibility = () => { if (document.visibilityState === "visible") void refresh() }
   document.addEventListener("visibilitychange", visibility)
   const unsubscribe = subscribeChat(event => {
     if (event.workspaceId !== workspaceId.value) return
     void refresh()
+    if (event.typing?.length) refreshTyping()
     if (event.remote && !snapshot.value.profiles.some(p => p.personId === personId.value)) {
       void ensureChatProfile(event.workspaceId).then(() => {
         if (event.workspaceId === workspaceId.value) { nameError.value = ""; void refresh() }
@@ -96,10 +137,18 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
       toastTimer = setTimeout(() => { toast.value = null }, 6000)
     }).catch(() => {})
   })
-  onBeforeUnmount(() => { unsubscribe(); clearTimeout(toastTimer); document.removeEventListener("visibilitychange", visibility) })
+  onBeforeUnmount(() => {
+    setTyping(false)
+    unsubscribe()
+    clearTimeout(toastTimer)
+    clearTimeout(typingExpiryTimer)
+    clearTimeout(typingIdleTimer)
+    document.removeEventListener("visibilitychange", visibility)
+  })
 
   async function send(body: string) {
     if (sending.value) return
+    setTyping(false)
     sending.value = true
     error.value = ""
     const id = workspaceId.value
@@ -116,5 +165,5 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
     finally { savingName.value = false }
   }
   return { open, loading, sending, savingName, error, nameError, personId, ownName, displayName, members, messages, unread, toast,
-    send, rename, randomize: () => { suggestedName.value = randomDisplayName() } }
+    typingPeople, setTyping, send, rename, randomize: () => { suggestedName.value = randomDisplayName() } }
 }

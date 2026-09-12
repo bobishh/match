@@ -20,6 +20,7 @@ const props = withDefaults(
     error: string
     loading: boolean
     connected: boolean
+    typingPeople: readonly string[]
   }>(),
   {
     workspaceTitle: "",
@@ -29,12 +30,14 @@ const props = withDefaults(
     error: "",
     loading: false,
     connected: false,
+    typingPeople: () => [],
   }
 )
 
 const emit = defineEmits<{
   close: []
   send: [body: string]
+  typing: [active: boolean]
 }>()
 
 const draft = ref("")
@@ -64,6 +67,9 @@ const displayedMessages = computed(() => {
   }
   return all.slice(-visibleCount.value)
 })
+const typingLabel = computed(() => props.typingPeople.length === 1
+  ? `${props.typingPeople[0]} is typing…`
+  : props.typingPeople.length > 1 ? `${props.typingPeople[0]} and ${props.typingPeople.length - 1} others are typing…` : "")
 
 function isScrolledToBottom(el: HTMLElement, threshold = 40): boolean {
   return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
@@ -109,9 +115,17 @@ function handleSubmit() {
   }
   isSubmitting.value = true
   userJustSent.value = true
+  emit("typing", false)
   emit("send", text)
   scrollToBottom(true)
 }
+
+function closeChat() {
+  emit("typing", false)
+  emit("close")
+}
+
+watch(draft, value => emit("typing", Boolean(value.trim())))
 
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === "Enter") {
@@ -195,7 +209,7 @@ function formatDisplayTime(createdAt: string): string {
     :protect-draft="true"
     :busy="sending"
     class="overlay chat-overlay"
-    @close="emit('close')"
+    @close="closeChat"
   >
     <section
       class="dialog chat-dialog"
@@ -223,7 +237,7 @@ function formatDisplayTime(createdAt: string): string {
           type="button"
           aria-label="Close"
           :disabled="sending"
-          @click="emit('close')"
+          @click="closeChat"
         >×</button>
       </header>
 
@@ -275,6 +289,8 @@ function formatDisplayTime(createdAt: string): string {
           </div>
           <div class="chat-message-body">{{ msg.body }}</div>
         </article>
+
+        <div v-if="typingLabel" class="chat-typing" role="status" aria-label="Typing presence">{{ typingLabel }}</div>
       </div>
 
       <p v-if="error" class="form-error chat-error-banner" role="alert">
@@ -297,6 +313,7 @@ function formatDisplayTime(createdAt: string): string {
               :disabled="sending"
               rows="2"
               @keydown="handleKeyDown"
+              @blur="emit('typing', false)"
               @compositionstart="isComposing = true"
               @compositionend="isComposing = false"
             ></textarea>
@@ -472,6 +489,13 @@ function formatDisplayTime(createdAt: string): string {
   line-height: 1.45;
   white-space: pre-wrap;
   color: var(--ink);
+}
+
+.chat-typing {
+  align-self: flex-start;
+  padding: 7px 10px;
+  color: var(--muted);
+  font: 750 0.72rem/1.3 ui-monospace, monospace;
 }
 
 .chat-error-banner {

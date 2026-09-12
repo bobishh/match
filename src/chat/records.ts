@@ -6,7 +6,7 @@ import { peerStore } from "../sync/peerStore"
 import type { WorkspaceAuthority } from "../sync/meshRecords"
 
 export type ChatPayload = {
-  kind: "chat-message" | "chat-profile"
+  kind: "chat-message" | "chat-profile" | "chat-typing"
   version: 1
   workspaceId: string
   personId: string
@@ -65,7 +65,7 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 32768) throw new Error("Chat record too large")
   const record = value as ChatRecord
   const p = record?.signed?.payload
-  if (!p || p.version !== 1 || !["chat-message", "chat-profile"].includes(p.kind) ||
+  if (!p || p.version !== 1 || !["chat-message", "chat-profile", "chat-typing"].includes(p.kind) ||
       p.workspaceId !== workspaceId || typeof p.personId !== "string" || typeof p.deviceId !== "string" ||
       typeof p.id !== "string" || !p.id.startsWith(`${p.deviceId}:`) || p.id.length > 160 ||
       typeof p.text !== "string" || typeof p.createdAt !== "string" ||
@@ -74,6 +74,8 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
       record.signed.signerKeyId !== p.deviceId) throw new Error("Invalid chat record")
   if (p.kind === "chat-profile") {
     if (validateDisplayName(p.text) || normalizeDisplayName(p.text) !== p.text) throw new Error("Invalid display name")
+  } else if (p.kind === "chat-typing") {
+    if (!["typing", "idle"].includes(p.text)) throw new Error("Invalid typing presence")
   } else if (!p.text.trim() || [...p.text].length > 8000) throw new Error("Message must contain 1–8,000 characters")
   const key = await deviceKey(p.personId, record.publicKey, p.deviceId, record.certificates)
   if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid message signature")

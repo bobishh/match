@@ -1,4 +1,4 @@
-import { workspaceRole, authorizeLocalChanges, validateIncomingChanges } from "./sync/changeAuthorization"
+import { workspaceRole, workspaceWritesBlocked, authorizeLocalChanges, validateIncomingChanges } from "./sync/changeAuthorization"
 import { assertWorkspaceTransition } from "./domain/permissions"
 import { computed, reactive, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
@@ -424,6 +424,10 @@ export async function commitAndPersist(
 async function persistCommand(command: Command, storage: WorkspaceStorage): Promise<void> {
   if (!activeDoc || !currentProfile) {
     throw new Error("Workspace not hydrated")
+  }
+
+  if (await workspaceWritesBlocked(activeDoc.id)) {
+    throw new Error("Workspace writes paused: conflicting ownership recovery claims")
   }
 
   const role = await workspaceRole(activeDoc, currentProfile)

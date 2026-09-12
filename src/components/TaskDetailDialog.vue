@@ -10,6 +10,9 @@ const props = defineProps<{
   fields: FieldDefinition[]
   history?: HistoryEntry[]
   archiveError?: string
+  restoreSaving?: boolean
+  restoreError?: string
+  restoreNotice?: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +20,7 @@ const emit = defineEmits<{
   (e: "addSubtask", parentTaskId: string): void
   (e: "startMove", task: Task): void
   (e: "deleteTask", taskId: string): void
+  (e: "restoreVersion", changeHash: string): void
 }>()
 </script>
 
@@ -84,7 +88,7 @@ const emit = defineEmits<{
           </div>
           <div v-if="history?.length" class="task-history-list">
             <div
-              v-for="entry in history"
+              v-for="(entry, index) in history"
               :key="entry.hash"
               class="task-history-entry"
             >
@@ -95,8 +99,13 @@ const emit = defineEmits<{
               <div class="task-history-author">
                 Author: <span>{{ entry.authorLabel }}</span>
               </div>
+              <button v-if="index < history.length - 1" class="button button-small button-quiet" type="button"
+                :disabled="readOnly || restoreSaving" @click="emit('restoreVersion', entry.hash)">Restore this version</button>
             </div>
           </div>
+          <p v-if="restoreSaving" role="status" class="dialog-copy">Restoring version…</p>
+          <p v-else-if="restoreNotice" role="status" class="dialog-copy">{{ restoreNotice }}</p>
+          <p v-if="restoreError" role="alert" class="form-error">{{ restoreError }}</p>
         </section>
       </div>
 

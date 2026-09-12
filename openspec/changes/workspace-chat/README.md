@@ -11,6 +11,7 @@
 - Immutable message IDs, idempotent imports, deterministic profile revisions. Read cursors are local and monotonic.
 - Initial workspace invitation/acknowledgement includes retained history. Live connections send unseen signed records; each live session owns its send cache. Old clients can ignore the optional chat envelope.
 - Post-commit events drive rendering and sync. BroadcastChannel updates sibling tabs. Visible, focused tabs claim toast notifications under a browser lock. Initial/reconnect history and duplicate records do not produce toasts.
+- Signed typing state travels through live workspace sessions, expires after inactivity, and is never written to the chat journal or workspace export. Header presence reports online editors and devices.
 - Composer keeps drafts on write failure; no success or send event before the IndexedDB transaction completes.
 - A stable Iroh node key, per-workspace mesh credential, signed peer advertisements, grants, and signed owner revocations persist in a separate peer catalog.
 - One tab becomes network leader. Trusted peers reconnect after all tabs close and reopen. Peers introduced by the owner exchange the signed catalog and can sync directly without the owner online.
@@ -24,7 +25,7 @@ No remote delivery receipts, attachments, message editing/deletion or system not
 
 ## Verification
 
-`e2e/chat.spec.ts`: profile persistence, desktop/mobile send/reload, storage failure and retry, two independent peers, name conflicts and network reconnect.
+`e2e/chat.spec.ts`: profile persistence, desktop/mobile send/reload, storage failure and retry, two independent peers, name conflicts, typing presence, live device/editor counts, and network reconnect.
 
 `e2e/chat-storage.spec.ts`: real IndexedDB concurrency, duplicate/conflict handling, count/byte retention, prune cutoff, transaction atomicity, cursor monotonicity and reload.
 

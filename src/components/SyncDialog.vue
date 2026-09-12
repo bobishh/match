@@ -34,6 +34,7 @@ const props = defineProps<{
     eligibleEditorPersonIds: string[]
     votes: Array<{ voterPersonId: string; candidatePersonId: string }>
     quorum: number
+    conflicted: boolean
   }
   canClaimSuccession?: boolean
   canManageMesh?: boolean
@@ -186,6 +187,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </section>
         <section v-if="hasMesh" class="sync-section" aria-label="Ownership succession">
           <p class="sync-section-copy">Ownership succession</p>
+          <p v-if="succession?.conflicted" class="sync-error" role="alert">Conflicting recovery claims found. Workspace writes paused; inspect signed claims before transferring ownership.</p>
           <p v-if="succession" class="dialog-copy">
             <template v-if="succession.successorPersonId">Named successor: {{ (meshMembers || []).find(member => member.personId === succession?.successorPersonId)?.name || 'Unavailable member' }}.</template>
             <template v-else>Editor quorum: {{ succession.quorum }} of {{ succession.eligibleEditorPersonIds.length }}.</template>
@@ -195,7 +197,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           </p>
           <p v-if="!succession" class="dialog-copy">No recovery policy. Owner must enable editor quorum or name a successor.</p>
           <button v-if="canManageMesh && !succession" class="button" type="button" @click="emit('setSuccessor', null)">Enable editor quorum</button>
-          <button v-if="canClaimSuccession" class="button button-danger" type="button" @click="emit('claimSuccession')">Claim ownership</button>
+          <button v-if="canClaimSuccession && !succession?.conflicted" class="button button-danger" type="button" @click="emit('claimSuccession')">Claim ownership</button>
         </section>
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
         <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">

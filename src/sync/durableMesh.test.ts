@@ -5,6 +5,26 @@ import { verifyWorkspaceGrant } from "./meshRecords"
 import { DurableMesh } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given two different same-epoch recovery claims, when projected, then conflict pauses automatic recovery", async () => {
+    const policy = { payload: { successorPersonId: null, eligibleEditorPersonIds: ["editor-a", "editor-b"] } }
+    const credential = {
+      version: 1 as const, workspaceId: "workspace-conflict", ownerPersonId: "editor-a", ownerPublicKey: "key-a",
+      ownerCertificates: [], transportSecret: "mesh-secret", epoch: 2, updatedAt: new Date().toISOString(),
+      catalog: { successionClaims: [
+        { signature: "claim-a", payload: { epoch: 2, toOwnerPersonId: "editor-a", policy } },
+        { signature: "claim-b", payload: { epoch: 2, toOwnerPersonId: "editor-b", policy } },
+      ] },
+    }
+    const mesh = new DurableMesh({
+      transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listWorkspaceCredentials: async () => [credential] } as never,
+    })
+
+    await expect(mesh.successionViews()).resolves.toMatchObject([{ workspaceId: "workspace-conflict", conflicted: true }])
+    await mesh.dispose()
+  })
+
   it("Given a stored peer with an invalid grant, when the mesh validates its catalog, then it removes the poisoned peer before dialing", async () => {
     const removed: string[] = []
     const credential = {

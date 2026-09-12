@@ -151,3 +151,35 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     await expect(restoredPrivate.getByText("Hello from guest", { exact: true })).toHaveCount(0)
   } finally { await context.close() }
 })
+
+test("Given owner and editor connected, when editor types, then typing and online counts update without saving a message", async ({ page, browser }) => {
+  test.setTimeout(90_000)
+  const context = await browser.newContext()
+  const guest = await context.newPage()
+  try {
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const hostSync = page.getByRole("dialog", { name: "Device sync" })
+    await hostSync.getByRole("button", { name: "Add someone" }).click()
+    await hostSync.getByRole("button", { name: "Generate link" }).click()
+    await guest.goto(await hostSync.getByLabel("Pairing link").inputValue())
+    const guestSync = guest.getByRole("dialog", { name: "Device sync" })
+    await guestSync.getByRole("button", { name: "Accept and join" }).click()
+    await hostSync.getByLabel("Participant role").selectOption("editor")
+    await hostSync.getByRole("button", { name: "Approve access" }).click()
+    await expect(guestSync.getByText(/Connected to/)).toBeVisible({ timeout: 30_000 })
+    await guestSync.getByRole("button", { name: "Close", exact: true }).first().click()
+    await hostSync.getByRole("button", { name: "Close", exact: true }).first().click()
+
+    await expect(page.getByLabel("Workspace presence")).toHaveText("1 editor · 2 devices online")
+    const hostChat = await openChat(page)
+    const guestChat = await openChat(guest)
+    await guestChat.getByRole("textbox", { name: "Message", exact: true }).fill("Unsaved draft")
+    await expect(hostChat.getByRole("status", { name: "Typing presence" })).toContainText("is typing", { timeout: 15_000 })
+    await expect(hostChat.locator(".chat-message-item")).toHaveCount(0)
+
+    await guestChat.getByRole("textbox", { name: "Message", exact: true }).fill("")
+    await expect(hostChat.getByRole("status", { name: "Typing presence" })).toHaveCount(0, { timeout: 15_000 })
+  } finally { await context.close() }
+})

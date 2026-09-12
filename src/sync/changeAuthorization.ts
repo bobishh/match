@@ -63,6 +63,17 @@ export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerP
   return (await peerStore.getWorkspaceCredential(workspaceId))?.ownerPersonId ?? genesisOwnerPersonId
 }
 
+function hasSuccessionConflict(credential: Awaited<ReturnType<typeof peerStore.getWorkspaceCredential>>) {
+  const claims = ((credential?.catalog as { successionClaims?: WorkspaceSuccessionClaim[] } | undefined)?.successionClaims ?? [])
+    .filter(claim => claim?.payload?.epoch === credential?.epoch)
+  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1
+}
+
+export async function workspaceWritesBlocked(workspaceId: string) {
+  if (typeof indexedDB === "undefined") return false
+  return hasSuccessionConflict(await peerStore.getWorkspaceCredential(workspaceId))
+}
+
 function authorities(credential: Awaited<ReturnType<typeof peerStore.getWorkspaceCredential>>) {
   if (!credential) return []
   return [{ personId: credential.ownerPersonId, publicKey: credential.ownerPublicKey,
@@ -141,6 +152,7 @@ export async function exportAuthorizations(bytes: Uint8Array) {
 }
 export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown) {
   const credential = await peerStore.getWorkspaceCredential(remote.id)
+  if (hasSuccessionConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership recovery claims")
   const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
   if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
   const expectedOwner = credential?.ownerPersonId ?? genesisOwner

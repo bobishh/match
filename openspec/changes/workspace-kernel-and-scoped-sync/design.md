@@ -88,7 +88,7 @@ The JSON projection contains only `formatVersion`, workspace title, active board
 
 `WorkspaceStore.transact(command, context)` is the only write boundary. It validates permissions, shape, references, field values, and local graph invariants, then makes exactly one Automerge change. Metadata is a versioned JSON string in the native change `message`: transaction ID, command kind, affected entity IDs, person ID, device ID. Native dependencies and actor remain native metadata.
 
-Do not maintain `transactions[]`, a replay reducer, and a second state object as parallel authorities. The user history UI projects native Automerge changes plus verified attribution. The command wrapper can return before/after heads and changed IDs for subscriptions. Undo is a new explicit compensating command; a generic undo engine is deferred.
+Do not maintain `transactions[]`, a replay reducer, and a second state object as parallel authorities. The user history UI projects native Automerge changes plus verified attribution. The command wrapper can return before/after heads and changed IDs for subscriptions. Task restore reads a native historical snapshot and emits one explicit compensating command; it never mutates or reorders signed changes.
 
 Build changes on a private candidate. Persist change bytes and their proof atomically in IndexedDB before publishing the candidate as committed, notifying subscribers, or offering it to a peer. On write failure retain the previous committed document and show retryable failure; retry uses the same transaction ID and cannot duplicate a change. A UI may show an unsaved draft, but must label it pending. Do not save only JSON to a fallback and claim CRDT history was preserved.
 

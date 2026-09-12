@@ -94,6 +94,9 @@ type ArchiveUndo = { workspaceId: string; taskId: string; title: string; action:
 const archiveUndo = ref<ArchiveUndo | null>(null)
 const undoSaving = ref(false)
 const archiveError = ref("")
+const historyRestoreSaving = ref(false)
+const historyRestoreError = ref("")
+const historyRestoreNotice = ref("")
 const isArchiveOpen = ref(false)
 const artifactError = ref("")
 
@@ -187,7 +190,8 @@ watch([() => activeWorkspace.id, docVersion, ready, sync.ownershipRevision], asy
     roleWorkspaceId.value = id
   }
 }, { immediate: true })
-const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id && currentRole.value !== "visitor" && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
+const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id && currentRole.value !== "visitor" &&
+  !sync.isWorkspaceAccessRevoked(activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id)?.conflicted)
 const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
   peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
 ))
@@ -201,6 +205,23 @@ const meshPresenceLabel = computed(() => ({
   offline: "Mesh offline",
   empty: "Mesh empty",
 }[meshPresence.value]))
+const onlineWorkspaceDevices = computed(() => {
+  const ids = new Set(sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt && peer.online)
+    .map(peer => peer.deviceId))
+  if (sync.localDeviceId.value) ids.add(sync.localDeviceId.value)
+  return Math.max(1, ids.size)
+})
+const onlineWorkspaceEditors = computed(() => {
+  const ids = new Set(sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt && peer.online &&
+    peer.role === "editor" && peer.personId !== currentWorkspaceOwnerId.value).map(peer => peer.personId))
+  if (currentRole.value === "editor" && chat.personId.value) ids.add(chat.personId.value)
+  return ids.size
+})
+const workspacePresenceSummary = computed(() => {
+  const editors = onlineWorkspaceEditors.value
+  const devices = onlineWorkspaceDevices.value
+  return `${editors} ${editors === 1 ? "editor" : "editors"} · ${devices} ${devices === 1 ? "device" : "devices"} online`
+})
 const revokingPeer = ref("")
 const peerAccessError = ref("")
 const isWorkspaceOwner = computed(() => currentRole.value === "owner")
@@ -232,6 +253,7 @@ const meshMembers = computed(() => {
 const activeSuccession = computed(() => sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id))
 const successionVotesForSelf = computed(() => activeSuccession.value?.votes.filter(vote => vote.candidatePersonId === chat.personId.value).length ?? 0)
 const canClaimSuccession = computed(() => currentRole.value === "editor" && Boolean(activeSuccession.value) &&
+  !activeSuccession.value!.conflicted &&
   (activeSuccession.value!.successorPersonId === chat.personId.value ||
     (!activeSuccession.value!.successorPersonId && successionVotesForSelf.value >= activeSuccession.value!.quorum)))
 const transferringOwnership = ref("")
@@ -518,6 +540,21 @@ const selectedTaskHistory = computed(() => {
   return projectEntityHistory(doc, selectedTaskId.value)
 })
 
+async function restoreSelectedTaskVersion(changeHash: string) {
+  if (!selectedTaskId.value || historyRestoreSaving.value) return
+  historyRestoreSaving.value = true
+  historyRestoreError.value = ""
+  historyRestoreNotice.value = ""
+  try {
+    await executeCommandAsync({ kind: "restoreTaskVersion", entityId: selectedTaskId.value, changeHash })
+    historyRestoreNotice.value = "Version restored"
+  } catch (error) {
+    historyRestoreError.value = `Restore failed: ${error instanceof Error ? error.message : "try again"}`
+  } finally {
+    historyRestoreSaving.value = false
+  }
+}
+
 const candidateParentsForMove = computed(() => {
   if (!taskToMove.value || !getActiveDoc()) return []
   const doc = getActiveDoc()!
@@ -609,6 +646,8 @@ watch(() => activeWorkspace.id, () => {
   activeMobileColumnIndex.value = 0
   archiveUndo.value = null
   archiveError.value = ""
+  historyRestoreError.value = ""
+  historyRestoreNotice.value = ""
 })
 
 watch(() => visibleColumns.value.map((column) => column.id).join("|"), () => {
@@ -1111,6 +1150,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </span>
         <div>
           <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
+          <span v-if="ready.value" class="workspace-presence-summary" aria-label="Workspace presence">{{ workspacePresenceSummary }}</span>
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -1314,7 +1354,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :read-only="!canEditItems"
       :messages="chat.messages.value" :current-person-id="chat.personId.value" :sending="chat.sending.value"
       :error="chat.error.value" :loading="chat.loading.value" :connected="sync.isWorkspaceLive(activeWorkspace.id)"
-      @close="chat.open.value = false" @send="chat.send" />
+      :typing-people="chat.typingPeople.value"
+      @close="chat.open.value = false" @send="chat.send" @typing="chat.setTyping" />
     <aside v-if="chat.toast.value" class="chat-toast" role="status">
       <button class="button button-quiet" type="button" @click="chat.open.value = true">{{ chat.toast.value.text }}</button>
       <button class="icon-button" type="button" aria-label="Dismiss chat notification" @click="chat.toast.value = null">×</button>
@@ -1343,10 +1384,14 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :fields="boardFields"
       :history="selectedTaskHistory"
       :archive-error="archiveError"
-      @close="selectedTaskId = null"
+      :restore-saving="historyRestoreSaving"
+      :restore-error="historyRestoreError"
+      :restore-notice="historyRestoreNotice"
+      @close="selectedTaskId = null; historyRestoreError = ''; historyRestoreNotice = ''"
       @add-subtask="handleAddSubtask"
       @start-move="handleStartMove"
       @delete-task="handleDeleteTask"
+      @restore-version="restoreSelectedTaskVersion"
     />
 
     <TaskFormDialog

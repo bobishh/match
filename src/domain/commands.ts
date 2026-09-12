@@ -47,6 +47,7 @@ export type Command =
   | { kind: "createColumn"; boardId: string; title: string; beforeId?: string | null }
   | { kind: "createTask"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
   | { kind: "patchTask"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue> }
+  | { kind: "restoreTaskVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
   | { kind: "renameEntity"; entityId: string; title: string }
   | { kind: "setEntityDeleted"; entityId: string; deleted: boolean }
@@ -402,6 +403,30 @@ export async function executeCommand(
           }
         }
         t.updatedAt = nowIso
+      }
+      break
+    }
+
+    case "restoreTaskVersion": {
+      const task = doc.entities[command.entityId]
+      if (!task || task.kind !== "task") return err("not_found", `Task ${command.entityId} not found`)
+      const historical = Automerge.getHistory(doc).find(item => item.change.hash === command.changeHash)
+      const target = historical?.snapshot.entities[command.entityId]
+      if (!target || target.kind !== "task") return err("not_found", "Recorded task version is unavailable")
+      const parent = target.placement.parentId ? doc.entities[target.placement.parentId] : undefined
+      if (!parent || !validatePlacementParent("task", parent.kind).ok) {
+        return err("invalid_parent", "Recorded task parent is unavailable")
+      }
+      const restored = JSON.parse(JSON.stringify(target)) as Task
+      changedEntityIds.push(command.entityId)
+      applyFn = (draft) => {
+        const current = draft.entities[command.entityId] as Task
+        current.title = restored.title
+        current.body = restored.body
+        current.values = restored.values
+        current.placement = restored.placement
+        current.deleted = restored.deleted
+        current.updatedAt = nowIso
       }
       break
     }

@@ -53,6 +53,16 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
   }
 
   describe("1. Owner signed message admitted", () => {
+    it("admits signed ephemeral typing state and rejects unknown typing values", async () => {
+      const owner = await createProfile("Owner Alice")
+      const record = await createChatRecord(owner, [owner.certificate], makeOwnerAuthority(owner),
+        workspaceId, "chat-typing", "typing", Date.now())
+      await expect(verifyChatRecord(record, workspaceId, owner.identity.personId)).resolves.toBe(record)
+
+      record.signed.payload.text = "maybe"
+      await expect(verifyChatRecord(record, workspaceId, owner.identity.personId)).rejects.toThrow("Invalid typing presence")
+    })
+
     it("admits owner-signed chat message with valid Ed25519 signature", async () => {
       const owner = await createProfile("Owner Alice")
       const authority = makeOwnerAuthority(owner)

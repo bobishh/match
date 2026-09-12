@@ -60,6 +60,7 @@ export type MeshSuccessionView = {
   eligibleEditorPersonIds: string[]
   votes: Array<{ voterPersonId: string; candidatePersonId: string }>
   quorum: number
+  conflicted: boolean
 }
 
 type SessionEntry = {
@@ -585,17 +586,20 @@ export class DurableMesh {
     for (const claim of rawClaims) {
       if (claim?.payload?.epoch === credential.epoch + 1 && claim.payload.fromOwnerPersonId === credential.ownerPersonId &&
         typeof claim.signature === "string" && claim.signature) {
-        claimMap.set(claim.signature, claim)
+        const verified = await verifyWorkspaceSuccessionClaim(claim, credential.workspaceId, authority(), credential.epoch,
+          revokedPersonIds(credential))
+        claimMap.set(verified.signature, verified)
         continue
       }
-      if (claim?.payload?.epoch === credential.epoch && claim.payload.toOwnerPersonId === credential.ownerPersonId &&
+      if (claim?.payload?.epoch === credential.epoch &&
         typeof claim.signature === "string" && claim.signature) {
         const previousOwner = ownerAuthorities(credential).find(owner => owner.personId === claim.payload.fromOwnerPersonId)
         if (!previousOwner) continue
         const revokedAtClaim = new Set(revocations(credential)
           .filter(record => record.payload.epoch < claim.payload.epoch).map(record => record.payload.personId))
-        await verifyWorkspaceSuccessionClaim(claim, credential.workspaceId, previousOwner, claim.payload.epoch - 1, revokedAtClaim)
-        claimMap.set(claim.signature, claim)
+        const verified = await verifyWorkspaceSuccessionClaim(claim, credential.workspaceId, previousOwner,
+          claim.payload.epoch - 1, revokedAtClaim)
+        claimMap.set(verified.signature, verified)
       }
     }
     const pending = [...claimMap.values()].filter(claim => claim.payload.epoch > credential.epoch)
@@ -1236,7 +1240,9 @@ export class DurableMesh {
   async successionViews(): Promise<MeshSuccessionView[]> {
     const result: MeshSuccessionView[] = []
     for (const credential of await this.store.listWorkspaceCredentials()) {
-      const policy = successionPolicy(credential)
+      const claims = successionClaims(credential).filter(claim => claim.payload.epoch === credential.epoch)
+      const conflicted = new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1
+      const policy = successionPolicy(credential) ?? claims[0]?.payload.policy
       if (!policy) continue
       const revoked = revokedPersonIds(credential)
       const eligible = policy.payload.eligibleEditorPersonIds.filter(id => !revoked.has(id))
@@ -1248,6 +1254,7 @@ export class DurableMesh {
         votes: successionVotes(credential).map(vote => ({ voterPersonId: vote.signed.payload.voterPersonId,
           candidatePersonId: vote.signed.payload.candidatePersonId })),
         quorum: Math.floor(eligible.length / 2) + 1,
+        conflicted,
       })
     }
     return result

@@ -134,6 +134,30 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     expect(mergedTask.body).toBe("Base Body")
   })
 
+  it("restores any recorded task version through a new compensating change", async () => {
+    const raw = createWorkspaceDoc("ws_history", "History", profile.identity.personId, "blank")
+    const queue = createCommandQueue(Automerge.from<WorkspaceDocumentV2>(raw), profile)
+    const todo = Object.values(queue.getDocument().entities).find(entity => entity.kind === "column" && entity.title === "To do")!
+    const created = await queue.transact({ kind: "createTask", parentId: todo.id, title: "Before", body: "Original" })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const taskId = created.value.receipt.changedEntityIds[0]
+    const creationHash = created.value.receipt.changeHash
+    const patched = await queue.transact({ kind: "patchTask", entityId: taskId, title: "After", body: "Changed" })
+    expect(patched.ok).toBe(true)
+    if (!patched.ok) return
+    const patchHash = patched.value.receipt.changeHash
+
+    const restored = await queue.transact({ kind: "restoreTaskVersion", entityId: taskId, changeHash: creationHash })
+    expect(restored.ok).toBe(true)
+    expect((queue.getDocument().entities[taskId] as Task)).toMatchObject({ title: "Before", body: "Original" })
+    expect(Automerge.getHistory(queue.getDocument()).at(-1)?.change.message).toContain("restoreTaskVersion")
+
+    const redone = await queue.transact({ kind: "restoreTaskVersion", entityId: taskId, changeHash: patchHash })
+    expect(redone.ok).toBe(true)
+    expect((queue.getDocument().entities[taskId] as Task)).toMatchObject({ title: "After", body: "Changed" })
+  })
+
   it("rejects invalid commands and cycle-creating moves without mutating document", async () => {
     // Test on a blank board workspace where tasks have no required fields
     const rawWs = createWorkspaceDoc("ws_blank_test", "Blank Board", profile.identity.personId, "blank")
