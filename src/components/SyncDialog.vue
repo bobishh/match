@@ -233,7 +233,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </section>
         <div class="dialog-actions sync-primary-actions">
           <button v-if="canManageMesh" class="button button-primary" type="button" @click="emit('selectSyncWorkspace')">Add someone</button>
-          <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
           <button v-if="live" class="button button-quiet" type="button" @click="emit('stop')">Stop live sync</button>
           <button v-if="hasMesh" class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
         </div>
@@ -324,9 +323,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       <template v-else-if="step === 'enroll-host-done'">
         <p class="sync-success sync-result" role="status">Device enrolled</p>
         <p class="dialog-copy">Your device has received your workspaces. Changes sync automatically.</p>
-        <div class="dialog-actions">
-          <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
-        </div>
       </template>
 
       <!-- Step 4: Workspace host invite display -->
@@ -367,9 +363,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       <template v-else-if="step === 'enroll-guest-done'">
         <p class="sync-success sync-result" role="status">Device enrolled</p>
         <p class="dialog-copy">Your workspaces are saved on this device. Changes sync automatically.</p>
-        <div class="dialog-actions">
-          <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
-        </div>
       </template>
 
       <!-- Step 8: Workspace guest join -->
@@ -417,9 +410,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             {{ ws.title }}
           </li>
         </ul>
-        <div class="dialog-actions">
-          <button class="button button-quiet" type="button" @click="emit('dismiss')">Close</button>
-        </div>
       </template>
 
       <!-- Step 10: Synced legacy -->
