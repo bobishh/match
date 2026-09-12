@@ -152,7 +152,7 @@ test("Given paired workspaces, when matching names and messages sync, then both 
   } finally { await context.close() }
 })
 
-test("Given owner and editor connected, when editor types, then typing and online counts update without saving a message", async ({ page, browser }) => {
+test("Given owner and editor connected, when editor types, then typing and device counts update without saving a message", async ({ page, browser }) => {
   test.setTimeout(90_000)
   const context = await browser.newContext()
   const guest = await context.newPage()
@@ -172,7 +172,7 @@ test("Given owner and editor connected, when editor types, then typing and onlin
     await guestSync.getByRole("button", { name: "Close", exact: true }).first().click()
     await hostSync.getByRole("button", { name: "Close", exact: true }).first().click()
 
-    await expect(page.getByLabel("Workspace presence")).toHaveText("1 editor · 2 devices online")
+    await expect(page.getByLabel("Workspace presence")).toHaveText("1 editor · 2 devices")
     const hostChat = await openChat(page)
     const guestChat = await openChat(guest)
     await guestChat.getByRole("textbox", { name: "Message", exact: true }).fill("Unsaved draft")

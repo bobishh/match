@@ -224,7 +224,7 @@ const onlineWorkspaceEditors = computed(() => {
 const workspacePresenceSummary = computed(() => {
   const editors = onlineWorkspaceEditors.value
   const devices = onlineWorkspaceDevices.value
-  return `${editors} ${editors === 1 ? "editor" : "editors"} · ${devices} ${devices === 1 ? "device" : "devices"} online`
+  return `${editors} ${editors === 1 ? "editor" : "editors"} · ${devices} ${devices === 1 ? "device" : "devices"}`
 })
 const revokingPeer = ref("")
 const peerAccessError = ref("")
@@ -1177,7 +1177,6 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </span>
         <div>
           <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
-          <span v-if="ready.value" class="workspace-presence-summary" aria-label="Workspace presence">{{ workspacePresenceSummary }}</span>
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -1261,7 +1260,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       <div class="toolbar-spacer"></div>
       <LeadFilters v-model="filters" :columns="genericColumns" :fields="boardFields" />
       <div class="toolbar-meta">
-        <SaveState :state="saveState" />
+        <SaveState :state="saveState" :settled-label="workspacePresenceSummary" aria-label="Workspace presence" />
         <span class="stats">{{ hasFilters ? `${visibleTasks} of ${totalTasks} cards` : `${totalTasks} ${totalTasks === 1 ? 'card' : 'cards'}` }} · {{ totalDocuments }} {{ totalDocuments === 1 ? 'doc' : 'docs' }}</span>
       </div>
     </section>
