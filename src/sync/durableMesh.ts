@@ -1227,16 +1227,14 @@ export class DurableMesh {
         ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as any,
         ownerHistory: ownerAuthorities(credential).slice(1),
       })
-      if (verified.advertisement.payload.deviceId !== peer.deviceId ||
-        (verified.advertisement.payload.instanceId ?? "legacy") !== (peer.instanceId ?? "legacy") || signal.aborted) {
-        throw new Error("Unexpected mesh peer instance")
-      }
+      if (verified.advertisement.payload.deviceId !== peer.deviceId || signal.aborted) throw new Error("Unexpected mesh peer")
+      const verifiedInstanceId = verified.advertisement.payload.instanceId ?? "legacy"
       this.trace("handshake.outgoing.verified", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       if (Array.isArray(response.revocations)) await this.mergeRevocations(credential, response.revocations)
       await this.putVerifiedBundle(credential, response.peer)
       this.failures.delete(key)
       this.failedAt.delete(key)
-      await this.installSession(peer.workspaceId, peer.deviceId, peer.instanceId ?? "legacy",
+      await this.installSession(peer.workspaceId, peer.deviceId, verifiedInstanceId,
         verified.advertisement.payload.issuedAt, "outgoing", connection,
         Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"), connectionId)
       connection = undefined

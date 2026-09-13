@@ -317,17 +317,22 @@ export function mergePeerRecords(
   }
 
   const instances = new Map<string, PeerTransportInstance>()
-  const collect = (peer: WorkspacePeerRecord) => {
+  const collect = (peer: WorkspacePeerRecord, replaceEndpointAlias = false) => {
     for (const instance of peer.instances ?? []) instances.set(instance.instanceId, structuredClone(instance))
     if (peer.instanceId) {
       const value = { instanceId: peer.instanceId, endpoint: peer.endpoint, lastSeen: peer.lastSeen,
         ...(peer.advertisement === undefined ? {} : { advertisement: structuredClone(peer.advertisement) }) }
+      if (replaceEndpointAlias) {
+        for (const [instanceId, instance] of instances) {
+          if (instanceId !== peer.instanceId && instance.endpoint === peer.endpoint) instances.delete(instanceId)
+        }
+      }
       const current = instances.get(peer.instanceId)
       if (!current || value.lastSeen >= current.lastSeen) instances.set(peer.instanceId, value)
     }
   }
   collect(existing)
-  collect(incoming)
+  collect(incoming, true)
   if (instances.size) merged.instances = [...instances.values()]
     .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen) || a.instanceId.localeCompare(b.instanceId)).slice(0, 32)
 

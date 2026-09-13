@@ -301,6 +301,22 @@ describe("Peer Catalog & Node Secret Module (src/sync/peerStore.ts)", () => {
       expect((await store.listPeerInstances("ws_tabs")).map(peer => peer.instanceId)).toEqual(["tab_a", "tab_b"])
     })
 
+    it("Given a legacy endpoint upgrades its signed instance, when the catalog merges it, then the stale endpoint alias disappears", async () => {
+      const store = new PeerStore("match-test-peer-instance-upgrade", mockIdb as any)
+      const base: WorkspacePeerRecord = {
+        workspaceId: "ws_upgrade", deviceId: "device_a", personId: "person_a",
+        instanceId: "interim-instance", endpoint: "same_endpoint", transportSecret: "secret", role: "editor",
+        lastSeen: "2026-09-11T00:00:00.000Z", advertisement: { version: "legacy" },
+      }
+      await store.upsertPeer(base)
+      await store.upsertPeer({ ...base, instanceId: "slot-0", lastSeen: "2026-09-11T00:01:00.000Z",
+        advertisement: { version: "runtime" } })
+
+      const instances = await store.listPeerInstances("ws_upgrade")
+      expect(instances).toHaveLength(1)
+      expect(instances[0]).toMatchObject({ instanceId: "slot-0", endpoint: "same_endpoint" })
+    })
+
     it("manages node secret and peer catalog end-to-end with zero localStorage usage", async () => {
       const storageSpy = {
         getItem: vi.fn(),
