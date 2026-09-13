@@ -274,6 +274,15 @@ describe("Peer Catalog & Node Secret Module (src/sync/peerStore.ts)", () => {
   })
 
   describe("Outer BDD Integration: Complete peer lifecycle & persistent secret", () => {
+    it("Given an existing install upgrades, when slot zero starts, then it keeps the durable endpoint identity", async () => {
+      const store = new PeerStore("match-test-peer-instance-migration", mockIdb as any)
+      const legacySecret = new Uint8Array(32).fill(19)
+      await store.setNodeSecret(legacySecret)
+
+      expect(await store.getOrCreateInstanceNodeSecret("slot-0")).toEqual(legacySecret)
+      expect(await store.getOrCreateInstanceNodeSecret("slot-1")).not.toEqual(legacySecret)
+    })
+
     it("Given two tabs on one device, when both advertise, then both transport instances remain under one device", async () => {
       const store = new PeerStore("match-test-peer-instances", mockIdb as any)
       const base: WorkspacePeerRecord = {

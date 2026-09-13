@@ -18,6 +18,7 @@ type MeshInstanceLeaseOptions = {
 }
 
 const LOCK_PREFIX = "match:mesh-instance:"
+const LEGACY_LEADER_LOCK = "match:mesh-leader"
 
 export async function acquireMeshInstanceLease(options: MeshInstanceLeaseOptions = {}): Promise<MeshInstanceLease> {
   const locks = options.locks ?? (typeof navigator !== "undefined" && navigator.locks
@@ -42,6 +43,24 @@ export async function acquireMeshInstanceLease(options: MeshInstanceLeaseOptions
     const attempted = new Promise<boolean>(resolve => { resolveAttempt = resolve })
     const completion = locks.request(`${LOCK_PREFIX}${slot}`, { mode: "exclusive", ifAvailable: true }, async lock => {
       if (!lock) return resolveAttempt(false)
+      if (slot === 0) {
+        let resolveLegacyAttempt!: (acquired: boolean) => void
+        const legacyAttempted = new Promise<boolean>(resolve => { resolveLegacyAttempt = resolve })
+        const legacyCompletion = locks.request(LEGACY_LEADER_LOCK, { mode: "exclusive", ifAvailable: true }, async legacyLock => {
+          if (!legacyLock) return resolveLegacyAttempt(false)
+          await new Promise<void>(resolve => {
+            releaseLock = resolve
+            resolveLegacyAttempt(true)
+          })
+        })
+        if (!await legacyAttempted) {
+          await legacyCompletion
+          return resolveAttempt(false)
+        }
+        resolveAttempt(true)
+        await legacyCompletion
+        return
+      }
       await new Promise<void>(resolve => {
         releaseLock = resolve
         resolveAttempt(true)

@@ -525,10 +525,10 @@ export class PeerStore {
 
   async getOrCreateInstanceNodeSecret(instanceId: string): Promise<Uint8Array> {
     if (!instanceId || instanceId.length > MAX_STRING_LENGTH) throw new Error("Invalid mesh instanceId")
-    return this.getOrCreateNamedNodeSecret(`instance:${instanceId}`)
+    return this.getOrCreateNamedNodeSecret(`instance:${instanceId}`, instanceId === "slot-0" ? NODE_SECRET_KEY : undefined)
   }
 
-  private async getOrCreateNamedNodeSecret(key: string): Promise<Uint8Array> {
+  private async getOrCreateNamedNodeSecret(key: string, fallbackKey?: string): Promise<Uint8Array> {
     const existing = await this.runTx([STORE_NODE], "readonly", async tx => {
       const record = await promisifyRequest<{ key: string; secret: Uint8Array }>(tx.objectStore(STORE_NODE).get(key))
       if (!record?.secret) return null
@@ -550,14 +550,20 @@ export class PeerStore {
         return new Uint8Array(current.secret)
       }
 
+      const fallback = fallbackKey
+        ? await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(fallbackKey))
+        : undefined
+      if (fallback?.secret) validateNodeSecret(fallback.secret)
+      const storedSecret = fallback?.secret ? new Uint8Array(fallback.secret) : new Uint8Array(newSecret)
+
       await promisifyRequest(
         store.put({
           key,
-          secret: new Uint8Array(newSecret),
+          secret: storedSecret,
           createdAt: new Date().toISOString(),
         })
       )
-      return new Uint8Array(newSecret)
+      return new Uint8Array(storedSecret)
     })
   }
 

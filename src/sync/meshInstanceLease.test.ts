@@ -35,4 +35,24 @@ describe("mesh transport instance lease", () => {
     expect(first.instanceId).toBe(instanceId)
     await first.release()
   })
+
+  it("Given the previous bundle still owns its legacy endpoint, when the new bundle starts, then it uses another instance slot", async () => {
+    const locks = new FakeLocks()
+    let releaseLegacy!: () => void
+    let markLegacyReady!: () => void
+    const legacyReady = new Promise<void>(resolve => { markLegacyReady = resolve })
+    const legacyTask = locks.request("match:mesh-leader", { mode: "exclusive", ifAvailable: true }, async lock => {
+      expect(lock).not.toBeNull()
+      markLegacyReady()
+      await new Promise<void>(resolve => { releaseLegacy = resolve })
+    })
+    await legacyReady
+
+    const upgraded = await acquireMeshInstanceLease({ locks })
+    expect(upgraded.instanceId).toBe("slot-1")
+
+    await upgraded.release()
+    releaseLegacy()
+    await legacyTask
+  })
 })
