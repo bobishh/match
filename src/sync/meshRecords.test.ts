@@ -434,6 +434,17 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
       expect(verified.grant).toBeUndefined()
     })
 
+    it("Given one approved device opens another tab, when it advertises, then signed instance identity differs without another grant", async () => {
+      const owner = await createProfile("Tabbed Owner")
+      const first = await createPeerAdvertisement(owner, workspaceId, "iroh://tab-a", { instanceId: "tab-a" })
+      const second = await createPeerAdvertisement(owner, workspaceId, "iroh://tab-b", { instanceId: "tab-b" })
+
+      await expect(verifyWorkspaceMemberBundle(first, workspaceId, owner.identity.publicKey))
+        .resolves.toMatchObject({ payload: { deviceId: owner.device.deviceId, instanceId: "tab-a" } })
+      await expect(verifyWorkspaceMemberBundle(second, workspaceId, owner.identity.publicKey))
+        .resolves.toMatchObject({ payload: { deviceId: owner.device.deviceId, instanceId: "tab-b" } })
+    })
+
     it("supports verifyPeerAdvertisement alias", async () => {
       const owner = await createProfile("Owner Alias Test")
       const bundle = await createWorkspaceMemberBundle(owner, workspaceId, "iroh://alice-node-alias")

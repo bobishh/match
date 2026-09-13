@@ -1,5 +1,7 @@
 import { defineConfig } from "@playwright/test"
 
+const port = Number(process.env.MATCH_E2E_PORT ?? 4244)
+
 const networkSpecs = [
   "**/chat.spec.ts",
   "**/durable-mesh.spec.ts",
@@ -37,10 +39,10 @@ export default defineConfig({
     { name: "succession-named", testMatch: "**/succession.spec.ts", grep: /owner names an editor successor/ },
     { name: "succession-quorum", testMatch: "**/succession.spec.ts", grep: /editor quorum recovery/ },
   ],
-  use: { baseURL: "http://127.0.0.1:4244", trace: "retain-on-failure" },
+  use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure" },
   webServer: {
-    command: "npm run dev -- --host 127.0.0.1 --port 4244",
-    port: 4244,
+    command: `npm run dev -- --host 127.0.0.1 --port ${port}`,
+    port,
     reuseExistingServer: false,
   },
 })

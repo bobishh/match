@@ -13,9 +13,17 @@
 
 export type PeerRole = "owner" | "editor" | "visitor"
 
+export interface PeerTransportInstance {
+  instanceId: string
+  endpoint: string
+  lastSeen: string
+  advertisement?: unknown
+}
+
 export interface WorkspacePeerRecord {
   workspaceId: string
   deviceId: string
+  instanceId?: string
   personId: string
   endpoint: string
   transportSecret: string | Uint8Array
@@ -23,6 +31,7 @@ export interface WorkspacePeerRecord {
   lastSeen: string // ISO 8601 string
   revokedAt?: string | null // optional ISO 8601 string or null
   advertisement?: unknown
+  instances?: PeerTransportInstance[]
 }
 
 export interface WorkspaceMeshCredential {
@@ -106,6 +115,15 @@ export function validatePeerRecord(peer: unknown): asserts peer is WorkspacePeer
   }
   if (typeof r.deviceId !== "string" || r.deviceId.trim().length === 0 || r.deviceId.length > MAX_STRING_LENGTH) {
     throw new Error(`Invalid peer record: deviceId must be a non-empty string <= ${MAX_STRING_LENGTH} characters`)
+  }
+  if (r.instanceId !== undefined && (typeof r.instanceId !== "string" || !r.instanceId || r.instanceId.length > MAX_STRING_LENGTH)) {
+    throw new Error(`Invalid peer record: instanceId must be a non-empty string <= ${MAX_STRING_LENGTH} characters`)
+  }
+  if (r.instances !== undefined && (!Array.isArray(r.instances) || r.instances.length > 32 || r.instances.some(instance =>
+    !instance || typeof instance.instanceId !== "string" || !instance.instanceId || instance.instanceId.length > MAX_STRING_LENGTH ||
+    typeof instance.endpoint !== "string" || !instance.endpoint || instance.endpoint.length > MAX_ENDPOINT_LENGTH ||
+    typeof instance.lastSeen !== "string" || Number.isNaN(Date.parse(instance.lastSeen))))) {
+    throw new Error("Invalid peer record transport instances")
   }
   if (typeof r.personId !== "string" || r.personId.trim().length === 0 || r.personId.length > MAX_STRING_LENGTH) {
     throw new Error(`Invalid peer record: personId must be a non-empty string <= ${MAX_STRING_LENGTH} characters`)
@@ -291,10 +309,27 @@ export function mergePeerRecords(
     transportSecret,
     role,
     lastSeen,
+    ...((incomingDominates ? incoming.instanceId : existing.instanceId)
+      ? { instanceId: (incomingDominates ? incoming.instanceId : existing.instanceId)! } : {}),
     ...(incomingDominates
       ? (incoming.advertisement === undefined ? {} : { advertisement: structuredClone(incoming.advertisement) })
       : (existing.advertisement === undefined ? {} : { advertisement: structuredClone(existing.advertisement) })),
   }
+
+  const instances = new Map<string, PeerTransportInstance>()
+  const collect = (peer: WorkspacePeerRecord) => {
+    for (const instance of peer.instances ?? []) instances.set(instance.instanceId, structuredClone(instance))
+    if (peer.instanceId) {
+      const value = { instanceId: peer.instanceId, endpoint: peer.endpoint, lastSeen: peer.lastSeen,
+        ...(peer.advertisement === undefined ? {} : { advertisement: structuredClone(peer.advertisement) }) }
+      const current = instances.get(peer.instanceId)
+      if (!current || value.lastSeen >= current.lastSeen) instances.set(peer.instanceId, value)
+    }
+  }
+  collect(existing)
+  collect(incoming)
+  if (instances.size) merged.instances = [...instances.values()]
+    .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen) || a.instanceId.localeCompare(b.instanceId)).slice(0, 32)
 
   if (revokedAt !== undefined && revokedAt !== null) {
     merged.revokedAt = revokedAt
@@ -485,7 +520,21 @@ export class PeerStore {
    * Gets the persistent local 32-byte node secret, generating and persisting a new one if absent.
    */
   async getOrCreateNodeSecret(): Promise<Uint8Array> {
-    const existing = await this.getNodeSecret()
+    return this.getOrCreateNamedNodeSecret(NODE_SECRET_KEY)
+  }
+
+  async getOrCreateInstanceNodeSecret(instanceId: string): Promise<Uint8Array> {
+    if (!instanceId || instanceId.length > MAX_STRING_LENGTH) throw new Error("Invalid mesh instanceId")
+    return this.getOrCreateNamedNodeSecret(`instance:${instanceId}`)
+  }
+
+  private async getOrCreateNamedNodeSecret(key: string): Promise<Uint8Array> {
+    const existing = await this.runTx([STORE_NODE], "readonly", async tx => {
+      const record = await promisifyRequest<{ key: string; secret: Uint8Array }>(tx.objectStore(STORE_NODE).get(key))
+      if (!record?.secret) return null
+      validateNodeSecret(record.secret)
+      return new Uint8Array(record.secret)
+    })
     if (existing) {
       return existing
     }
@@ -495,7 +544,7 @@ export class PeerStore {
 
     return this.runTx([STORE_NODE], "readwrite", async (tx) => {
       const store = tx.objectStore(STORE_NODE)
-      const current = await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(NODE_SECRET_KEY))
+      const current = await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(key))
       if (current && current.secret) {
         validateNodeSecret(current.secret)
         return new Uint8Array(current.secret)
@@ -503,7 +552,7 @@ export class PeerStore {
 
       await promisifyRequest(
         store.put({
-          key: NODE_SECRET_KEY,
+          key,
           secret: new Uint8Array(newSecret),
           createdAt: new Date().toISOString(),
         })
@@ -671,6 +720,21 @@ export class PeerStore {
         return a.deviceId.localeCompare(b.deviceId)
       })
     })
+  }
+
+  async listPeerInstances(workspaceId?: string): Promise<WorkspacePeerRecord[]> {
+    const peers = await this.listPeers(workspaceId)
+    return peers.flatMap(peer => {
+      const instances = new Map<string, PeerTransportInstance>()
+      for (const instance of peer.instances ?? []) instances.set(instance.instanceId, instance)
+      if (peer.instanceId) instances.set(peer.instanceId, {
+        instanceId: peer.instanceId, endpoint: peer.endpoint, lastSeen: peer.lastSeen, advertisement: peer.advertisement,
+      })
+      if (!instances.size) return [peer]
+      return [...instances.values()].map(instance => ({ ...peer, instanceId: instance.instanceId,
+        endpoint: instance.endpoint, lastSeen: instance.lastSeen, advertisement: instance.advertisement }))
+    }).sort((a, b) => a.workspaceId.localeCompare(b.workspaceId) || a.deviceId.localeCompare(b.deviceId) ||
+      (a.instanceId ?? "").localeCompare(b.instanceId ?? ""))
   }
 
   /**

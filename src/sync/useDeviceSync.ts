@@ -377,7 +377,7 @@ export function useDeviceSync({
     try {
       if (!workspaceStore || !durableMesh) throw new Error("Device sync is unavailable.")
       const profile = await getProfile()
-      const started = await startPersistentNode(transport)
+      const started = durableMesh ? await durableMesh.startInstanceNode() : await startPersistentNode(transport)
       if (currentRun !== run) return void started.close("Replaced")
       node = started
       const secret = createPairingSecret()
@@ -869,7 +869,8 @@ export function useDeviceSync({
           // A recently stopped durable node can remain reserved by the relay. Keep
           // the stable endpoint for the first attempt, then rotate the transport
           // endpoint so reconnecting an existing local copy cannot retry forever.
-          started = attempts === 0 ? await startPersistentNode(transport) : await transport.start()
+          started = durableMesh ? await durableMesh.startInstanceNode() :
+            attempts === 0 ? await startPersistentNode(transport) : await transport.start()
           if (currentRun !== run) return
           node = started
           timeout = setTimeout(() => { void started?.close("Connection timed out").catch(() => {}) }, 600_000)

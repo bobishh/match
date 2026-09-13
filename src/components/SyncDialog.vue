@@ -32,6 +32,7 @@ const props = defineProps<{
       lastSeen: string
       userAgent?: string
       description: string
+      tabs: number
     }>
   }>
   hasMesh?: boolean
@@ -178,6 +179,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
                 <code>{{ device.deviceId.slice(0, 8) }}</code>
               </div>
               <small>{{ device.description }}</small>
+              <small>{{ device.tabs }} {{ device.tabs === 1 ? 'tab' : 'tabs' }}</small>
               <small>{{ device.online ? 'Online now' : `Last seen ${new Date(device.lastSeen).toLocaleString()}` }}</small>
               <details v-if="device.userAgent" class="mesh-device-ua">
                 <summary>User agent</summary>

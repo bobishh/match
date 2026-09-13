@@ -242,6 +242,7 @@ const meshMembers = computed(() => {
         lastSeen: peer.lastSeen,
         userAgent,
         description: describeUserAgent(userAgent),
+        tabs: peer.instances ?? 1,
       }
     })
     if (self && sync.localDeviceId.value && !deviceList.some(device => device.deviceId === sync.localDeviceId.value)) {
@@ -252,6 +253,7 @@ const meshMembers = computed(() => {
         lastSeen: new Date().toISOString(),
         userAgent: localUserAgent,
         description: describeUserAgent(localUserAgent),
+        tabs: 1,
       })
     }
     const peerRole = devices[0]?.role ?? "visitor"

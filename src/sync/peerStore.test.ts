@@ -274,6 +274,22 @@ describe("Peer Catalog & Node Secret Module (src/sync/peerStore.ts)", () => {
   })
 
   describe("Outer BDD Integration: Complete peer lifecycle & persistent secret", () => {
+    it("Given two tabs on one device, when both advertise, then both transport instances remain under one device", async () => {
+      const store = new PeerStore("match-test-peer-instances", mockIdb as any)
+      const base: WorkspacePeerRecord = {
+        workspaceId: "ws_tabs", deviceId: "device_a", personId: "person_a",
+        endpoint: "endpoint_a", instanceId: "tab_a", transportSecret: "secret", role: "editor",
+        lastSeen: "2026-09-11T00:00:00.000Z", advertisement: { tab: "a" },
+      }
+
+      await store.upsertPeer(base)
+      await store.upsertPeer({ ...base, endpoint: "endpoint_b", instanceId: "tab_b",
+        lastSeen: "2026-09-11T00:01:00.000Z", advertisement: { tab: "b" } })
+
+      expect(await store.listPeers("ws_tabs")).toHaveLength(1)
+      expect((await store.listPeerInstances("ws_tabs")).map(peer => peer.instanceId)).toEqual(["tab_a", "tab_b"])
+    })
+
     it("manages node secret and peer catalog end-to-end with zero localStorage usage", async () => {
       const storageSpy = {
         getItem: vi.fn(),

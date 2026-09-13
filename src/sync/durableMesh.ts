@@ -10,8 +10,8 @@ import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorksp
   MAX_SUCCESSION_EDITORS,
   type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
-import { MeshLeader } from "./meshLeader"
 import { MeshReconnectPolicy } from "./meshReconnectPolicy"
+import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
@@ -49,6 +49,7 @@ export type MeshPeerView = {
   workspaceId: string
   personId: string
   deviceId: string
+  instances?: number
   role: "owner" | "editor" | "visitor"
   endpoint: string
   online: boolean
@@ -70,6 +71,7 @@ export type MeshSuccessionView = {
 type SessionEntry = {
   workspaceId: string
   deviceId: string
+  instanceId: string
   remoteIssuedAt: string
   direction: "incoming" | "outgoing"
   connection: SyncConnection
@@ -86,19 +88,14 @@ type DurableMeshOptions = {
   onDiagnostic?: (message: string) => void
 }
 
-type MeshTabMessage =
-  | { type: "pause"; requestId: string; senderId: string }
-  | { type: "paused"; requestId: string; senderId: string; wasLeader: boolean }
-  | { type: "resume"; senderId: string }
-  | { type: "state-request"; senderId: string }
-  | { type: "state"; senderId: string; workspaces: string[]; peers: MeshPeerView[]; revoked: string[]; succession?: MeshSuccessionView[]; diagnostic?: string }
-
 class MeshNodeRestart extends Error {
   constructor(readonly reason: string) {
     super(reason)
     this.name = "MeshNodeRestart"
   }
 }
+
+const MESH_INSTANCE_KEY = "match.mesh.instance.v1"
 
 function uniqueCertificates(profile: LocalProfile, certificates: Awaited<ReturnType<typeof defaultProofStore.listCertificates>>) {
   const all = [profile.certificate, ...certificates]
@@ -154,14 +151,16 @@ function revokedPersonIds(credential: WorkspaceMeshCredential) {
   return new Set(revocations(credential).map(record => record.payload.personId))
 }
 
-export async function startPersistentNode(transport: SyncTransport, store: PeerStore = peerStore) {
-  return transport.start(await store.getOrCreateNodeSecret())
+export async function startPersistentNode(transport: SyncTransport, store: PeerStore = peerStore, instanceId?: string) {
+  return transport.start(instanceId
+    ? await store.getOrCreateInstanceNodeSecret(instanceId)
+    : await store.getOrCreateNodeSecret())
 }
 
 export class DurableMesh {
   private readonly store: PeerStore
-  private leader: MeshLeader | undefined
   private task: Promise<void> | undefined
+  private abortController: AbortController | undefined
   private node: SyncNode | undefined
   private acceptor: SyncAcceptor | undefined
   private sessions = new Map<string, SessionEntry>()
@@ -176,28 +175,21 @@ export class DurableMesh {
   private failures = new Map<string, number>()
   private failedAt = new Map<string, number>()
   private readonly reconnectPolicy = new MeshReconnectPolicy()
-  private readonly tabId = crypto.randomUUID()
-  private readonly tabChannel: BroadcastChannel | undefined
+  private readonly runtimeId = crypto.randomUUID()
+  private instanceId = ""
+  private releaseInstance: (() => Promise<void>) | undefined
   private externallyPaused = false
   private disposed = false
-  private restartRequested = false
-  private takeoverNode = false
-  private preferFreshNode = true
   private adoptedNode: SyncNode | undefined
-  private pauseWaiters = new Map<string, (wasLeader: boolean) => void>()
   private lastDiagnostic = ""
 
   constructor(private readonly options: DurableMeshOptions) {
     this.store = options.store ?? peerStore
-    if (typeof BroadcastChannel !== "undefined") {
-      this.tabChannel = new BroadcastChannel("match:durable-mesh")
-      this.tabChannel.onmessage = event => { void this.handleTabMessage(event.data as MeshTabMessage) }
-    }
-    this.trace("tab.created")
+    this.trace("instance.created")
   }
 
   private trace(event: string, detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info") {
-    meshTrace(event, { tabId: this.tabId.slice(0, 8), runId: this.currentRunId, ...detail }, level)
+    meshTrace(event, { runtimeId: this.runtimeId.slice(0, 8), runId: this.currentRunId, ...detail }, level)
   }
 
   private connectionId(direction: "incoming" | "outgoing") {
@@ -205,24 +197,30 @@ export class DurableMesh {
     return `${direction === "incoming" ? "in" : "out"}-${this.connectionSequence}`
   }
 
-  private async handleTabMessage(message: MeshTabMessage) {
-    if (!message || message.senderId === this.tabId || this.disposed) return
-    if (message.type === "pause") {
-      const wasLeader = Boolean(this.leader?.isLeader)
-      this.externallyPaused = true
-      await this.stop()
-      this.tabChannel?.postMessage({ type: "paused", requestId: message.requestId, senderId: this.tabId, wasLeader } satisfies MeshTabMessage)
-    } else if (message.type === "paused") {
-      this.pauseWaiters.get(message.requestId)?.(message.wasLeader)
-    } else if (message.type === "resume") {
-      this.externallyPaused = false
-      await this.start()
-    } else if (message.type === "state-request" && this.leader?.isLeader) {
-      await this.notify()
-    } else if (message.type === "state" && !this.leader?.isLeader) {
-      this.options.onChange?.(message.workspaces, message.peers, message.revoked ?? [], message.succession ?? [])
-      this.options.onDiagnostic?.(message.diagnostic ?? "")
-    }
+  private peerKey(workspaceId: string, deviceId: string, instanceId = "legacy") {
+    return `${workspaceId}:${deviceId}:${instanceId}`
+  }
+
+  private async acquireInstance() {
+    if (this.releaseInstance) return
+    const preferred = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(MESH_INSTANCE_KEY)
+    const lease = await acquireMeshInstanceLease({ preferredInstanceId: preferred })
+    this.instanceId = lease.instanceId
+    this.releaseInstance = lease.release
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(MESH_INSTANCE_KEY, lease.instanceId)
+    this.trace("instance.acquired", { instanceId: lease.instanceId })
+  }
+
+  async startInstanceNode(): Promise<SyncNode> {
+    await this.acquireInstance()
+    return startPersistentNode(this.options.transport, this.store, this.instanceId)
+  }
+
+  private async peerInstances(workspaceId?: string) {
+    const list = (this.store as PeerStore & { listPeerInstances?: PeerStore["listPeerInstances"] }).listPeerInstances
+    if (list) return list.call(this.store, workspaceId)
+    const listPeers = (this.store as PeerStore & { listPeers?: PeerStore["listPeers"] }).listPeers
+    return listPeers ? listPeers.call(this.store, workspaceId) : []
   }
 
   private report(stage: string, error: unknown) {
@@ -235,22 +233,7 @@ export class DurableMesh {
 
   async pauseAll(): Promise<void> {
     this.externallyPaused = true
-    const wasLeader = Boolean(this.leader?.isLeader)
-    const requestId = crypto.randomUUID()
-    let releaseWait: ((wasLeader: boolean) => void) | undefined
-    const leaderPaused = this.leader && !wasLeader && this.tabChannel ? new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, 1_000)
-      releaseWait = remoteWasLeader => {
-        if (!remoteWasLeader) return
-        clearTimeout(timer)
-        resolve()
-      }
-      this.pauseWaiters.set(requestId, releaseWait)
-    }) : Promise.resolve()
-    this.tabChannel?.postMessage({ type: "pause", requestId, senderId: this.tabId } satisfies MeshTabMessage)
-    await this.stop()
-    await leaderPaused
-    this.pauseWaiters.delete(requestId)
+    await this.stop(false)
   }
 
   async resumeAll(node?: SyncNode): Promise<void> {
@@ -261,16 +244,15 @@ export class DurableMesh {
     }
     this.externallyPaused = false
     await this.start()
-    this.tabChannel?.postMessage({ type: "resume", senderId: this.tabId } satisfies MeshTabMessage)
   }
 
   async waitUntilListening(timeoutMs = 30_000): Promise<void> {
     const deadline = Date.now() + timeoutMs
-    while (!this.disposed && !this.externallyPaused && this.leader?.isLeader && (!this.node || !this.acceptor)) {
+    while (!this.disposed && !this.externallyPaused && !this.stopped && (!this.node || !this.acceptor)) {
       if (Date.now() >= deadline) throw new Error("Workspace mesh did not resume in time")
       await new Promise(resolve => setTimeout(resolve, 25))
     }
-    if (this.disposed || this.externallyPaused || !this.leader?.isLeader) {
+    if (this.disposed || this.externallyPaused || this.stopped) {
       throw new Error("Workspace mesh stopped before it resumed")
     }
   }
@@ -278,8 +260,6 @@ export class DurableMesh {
   async dispose(): Promise<void> {
     this.disposed = true
     await this.stop()
-    this.tabChannel?.close()
-    this.pauseWaiters.clear()
   }
 
   private async refreshOwnerCertificates(credential: WorkspaceMeshCredential, profile: LocalProfile,
@@ -334,6 +314,7 @@ export class DurableMesh {
   }
 
   async ensureOwnerWorkspaces(workspaceIds: string[], endpoint: string, profile: LocalProfile): Promise<void> {
+    await this.acquireInstance()
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (const workspaceId of workspaceIds) {
       let credential = await this.store.getWorkspaceCredential(workspaceId)
@@ -359,20 +340,23 @@ export class DurableMesh {
   }
 
   async createGuestAdvertisements(workspaceIds: string[], endpoint: string, profile: LocalProfile): Promise<WorkspaceMemberBundle[]> {
+    await this.acquireInstance()
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
-    return Promise.all(workspaceIds.map(workspaceId => createPeerAdvertisement(profile, workspaceId, endpoint, { certificates })))
+    return Promise.all(workspaceIds.map(workspaceId => createPeerAdvertisement(profile, workspaceId, endpoint,
+      { certificates, instanceId: this.instanceId })))
   }
 
   async forgetEnrolledDevice(workspaceIds: string[], deviceId: string): Promise<void> {
     for (const workspaceId of new Set(workspaceIds)) {
-      const key = `${workspaceId}:${deviceId}`
-      const entry = this.sessions.get(key)
-      this.sessions.delete(key)
-      this.connecting.delete(key)
-      this.failures.delete(key)
-      this.failedAt.delete(key)
-      await entry?.session.close().catch(() => {})
-      await entry?.connection.close().catch(() => {})
+      for (const [key, entry] of [...this.sessions]) {
+        if (entry.workspaceId !== workspaceId || entry.deviceId !== deviceId) continue
+        this.sessions.delete(key)
+        this.connecting.delete(key)
+        this.failures.delete(key)
+        this.failedAt.delete(key)
+        await entry.session.close().catch(() => {})
+        await entry.connection.close().catch(() => {})
+      }
       await this.store.removePeer(workspaceId, deviceId)
     }
   }
@@ -417,7 +401,7 @@ export class DurableMesh {
         ownerCertificates: credential.ownerCertificates,
         transportSecret: credential.transportSecret,
         epoch: credential.epoch,
-        peers: (await this.store.listPeers(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
+        peers: (await this.peerInstances(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
           .map(peer => peer.advertisement as WorkspaceMemberBundle),
         revocations: revocations(credential),
         ownerHistory: ownerAuthorities(credential).slice(1),
@@ -472,7 +456,7 @@ export class DurableMesh {
   }
 
   async exportWorkspace(workspaceId: string): Promise<MeshExport> {
-    const peers = (await this.store.listPeers(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
+    const peers = (await this.peerInstances(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
       .map(peer => peer.advertisement as WorkspaceMemberBundle)
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     return { version: 1, peers, revocations: credential ? revocations(credential) : [],
@@ -533,6 +517,7 @@ export class DurableMesh {
       workspaceId: p.workspaceId,
       personId: p.personId,
       deviceId: p.deviceId,
+      instanceId: p.instanceId,
       endpoint: p.endpoint,
       transportSecret: credential.transportSecret,
       role: verified.role,
@@ -795,9 +780,10 @@ export class DurableMesh {
       const record = current.get(peer.personId)
       if (!record) continue
       if (!peer.revokedAt) await this.store.upsertPeer({ ...peer, lastSeen: new Date().toISOString(), revokedAt: record.payload.revokedAt })
-      const session = this.sessions.get(`${credential.workspaceId}:${peer.deviceId}`)
-      if (session && disconnect) {
-        this.sessions.delete(`${credential.workspaceId}:${peer.deviceId}`)
+      const sessions = [...this.sessions.entries()].filter(([, session]) =>
+        session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId)
+      if (disconnect) for (const [key, session] of sessions) {
+        this.sessions.delete(key)
         await session.session.close()
       }
     }
@@ -827,7 +813,8 @@ export class DurableMesh {
     if (personId === profile.identity.personId) throw new Error("You already own this workspace")
     const peers = (await this.store.listPeers(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt)
     if (!peers.length) throw new Error("Select an active mesh member")
-    if (!peers.some(peer => this.sessions.has(`${workspaceId}:${peer.deviceId}`))) {
+    if (!peers.some(peer => [...this.sessions.values()].some(session =>
+      session.workspaceId === workspaceId && session.deviceId === peer.deviceId))) {
       throw new Error("Member must be online to receive ownership")
     }
     const raw = peers.find(peer => peer.advertisement)?.advertisement as WorkspaceMemberBundle | undefined
@@ -879,46 +866,36 @@ export class DurableMesh {
       return
     }
     if (!this.stopped || this.externallyPaused || this.disposed) return
+    await this.acquireInstance()
+    if (!this.stopped || this.externallyPaused || this.disposed) return
     this.stopped = false
     this.trace("mesh.start")
     await this.notify()
-    this.leader = new MeshLeader({ name: "match:mesh-leader" })
-    this.leader.subscribe(isLeader => this.trace("leader.state", { isLeader }))
-    await this.leader.start(signal => {
-      const previous = this.task
-      this.task = (async () => {
-        await previous?.catch(() => {})
-        if (!signal.aborted) await this.run(signal)
-      })()
-      return this.task
-    })
-    if (!this.leader.isLeader) {
-      this.trace("leader.takeover.requested")
-      await this.adoptedNode?.close("Another tab owns mesh").catch(() => {})
-      this.adoptedNode = undefined
-      this.takeoverNode = true
-      this.tabChannel?.postMessage({ type: "state-request", senderId: this.tabId } satisfies MeshTabMessage)
-      void this.leader.requestLeadership().then(() => {
-        this.trace("leader.takeover.acquired")
-      }).catch(error => {
-        if (!this.stopped && !this.disposed) this.trace("leader.takeover.failed", {
-          reason: error instanceof Error ? error.message : String(error),
-        }, "warn")
-      })
-    }
+    this.abortController = new AbortController()
+    this.task = this.run(this.abortController.signal)
   }
 
-  async stop(): Promise<void> {
-    if (this.stopped) return
+  async stop(releaseInstance = true): Promise<void> {
+    if (this.stopped) {
+      if (releaseInstance) {
+        await this.releaseInstance?.()
+        this.releaseInstance = undefined
+      }
+      return
+    }
     this.stopped = true
     this.trace("mesh.stop")
     clearTimeout(this.retryTimer)
     this.retryTimer = undefined
-    await this.leader?.stop()
-    this.leader = undefined
-    await this.shutdown()
+    this.abortController?.abort()
+    this.abortController = undefined
     await this.task?.catch(() => {})
     this.task = undefined
+    await this.shutdown()
+    if (releaseInstance) {
+      await this.releaseInstance?.()
+      this.releaseInstance = undefined
+    }
   }
 
   private async shutdown() {
@@ -943,7 +920,6 @@ export class DurableMesh {
       this.trace("run.start")
       const offline = () => { void this.dropSessions() }
       const abort = () => { void this.shutdown() }
-      let freshNodeProbe: ReturnType<typeof setTimeout> | undefined
       try {
         const storedCredentials = await this.store.listWorkspaceCredentials()
         if (signal.aborted || storedCredentials.length === 0) return
@@ -955,17 +931,12 @@ export class DurableMesh {
         // The endpoint remains authenticated by the same signed device advertisement.
         const adoptedNode = this.adoptedNode
         this.adoptedNode = undefined
-        const takeoverNode = this.takeoverNode
-        this.takeoverNode = false
-        const useFreshNode = !adoptedNode && (takeoverNode || this.preferFreshNode)
-        this.preferFreshNode = false
-        const node = adoptedNode ?? (useFreshNode
-          ? await this.options.transport.start()
-          : await startPersistentNode(this.options.transport, this.store))
+        const nodeSource = adoptedNode ? "adopted" : "instance"
+        const node = adoptedNode ?? await startPersistentNode(this.options.transport, this.store, this.instanceId)
         if (signal.aborted) return void node.close("Mesh cancelled")
         this.node = node
         this.trace("node.started", {
-          source: adoptedNode ? "adopted" : useFreshNode ? "fresh" : "persistent",
+          source: nodeSource,
           endpoint: node.endpointId.slice(0, 8),
         })
         const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
@@ -979,27 +950,6 @@ export class DurableMesh {
         if (typeof window !== "undefined") window.addEventListener("offline", offline)
         this.stopWatch = this.options.workspace.subscribe?.(() => { void this.publishAll() })
         void this.acceptLoop(signal)
-        // A browser reload can leave the relay holding the previous connection for the
-        // durable node ID. First reconnect from a fresh endpoint. If every peer is also
-        // offline, fall back to the durable ID so independently restarted peers meet again.
-        if (useFreshNode) {
-          const probe = () => {
-            if (signal.aborted || this.node !== node || this.sessions.size > 0) return
-            if (!this.freshNodeIsIdle()) {
-              this.trace("node.probe.deferred", {
-                connecting: this.connecting.size,
-                pendingIncoming: this.pendingIncomingConnections,
-              })
-              freshNodeProbe = setTimeout(probe, 1_000)
-              return
-            }
-            this.restartRequested = true
-            this.node = undefined
-            this.trace("node.probe.restart", { reason: "fresh endpoint found no peers" })
-            void node.close("Fresh endpoint found no peers").catch(() => {})
-          }
-          freshNodeProbe = setTimeout(probe, 4_000)
-        }
         await this.dialLoop(signal)
       } catch (error) {
         if (!signal.aborted) {
@@ -1011,12 +961,10 @@ export class DurableMesh {
           }
         }
       } finally {
-        clearTimeout(freshNodeProbe)
         signal.removeEventListener("abort", abort)
         if (typeof window !== "undefined") window.removeEventListener("offline", offline)
         await this.shutdown()
       }
-      this.restartRequested = false
       if (!signal.aborted) {
         await new Promise<void>(resolve => {
           const timer = setTimeout(finish, 1_000)
@@ -1060,10 +1008,6 @@ export class DurableMesh {
         }
       }
     }
-  }
-
-  private freshNodeIsIdle() {
-    return this.sessions.size === 0 && this.connecting.size === 0 && this.pendingIncomingConnections === 0
   }
 
   async acceptOnInvitationNode(connection: SyncConnection, stream: DuplexStream, frame: Uint8Array) {
@@ -1124,7 +1068,7 @@ export class DurableMesh {
       await stream.closeSend()
       if (signal?.aborted) return
       await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
-        remote.advertisement.payload.issuedAt, "incoming", connection,
+        remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt, "incoming", connection,
         Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"), connectionId)
     } catch (error) {
       this.trace("handshake.incoming.failed", {
@@ -1138,14 +1082,20 @@ export class DurableMesh {
 
   private async ownBundle(credential: WorkspaceMeshCredential) {
     const profile = await this.options.getProfile()
-    const own = await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
+    const peers = await this.peerInstances(credential.workspaceId)
+    const own = peers.find(peer => peer.deviceId === profile.device.deviceId && peer.instanceId === this.instanceId) ??
+      peers.find(peer => peer.deviceId === profile.device.deviceId && !peer.instanceId) ??
+      await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
     if (!own?.advertisement) throw new Error("Missing local peer advertisement")
     return own.advertisement as WorkspaceMemberBundle
   }
 
   private async refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
     endpoint: string, certificates: DeviceCertificate[]) {
-    let current = await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
+    const peerInstances = await this.peerInstances(credential.workspaceId)
+    let current = peerInstances.find(peer => peer.deviceId === profile.device.deviceId && peer.instanceId === this.instanceId) ??
+      peerInstances.find(peer => peer.deviceId === profile.device.deviceId && !peer.instanceId) ??
+      await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
     // Device enrollment keeps the browser's device key while replacing its person identity.
     // Never let the old identity win PeerStore's timestamp merge for the same device key.
     if (current && current.personId !== profile.identity.personId) {
@@ -1174,6 +1124,7 @@ export class DurableMesh {
     const currentUserAgent = (typeof navigator !== "undefined" ? navigator.userAgent : "").trim().slice(0, 256) || undefined
     const reusable = bundle && issuedAt && Date.parse(issuedAt) > Date.now() - 7 * 24 * 60 * 60 * 1000 &&
       current?.endpoint === endpoint && current.role === role &&
+      (!this.instanceId || bundle.advertisement.payload.instanceId === this.instanceId) &&
       bundle.advertisement.payload.deviceName === profile.device.displayName.slice(0, 256) &&
       bundle.advertisement.payload.userAgent === currentUserAgent &&
       bundle.publicKey === profile.identity.publicKey && bundle.ownerPublicKey === credential.ownerPublicKey &&
@@ -1185,6 +1136,7 @@ export class DurableMesh {
       grant: localGrant,
       ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
+      ...(this.instanceId ? { instanceId: this.instanceId } : {}),
     })
     await this.putVerifiedBundle(credential, next)
     return next
@@ -1201,29 +1153,30 @@ export class DurableMesh {
         })
       } catch {
         await this.store.removePeer(credential.workspaceId, peer.deviceId)
-        const key = `${credential.workspaceId}:${peer.deviceId}`
-        this.failures.delete(key)
-        this.failedAt.delete(key)
+        for (const key of [...this.failures.keys()]) if (key.startsWith(`${credential.workspaceId}:${peer.deviceId}:`)) {
+          this.failures.delete(key)
+          this.failedAt.delete(key)
+        }
       }
     }
   }
 
   private async dialLoop(signal: AbortSignal) {
     while (!signal.aborted) {
-      if (this.restartRequested || !this.node) throw new MeshNodeRestart(
-        this.restartRequested ? "fresh endpoint probe completed" : "runtime node unavailable",
-      )
+      if (!this.node) throw new MeshNodeRestart("runtime node unavailable")
       const profile = await this.options.getProfile()
-      const peers = (await this.store.listPeers()).filter(peer => !peer.revokedAt && peer.deviceId !== profile.device.deviceId)
+      const peers = (await this.peerInstances()).filter(peer =>
+        !peer.revokedAt && peer.deviceId !== profile.device.deviceId)
       for (const peer of peers) {
         // Newer signed endpoints introduce themselves. Stable advertisements preserve
         // one dialer per pair; endpoint changes reverse direction and propagate.
-        const own = await this.store.getPeer(peer.workspaceId, profile.device.deviceId)
+        const own = (await this.peerInstances(peer.workspaceId)).find(item =>
+          item.deviceId === profile.device.deviceId && item.instanceId === this.instanceId)
         const ownIssuedAt = (own?.advertisement as WorkspaceMemberBundle | undefined)?.advertisement.payload.issuedAt
         const peerIssuedAt = (peer.advertisement as WorkspaceMemberBundle | undefined)?.advertisement.payload.issuedAt
         if (!ownIssuedAt || !peerIssuedAt || ownIssuedAt < peerIssuedAt ||
           (ownIssuedAt === peerIssuedAt && profile.device.deviceId < peer.deviceId)) continue
-        const key = `${peer.workspaceId}:${peer.deviceId}`
+        const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
         if (signal.aborted || this.sessions.has(key) || this.connecting.has(key)) continue
         const attempts = this.failures.get(key) ?? 0
         if (attempts > 0 && Date.now() - (this.failedAt.get(key) ?? 0) < Math.min(500 * 2 ** attempts, 3_000)) continue
@@ -1237,7 +1190,7 @@ export class DurableMesh {
   }
 
   private async dialPeer(peer: WorkspacePeerRecord, signal: AbortSignal) {
-    const key = `${peer.workspaceId}:${peer.deviceId}`
+    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
     const connectionId = this.connectionId("outgoing")
     let connection: SyncConnection | undefined
     if (this.connecting.has(key)) return
@@ -1274,13 +1227,17 @@ export class DurableMesh {
         ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as any,
         ownerHistory: ownerAuthorities(credential).slice(1),
       })
-      if (verified.advertisement.payload.deviceId !== peer.deviceId || signal.aborted) throw new Error("Unexpected mesh peer")
+      if (verified.advertisement.payload.deviceId !== peer.deviceId ||
+        (verified.advertisement.payload.instanceId ?? "legacy") !== (peer.instanceId ?? "legacy") || signal.aborted) {
+        throw new Error("Unexpected mesh peer instance")
+      }
       this.trace("handshake.outgoing.verified", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       if (Array.isArray(response.revocations)) await this.mergeRevocations(credential, response.revocations)
       await this.putVerifiedBundle(credential, response.peer)
       this.failures.delete(key)
       this.failedAt.delete(key)
-      await this.installSession(peer.workspaceId, peer.deviceId, verified.advertisement.payload.issuedAt, "outgoing", connection,
+      await this.installSession(peer.workspaceId, peer.deviceId, peer.instanceId ?? "legacy",
+        verified.advertisement.payload.issuedAt, "outgoing", connection,
         Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"), connectionId)
       connection = undefined
     } catch (error) {
@@ -1295,7 +1252,6 @@ export class DurableMesh {
       this.failedAt.set(key, Date.now())
       await connection?.close().catch(() => {})
       if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
-        this.restartRequested = true
         const stale = this.node
         this.node = undefined
         await stale?.close("Mesh runtime closed").catch(() => {})
@@ -1306,10 +1262,10 @@ export class DurableMesh {
     }
   }
 
-  private async installSession(workspaceId: string, deviceId: string, remoteIssuedAt: string,
+  private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     connectionId = this.connectionId(direction)) {
-    const key = `${workspaceId}:${deviceId}`
+    const key = this.peerKey(workspaceId, deviceId, instanceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
     const previous = this.sessions.get(key)
@@ -1320,10 +1276,11 @@ export class DurableMesh {
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return void connection.close()
     const session = liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
-    this.sessions.set(key, { workspaceId, deviceId, remoteIssuedAt, direction, connection, session })
+    this.sessions.set(key, { workspaceId, deviceId, instanceId, remoteIssuedAt, direction, connection, session })
     this.trace("session.started", {
       connectionId,
       peerId: deviceId.slice(0, 8),
+      instanceId: instanceId.slice(0, 8),
       workspaceId: workspaceId.slice(0, 8),
       direction,
       heartbeat: heartbeatSupported,
@@ -1374,13 +1331,13 @@ export class DurableMesh {
   }
 
   async views(workspaceId?: string): Promise<MeshPeerView[]> {
-    const online = new Set([...this.sessions.keys()])
     return (await this.store.listPeers(workspaceId)).map(peer => {
       const payload = (peer.advertisement as WorkspaceMemberBundle | undefined)?.advertisement?.payload
       return {
         workspaceId: peer.workspaceId, personId: peer.personId, deviceId: peer.deviceId, role: peer.role,
         endpoint: peer.endpoint, lastSeen: peer.lastSeen, revokedAt: peer.revokedAt,
-        online: online.has(`${peer.workspaceId}:${peer.deviceId}`),
+        online: [...this.sessions.values()].some(session => session.workspaceId === peer.workspaceId && session.deviceId === peer.deviceId),
+        instances: Math.max(1, peer.instances?.length ?? 0),
         ...(payload?.deviceName ? { deviceName: payload.deviceName } : {}),
         ...(payload?.userAgent ? { userAgent: payload.userAgent } : {}),
       }
@@ -1425,16 +1382,5 @@ export class DurableMesh {
     const revoked = await this.revokedWorkspaceIds()
     const succession = await this.successionViews()
     this.options.onChange?.(workspaces, peers, revoked, succession)
-    if (this.leader?.isLeader) {
-      this.tabChannel?.postMessage({
-        type: "state",
-        senderId: this.tabId,
-        workspaces,
-        peers,
-        revoked,
-        succession,
-        diagnostic: this.lastDiagnostic,
-      } satisfies MeshTabMessage)
-    }
   }
 }

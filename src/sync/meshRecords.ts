@@ -23,6 +23,7 @@ export type PeerAdvertisementPayload = {
   workspaceId: string
   personId: string
   deviceId: string
+  instanceId?: string
   endpoint: string
   issuedAt: string // ISO 8601 string
   deviceName?: string
@@ -105,6 +106,7 @@ export type CreatePeerAdvertisementOptions = {
   profile?: LocalProfile
   workspaceId: string
   endpoint: string
+  instanceId?: string
   certificates?: DeviceCertificate[]
   grant?: WorkspaceGrant
   ownerPublicKey?: string
@@ -327,6 +329,7 @@ export async function createPeerAdvertisement(
   let issuedAt: string | undefined
   let deviceName: string | undefined
   let userAgent: string | undefined
+  let instanceId: string | undefined
 
   if (
     typeof profileOrOptions === "object" &&
@@ -344,6 +347,7 @@ export async function createPeerAdvertisement(
     issuedAt = opts.issuedAt
     deviceName = opts.deviceName
     userAgent = opts.userAgent
+    instanceId = opts.instanceId
   } else {
     profile = profileOrOptions as LocalProfile
     if (typeof workspaceIdOrOptions === "object" && workspaceIdOrOptions !== null) {
@@ -356,6 +360,7 @@ export async function createPeerAdvertisement(
       issuedAt = workspaceIdOrOptions.issuedAt
       deviceName = workspaceIdOrOptions.deviceName
       userAgent = workspaceIdOrOptions.userAgent
+      instanceId = workspaceIdOrOptions.instanceId
     } else {
       workspaceId = workspaceIdOrOptions as string
       ep = endpoint as string
@@ -367,6 +372,7 @@ export async function createPeerAdvertisement(
         issuedAt = extraOptions.issuedAt
         deviceName = extraOptions.deviceName
         userAgent = extraOptions.userAgent
+        instanceId = extraOptions.instanceId
       }
     }
   }
@@ -380,6 +386,9 @@ export async function createPeerAdvertisement(
   if (!ep || typeof ep !== "string") {
     throw new Error("Invalid endpoint: must be a non-empty string")
   }
+  if (instanceId !== undefined && (!instanceId || instanceId.length > MAX_STRING_LENGTH)) {
+    throw new Error("Invalid instanceId")
+  }
 
   const reportedDeviceName = (deviceName ?? profile.device.displayName).trim().slice(0, MAX_STRING_LENGTH)
   const reportedUserAgent = (userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "")).trim().slice(0, MAX_STRING_LENGTH)
@@ -389,6 +398,7 @@ export async function createPeerAdvertisement(
     workspaceId,
     personId: profile.identity.personId,
     deviceId: profile.device.deviceId,
+    ...(instanceId ? { instanceId } : {}),
     endpoint: ep,
     issuedAt: issuedAt ?? new Date().toISOString(),
     ...(reportedDeviceName ? { deviceName: reportedDeviceName } : {}),
@@ -504,6 +514,7 @@ export async function verifyWorkspaceMemberBundle(
     typeof p.deviceId !== "string" ||
     !p.deviceId ||
     p.deviceId.length > MAX_STRING_LENGTH ||
+    (p.instanceId !== undefined && (typeof p.instanceId !== "string" || !p.instanceId || p.instanceId.length > MAX_STRING_LENGTH)) ||
     typeof p.endpoint !== "string" ||
     !p.endpoint ||
     p.endpoint.length > MAX_ENDPOINT_LENGTH ||

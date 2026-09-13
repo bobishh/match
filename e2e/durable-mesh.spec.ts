@@ -164,7 +164,7 @@ test("Given an existing editor, when the owner enrolls another device, then the 
   }
 })
 
-test("Given trusted peers closed every tab, when both reopen without an invitation URL, then they reconnect and exchange offline changes", async ({ browser, page }) => {
+test("Given trusted devices and multiple tabs, when tabs close and reopen, then each tab keeps an independent channel under one device", async ({ browser, page }) => {
   test.setTimeout(120_000)
   await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
   const guestContext = await isolatedContext(browser)
@@ -189,17 +189,23 @@ test("Given trusted peers closed every tab, when both reopen without an invitati
     await addLead(guest, "After restart")
     await expect(host.getByRole("button", { name: "Open After restart — Engineer" })).toBeVisible({ timeout: 20_000 })
 
-    const followerTab = await hostContext.newPage()
-    await followerTab.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
-    await followerTab.goto("/")
-    await expect(followerTab.getByLabel("Mesh connected")).toBeVisible({ timeout: 10_000 })
-    await addLead(followerTab, "From follower tab")
-    await expect(guest.getByRole("button", { name: "Open From follower tab — Engineer" })).toBeVisible({ timeout: 20_000 })
+    const secondTab = await hostContext.newPage()
+    await secondTab.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
+    await secondTab.goto("/")
+    await expect(secondTab.getByLabel("Mesh connected")).toBeVisible({ timeout: 10_000 })
+    await addLead(secondTab, "From second tab")
+    await expect(guest.getByRole("button", { name: "Open From second tab — Engineer" })).toBeVisible({ timeout: 20_000 })
+
+    await guest.getByRole("button", { name: "Sync", exact: true }).click()
+    const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await guestDialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "OWNER" }).click()
+    await expect(guestDialog.getByText("2 tabs", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
 
     await host.close()
-    await addLead(guest, "After leader closed")
-    await expect(followerTab.getByRole("button", { name: "Open After leader closed — Engineer" })).toBeVisible({ timeout: 30_000 })
-    await followerTab.close()
+    await addLead(guest, "After first tab closed")
+    await expect(secondTab.getByRole("button", { name: "Open After first tab closed — Engineer" })).toBeVisible({ timeout: 30_000 })
+    await secondTab.close()
   } finally {
     await guestContext.close()
   }

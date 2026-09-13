@@ -5,26 +5,6 @@ import { verifyWorkspaceGrant } from "./meshRecords"
 import { DurableMesh } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
-  it("Given a fresh node is still handshaking, when fallback probes it, then the live transport is not restarted", async () => {
-    const mesh = new DurableMesh({
-      transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
-      getProfile: async () => ({} as never),
-      store: {} as never,
-    })
-    const internal = mesh as any
-
-    internal.pendingIncomingConnections = 1
-    expect(internal.freshNodeIsIdle()).toBe(false)
-
-    internal.pendingIncomingConnections = 0
-    internal.connecting.add("workspace:peer")
-    expect(internal.freshNodeIsIdle()).toBe(false)
-
-    internal.connecting.clear()
-    expect(internal.freshNodeIsIdle()).toBe(true)
-    await mesh.dispose()
-  })
-
   it("Given two different same-epoch recovery claims, when projected, then conflict pauses automatic recovery", async () => {
     const policy = { payload: { successorPersonId: null, eligibleEditorPersonIds: ["editor-a", "editor-b"] } }
     const credential = {
