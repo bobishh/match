@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "workspaces": [
+    "vendor/meta-mesh/packages/*"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -p tsconfig.app.json --noEmit && vite build",
