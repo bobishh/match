@@ -8,8 +8,12 @@ export class MeshReconnectPolicy {
     if (isNetworkFailure(error)) this.relayPeers.add(peerKey)
   }
 
+  mode(node: SyncNode, peerKey: string): "direct" | "relay" {
+    return this.relayPeers.has(peerKey) && node.dialRelay ? "relay" : "direct"
+  }
+
   dial(node: SyncNode, peerKey: string, endpoint: string): Promise<SyncConnection> {
-    if (this.relayPeers.has(peerKey) && node.dialRelay) return node.dialRelay(endpoint)
+    if (this.mode(node, peerKey) === "relay") return node.dialRelay!(endpoint)
     return node.dial(endpoint)
   }
 }
