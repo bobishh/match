@@ -23,6 +23,7 @@ const props = defineProps<{
     name: string
     role: "owner" | "editor" | "visitor"
     online: boolean
+    onlineDevices: number
     devices: number
     self: boolean
     deviceList: Array<{
@@ -163,7 +164,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             @click="selectedMemberId = member.personId"
           >
             <span class="mesh-member-presence" :class="member.online ? 'is-online' : 'is-offline'" aria-hidden="true"></span>
-            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
+            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }} · {{ member.onlineDevices }} online{{ member.self ? ' · You' : '' }}</small></span>
             <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
           <p v-if="!(meshMembers || []).length" class="mesh-member-empty">No mesh members yet.</p>
@@ -436,10 +437,12 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
 <style scoped>
 .sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 16px 0; overflow-y: auto; }
-.mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+.mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; padding: 3px 5px 5px 3px; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
 .mesh-member { width: 100%; min-height: 58px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); background: white; color: var(--ink); text-align: left; }
 .mesh-member:not(:disabled) { cursor: pointer; }
 .mesh-member:disabled { opacity: 1; }
+.mesh-member:focus { outline: none; }
+.mesh-member:focus-visible { outline: 2px solid var(--blue); outline-offset: -4px; }
 .mesh-member.is-selected { background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); transform: translate(-2px, -2px); }
 .mesh-member-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
 .mesh-member-presence.is-online { background: var(--green); }

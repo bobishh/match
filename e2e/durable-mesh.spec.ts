@@ -226,7 +226,18 @@ test("Given a connected peer closes its tab, when it returns, then presence turn
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const syncDialog = page.getByRole("dialog", { name: "Device sync" })
     await expect(syncDialog.getByText("Offline · No live channel. Reconnecting automatically.")).toBeVisible()
-    await expect(syncDialog.locator(".mesh-member-presence.is-online")).toHaveCount(0)
+    await expect(syncDialog.locator(".mesh-member-presence.is-online")).toHaveCount(1)
+    await expect(syncDialog.locator(".mesh-member-presence.is-offline")).toHaveCount(1)
+    const selfMember = syncDialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "You" })
+    await expect(selfMember).toContainText("1 device · 1 online · You")
+    await expect(syncDialog.getByRole("list", { name: "Mesh members" })).toContainText("1 device · 0 online")
+    await selfMember.click()
+    const selectedMemberFits = await selfMember.evaluate(member => {
+      const list = member.parentElement!.getBoundingClientRect()
+      const card = member.getBoundingClientRect()
+      return card.left >= list.left && card.right + 3 <= list.right && card.bottom + 3 <= list.bottom
+    })
+    expect(selectedMemberFits).toBe(true)
     await syncDialog.getByRole("button", { name: "Close", exact: true }).last().click()
     await addLead(page, "Queued while closed")
 
