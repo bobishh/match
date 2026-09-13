@@ -39,6 +39,7 @@ async function touchDrag(context: BrowserContext, page: Page, sourceSelector: st
   const start = { x: source.x + source.width / 2, y: source.y + Math.min(40, source.height / 2) }
   const end = { x: target.x + target.width / 2, y: target.y + Math.min(40, target.height / 2) }
   await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] })
+  await page.waitForTimeout(220)
   for (let step = 1; step <= 24; step++) {
     const ratio = step / 24
     await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{
@@ -51,6 +52,34 @@ async function touchDrag(context: BrowserContext, page: Page, sourceSelector: st
 }
 
 test.describe("Trello-like board dragging", () => {
+  test("Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 640 }, isMobile: true, hasTouch: true })
+    const page = await context.newPage()
+    try {
+      await createBlankWorkspace(page, "Mobile scroll board")
+      await createItem(page, "First", "To do")
+      await createItem(page, "Second", "To do")
+      const second = await page.locator('.lead-card[data-task-id]:has-text("Second")').boundingBox()
+      if (!second) throw new Error("Touch source missing")
+      const session = await context.newCDPSession(page)
+      const start = { x: second.x + second.width / 2, y: second.y + second.height / 2 }
+      await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] })
+      for (let step = 1; step <= 8; step += 1) {
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: start.x, y: start.y - step * 14 }],
+        })
+        await page.waitForTimeout(10)
+      }
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
+
+      const cards = page.getByRole("region", { name: "To do" }).locator(".lead-card")
+      await expect(cards.nth(0)).toContainText("First")
+      await expect(cards.nth(1)).toContainText("Second")
+      await expect(page.getByText("Item moved", { exact: true })).toHaveCount(0)
+    } finally { await context.close() }
+  })
+
   test("Given a mobile board, when an editor drags a card sideways, then the board scrolls and the card changes column", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
     const page = await context.newPage()
@@ -63,6 +92,19 @@ test.describe("Trello-like board dragging", () => {
       await expect(page.getByRole("status")).toContainText("Item moved")
       await page.reload()
       await expect(page.getByRole("region", { name: "Doing" }).getByText("Touch me")).toBeVisible()
+    } finally { await context.close() }
+  })
+
+  test("Given a mobile board, when a card is released over another column header, then that column receives it", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+    const page = await context.newPage()
+    try {
+      await createBlankWorkspace(page, "Mobile column drop board")
+      await createItem(page, "Drop on column", "To do")
+      await touchDrag(context, page, '.lead-card[data-task-id]:has-text("Drop on column")', '[role="region"][aria-label="Doing"] .column-header')
+
+      await expect(page.getByRole("region", { name: "Doing" }).getByText("Drop on column")).toBeVisible()
+      await expect(page.getByRole("status")).toContainText("Item moved")
     } finally { await context.close() }
   })
 

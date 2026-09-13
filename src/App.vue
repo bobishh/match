@@ -113,6 +113,8 @@ const boardRef = ref<HTMLElement | null>(null)
 const boardRenderKey = ref(0)
 let columnSortable: Sortable | null = null
 let cardSortables: Sortable[] = []
+let cardTouchPoint: { x: number; y: number } | null = null
+let removeCardTouchTracking: (() => void) | null = null
 const movedTaskId = ref<string | null>(null)
 const movedColumnId = ref<string | null>(null)
 let movedHighlightTimer: ReturnType<typeof setTimeout> | undefined
@@ -462,6 +464,9 @@ function destroyBoardSortables() {
   columnSortable = null
   for (const sortable of cardSortables) sortable.destroy()
   cardSortables = []
+  removeCardTouchTracking?.()
+  removeCardTouchTracking = null
+  cardTouchPoint = null
 }
 
 async function setupBoardSortables() {
@@ -497,6 +502,20 @@ async function setupBoardSortables() {
     return
   }
 
+  const resetTouchPoint = () => { cardTouchPoint = null }
+  const trackTouchPoint = (event: TouchEvent) => {
+    const touch = event.touches[0] ?? event.changedTouches[0]
+    if (touch) cardTouchPoint = { x: touch.clientX, y: touch.clientY }
+  }
+  board.addEventListener("touchstart", resetTouchPoint, { passive: true })
+  board.addEventListener("touchmove", trackTouchPoint, { passive: true })
+  board.addEventListener("touchend", trackTouchPoint, { passive: true })
+  removeCardTouchTracking = () => {
+    board.removeEventListener("touchstart", resetTouchPoint)
+    board.removeEventListener("touchmove", trackTouchPoint)
+    board.removeEventListener("touchend", trackTouchPoint)
+  }
+
   for (const stack of board.querySelectorAll<HTMLElement>(".card-stack[data-column-id]")) {
     cardSortables.push(Sortable.create(stack, {
       group: "board-cards",
@@ -507,6 +526,9 @@ async function setupBoardSortables() {
       dragClass: "card-sortable-drag",
       emptyInsertThreshold: 48,
       forceFallback: true,
+      delay: 180,
+      delayOnTouchOnly: true,
+      touchStartThreshold: 8,
       fallbackTolerance: 4,
       fallbackOnBody: true,
       scroll: true,
@@ -516,7 +538,16 @@ async function setupBoardSortables() {
       onEnd(event) {
         const item = event.item as HTMLElement
         const taskId = item.dataset.taskId
-        const target = event.to as HTMLElement
+        let target = event.to as HTMLElement
+        if (cardTouchPoint) {
+          const hoveredColumn = [...board.querySelectorAll<HTMLElement>(":scope > .column")].find(column => {
+            const bounds = column.getBoundingClientRect()
+            return cardTouchPoint!.x >= bounds.left && cardTouchPoint!.x <= bounds.right &&
+              cardTouchPoint!.y >= bounds.top && cardTouchPoint!.y <= bounds.bottom
+          })
+          target = hoveredColumn?.querySelector<HTMLElement>(".card-stack[data-column-id]") ?? target
+        }
+        cardTouchPoint = null
         const parentId = target.dataset.columnId
         if (!taskId || !parentId) return
         const cards = [...target.querySelectorAll<HTMLElement>(":scope > .lead-card[data-task-id]")]

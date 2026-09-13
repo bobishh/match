@@ -434,7 +434,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 
 <style scoped>
 .sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 16px 0; overflow-y: auto; }
-.mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; overflow-y: auto; }
+.mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
 .mesh-member { width: 100%; min-height: 58px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); background: white; color: var(--ink); text-align: left; }
 .mesh-member:not(:disabled) { cursor: pointer; }
 .mesh-member:disabled { opacity: 1; }
@@ -448,7 +448,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-member-action p { margin: 0; }
 .mesh-member-action .button { justify-self: start; }
 .mesh-member-empty { margin: 0; padding: 16px; border: 2px dashed var(--soft); color: var(--muted); }
-.mesh-device-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.mesh-device-list { display: grid; gap: 8px; max-height: min(42dvh, 320px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; list-style: none; }
 .mesh-device { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--soft); background: white; min-width: 0; }
 .mesh-device-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
 .mesh-device-presence.is-online { background: var(--green); }

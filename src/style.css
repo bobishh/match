@@ -209,7 +209,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .board-filtered .lead-card { grid-template-columns: minmax(220px, .65fr) minmax(0, 1.35fr); }
   .card-context:has(.card-notes):has(.card-fields) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
 }
-.overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; background: rgba(23, 23, 23, .72); }
+.overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; overscroll-behavior: none; background: rgba(23, 23, 23, .72); }
 .dialog { min-width: 0; width: min(680px, 100%); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: 28px; border: 2px solid var(--line); background: var(--panel); box-shadow: 6px 6px 0 var(--ink); }
 .dialog-head > div { min-width: 0; }
 .dialog-head .icon-button { flex: 0 0 44px; }
