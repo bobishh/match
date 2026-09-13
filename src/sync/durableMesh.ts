@@ -158,6 +158,7 @@ export class DurableMesh {
   private acceptor: SyncAcceptor | undefined
   private sessions = new Map<string, SessionEntry>()
   private connecting = new Set<string>()
+  private pendingIncomingConnections = 0
   private stopped = true
   private stopWatch: (() => void) | undefined
   private retryTimer: ReturnType<typeof setTimeout> | undefined
@@ -942,12 +943,17 @@ export class DurableMesh {
         // durable node ID. First reconnect from a fresh endpoint. If every peer is also
         // offline, fall back to the durable ID so independently restarted peers meet again.
         if (useFreshNode) {
-          freshNodeProbe = setTimeout(() => {
+          const probe = () => {
             if (signal.aborted || this.node !== node || this.sessions.size > 0) return
+            if (!this.freshNodeIsIdle()) {
+              freshNodeProbe = setTimeout(probe, 1_000)
+              return
+            }
             this.restartRequested = true
             this.node = undefined
             void node.close("Fresh endpoint found no peers").catch(() => {})
-          }, 4_000)
+          }
+          freshNodeProbe = setTimeout(probe, 4_000)
         }
         await this.dialLoop(signal)
       } catch (error) {
@@ -988,11 +994,18 @@ export class DurableMesh {
       try {
         const raw = await this.acceptor.accept()
         if (!raw) return
-        void this.acceptConnection(networkConnection(raw), signal)
+        this.pendingIncomingConnections += 1
+        void this.acceptConnection(networkConnection(raw), signal).finally(() => {
+          this.pendingIncomingConnections = Math.max(0, this.pendingIncomingConnections - 1)
+        })
       } catch (error) {
         if (!signal.aborted && !isNetworkFailure(error)) console.warn("Mesh accept failed", error)
       }
     }
+  }
+
+  private freshNodeIsIdle() {
+    return this.sessions.size === 0 && this.connecting.size === 0 && this.pendingIncomingConnections === 0
   }
 
   async acceptOnInvitationNode(connection: SyncConnection, stream: DuplexStream, frame: Uint8Array) {
