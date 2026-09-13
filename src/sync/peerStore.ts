@@ -530,7 +530,16 @@ export class PeerStore {
 
   private async getOrCreateNamedNodeSecret(key: string, fallbackKey?: string): Promise<Uint8Array> {
     const existing = await this.runTx([STORE_NODE], "readonly", async tx => {
-      const record = await promisifyRequest<{ key: string; secret: Uint8Array }>(tx.objectStore(STORE_NODE).get(key))
+      const store = tx.objectStore(STORE_NODE)
+      const record = await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(key))
+      const fallback = fallbackKey
+        ? await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(fallbackKey))
+        : undefined
+      if (fallback?.secret) {
+        validateNodeSecret(fallback.secret)
+        if (!record?.secret || !new Uint8Array(record.secret).every((byte, index) => byte === fallback.secret[index])) return null
+        return new Uint8Array(fallback.secret)
+      }
       if (!record?.secret) return null
       validateNodeSecret(record.secret)
       return new Uint8Array(record.secret)
@@ -545,15 +554,14 @@ export class PeerStore {
     return this.runTx([STORE_NODE], "readwrite", async (tx) => {
       const store = tx.objectStore(STORE_NODE)
       const current = await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(key))
-      if (current && current.secret) {
-        validateNodeSecret(current.secret)
-        return new Uint8Array(current.secret)
-      }
-
       const fallback = fallbackKey
         ? await promisifyRequest<{ key: string; secret: Uint8Array }>(store.get(fallbackKey))
         : undefined
       if (fallback?.secret) validateNodeSecret(fallback.secret)
+      if (current?.secret && !fallback?.secret) {
+        validateNodeSecret(current.secret)
+        return new Uint8Array(current.secret)
+      }
       const storedSecret = fallback?.secret ? new Uint8Array(fallback.secret) : new Uint8Array(newSecret)
 
       await promisifyRequest(

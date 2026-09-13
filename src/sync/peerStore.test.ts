@@ -277,6 +277,8 @@ describe("Peer Catalog & Node Secret Module (src/sync/peerStore.ts)", () => {
     it("Given an existing install upgrades, when slot zero starts, then it keeps the durable endpoint identity", async () => {
       const store = new PeerStore("match-test-peer-instance-migration", mockIdb as any)
       const legacySecret = new Uint8Array(32).fill(19)
+      const interimSlotSecret = await store.getOrCreateInstanceNodeSecret("slot-0")
+      expect(interimSlotSecret).not.toEqual(legacySecret)
       await store.setNodeSecret(legacySecret)
 
       expect(await store.getOrCreateInstanceNodeSecret("slot-0")).toEqual(legacySecret)
