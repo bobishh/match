@@ -231,6 +231,14 @@ export class DurableMesh {
     void this.notify()
   }
 
+  private reportProtocolFailure(stage: string, error: unknown) {
+    if (isNetworkFailure(error)) {
+      void this.notify()
+      return
+    }
+    this.report(stage, error)
+  }
+
   async pauseAll(): Promise<void> {
     this.externallyPaused = true
     await this.stop(false)
@@ -926,9 +934,8 @@ export class DurableMesh {
         const profile = await this.options.getProfile()
         const credentials = await this.detachCredentialsFromPreviousIdentity(storedCredentials, profile)
         if (signal.aborted || credentials.length === 0) return
-        // A tab taking over from another tab uses a distinct transport endpoint. Some
-        // relays retain the closed tab's connection for the stable node ID briefly.
-        // The endpoint remains authenticated by the same signed device advertisement.
+        // Every browser runtime owns one independently leased transport endpoint.
+        // Workspace roles and grants remain attached to the approved device/person.
         const adoptedNode = this.adoptedNode
         this.adoptedNode = undefined
         const nodeSource = adoptedNode ? "adopted" : "instance"
@@ -1179,7 +1186,8 @@ export class DurableMesh {
         const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
         if (signal.aborted || this.sessions.has(key) || this.connecting.has(key)) continue
         const attempts = this.failures.get(key) ?? 0
-        if (attempts > 0 && Date.now() - (this.failedAt.get(key) ?? 0) < Math.min(500 * 2 ** attempts, 3_000)) continue
+        const retryDelay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
+        if (Date.now() - (this.failedAt.get(key) ?? 0) < retryDelay) continue
         void this.dialPeer(peer, signal)
       }
       await new Promise<void>(resolve => {
@@ -1245,8 +1253,8 @@ export class DurableMesh {
         peerId: peer.deviceId.slice(0, 8),
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
-      this.report(`Dial ${peer.deviceId.slice(0, 6)}`, error)
-      this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 5))
+      this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+      this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 8))
       this.failedAt.set(key, Date.now())
       await connection?.close().catch(() => {})
       if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
@@ -1291,21 +1299,21 @@ export class DurableMesh {
     void session.publish().catch(error => {
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.publish.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
-      this.report(`Publish ${deviceId.slice(0, 6)}`, error)
+      this.reportProtocolFailure(`Publish ${deviceId.slice(0, 6)}`, error)
       void session.close()
     })
     const heartbeat = heartbeatSupported ? setInterval(() => {
       void session.heartbeat?.().catch(error => {
         this.reconnectPolicy.recordFailure(key, error)
         this.trace("session.heartbeat.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
-        this.report(`Heartbeat ${deviceId.slice(0, 6)}`, error)
+        this.reportProtocolFailure(`Heartbeat ${deviceId.slice(0, 6)}`, error)
         void session.close()
       })
     }, MESH_HEARTBEAT_INTERVAL_MS) : undefined
     void session.done.catch(error => {
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.receive.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
-      this.report(`Receive ${deviceId.slice(0, 6)}`, error)
+      this.reportProtocolFailure(`Receive ${deviceId.slice(0, 6)}`, error)
     }).finally(async () => {
       if (heartbeat) clearInterval(heartbeat)
       const wasCurrent = this.sessions.get(key)?.session === session
