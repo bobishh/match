@@ -1,0 +1,3 @@
+[submodule "vendor/meta-mesh"]
+	path = vendor/meta-mesh
+	url = https://github.com/bobishh/meta-mesh.git
