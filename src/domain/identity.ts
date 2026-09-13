@@ -9,7 +9,7 @@ import {
   verifyEnvelope,
   type LocalProfile as MeshLocalProfile,
   type SignedEnvelope,
-} from "../../packages/mesh-identity/src/index"
+} from "@meta-uber/mesh-identity"
 import type {
   ActorBinding,
   ActorId,
