@@ -16,8 +16,7 @@ import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { isNetworkFailure, liveWorkspaceSetSync, networkConnection, networkIO, startMeshHeartbeat, workspaceSet, type WorkspaceSetStore } from "./workspaceSet"
-import type { LiveWorkspaceSync, WorkspaceReplica } from "./session"
+import { isNetworkFailure, liveWorkspaceSetSync, networkConnection, networkIO, startMeshHeartbeat, workspaceSet, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 
 export type MeshWorkspaceEnvelope = {
   version: 1

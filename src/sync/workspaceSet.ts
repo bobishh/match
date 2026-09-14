@@ -1,7 +1,19 @@
 import { fromBase64Url, toBase64Url } from "../domain/identity"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
-import type { LiveWorkspaceSync } from "./session"
 import type { DuplexStream, SyncConnection } from "./transport"
+
+export type WorkspaceReplica = {
+  getBytes: () => Uint8Array
+  mergeBytes: (bytes: Uint8Array) => Promise<void>
+  subscribe?: (listener: () => void) => () => void
+}
+
+export type LiveWorkspaceSync = {
+  publish: () => Promise<void>
+  heartbeat?: () => Promise<void>
+  close: () => Promise<void>
+  done: Promise<void>
+}
 
 export const MESH_HEARTBEAT_INTERVAL_MS = 5_000
 export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
