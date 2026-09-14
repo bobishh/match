@@ -57,6 +57,8 @@ export type PairingFrameType =
   | "workspace-join-response"
   | "mesh-handshake-request"
   | "mesh-handshake-response"
+  | "mesh-handoff-request"
+  | "mesh-handoff-ready"
 
 export class PairingError extends Error {}
 
@@ -327,6 +329,7 @@ export function inspectPairingFrame(frame: Uint8Array): { type: PairingFrameType
     "sync-request", "sync-response", "sync-ack", "sync-update", "sync-heartbeat", "sync-heartbeat-ack",
     "enroll-request", "enroll-approved", "enroll-ack", "enroll-complete",
     "workspace-join-request", "workspace-join-response", "mesh-handshake-request", "mesh-handshake-response",
+    "mesh-handoff-request", "mesh-handoff-ready",
   ].includes(header.type ?? "")) throw new PairingError("Pairing frame invalid")
   return { type: header.type as PairingFrameType, secret: header.secret }
 }

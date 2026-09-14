@@ -5,6 +5,7 @@ import { initializeAutomerge } from "../crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, signEnvelope, type LocalProfile } from "../domain/identity"
 import { createWorkspaceDoc } from "../domain/seeds"
 import { createWorkspaceGrant } from "../domain/proofs"
+import { createWorkspaceOwnershipTransfer } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
 import { validateIncomingChanges } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
@@ -78,4 +79,45 @@ it("rejects tampering with an owner-issued role", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Forbidden" }), "visitor")
   record.grant.payload.role = "editor"
   await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/signature/)
+})
+
+it("Given two manual transfers from one owner at one epoch, when authorization checks the workspace, then writes stay frozen", async () => {
+  peerStoreState.credential = {
+    epoch: 1,
+    catalog: { ownershipTransfers: [
+      { payload: { epoch: 2, fromOwnerPersonId: "owner", toOwnerPersonId: "alice" } },
+      { payload: { epoch: 2, fromOwnerPersonId: "owner", toOwnerPersonId: "bob" } },
+    ] },
+  }
+
+  const remote = Automerge.from(createWorkspaceDoc("workspace", "Frozen", owner.identity.personId, "blank"))
+  await expect(validateIncomingChanges(undefined, remote, [])).rejects.toThrow(/conflicting ownership records/i)
+})
+
+it("Given split owners wrote on separate partitions, when the branches meet, then neither branch is admitted under ambiguous authority", async () => {
+  resetIdentityStorageForTest(); const first = await bootstrapIdentity("First successor")
+  resetIdentityStorageForTest(); const second = await bootstrapIdentity("Second successor")
+  const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Partitioned", owner.identity.personId, "blank"))
+  const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+  const write = async (profile: LocalProfile, title: string) => {
+    const result = await executeCommand(base, { kind: "createTask", parentId: column.id, title }, profile)
+    if (!result.ok) throw new Error(result.error.message)
+    return result.value.newDoc
+  }
+  const [branchA, branchB] = await Promise.all([write(first, "A write"), write(second, "B write")])
+  const merged = Automerge.merge(branchA, branchB)
+  const heads = Automerge.getHeads(base)
+  const transfers = await Promise.all([first, second].map(target => createWorkspaceOwnershipTransfer(owner, base.id, {
+    personId: target.identity.personId, publicKey: target.identity.publicKey, certificates: [target.certificate],
+  }, heads, 2)))
+  peerStoreState.credential = {
+    workspaceId: base.id, ownerPersonId: first.identity.personId, ownerPublicKey: first.identity.publicKey,
+    ownerCertificates: [first.certificate], ownerHistory: [{ personId: owner.identity.personId,
+      publicKey: owner.identity.publicKey, certificates: [owner.certificate] }], epoch: 2,
+    catalog: { ownershipTransfers: transfers },
+  }
+
+  const titles = Object.values(merged.entities).filter(entity => entity.kind === "task").map(entity => entity.title)
+  expect(titles).toEqual(expect.arrayContaining(["A write", "B write"]))
+  await expect(validateIncomingChanges(branchA, merged, [])).rejects.toThrow(/conflicting ownership records/i)
 })

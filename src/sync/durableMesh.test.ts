@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
-import { verifyWorkspaceGrant } from "./meshRecords"
+import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
 import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
@@ -11,6 +11,14 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(shouldReplaceMeshSession(current, { ...current }, "incoming")).toBe(false)
     expect(shouldReplaceMeshSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
     expect(shouldReplaceMeshSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
+  })
+
+  it("Given a renewed route for one instance, when both sessions arrive, then route sequence beats wall-clock skew", () => {
+    const current = { remoteIssuedAt: "2026-09-14T12:05:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
+    const renewed = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 5, direction: "incoming" as const }
+
+    expect(shouldReplaceMeshSession(current, renewed, "incoming")).toBe(true)
+    expect(shouldReplaceMeshSession(renewed, current, "incoming")).toBe(false)
   })
 
   it("Given a newer browser instance closed, when an older live instance has no session, then it still dials the known peer", async () => {
@@ -46,6 +54,33 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given a signed route lease expired, when reconnect scans the catalog, then it keeps probing that bootstrap route", async () => {
+    const controller = new AbortController()
+    const peer = {
+      workspaceId: "workspace-1", personId: "remote-person", deviceId: "remote-device",
+      instanceId: "slot-1", endpoint: "remote-endpoint", transportSecret: "mesh-secret", role: "editor" as const,
+      lastSeen: "2026-09-14T12:00:00.000Z",
+      advertisement: { advertisement: { payload: { issuedAt: "2026-09-14T12:00:00.000Z",
+        expiresAt: new Date(Date.now() - 60_000).toISOString() } } },
+    }
+    const mesh = new DurableMesh({
+      transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => ({ device: { deviceId: "local-device" } } as never), store: {} as never,
+    })
+    const internal = mesh as any
+    internal.node = {}
+    internal.peerInstances = vi.fn(async () => [peer])
+    internal.dialPeer = vi.fn(async () => controller.abort())
+    const guard = setTimeout(() => controller.abort(), 50)
+
+    await internal.dialLoop(controller.signal)
+
+    clearTimeout(guard)
+    expect(internal.dialPeer).toHaveBeenCalledWith(peer, controller.signal)
+    expect(internal.peerInstances).toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
   it("Given two different same-epoch recovery claims, when projected, then conflict pauses automatic recovery", async () => {
     const policy = { payload: { successorPersonId: null, eligibleEditorPersonIds: ["editor-a", "editor-b"] } }
     const credential = {
@@ -64,6 +99,85 @@ describe("DurableMesh peer catalog gossip", () => {
 
     await expect(mesh.successionViews()).resolves.toMatchObject([{ workspaceId: "workspace-conflict", conflicted: true }])
     await mesh.dispose()
+  })
+
+  it("Given an owner signs two successors for one epoch, when replicas meet, then authority stays put and writes freeze", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Owner")
+    resetIdentityStorageForTest()
+    const first = await bootstrapIdentity("First successor")
+    resetIdentityStorageForTest()
+    const second = await bootstrapIdentity("Second successor")
+    const transfers = await Promise.all([first, second].map(target => createWorkspaceOwnershipTransfer(owner, "workspace-1", {
+      personId: target.identity.personId, publicKey: target.identity.publicKey, certificates: [target.certificate],
+    }, ["head"], 2)))
+    let credential = {
+      version: 1 as const, workspaceId: "workspace-1", ownerPersonId: owner.identity.personId,
+      ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret",
+      epoch: 1, updatedAt: new Date().toISOString(), catalog: {},
+    }
+    const store = {
+      putWorkspaceCredential: async (next: typeof credential) => { credential = structuredClone(next) },
+      transferWorkspaceCredential: async (_previous: string, next: typeof credential) => { credential = structuredClone(next) },
+      listPeers: async () => [],
+      listWorkspaceCredentials: async () => [credential],
+    }
+    const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => owner, store: store as never })
+
+    const result = await (mesh as any).mergeOwnershipTransfers(credential, transfers)
+
+    expect(result.ownerPersonId).toBe(owner.identity.personId)
+    expect(result.epoch).toBe(1)
+    expect((result.catalog as any).ownershipTransfers).toHaveLength(2)
+    await expect(mesh.successionViews()).resolves.toMatchObject([{ workspaceId: "workspace-1", conflicted: true }])
+    await mesh.dispose()
+  })
+
+  it("Given partitioned replicas accepted different successors, when their transfer logs meet, then neither authority replaces the other", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Owner")
+    resetIdentityStorageForTest()
+    const first = await bootstrapIdentity("First successor")
+    resetIdentityStorageForTest()
+    const second = await bootstrapIdentity("Second successor")
+    const [toFirst, toSecond] = await Promise.all([first, second].map(target => createWorkspaceOwnershipTransfer(owner, "workspace-1", {
+      personId: target.identity.personId, publicKey: target.identity.publicKey, certificates: [target.certificate],
+    }, ["shared-head"], 2)))
+    const initial = {
+      version: 1 as const, workspaceId: "workspace-1", ownerPersonId: owner.identity.personId,
+      ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret",
+      epoch: 1, updatedAt: new Date(0).toISOString(), catalog: {},
+    }
+    const replica = (profile: LocalProfile) => {
+      let credential: any = structuredClone(initial)
+      const store = {
+        putWorkspaceCredential: async (next: any) => { credential = structuredClone(next) },
+        transferWorkspaceCredential: async (_previous: string, next: any) => { credential = structuredClone(next) },
+        listPeers: async () => [], listWorkspaceCredentials: async () => [credential],
+      }
+      const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+        getProfile: async () => profile, store: store as never })
+      return { mesh, credential: () => credential }
+    }
+    const a = replica(first)
+    const b = replica(second)
+
+    await (a.mesh as any).mergeOwnershipTransfers(a.credential(), [toFirst])
+    await (b.mesh as any).mergeOwnershipTransfers(b.credential(), [toSecond])
+    expect(a.credential().ownerPersonId).toBe(first.identity.personId)
+    expect(b.credential().ownerPersonId).toBe(second.identity.personId)
+
+    await (a.mesh as any).mergeOwnershipTransfers(a.credential(), [toSecond])
+    await (b.mesh as any).mergeOwnershipTransfers(b.credential(), [toFirst])
+
+    expect(a.credential().ownerPersonId).toBe(first.identity.personId)
+    expect(b.credential().ownerPersonId).toBe(second.identity.personId)
+    expect(a.credential().catalog.ownershipTransfers).toHaveLength(2)
+    expect(b.credential().catalog.ownershipTransfers).toHaveLength(2)
+    await expect(a.mesh.successionViews()).resolves.toMatchObject([{ conflicted: true }])
+    await expect(b.mesh.successionViews()).resolves.toMatchObject([{ conflicted: true }])
+    await Promise.all([a.mesh.dispose(), b.mesh.dispose()])
   })
 
   it("Given a stored peer with an invalid grant, when the mesh validates its catalog, then it removes the poisoned peer before dialing", async () => {

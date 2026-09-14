@@ -26,6 +26,8 @@ export type PeerAdvertisementPayload = {
   instanceId?: string
   endpoint: string
   issuedAt: string // ISO 8601 string
+  routeSequence?: number
+  expiresAt?: string
   deviceName?: string
   userAgent?: string
 }
@@ -66,6 +68,19 @@ export type WorkspaceOwnershipTransferPayload = {
 }
 
 export type WorkspaceOwnershipTransfer = SignedEnvelope<WorkspaceOwnershipTransferPayload>
+
+export function hasConflictingOwnershipTransfers(records: WorkspaceOwnershipTransfer[]): boolean {
+  const successors = new Map<string, Set<string>>()
+  for (const record of records) {
+    const payload = record?.payload
+    if (!payload || !Number.isSafeInteger(payload.epoch) || !payload.fromOwnerPersonId || !payload.toOwnerPersonId) continue
+    const key = `${payload.epoch}:${payload.fromOwnerPersonId}`
+    const values = successors.get(key) ?? new Set<string>()
+    values.add(payload.toOwnerPersonId)
+    successors.set(key, values)
+  }
+  return [...successors.values()].some(values => values.size > 1)
+}
 
 export type WorkspaceSuccessionPolicy = SignedEnvelope<{
   kind: "workspace-succession-policy"; version: 1; workspaceId: string; ownerPersonId: string
@@ -112,6 +127,8 @@ export type CreatePeerAdvertisementOptions = {
   ownerPublicKey?: string
   ownerCertificates?: DeviceCertificate[]
   issuedAt?: string
+  routeSequence?: number
+  expiresAt?: string
   deviceName?: string
   userAgent?: string
 }
@@ -131,6 +148,7 @@ export type VerifyWorkspaceMemberBundleOptions = {
   ownerHistory?: WorkspaceAuthority[]
   maxByteLength?: number
   now?: number | Date | string
+  allowStaleRoute?: boolean
 }
 
 export type VerifiedWorkspaceMember = Omit<
@@ -321,6 +339,8 @@ export async function createPeerAdvertisement(
   let ownerPublicKey: string | undefined
   let ownerCertificates: DeviceCertificate[] | undefined
   let issuedAt: string | undefined
+  let routeSequence: number | undefined
+  let expiresAt: string | undefined
   let deviceName: string | undefined
   let userAgent: string | undefined
   let instanceId: string | undefined
@@ -339,6 +359,8 @@ export async function createPeerAdvertisement(
     ownerPublicKey = opts.ownerPublicKey
     ownerCertificates = opts.ownerCertificates
     issuedAt = opts.issuedAt
+    routeSequence = opts.routeSequence
+    expiresAt = opts.expiresAt
     deviceName = opts.deviceName
     userAgent = opts.userAgent
     instanceId = opts.instanceId
@@ -352,6 +374,8 @@ export async function createPeerAdvertisement(
       ownerPublicKey = workspaceIdOrOptions.ownerPublicKey
       ownerCertificates = workspaceIdOrOptions.ownerCertificates
       issuedAt = workspaceIdOrOptions.issuedAt
+      routeSequence = workspaceIdOrOptions.routeSequence
+      expiresAt = workspaceIdOrOptions.expiresAt
       deviceName = workspaceIdOrOptions.deviceName
       userAgent = workspaceIdOrOptions.userAgent
       instanceId = workspaceIdOrOptions.instanceId
@@ -364,6 +388,8 @@ export async function createPeerAdvertisement(
         ownerPublicKey = extraOptions.ownerPublicKey
         ownerCertificates = extraOptions.ownerCertificates
         issuedAt = extraOptions.issuedAt
+        routeSequence = extraOptions.routeSequence
+        expiresAt = extraOptions.expiresAt
         deviceName = extraOptions.deviceName
         userAgent = extraOptions.userAgent
         instanceId = extraOptions.instanceId
@@ -383,6 +409,12 @@ export async function createPeerAdvertisement(
   if (instanceId !== undefined && (!instanceId || instanceId.length > MAX_STRING_LENGTH)) {
     throw new Error("Invalid instanceId")
   }
+  if (routeSequence !== undefined && (!Number.isSafeInteger(routeSequence) || routeSequence < 1)) {
+    throw new Error("Invalid routeSequence")
+  }
+  if (expiresAt !== undefined && (!Number.isFinite(Date.parse(expiresAt)) || new Date(expiresAt).toISOString() !== expiresAt)) {
+    throw new Error("Invalid expiresAt")
+  }
 
   const reportedDeviceName = (deviceName ?? profile.device.displayName).trim().slice(0, MAX_STRING_LENGTH)
   const reportedUserAgent = (userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "")).trim().slice(0, MAX_STRING_LENGTH)
@@ -395,6 +427,8 @@ export async function createPeerAdvertisement(
     ...(instanceId ? { instanceId } : {}),
     endpoint: ep,
     issuedAt: issuedAt ?? new Date().toISOString(),
+    ...(routeSequence !== undefined ? { routeSequence } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
     ...(reportedDeviceName ? { deviceName: reportedDeviceName } : {}),
     ...(reportedUserAgent ? { userAgent: reportedUserAgent } : {}),
   }
@@ -509,6 +543,9 @@ export async function verifyWorkspaceMemberBundle(
     !p.deviceId ||
     p.deviceId.length > MAX_STRING_LENGTH ||
     (p.instanceId !== undefined && (typeof p.instanceId !== "string" || !p.instanceId || p.instanceId.length > MAX_STRING_LENGTH)) ||
+    (p.routeSequence !== undefined && (!Number.isSafeInteger(p.routeSequence) || p.routeSequence < 1)) ||
+    (p.expiresAt !== undefined && (typeof p.expiresAt !== "string" || !Number.isFinite(Date.parse(p.expiresAt)) ||
+      new Date(p.expiresAt).toISOString() !== p.expiresAt)) ||
     typeof p.endpoint !== "string" ||
     !p.endpoint ||
     p.endpoint.length > MAX_ENDPOINT_LENGTH ||
@@ -551,8 +588,11 @@ export async function verifyWorkspaceMemberBundle(
   if (issuedTime > nowTime + MAX_FUTURE_TOLERANCE_MS) {
     throw new Error("Peer advertisement timestamp is in the future (> 5 minutes)")
   }
-  if (issuedTime < nowTime - MAX_STALE_TOLERANCE_MS) {
+  if (!opts.allowStaleRoute && issuedTime < nowTime - MAX_STALE_TOLERANCE_MS) {
     throw new Error("Peer advertisement timestamp is stale (> 30 days)")
+  }
+  if (p.expiresAt && (Date.parse(p.expiresAt) <= issuedTime || Date.parse(p.expiresAt) > issuedTime + 10 * 60 * 1000)) {
+    throw new Error("Invalid peer route expiry")
   }
 
   // 5. Exact identity hash verification

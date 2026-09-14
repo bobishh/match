@@ -61,6 +61,7 @@ export const INDEX_PEERS_DEVICE = "by_device"
 export const INDEX_PEERS_LAST_SEEN = "by_last_seen"
 
 const NODE_SECRET_KEY = "localNodeSecret"
+const INSTANCE_SEQUENCE_PREFIX = "instance-sequence:"
 const WORKSPACE_CREDENTIAL_PREFIX = "workspace:"
 
 export const MAX_STRING_LENGTH = 256
@@ -317,6 +318,11 @@ export function mergePeerRecords(
   }
 
   const instances = new Map<string, PeerTransportInstance>()
+  const sequence = (instance: PeerTransportInstance) => {
+    const value = (instance.advertisement as { advertisement?: { payload?: { routeSequence?: unknown } } } | undefined)
+      ?.advertisement?.payload?.routeSequence
+    return Number.isSafeInteger(value) ? value as number : undefined
+  }
   const collect = (peer: WorkspacePeerRecord, replaceEndpointAlias = false) => {
     for (const instance of peer.instances ?? []) instances.set(instance.instanceId, structuredClone(instance))
     if (peer.instanceId) {
@@ -328,7 +334,12 @@ export function mergePeerRecords(
         }
       }
       const current = instances.get(peer.instanceId)
-      if (!current || value.lastSeen >= current.lastSeen) instances.set(peer.instanceId, value)
+      const currentSequence = current && sequence(current)
+      const nextSequence = sequence(value)
+      const dominates = !current || (nextSequence !== undefined && currentSequence === undefined) ||
+        (nextSequence !== undefined && currentSequence !== undefined && nextSequence > currentSequence) ||
+        (nextSequence === currentSequence && value.lastSeen >= current.lastSeen)
+      if (dominates) instances.set(peer.instanceId, value)
     }
   }
   collect(existing)
@@ -531,6 +542,18 @@ export class PeerStore {
   async getOrCreateInstanceNodeSecret(instanceId: string): Promise<Uint8Array> {
     if (!instanceId || instanceId.length > MAX_STRING_LENGTH) throw new Error("Invalid mesh instanceId")
     return this.getOrCreateNamedNodeSecret(`instance:${instanceId}`, instanceId === "slot-0" ? NODE_SECRET_KEY : undefined)
+  }
+
+  async nextInstanceAdvertisementSequence(instanceId: string): Promise<number> {
+    if (!instanceId || instanceId.length > MAX_STRING_LENGTH) throw new Error("Invalid mesh instanceId")
+    return this.runTx([STORE_NODE], "readwrite", async tx => {
+      const store = tx.objectStore(STORE_NODE)
+      const key = `${INSTANCE_SEQUENCE_PREFIX}${instanceId}`
+      const record = await promisifyRequest<{ key: string; sequence: number } | undefined>(store.get(key))
+      const sequence = Number.isSafeInteger(record?.sequence) ? record!.sequence + 1 : 1
+      await promisifyRequest(store.put({ key, sequence, updatedAt: new Date().toISOString() }))
+      return sequence
+    })
   }
 
   private async getOrCreateNamedNodeSecret(key: string, fallbackKey?: string): Promise<Uint8Array> {

@@ -1,4 +1,4 @@
-import { certHashDefault } from "../domain/proofs"
+import { certHashDefault, createWorkspaceGrant } from "../domain/proofs"
 import type { ScopedInvitation } from "./protocol"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import {
@@ -155,17 +155,7 @@ export class InvitationService {
       return { ok: false, error: "Only the workspace owner can issue workspace grants" }
     }
 
-    const grantPayload = {
-      kind: "workspace-grant" as const,
-      version: 1 as const,
-      grantId: crypto.randomUUID(),
-      workspaceId,
-      personId: recipientPersonId,
-      role,
-    }
-
-    const signingKey = profile.privateKeys.identityPrivateKey || profile.privateKeys.devicePrivateKey
-    const signedGrant = await signEnvelope(signingKey, grantPayload, profile.device.deviceId)
+    const signedGrant = await createWorkspaceGrant(profile, workspaceId, recipientPersonId, role)
 
     invite.status = "consumed"
     invite.approvedAt = new Date().toISOString()
@@ -197,20 +187,10 @@ export class InvitationService {
       }
     }
 
-    const signingKey = profile.privateKeys.identityPrivateKey || profile.privateKeys.devicePrivateKey
     const grants: WorkspaceGrant[] = []
 
     for (const wsId of workspaceIds) {
-      const grantPayload = {
-        kind: "workspace-grant" as const,
-        version: 1 as const,
-        grantId: crypto.randomUUID(),
-        workspaceId: wsId,
-        personId: recipientPersonId,
-        role,
-      }
-      const signedGrant = await signEnvelope(signingKey, grantPayload, profile.device.deviceId)
-      grants.push(signedGrant)
+      grants.push(await createWorkspaceGrant(profile, wsId, recipientPersonId, role))
     }
 
     invite.status = "consumed"

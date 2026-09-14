@@ -7,6 +7,7 @@ import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorksp
   verifyWorkspaceMemberBundle, verifyWorkspaceOwnershipTransfer, verifyWorkspaceRevocation, verifyWorkspaceGrant,
   createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
   verifyWorkspaceSuccessionPolicy, verifyWorkspaceSuccessionVote, verifyWorkspaceSuccessionClaim,
+  hasConflictingOwnershipTransfers,
   MAX_SUCCESSION_EDITORS,
   type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
@@ -15,7 +16,7 @@ import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { isNetworkFailure, liveWorkspaceSetSync, MESH_HEARTBEAT_INTERVAL_MS, networkConnection, networkIO, workspaceSet, type WorkspaceSetStore } from "./workspaceSet"
+import { isNetworkFailure, liveWorkspaceSetSync, networkConnection, networkIO, startMeshHeartbeat, workspaceSet, type WorkspaceSetStore } from "./workspaceSet"
 import type { LiveWorkspaceSync, WorkspaceReplica } from "./session"
 
 export type MeshWorkspaceEnvelope = {
@@ -73,6 +74,7 @@ type SessionEntry = {
   deviceId: string
   instanceId: string
   remoteIssuedAt: string
+  remoteRouteSequence?: number
   direction: "incoming" | "outgoing"
   connection: SyncConnection
   session: LiveWorkspaceSync
@@ -81,11 +83,16 @@ type SessionEntry = {
 type SessionDirection = SessionEntry["direction"]
 
 export function shouldReplaceMeshSession(
-  previous: Pick<SessionEntry, "remoteIssuedAt" | "direction"> | undefined,
-  candidate: Pick<SessionEntry, "remoteIssuedAt" | "direction">,
+  previous: Pick<SessionEntry, "remoteIssuedAt" | "remoteRouteSequence" | "direction"> | undefined,
+  candidate: Pick<SessionEntry, "remoteIssuedAt" | "remoteRouteSequence" | "direction">,
   preferred: SessionDirection,
 ) {
   if (!previous) return true
+  if (candidate.remoteRouteSequence !== previous.remoteRouteSequence) {
+    if (candidate.remoteRouteSequence !== undefined && previous.remoteRouteSequence === undefined) return true
+    if (candidate.remoteRouteSequence === undefined) return false
+    return candidate.remoteRouteSequence > previous.remoteRouteSequence!
+  }
   if (candidate.remoteIssuedAt !== previous.remoteIssuedAt) {
     return candidate.remoteIssuedAt > previous.remoteIssuedAt
   }
@@ -174,6 +181,8 @@ export async function startPersistentNode(transport: SyncTransport, store: PeerS
 }
 
 export class DurableMesh {
+  private static readonly ROUTE_LEASE_MS = 2 * 60_000
+  private static readonly ROUTE_RENEW_MS = 60_000
   private readonly store: PeerStore
   private task: Promise<void> | undefined
   private abortController: AbortController | undefined
@@ -560,19 +569,50 @@ export class DurableMesh {
     const stored = ownershipTransfers(credential)
     const known = new Map(stored.map(record => [record.signature, record]))
     for (const record of raw) if (record?.signature) known.set(record.signature, record)
-    const accepted = new Map(stored.filter(record => (record.payload?.epoch ?? 0) <= credential.epoch)
-      .map(record => [record.signature, record]))
-    const pending = [...known.values()].filter(record => (record.payload?.epoch ?? 0) > credential.epoch)
-      .sort((a, b) => (a.payload?.epoch ?? 0) - (b.payload?.epoch ?? 0) || a.signature.localeCompare(b.signature))
-    for (const value of pending) {
-      if ((value.payload?.epoch ?? 0) <= credential.epoch) continue
+    const accepted = new Map(stored.map(record => [record.signature, record]))
+    const ordered = () => [...accepted.values()].sort((a, b) =>
+      a.payload.epoch - b.payload.epoch || a.signature.localeCompare(b.signature))
+    const persistConflict = async () => {
+      const next = { ...credential, catalog: { ...meshCatalog(credential), ownershipTransfers: ordered() } }
+      await this.store.putWorkspaceCredential(next)
+      credential = next
+    }
+
+    // A partition can reveal a second transfer after this replica already advanced.
+    // Verify and retain it against historical authority so equivocation remains visible.
+    for (const value of known.values()) {
+      if (accepted.has(value.signature) || (value.payload?.epoch ?? 0) > credential.epoch) continue
+      const authority = ownerAuthorities(credential).find(owner => owner.personId === value.payload?.fromOwnerPersonId)
+      if (!authority) continue
+      const record = await verifyWorkspaceOwnershipTransfer(value, credential.workspaceId, authority, value.payload.epoch - 1)
+      accepted.set(record.signature, record)
+    }
+    if (hasConflictingOwnershipTransfers(ordered())) {
+      await persistConflict()
+      return credential
+    }
+
+    while (true) {
       const previousOwner = credential.ownerPersonId
       const authority: WorkspaceAuthority = { personId: previousOwner, publicKey: credential.ownerPublicKey,
         certificates: credential.ownerCertificates as any }
-      const record = await verifyWorkspaceOwnershipTransfer(value, credential.workspaceId, authority, credential.epoch)
+      const candidates = [...known.values()].filter(value => value.payload?.epoch === credential.epoch + 1 &&
+        value.payload.fromOwnerPersonId === previousOwner)
+        .sort((a, b) => a.signature.localeCompare(b.signature))
+      if (!candidates.length) break
+      const verified: WorkspaceOwnershipTransfer[] = []
+      for (const value of candidates) {
+        const record = await verifyWorkspaceOwnershipTransfer(value, credential.workspaceId, authority, credential.epoch)
+        if (revokedPersonIds(credential).has(record.payload.toOwnerPersonId)) throw new Error("New owner access is revoked")
+        accepted.set(record.signature, record)
+        verified.push(record)
+      }
+      if (new Set(verified.map(record => record.payload.toOwnerPersonId)).size > 1) {
+        await persistConflict()
+        return credential
+      }
+      const record = verified[0]!
       const p = record.payload
-      if (revokedPersonIds(credential).has(p.toOwnerPersonId)) throw new Error("New owner access is revoked")
-      accepted.set(record.signature, record)
       const profile = await this.options.getProfile()
       const history = [...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
       if (!history.some(owner => owner.personId === authority.personId)) history.push(authority)
@@ -590,7 +630,7 @@ export class DurableMesh {
         localGrant,
         epoch: p.epoch,
         updatedAt: p.transferredAt,
-        catalog: { ...meshCatalog(credential), ownershipTransfers: [...accepted.values()].sort((a, b) => a.payload.epoch - b.payload.epoch),
+        catalog: { ...meshCatalog(credential), ownershipTransfers: ordered(),
           successionPolicy: undefined, successionVotes: [] },
       }
       await this.store.transferWorkspaceCredential(previousOwner, next)
@@ -1092,7 +1132,8 @@ export class DurableMesh {
       await stream.closeSend()
       if (signal?.aborted) return
       await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
-        remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt, "incoming", connection,
+        remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
+        remote.advertisement.payload.routeSequence, "incoming", connection,
         Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"), connectionId)
     } catch (error) {
       this.trace("handshake.incoming.failed", {
@@ -1133,6 +1174,7 @@ export class DurableMesh {
           workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
           ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
           ownerHistory: ownerAuthorities(credential).slice(1),
+          allowStaleRoute: true,
         })
       } catch {
         await this.store.removePeer(credential.workspaceId, profile.device.deviceId)
@@ -1146,7 +1188,9 @@ export class DurableMesh {
       (items ?? []).map(item => item.signature).sort().join("\0")
     const issuedAt = bundle?.advertisement.payload.issuedAt
     const currentUserAgent = (typeof navigator !== "undefined" ? navigator.userAgent : "").trim().slice(0, 256) || undefined
-    const reusable = bundle && issuedAt && Date.parse(issuedAt) > Date.now() - 7 * 24 * 60 * 60 * 1000 &&
+    const expiresAt = bundle?.advertisement.payload.expiresAt
+    const reusable = bundle && issuedAt && expiresAt &&
+      Date.parse(expiresAt) > Date.now() + DurableMesh.ROUTE_RENEW_MS &&
       current?.endpoint === endpoint && current.role === role &&
       (!this.instanceId || bundle.advertisement.payload.instanceId === this.instanceId) &&
       bundle.advertisement.payload.deviceName === profile.device.displayName.slice(0, 256) &&
@@ -1155,12 +1199,22 @@ export class DurableMesh {
       bundle.grant?.signature === localGrant?.signature && signatures(bundle.certificates) === signatures(certificates) &&
       signatures(bundle.ownerCertificates) === signatures(credential.ownerCertificates as DeviceCertificate[])
     if (reusable) return bundle
+    const sequenceStore = this.store as PeerStore & {
+      nextInstanceAdvertisementSequence?: (instanceId: string) => Promise<number>
+    }
+    const routeSequence = sequenceStore.nextInstanceAdvertisementSequence
+      ? await sequenceStore.nextInstanceAdvertisementSequence(this.instanceId)
+      : Date.now()
+    const now = Date.now()
     const next = await createPeerAdvertisement(profile, credential.workspaceId, endpoint, {
       certificates,
       grant: localGrant,
       ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
       ...(this.instanceId ? { instanceId: this.instanceId } : {}),
+      routeSequence,
+      issuedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + DurableMesh.ROUTE_LEASE_MS).toISOString(),
     })
     await this.putVerifiedBundle(credential, next)
     return next
@@ -1174,6 +1228,7 @@ export class DurableMesh {
           workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
           ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
           ownerHistory: ownerAuthorities(credential).slice(1),
+          allowStaleRoute: true,
         })
       } catch {
         await this.store.removePeer(credential.workspaceId, peer.deviceId)
@@ -1186,9 +1241,18 @@ export class DurableMesh {
   }
 
   private async dialLoop(signal: AbortSignal) {
+    let nextRouteRefreshAt = Date.now() + DurableMesh.ROUTE_RENEW_MS
     while (!signal.aborted) {
       if (!this.node) throw new MeshNodeRestart("runtime node unavailable")
       const profile = await this.options.getProfile()
+      if (Date.now() >= nextRouteRefreshAt) {
+        const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
+        for (const credential of await this.store.listWorkspaceCredentials()) {
+          await this.refreshOwnBundle(credential, profile, this.node.endpointId, certificates)
+        }
+        nextRouteRefreshAt = Date.now() + DurableMesh.ROUTE_RENEW_MS
+        await this.publishAll()
+      }
       const peers = (await this.peerInstances()).filter(peer =>
         !peer.revokedAt && peer.deviceId !== profile.device.deviceId)
       for (const peer of peers) {
@@ -1252,7 +1316,7 @@ export class DurableMesh {
       this.failures.delete(key)
       this.failedAt.delete(key)
       await this.installSession(peer.workspaceId, peer.deviceId, verifiedInstanceId,
-        verified.advertisement.payload.issuedAt, "outgoing", connection,
+        verified.advertisement.payload.issuedAt, verified.advertisement.payload.routeSequence, "outgoing", connection,
         Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"), connectionId)
       connection = undefined
     } catch (error) {
@@ -1278,20 +1342,20 @@ export class DurableMesh {
   }
 
   private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
-    direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
+    remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     connectionId = this.connectionId(direction)) {
     const key = this.peerKey(workspaceId, deviceId, instanceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
     const previous = this.sessions.get(key)
-    if (!shouldReplaceMeshSession(previous, { remoteIssuedAt, direction }, preferred)) {
+    if (!shouldReplaceMeshSession(previous, { remoteIssuedAt, remoteRouteSequence, direction }, preferred)) {
       this.trace("session.rejected", { connectionId, peerId: deviceId.slice(0, 8), direction, reason: "duplicate direction" })
       return void connection.close()
     }
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return void connection.close()
     const session = liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
-    this.sessions.set(key, { workspaceId, deviceId, instanceId, remoteIssuedAt, direction, connection, session })
+    this.sessions.set(key, { workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session })
     this.trace("session.started", {
       connectionId,
       peerId: deviceId.slice(0, 8),
@@ -1311,20 +1375,18 @@ export class DurableMesh {
       this.reportProtocolFailure(`Publish ${deviceId.slice(0, 6)}`, error)
       void session.close()
     })
-    const heartbeat = heartbeatSupported ? setInterval(() => {
-      void session.heartbeat?.().catch(error => {
+    const stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
         this.reconnectPolicy.recordFailure(key, error)
         this.trace("session.heartbeat.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
         this.reportProtocolFailure(`Heartbeat ${deviceId.slice(0, 6)}`, error)
         void session.close()
-      })
-    }, MESH_HEARTBEAT_INTERVAL_MS) : undefined
+      }) : undefined
     void session.done.catch(error => {
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.receive.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
       this.reportProtocolFailure(`Receive ${deviceId.slice(0, 6)}`, error)
     }).finally(async () => {
-      if (heartbeat) clearInterval(heartbeat)
+      stopHeartbeat?.()
       const wasCurrent = this.sessions.get(key)?.session === session
       if (wasCurrent) this.sessions.delete(key)
       this.trace("session.closed", { connectionId, peerId: deviceId.slice(0, 8), wasCurrent })
@@ -1372,9 +1434,14 @@ export class DurableMesh {
     const result: MeshSuccessionView[] = []
     for (const credential of await this.store.listWorkspaceCredentials()) {
       const claims = successionClaims(credential).filter(claim => claim.payload.epoch === credential.epoch)
-      const conflicted = new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1
+      const conflicted = new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 ||
+        hasConflictingOwnershipTransfers(ownershipTransfers(credential))
       const policy = successionPolicy(credential) ?? claims[0]?.payload.policy
-      if (!policy) continue
+      if (!policy) {
+        if (conflicted) result.push({ workspaceId: credential.workspaceId, successorPersonId: null,
+          eligibleEditorPersonIds: [], votes: [], quorum: 0, conflicted: true })
+        continue
+      }
       const revoked = revokedPersonIds(credential)
       const eligible = policy.payload.eligibleEditorPersonIds.filter(id => !revoked.has(id))
       result.push({

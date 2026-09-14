@@ -232,7 +232,7 @@ const meshMembers = computed(() => {
   return [...personIds].map(personId => {
     const devices = peers.filter(peer => peer.personId === personId)
     const self = personId === selfId
-    const localUserAgent = typeof navigator !== "undefined" ? navigator.userAgent : undefined
+    const localUserAgent = sync.localUserAgent.value || undefined
     const deviceList = devices.map(peer => {
       const userAgent = peer.userAgent || (self && peer.deviceId === sync.localDeviceId.value ? localUserAgent : undefined)
       return {

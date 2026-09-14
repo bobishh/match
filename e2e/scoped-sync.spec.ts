@@ -4,10 +4,7 @@ import { ensureJobSearchWorkspace } from "./support/workspaces"
 test.describe("Scoped Sync Outer Scenarios", () => {
   test("Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment", async ({ browser, page }) => {
     test.setTimeout(120_000)
-    const origin = "http://127.0.0.1:4244"
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondContext = await browser.newContext()
-    await secondContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondPage = await secondContext.newPage()
 
     try {
@@ -27,8 +24,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
       // Should show enrollment invitation link / QR
       await expect(hostDialog.getByText("Add your second device")).toBeVisible()
-      await hostDialog.getByRole("button", { name: "Copy enrollment link" }).click()
-      const inviteLink = await page.evaluate(() => navigator.clipboard.readText())
+      const inviteLink = await hostDialog.getByLabel("Pairing link").inputValue()
 
       await expect(hostDialog.getByRole("button", { name: "Approve device" })).toHaveCount(0)
 
@@ -82,10 +78,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
   })
 
   test("Given Sync is opened, when active workspace is preselected, then Generate link creates a usable single-workspace invite without extra navigation", async ({ browser, page }) => {
-    const origin = "http://127.0.0.1:4244"
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const guestContext = await browser.newContext()
-    await guestContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const guestPage = await guestContext.newPage()
 
     try {
@@ -100,8 +93,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       // Directly click Generate link without preliminary chooser or dropdown navigation
       await hostDialog.getByRole("button", { name: "Generate link" }).click()
 
-      await hostDialog.getByRole("button", { name: "Copy invite link" }).click()
-      const inviteLink = await page.evaluate(() => navigator.clipboard.readText())
+      const inviteLink = await hostDialog.getByLabel("Pairing link").inputValue()
 
       // Guest visits the link
       await guestPage.goto(inviteLink)
@@ -120,10 +112,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
   })
 
   test("Given multiple workspaces, when user selects A+B, then one invitation is generated for both, recipient sees both names on acceptance, and both connect", async ({ browser, page }) => {
-    const origin = "http://127.0.0.1:4244"
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const guestContext = await browser.newContext()
-    await guestContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const guestPage = await guestContext.newPage()
 
     try {
@@ -149,8 +138,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
       // Generate single invitation for the fixed set
       await hostDialog.getByRole("button", { name: "Generate link" }).click()
-      await hostDialog.getByRole("button", { name: "Copy invite link" }).click()
-      const inviteLink = await page.evaluate(() => navigator.clipboard.readText())
+      const inviteLink = await hostDialog.getByLabel("Pairing link").inputValue()
 
       // Guest visits link
       await guestPage.goto(inviteLink)
@@ -199,10 +187,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
   test("Given enrolled devices, when either device reloads, then it retains durable trust without requiring another QR", async ({ browser, page }) => {
     test.setTimeout(120_000)
-    const origin = "http://127.0.0.1:4244"
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondContext = await browser.newContext()
-    await secondContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
     const secondPage = await secondContext.newPage()
 
     try {
@@ -212,8 +197,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await hostDialog.getByRole("button", { name: "Add someone" }).click()
       await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
 
-      await hostDialog.getByRole("button", { name: "Copy enrollment link" }).click()
-      const inviteLink = await page.evaluate(() => navigator.clipboard.readText())
+      const inviteLink = await hostDialog.getByLabel("Pairing link").inputValue()
 
       await secondPage.goto(inviteLink)
       const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })

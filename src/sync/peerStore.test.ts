@@ -764,5 +764,28 @@ describe("Peer Catalog & Node Secret Module (src/sync/peerStore.ts)", () => {
       expect(await store.listPeers()).toHaveLength(0)
       expect(await store.getNodeSecret()).toBeNull()
     })
+
+    it("Given one instance renews with skewed wall time, when peer routes merge, then sequence selects the new route", () => {
+      const peer = (endpoint: string, lastSeen: string, routeSequence: number): WorkspacePeerRecord => ({
+        workspaceId: "ws_route", deviceId: "dev_route", personId: "person_route", instanceId: "slot-0",
+        endpoint, transportSecret: "secret", role: "editor", lastSeen,
+        advertisement: { advertisement: { payload: { routeSequence } } },
+      })
+
+      const merged = mergePeerRecords(peer("old-endpoint", "2026-09-14T12:05:00.000Z", 4),
+        peer("renewed-endpoint", "2026-09-14T12:00:00.000Z", 5))
+
+      expect(merged.instances).toContainEqual(expect.objectContaining({
+        instanceId: "slot-0", endpoint: "renewed-endpoint",
+      }))
+    })
+
+    it("Given one browser instance, when advertisements renew, then its sequence increases durably", async () => {
+      const store = new PeerStore("test-db-route-sequence", mockIdb as any)
+
+      await expect(store.nextInstanceAdvertisementSequence("slot-0")).resolves.toBe(1)
+      await expect(store.nextInstanceAdvertisementSequence("slot-0")).resolves.toBe(2)
+      await expect(store.nextInstanceAdvertisementSequence("slot-1")).resolves.toBe(1)
+    })
   })
 })

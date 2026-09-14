@@ -22,7 +22,7 @@ import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { createEnrollmentRequest, readEnrollmentRequest, installEnrollment, enrollmentPayload } from "./enrollment"
 import { registerDeviceInRoot } from "../domain/personalRoot"
-import { workspaceSet, liveWorkspaceSetSync, MESH_HEARTBEAT_INTERVAL_MS, networkConnection, networkIO, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
+import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, startMeshHeartbeat, SyncNetworkError, isNetworkFailure, type WorkspaceSetStore } from "./workspaceSet"
 import { DurableMesh, startPersistentNode, type MeshPeerView, type MeshSuccessionView } from "./durableMesh"
 
 function dialPairingPeer(node: SyncNode, endpoint: string) {
@@ -124,6 +124,7 @@ export function useDeviceSync({
   const meshPeers = ref<MeshPeerView[]>([])
   const meshDiagnostic = ref("")
   const localDeviceId = ref("")
+  const localUserAgent = ref("")
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
   const ownershipRevision = ref(0)
@@ -345,6 +346,7 @@ export function useDeviceSync({
     step.value = "members"
     error.value = ""
     copyNotice.value = ""
+    localUserAgent.value = typeof navigator !== "undefined" ? navigator.userAgent : ""
 
     const currentActive = activeWorkspaceId?.() || (availableWorkspaces.value.length > 0 ? availableWorkspaces.value[0].id : undefined)
     if (currentActive) {
@@ -362,6 +364,7 @@ export function useDeviceSync({
   async function getProfile(): Promise<LocalProfile> {
     const profile = await bootstrapIdentity("My Device")
     localDeviceId.value = profile.device.deviceId
+    localUserAgent.value = typeof navigator !== "undefined" ? navigator.userAgent : ""
     return profile
   }
 
@@ -537,6 +540,7 @@ export function useDeviceSync({
       let stopped = false
       let everConnected = false
       let handoffStarted = false
+      let handoffPromise: Promise<void> | undefined
       let fail!: (error: unknown) => void
       const done = new Promise<void>((_, reject) => { fail = reject })
       function disconnected() {
@@ -560,7 +564,22 @@ export function useDeviceSync({
         for (const connection of connections) void connection.close()
       }
       window.addEventListener("offline", offline)
-      const group: LiveWorkspaceSync = {
+      let group!: LiveWorkspaceSync
+      const handoffHost = () => handoffPromise ??= (async () => {
+        handoffStarted = true
+        stopped = true
+        window.removeEventListener("offline", offline)
+        await acceptor.close().catch(() => {})
+        stopWatchingWorkspace?.()
+        stopWatchingWorkspace = undefined
+        if (liveSession === group) liveSession = undefined
+        directLive.value = false
+        const adoptedNode = node
+        node = undefined
+        await startDurableMesh(adoptedNode)
+        await durableMesh?.waitUntilListening()
+      })()
+      group = {
         done,
         async publish() {
           await Promise.all([...peers.values()].map(async session => {
@@ -581,7 +600,7 @@ export function useDeviceSync({
       directLive.value = false
       async function receivePeer(connection: SyncConnection) {
         let session: LiveWorkspaceSync | undefined
-        let heartbeat: ReturnType<typeof setInterval> | undefined
+        let heartbeat: (() => void) | undefined
         let personId = ""
         const timeout = setTimeout(() => { void connection.close() }, 600_000)
         connections.add(connection)
@@ -649,7 +668,16 @@ export function useDeviceSync({
           await acknowledgement.closeSend()
           if (currentRun !== run || stopped) return
           clearTimeout(timeout)
-          session = liveWorkspaceSetSync(connection, secret, replica)
+          session = liveWorkspaceSetSync(connection, secret, replica, {
+            onHandoffRequest: async handoffStream => {
+              await handoffHost()
+              await handoffStream.send(encodePairingFrame("mesh-handoff-ready", secret, new Uint8Array()))
+              await handoffStream.closeSend()
+              setTimeout(() => {
+                for (const peer of peers.values()) void peer.close()
+              }, 0)
+            },
+          })
           const previous = peers.get(personId)
           peers.set(personId, session)
           directPeerSessions.set(personId, session)
@@ -657,16 +685,14 @@ export function useDeviceSync({
           everConnected = true
           directLive.value = true
           step.value = "synced"
-          heartbeat = setInterval(() => {
-            void session?.heartbeat?.().catch(() => { void session?.close() })
-          }, MESH_HEARTBEAT_INTERVAL_MS)
+          heartbeat = startMeshHeartbeat(session, () => { void session?.close() })
           // Share merged offline changes with all connected devices.
           await group.publish()
           await session.done
         } catch (err) {
           if (!stopped && currentRun === run && !isNetworkFailure(err)) fail(err)
         } finally {
-          clearInterval(heartbeat)
+          heartbeat?.()
           clearTimeout(timeout)
           if (session && peers.get(personId) === session) peers.delete(personId)
           if (session && directPeerSessions.get(personId) === session) directPeerSessions.delete(personId)
@@ -846,6 +872,7 @@ export function useDeviceSync({
       let attempts = 0
       while (currentRun === run) {
         let handoffToMesh = false
+        let handoffAcknowledged = false
         if (!navigator.onLine) {
           step.value = "workspace-reconnecting"
           await waitToReconnect(15_000)
@@ -917,9 +944,6 @@ export function useDeviceSync({
           clearTimeout(timeout)
           session = liveWorkspaceSetSync(connection, invite.secret, replica)
           liveSession = session
-          directLive.value = true
-          step.value = "workspace-guest-done"
-          liveWorkspaceIds.value = invite.workspaces.map(w => w.id)
           connectedBefore = true
           clearPairingLocation()
           attempts = 0
@@ -931,6 +955,11 @@ export function useDeviceSync({
             })
           })
           await session.publish()
+          const handoff = await connection.openStream()
+          await handoff.send(encodePairingFrame("mesh-handoff-request", invite.secret, new Uint8Array()))
+          await handoff.closeSend()
+          decodePairingFrame(await handoff.read(), "mesh-handoff-ready", invite.secret)
+          handoffAcknowledged = true
           // Pairing has durably installed trust and data. Start the mesh immediately;
           // do not wait for a dead invitation connection to be detected by the transport.
           handoffToMesh = true
@@ -955,12 +984,13 @@ export function useDeviceSync({
         }
         if (currentRun !== run) return
         if (handoffToMesh) {
-          // Let the host observe the direct session closing and replace its invitation
-          // acceptor before this peer starts durable handshakes on the same endpoints.
-          // Without the handoff gap, the host can accept a mesh session and immediately
-          // tear it down while closing the invitation session, causing a reconnect loop.
-          await new Promise(resolve => setTimeout(resolve, 1_000))
+          // Older peers lack the explicit handoff. Keep the compatibility gap only there.
+          if (!handoffAcknowledged) await new Promise(resolve => setTimeout(resolve, 1_000))
           await startDurableMesh(started)
+          await durableMesh?.waitUntilListening()
+          if (currentRun !== run) return
+          liveWorkspaceIds.value = invite.workspaces.map(w => w.id)
+          step.value = "workspace-guest-done"
           return
         }
         await waitToReconnect(Math.min(1_000 * 2 ** attempts++, 15_000))
@@ -1006,6 +1036,7 @@ export function useDeviceSync({
     meshDiagnostic,
     meshSuccession,
     localDeviceId,
+    localUserAgent,
     ownershipRevision,
     step,
     phase,

@@ -455,6 +455,33 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
         .resolves.toMatchObject({ payload: { deviceId: owner.device.deviceId, instanceId: "tab-b" } })
     })
 
+    it("Given a runtime publishes a route lease, when admitted, then sequence and bounded expiry stay signed", async () => {
+      const owner = await createProfile("Leased route owner")
+      const issuedAt = "2026-09-14T12:00:00.000Z"
+      const expiresAt = "2026-09-14T12:02:00.000Z"
+      const bundle = await createPeerAdvertisement(owner, workspaceId, "iroh://leased", {
+        instanceId: "slot-0", routeSequence: 7, issuedAt, expiresAt,
+      })
+
+      await expect(verifyWorkspaceMemberBundle(bundle, {
+        workspaceId, ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey,
+        ownerCertificates: [owner.certificate], now: "2026-09-14T12:01:00.000Z",
+      })).resolves.toMatchObject({ payload: { routeSequence: 7, expiresAt } })
+    })
+
+    it("Given route expiry exceeds the protocol bound, when admitted, then the advertisement is rejected", async () => {
+      const owner = await createProfile("Bad route owner")
+      const bundle = await createPeerAdvertisement(owner, workspaceId, "iroh://leased", {
+        instanceId: "slot-0", routeSequence: 1, issuedAt: "2026-09-14T12:00:00.000Z",
+        expiresAt: "2026-09-14T13:00:00.000Z",
+      })
+
+      await expect(verifyWorkspaceMemberBundle(bundle, {
+        workspaceId, ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey,
+        ownerCertificates: [owner.certificate], now: "2026-09-14T12:01:00.000Z",
+      })).rejects.toThrow(/route expiry/i)
+    })
+
     it("supports verifyPeerAdvertisement alias", async () => {
       const owner = await createProfile("Owner Alias Test")
       const bundle = await createWorkspaceMemberBundle(owner, workspaceId, "iroh://alice-node-alias")

@@ -5,6 +5,35 @@ import type { DuplexStream, SyncConnection } from "./transport"
 
 export const MESH_HEARTBEAT_INTERVAL_MS = 5_000
 export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
+export const MESH_HEARTBEAT_JITTER = 0.2
+
+export function startMeshHeartbeat(
+  session: Pick<LiveWorkspaceSync, "heartbeat">,
+  onFailure: (error: unknown) => void,
+  random: () => number = Math.random,
+) {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const schedule = () => {
+    const spread = MESH_HEARTBEAT_INTERVAL_MS * MESH_HEARTBEAT_JITTER
+    const delay = MESH_HEARTBEAT_INTERVAL_MS - spread + random() * spread * 2
+    timer = setTimeout(run, delay)
+  }
+  const run = async () => {
+    if (stopped) return
+    try {
+      await session.heartbeat?.()
+      if (!stopped) schedule()
+    } catch (error) {
+      if (!stopped) onFailure(error)
+    }
+  }
+  schedule()
+  return () => {
+    stopped = true
+    clearTimeout(timer)
+  }
+}
 
 export class SyncNetworkError extends Error {}
 
@@ -83,6 +112,7 @@ export function liveWorkspaceSetSync(
   connection: SyncConnection,
   secret: string,
   replica: ReturnType<typeof workspaceSet>,
+  options: { onHandoffRequest?: (stream: DuplexStream) => Promise<void> } = {},
 ): LiveWorkspaceSync {
   let stopped = false
   let lastSent = ""
@@ -94,10 +124,16 @@ export function liveWorkspaceSetSync(
       const stream = await connection.acceptStream()
       if (stopped) return
       const frame = await stream.read()
-      if (inspectPairingFrame(frame).type === "sync-heartbeat") {
+      const type = inspectPairingFrame(frame).type
+      if (type === "sync-heartbeat") {
         decodePairingFrame(frame, "sync-heartbeat", secret)
         await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))
         await stream.closeSend()
+        continue
+      }
+      if (type === "mesh-handoff-request" && options.onHandoffRequest) {
+        decodePairingFrame(frame, "mesh-handoff-request", secret)
+        await options.onHandoffRequest(stream)
         continue
       }
       await replica.receive(decodePairingFrame(frame, "sync-update", secret), false)

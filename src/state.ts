@@ -429,7 +429,7 @@ async function persistCommand(command: Command, storage: WorkspaceStorage): Prom
   }
 
   if (await workspaceWritesBlocked(activeDoc.id)) {
-    throw new Error("Workspace writes paused: conflicting ownership recovery claims")
+    throw new Error("Workspace writes paused: conflicting ownership records")
   }
 
   const role = await workspaceRole(activeDoc, currentProfile)

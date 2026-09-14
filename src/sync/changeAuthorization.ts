@@ -3,7 +3,7 @@ import { bootstrapIdentity, signEnvelope, verifyEnvelope, type LocalProfile, typ
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore } from "./peerStore"
-import { verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
+import { hasConflictingOwnershipTransfers, verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim } from "./meshRecords"
 
 import { assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
@@ -63,15 +63,16 @@ export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerP
   return (await peerStore.getWorkspaceCredential(workspaceId))?.ownerPersonId ?? genesisOwnerPersonId
 }
 
-function hasSuccessionConflict(credential: Awaited<ReturnType<typeof peerStore.getWorkspaceCredential>>) {
+function hasAuthorityConflict(credential: Awaited<ReturnType<typeof peerStore.getWorkspaceCredential>>) {
   const claims = ((credential?.catalog as { successionClaims?: WorkspaceSuccessionClaim[] } | undefined)?.successionClaims ?? [])
     .filter(claim => claim?.payload?.epoch === credential?.epoch)
-  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1
+  const transfers = ((credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[] } | undefined)?.ownershipTransfers ?? [])
+  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 || hasConflictingOwnershipTransfers(transfers)
 }
 
 export async function workspaceWritesBlocked(workspaceId: string) {
   if (typeof indexedDB === "undefined") return false
-  return hasSuccessionConflict(await peerStore.getWorkspaceCredential(workspaceId))
+  return hasAuthorityConflict(await peerStore.getWorkspaceCredential(workspaceId))
 }
 
 function authorities(credential: Awaited<ReturnType<typeof peerStore.getWorkspaceCredential>>) {
@@ -152,7 +153,7 @@ export async function exportAuthorizations(bytes: Uint8Array) {
 }
 export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown) {
   const credential = await peerStore.getWorkspaceCredential(remote.id)
-  if (hasSuccessionConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership recovery claims")
+  if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
   if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
   const expectedOwner = credential?.ownerPersonId ?? genesisOwner

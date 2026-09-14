@@ -253,7 +253,7 @@ for (const exit of ["Dismiss", "Close", "Escape"]) {
     if (exit === "Escape") await page.keyboard.press("Escape")
     else await dialog.getByRole("button", { name: exit, exact: true }).click()
     await expect(dialog).toBeHidden()
-    await expect(page).toHaveURL("http://127.0.0.1:4244/?view=board")
+    await expect(page).toHaveURL(/\/\?view=board$/)
     await page.reload()
     await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
     await expect(dialog).toBeHidden()
@@ -262,10 +262,7 @@ for (const exit of ["Dismiss", "Close", "Escape"]) {
 
 test("Given paired browser profiles, when either peer changes a card, then the other board updates without another QR", async ({ browser, page }) => {
   test.setTimeout(90_000)
-  const origin = "http://127.0.0.1:4244"
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin })
   const peerContext = await browser.newContext()
-  await peerContext.grantPermissions(["clipboard-read", "clipboard-write"], { origin })
   const peer = await peerContext.newPage()
 
   try {
@@ -283,8 +280,7 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await hostDialog.getByRole("button", { name: "Add someone" }).click()
     await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
     await expect(hostDialog.getByLabel("Pairing QR code")).toBeVisible({ timeout: 10_000 })
-    await hostDialog.getByRole("button", { name: "Copy pairing link" }).click()
-    const invite = await page.evaluate(() => navigator.clipboard.readText())
+    const invite = await hostDialog.getByLabel("Pairing link").inputValue()
 
     await peer.goto(invite)
     const peerDialog = peer.getByRole("dialog", { name: "Device sync" })

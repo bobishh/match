@@ -4,7 +4,7 @@ import {
   resetInvitationStorageForTest,
   deriveTranscriptAuthCode,
 } from "./invitations"
-import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
+import { bootstrapIdentity, resetIdentityStorageForTest, verifyEnvelope } from "../domain/identity"
 import { createDeviceEnrollmentInvite, createWorkspaceJoinInvite } from "./protocol"
 
 describe("InvitationService (Tasks 3.2 - 3.4)", () => {
@@ -138,6 +138,9 @@ describe("InvitationService (Tasks 3.2 - 3.4)", () => {
     expect(res.grants[0].payload.personId).toBe("person_charlie")
     expect(res.grants[1].payload.workspaceId).toBe("ws_2")
     expect(res.grants[1].payload.personId).toBe("person_charlie")
+    expect(res.grants[0].signerKeyId).toBe(owner.device.deviceId)
+    await expect(verifyEnvelope(res.grants[0], owner.device.publicKey)).resolves.toBe(true)
+    await expect(verifyEnvelope(res.grants[1], owner.device.publicKey)).resolves.toBe(true)
   })
 
   it("fails grant-set approval explicitly if issuer lacks ownership authority for any workspace", async () => {
