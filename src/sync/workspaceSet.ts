@@ -45,6 +45,11 @@ export type WorkspaceSetStore = {
 
 export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
   const ids = [...new Set(workspaceIds)].sort()
+  const receiveStage = async (stage: string, id: string, action: () => Promise<void>) => {
+    try { await action() } catch (error) {
+      throw new Error(`${stage} ${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    }
+  }
   return {
     async snapshot(knownChat?: Map<string, Set<string>>) {
       const entries = await Promise.all(ids.map(async id => { const bytes = await store.read(id); return { id, bytes: toBase64Url(bytes),
@@ -66,9 +71,9 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
         throw new Error("The peer sent a different set of workspaces than the invitation allows.")
       }
       for (const entry of entries) {
-        await store.merge(entry.id, fromBase64Url(entry.bytes), entry.authorization)
-        if (entry.chat !== undefined && store.mergeChat) await store.mergeChat(entry.id, entry.chat, history)
-        if (entry.mesh !== undefined && store.mergeMesh) await store.mergeMesh(entry.id, entry.mesh)
+        await receiveStage("Workspace", entry.id, () => store.merge(entry.id, fromBase64Url(entry.bytes), entry.authorization))
+        if (entry.chat !== undefined && store.mergeChat) await receiveStage("Chat", entry.id, () => store.mergeChat!(entry.id, entry.chat, history))
+        if (entry.mesh !== undefined && store.mergeMesh) await receiveStage("Mesh", entry.id, () => store.mergeMesh!(entry.id, entry.mesh))
       }
     },
   }

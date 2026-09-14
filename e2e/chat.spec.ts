@@ -184,3 +184,35 @@ test("Given owner and editor connected, when editor types, then typing and devic
     await expect(hostChat.getByRole("status", { name: "Typing presence" })).toHaveCount(0, { timeout: 15_000 })
   } finally { await context.close() }
 })
+
+test("Given one poisoned historical chat record, when a peer sends it with a valid record, then the valid message still arrives", async ({ page }) => {
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  const result = await page.evaluate(async () => {
+    const servicePath = "/src/chat/service.ts"
+    const statePath = "/src/state.ts"
+    const service = await import(/* @vite-ignore */ servicePath)
+    const state = await import(/* @vite-ignore */ statePath)
+    const workspaceId = state.useMatch().activeWorkspace.id
+    await service.sendChatMessage(workspaceId, "Valid sibling record")
+    const wire = await service.exportChat(workspaceId)
+    const valid = structuredClone(wire.messages.at(-1))
+    const poisoned = structuredClone(valid)
+    poisoned.authority.grant = {
+      payload: { kind: "workspace-grant", version: 1, workspaceId,
+        personId: poisoned.signed.payload.personId, role: "editor", issuedAt: new Date().toISOString() },
+      signerKeyId: poisoned.signed.payload.deviceId,
+      signature: poisoned.signed.signature,
+    }
+    try {
+      await service.receiveChat(workspaceId, { version: 1, profiles: [], messages: [poisoned, valid], typing: [] }, false)
+      return { error: "" }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  expect(result.error).toBe("")
+  const chat = await openChat(page)
+  await expect(chat.getByText("Valid sibling record", { exact: true })).toBeVisible()
+})

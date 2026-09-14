@@ -169,20 +169,30 @@ export async function receiveChat(workspaceId: string, value: unknown, history: 
   const messages: StoredChatMessage[] = []
   const profiles: StoredChatProfile[] = []
   const typing: ChatRecord[] = []
+  const rejectRecord = (section: string, error: unknown) => console.warn("[match.chat]", JSON.stringify({
+    event: "record.rejected", workspaceId, section,
+    reason: error instanceof Error ? error.message : String(error),
+  }))
   for (const item of wire.profiles) {
-    const record = await verifyChatRecord(item, scope, owner, workspaceId)
-    if (record.signed.payload.kind !== "chat-profile") throw new Error("Invalid chat profile")
-    profiles.push(member(record))
+    try {
+      const record = await verifyChatRecord(item, scope, owner, workspaceId)
+      if (record.signed.payload.kind !== "chat-profile") throw new Error("Invalid chat profile")
+      profiles.push(member(record))
+    } catch (error) { rejectRecord("profiles", error) }
   }
   for (const item of wire.messages) {
-    const record = await verifyChatRecord(item, scope, owner, workspaceId)
-    if (record.signed.payload.kind !== "chat-message") throw new Error("Invalid chat message")
-    messages.push(message(record))
+    try {
+      const record = await verifyChatRecord(item, scope, owner, workspaceId)
+      if (record.signed.payload.kind !== "chat-message") throw new Error("Invalid chat message")
+      messages.push(message(record))
+    } catch (error) { rejectRecord("messages", error) }
   }
   for (const item of wire.typing ?? []) {
-    const record = await verifyChatRecord(item, scope, owner, workspaceId)
-    if (record.signed.payload.kind !== "chat-typing") throw new Error("Invalid typing presence")
-    if (rememberTyping(workspaceId, record)) typing.push(record)
+    try {
+      const record = await verifyChatRecord(item, scope, owner, workspaceId)
+      if (record.signed.payload.kind !== "chat-typing") throw new Error("Invalid typing presence")
+      if (rememberTyping(workspaceId, record)) typing.push(record)
+    } catch (error) { rejectRecord("typing", error) }
   }
   const result = await chatStore.merge(scope, messages, profiles)
   if (result.changed || typing.length) publish({ workspaceId, added: result.added, remote: true, history, typing })

@@ -14,6 +14,16 @@ describe("workspace invitation scope", () => {
     await expect(replica.receive(new TextEncoder().encode(JSON.stringify(entries)))).rejects.toThrow(/different set/)
     expect(merge).not.toHaveBeenCalled()
   })
+
+  it("Given a failing sync section, when a snapshot is received, then diagnostics identify its stage", async () => {
+    const replica = workspaceSet({
+      read: vi.fn(), merge: vi.fn(), activate: vi.fn(),
+      mergeChat: vi.fn().mockRejectedValue(new Error("Invalid workspace grant")),
+    }, ["workspace"])
+    const bytes = new TextEncoder().encode(JSON.stringify([{ id: "workspace", bytes: "AA", chat: {} }]))
+
+    await expect(replica.receive(bytes)).rejects.toThrow("Chat workspace: Invalid workspace grant")
+  })
 })
 
 describe("live mesh heartbeat", () => {
