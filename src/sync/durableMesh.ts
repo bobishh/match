@@ -78,6 +78,21 @@ type SessionEntry = {
   session: LiveWorkspaceSync
 }
 
+type SessionDirection = SessionEntry["direction"]
+
+export function shouldReplaceMeshSession(
+  previous: Pick<SessionEntry, "remoteIssuedAt" | "direction"> | undefined,
+  candidate: Pick<SessionEntry, "remoteIssuedAt" | "direction">,
+  preferred: SessionDirection,
+) {
+  if (!previous) return true
+  if (candidate.remoteIssuedAt !== previous.remoteIssuedAt) {
+    return candidate.remoteIssuedAt > previous.remoteIssuedAt
+  }
+  if (candidate.direction === previous.direction) return false
+  return candidate.direction === preferred
+}
+
 type DurableMeshOptions = {
   transport: SyncTransport
   workspaceStore: WorkspaceSetStore
@@ -1177,14 +1192,6 @@ export class DurableMesh {
       const peers = (await this.peerInstances()).filter(peer =>
         !peer.revokedAt && peer.deviceId !== profile.device.deviceId)
       for (const peer of peers) {
-        // Newer signed endpoints introduce themselves. Stable advertisements preserve
-        // one dialer per pair; endpoint changes reverse direction and propagate.
-        const own = (await this.peerInstances(peer.workspaceId)).find(item =>
-          item.deviceId === profile.device.deviceId && item.instanceId === this.instanceId)
-        const ownIssuedAt = (own?.advertisement as WorkspaceMemberBundle | undefined)?.advertisement.payload.issuedAt
-        const peerIssuedAt = (peer.advertisement as WorkspaceMemberBundle | undefined)?.advertisement.payload.issuedAt
-        if (!ownIssuedAt || !peerIssuedAt || ownIssuedAt < peerIssuedAt ||
-          (ownIssuedAt === peerIssuedAt && profile.device.deviceId < peer.deviceId)) continue
         const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
         if (signal.aborted || this.sessions.has(key) || this.connecting.has(key)) continue
         const attempts = this.failures.get(key) ?? 0
@@ -1277,7 +1284,7 @@ export class DurableMesh {
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
     const previous = this.sessions.get(key)
-    if (previous && previous.remoteIssuedAt >= remoteIssuedAt && previous.direction === preferred && direction !== preferred) {
+    if (!shouldReplaceMeshSession(previous, { remoteIssuedAt, direction }, preferred)) {
       this.trace("session.rejected", { connectionId, peerId: deviceId.slice(0, 8), direction, reason: "duplicate direction" })
       return void connection.close()
     }

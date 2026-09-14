@@ -2,9 +2,50 @@ import { describe, expect, it, vi } from "vitest"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { verifyWorkspaceGrant } from "./meshRecords"
-import { DurableMesh } from "./durableMesh"
+import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given simultaneous dials converge, when the same session arrives again, then only the preferred direction replaces its duplicate", () => {
+    const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", direction: "incoming" as const }
+
+    expect(shouldReplaceMeshSession(current, { ...current }, "incoming")).toBe(false)
+    expect(shouldReplaceMeshSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
+    expect(shouldReplaceMeshSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
+  })
+
+  it("Given a newer browser instance closed, when an older live instance has no session, then it still dials the known peer", async () => {
+    const controller = new AbortController()
+    const own = {
+      workspaceId: "workspace-1", personId: "local-person", deviceId: "local-device",
+      instanceId: "slot-0", endpoint: "local-endpoint", transportSecret: "mesh-secret", role: "owner" as const,
+      lastSeen: "2026-09-14T12:00:00.000Z",
+      advertisement: { advertisement: { payload: { issuedAt: "2026-09-14T12:00:00.000Z" } } },
+    }
+    const peer = {
+      workspaceId: "workspace-1", personId: "remote-person", deviceId: "remote-device",
+      instanceId: "slot-1", endpoint: "remote-endpoint", transportSecret: "mesh-secret", role: "editor" as const,
+      lastSeen: "2026-09-14T12:01:00.000Z",
+      advertisement: { advertisement: { payload: { issuedAt: "2026-09-14T12:01:00.000Z" } } },
+    }
+    const mesh = new DurableMesh({
+      transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => ({ device: { deviceId: "local-device" } } as never),
+      store: {} as never,
+    })
+    const internal = mesh as any
+    internal.node = {}
+    internal.instanceId = "slot-0"
+    internal.peerInstances = vi.fn(async (workspaceId?: string) => workspaceId ? [own, peer] : [peer])
+    internal.dialPeer = vi.fn(async () => controller.abort())
+    const guard = setTimeout(() => controller.abort(), 50)
+
+    await internal.dialLoop(controller.signal)
+
+    clearTimeout(guard)
+    expect(internal.dialPeer).toHaveBeenCalledWith(peer, controller.signal)
+    await mesh.dispose()
+  })
+
   it("Given two different same-epoch recovery claims, when projected, then conflict pauses automatic recovery", async () => {
     const policy = { payload: { successorPersonId: null, eligibleEditorPersonIds: ["editor-a", "editor-b"] } }
     const credential = {
