@@ -83,7 +83,7 @@ function optionsFor(field: FieldDefinition) {
           <label><span class="sr-only">{{ field.title }} minimum</span><input :value="modelValue.numberRanges[field.id]?.min ?? ''" type="number" :min="field.min ?? undefined" :max="field.max ?? undefined" placeholder="Min" @input="updateRange('numberRanges', field.id, 'min', ($event.target as HTMLInputElement).value)" /></label>
           <label><span class="sr-only">{{ field.title }} maximum</span><input :value="modelValue.numberRanges[field.id]?.max ?? ''" type="number" :min="field.min ?? undefined" :max="field.max ?? undefined" placeholder="Max" @input="updateRange('numberRanges', field.id, 'max', ($event.target as HTMLInputElement).value)" /></label>
         </div>
-        <div v-else-if="field.valueType === 'date' || field.valueType === 'datetime'" class="filter-range">
+        <div v-else-if="field.valueType === 'date' || field.valueType === 'datetime'" class="filter-range filter-range-date">
           <span>{{ field.title }}</span>
           <label><span class="sr-only">{{ field.title }} from</span><input :value="modelValue.dateRanges[field.id]?.min ?? ''" :type="field.valueType === 'datetime' ? 'datetime-local' : 'date'" @input="updateRange('dateRanges', field.id, 'min', ($event.target as HTMLInputElement).value)" /></label>
           <label><span class="sr-only">{{ field.title }} to</span><input :value="modelValue.dateRanges[field.id]?.max ?? ''" :type="field.valueType === 'datetime' ? 'datetime-local' : 'date'" @input="updateRange('dateRanges', field.id, 'max', ($event.target as HTMLInputElement).value)" /></label>

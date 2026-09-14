@@ -81,12 +81,11 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .brand-separator { margin: 0 .12em; color: var(--muted); font-weight: 500; }.workspace-heading { color: var(--muted); font-weight: 750; letter-spacing: -.035em; }
 .brand p { display: none; }
 .top-actions, .toolbar, .card-meta, .card-docs, .dialog-actions, .section-heading, .column-actions { display: flex; align-items: center; gap: 10px; }
-.button { min-height: 46px; border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; background: white; font-weight: 800; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; color: inherit; background: white; font-weight: 800; text-decoration: none; }
 .button:hover { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--ink); }
 .button-primary { color: white; background: var(--ink); }
 .button-danger { color: white; background: #9d2f21; }
 .button-quiet { background: transparent; }
-.button-quiet:hover { transform: none; box-shadow: none; }
 .button-small { min-height: 40px; padding: 8px 11px; font-size: .78rem; }
 .sync-dialog { max-width: 560px; }
 .dialog-copy { color: var(--muted); line-height: 1.6; }
@@ -111,9 +110,11 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .lead-filters legend { grid-column: 1 / -1; padding: 0; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
 .lead-filters .filter-label, .filter-range { display: grid; align-content: start; gap: 7px; min-width: 0; }
 .lead-filters select { width: 100%; }
-.filter-range { grid-template-columns: 1fr 1fr; }
+.filter-range { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.filter-range-date { grid-column: span 2; }
 .filter-range > span { grid-column: 1 / -1; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
-.filter-range input { width: 100%; min-height: 42px; padding: 8px 10px; }
+.filter-range label, .filter-range input { min-width: 0; }
+.filter-range input { width: 100%; max-width: 100%; min-height: 42px; padding: 8px 10px; }
 .filters-toggle { display: none; }
 .notice-overlay { position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); right: clamp(16px, 4vw, 56px); z-index: 25; width: min(380px, calc(100vw - 32px)); display: grid; gap: 10px; pointer-events: none; }
 .notice { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0; padding: 10px 12px 10px 14px; border: 2px solid var(--ink); color: white; background: var(--ink); box-shadow: 5px 5px 0 var(--yellow); font: 750 .78rem/1.3 ui-monospace, monospace; pointer-events: auto; }
