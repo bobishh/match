@@ -157,6 +157,14 @@ test("Given an existing editor, when the owner enrolls another device, then the 
     await expect(phone.getByLabel("Workspace role: owner")).toBeVisible()
     await expect(phone.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await expect(phone.getByText(/Invalid workspace grant signature/)).toHaveCount(0)
+    await phone.getByRole("button", { name: "Workspace settings" }).click()
+    const phoneSettings = phone.getByRole("dialog", { name: "Workspace settings" })
+    await phoneSettings.getByRole("tab", { name: "Your profile" }).click()
+    await phoneSettings.getByRole("textbox", { name: "Your name", exact: true }).fill("Enrolled owner")
+    await phoneSettings.getByRole("button", { name: "Save name", exact: true }).click()
+    await expect(phoneSettings.locator(".effective-value")).toHaveText("Enrolled owner")
+    await expect(phoneSettings.getByRole("alert")).toHaveCount(0)
+    await phoneSettings.getByRole("button", { name: "Dismiss", exact: true }).click()
     await addLead(editor, "Editor after owner enrollment")
     await expect(phone.getByRole("button", { name: "Open Editor after owner enrollment — Engineer" })).toBeVisible({ timeout: 20_000 })
   } finally {
@@ -342,6 +350,13 @@ test("Given an online editor, when owner selects them in mesh members and transf
     await Promise.all([page.reload(), guest.reload()])
     await expect(page.getByLabel("Workspace role: editor")).toBeVisible({ timeout: 20_000 })
     await expect(guest.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 20_000 })
+    await guest.getByRole("button", { name: "Workspace settings" }).click()
+    const profile = guest.getByRole("dialog", { name: "Workspace settings" })
+    await profile.getByRole("tab", { name: "Your profile" }).click()
+    await profile.getByRole("textbox", { name: "Your name", exact: true }).fill("Successor owner")
+    await profile.getByRole("button", { name: "Save name", exact: true }).click()
+    await expect(profile.locator(".effective-value")).toHaveText("Successor owner")
+    await expect(profile.getByRole("alert")).toHaveCount(0)
   } finally {
     await guestContext.close()
   }

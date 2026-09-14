@@ -237,7 +237,6 @@ export async function verifyDeviceChain(
   }
 
   let cert: DeviceCertificate | undefined = first
-  const seenDeviceIds = new Set<string>()
   const seenCertHashes = new Set<string>()
   let depth = 0
 
@@ -268,11 +267,6 @@ export async function verifyDeviceChain(
     if ((await keyId(p.devicePublicKey)) !== p.deviceId) {
       throw new Error(`Device key does not match deviceId ${p.deviceId}`)
     }
-
-    if (seenDeviceIds.has(p.deviceId)) {
-      throw new Error(`Cycle detected: duplicate deviceId ${p.deviceId}`)
-    }
-    seenDeviceIds.add(p.deviceId)
 
     // Check if root certificate
     if (p.issuerCertificateHash === null) {

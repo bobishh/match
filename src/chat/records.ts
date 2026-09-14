@@ -1,9 +1,8 @@
-import { fromBase64Url, sha256Base64Url, signEnvelope, verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
+import { signEnvelope, verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import { certHashDefault } from "../domain/proofs"
 import { validateDisplayName, normalizeDisplayName } from "./names"
 import { peerStore } from "../sync/peerStore"
-import type { WorkspaceAuthority } from "../sync/meshRecords"
+import { keyId, verifyDeviceChain, type WorkspaceAuthority } from "../sync/meshRecords"
 
 export type ChatPayload = {
   kind: "chat-message" | "chat-profile" | "chat-typing"
@@ -30,37 +29,6 @@ export type ChatRecord = {
   authority: ChatAuthority
 }
 
-async function keyId(key: string) {
-  const bytes = fromBase64Url(key)
-  if (bytes.byteLength !== 32) throw new Error("Invalid public key")
-  return sha256Base64Url(bytes)
-}
-
-async function deviceKey(personId: string, publicKey: string, signerId: string, certificates: DeviceCertificate[]): Promise<string> {
-  if (await keyId(publicKey) !== personId) throw new Error("Identity does not match its key")
-  if (!Array.isArray(certificates) || certificates.length > 32) throw new Error("Invalid certificate chain")
-  const byHash = new Map<string, DeviceCertificate>()
-  for (const cert of certificates) byHash.set(await certHashDefault(cert), cert)
-  const first = certificates.find(c => c.payload.deviceId === signerId)
-  let cert = first
-  const seen = new Set<string>()
-  while (cert) {
-    const p = cert.payload
-    if (p.kind !== "device-certificate" || p.version !== 1 || p.personId !== personId ||
-        await keyId(p.devicePublicKey) !== p.deviceId || seen.has(p.deviceId)) throw new Error("Invalid device certificate")
-    seen.add(p.deviceId)
-    if (p.issuerCertificateHash === null) {
-      if (cert.signerKeyId !== personId || !await verifyEnvelope(cert, publicKey)) throw new Error("Invalid root signature")
-      return first!.payload.devicePublicKey
-    }
-    const issuer = byHash.get(p.issuerCertificateHash)
-    if (!issuer || !issuer.payload.canEnrollDevices || cert.signerKeyId !== issuer.payload.deviceId ||
-        !await verifyEnvelope(cert, issuer.payload.devicePublicKey)) throw new Error("Invalid delegated signature")
-    cert = issuer
-  }
-  throw new Error("Missing device certificate")
-}
-
 export async function verifyChatRecord(value: unknown, workspaceId: string, ownerPersonId: string, grantWorkspaceId = workspaceId): Promise<ChatRecord> {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 32768) throw new Error("Chat record too large")
   const record = value as ChatRecord
@@ -77,7 +45,8 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
   } else if (p.kind === "chat-typing") {
     if (!["typing", "idle"].includes(p.text)) throw new Error("Invalid typing presence")
   } else if (!p.text.trim() || [...p.text].length > 8000) throw new Error("Message must contain 1–8,000 characters")
-  const key = await deviceKey(p.personId, record.publicKey, p.deviceId, record.certificates)
+  const key = await verifyDeviceChain({ personId: p.personId, publicKey: record.publicKey,
+    deviceId: p.deviceId, certificates: record.certificates })
   if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid message signature")
   const authority = record.authority
   if (!authority) throw new Error("Invalid workspace authority")
@@ -102,8 +71,8 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
         grant.payload.personId !== p.personId || grant.payload.workspaceId !== grantWorkspaceId ||
         !(p.kind === "chat-profile" ? ["owner", "editor", "visitor"] : ["owner", "editor"]).includes(grant.payload.role)) throw new Error("No permission to write to this chat")
     if (!await verifyEnvelope(grant, signingOwner.publicKey)) {
-      const ownerDeviceKey = await deviceKey(signingOwner.personId, signingOwner.publicKey,
-        grant.signerKeyId, signingOwner.certificates)
+      const ownerDeviceKey = await verifyDeviceChain({ personId: signingOwner.personId,
+        publicKey: signingOwner.publicKey, deviceId: grant.signerKeyId, certificates: signingOwner.certificates })
       if (!await verifyEnvelope(grant, ownerDeviceKey)) throw new Error("Invalid workspace grant")
     }
   }

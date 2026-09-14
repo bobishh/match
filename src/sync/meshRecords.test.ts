@@ -357,6 +357,16 @@ describe("Mesh records cryptographic admission (src/sync/meshRecords.ts)", () =>
       ).rejects.toThrow()
     })
 
+    it("accepts an acyclic certificate renewal issued to the same device key", async () => {
+      const owner = await createProfile("Alice Renewal")
+      const rootHash = await certHashDefault(owner.certificate)
+      const renewed = await createDelegatedCertificate(owner.privateKeys.devicePrivateKey, owner.device.deviceId,
+        owner.identity.personId, owner.device.deviceId, owner.device.publicKey, rootHash)
+
+      await expect(verifyDeviceChain(owner.identity.publicKey, owner.device.deviceId, [renewed, owner.certificate]))
+        .resolves.toBe(owner.device.publicKey)
+    })
+
     it("rejects when issuer certificate lacks canEnrollDevices capability", async () => {
       const owner = await createProfile("Alice No Enroll")
 
