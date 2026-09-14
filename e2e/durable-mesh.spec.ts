@@ -357,6 +357,14 @@ test("Given an online editor, when owner selects them in mesh members and transf
     await profile.getByRole("button", { name: "Save name", exact: true }).click()
     await expect(profile.locator(".effective-value")).toHaveText("Successor owner")
     await expect(profile.getByRole("alert")).toHaveCount(0)
+
+    await page.getByRole("button", { name: "Workspace settings" }).click()
+    const formerOwnerProfile = page.getByRole("dialog", { name: "Workspace settings" })
+    await formerOwnerProfile.getByRole("tab", { name: "Your profile" }).click()
+    await formerOwnerProfile.getByRole("textbox", { name: "Your name", exact: true }).fill("Former owner editor")
+    await formerOwnerProfile.getByRole("button", { name: "Save name", exact: true }).click()
+    await expect(formerOwnerProfile.locator(".effective-value")).toHaveText("Former owner editor")
+    await expect(formerOwnerProfile.getByRole("alert")).toHaveCount(0)
   } finally {
     await guestContext.close()
   }

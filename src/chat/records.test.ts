@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest"
+import { describe, it, expect, beforeEach, vi } from "vitest"
 import {
   bootstrapIdentity,
   resetIdentityStorageForTest,
@@ -20,6 +20,7 @@ import {
   createWorkspaceGrant,
 } from "../domain/proofs"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
+import { peerStore } from "../sync/peerStore"
 
 describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
   const workspaceId = "ws_test_crypto"
@@ -468,7 +469,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Missing device certificate")
+      ).rejects.toThrow("Invalid workspace grant")
     })
 
     it("rejects message when grant specifies viewer role instead of editor/owner", async () => {
@@ -617,6 +618,41 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
       const verified = await verifyChatRecord(record, workspaceId, owner.identity.personId)
       expect(verified).toBe(record)
       expect(verified.signed.payload.text).toBe("Editor Bob")
+    })
+
+    it("admits the former owner's editor profile after ownership transfers", async () => {
+      const formerOwner = await createProfile("Former owner")
+      const newOwner = await createProfile("New owner")
+      const grant = await createWorkspaceGrant(formerOwner, workspaceId, formerOwner.identity.personId, "editor")
+      const record = await createChatRecord(formerOwner, [formerOwner.certificate], {
+        publicKey: newOwner.identity.publicKey,
+        certificates: [newOwner.certificate, formerOwner.certificate],
+        grant,
+      }, workspaceId, "chat-profile", "Former owner editor")
+      const previousIndexedDb = globalThis.indexedDB
+      Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: {} })
+      const credential = vi.spyOn(peerStore, "getWorkspaceCredential").mockResolvedValue({
+        version: 1,
+        workspaceId,
+        ownerPersonId: newOwner.identity.personId,
+        ownerPublicKey: newOwner.identity.publicKey,
+        ownerCertificates: [newOwner.certificate, formerOwner.certificate],
+        ownerHistory: [{ personId: formerOwner.identity.personId, publicKey: formerOwner.identity.publicKey,
+          certificates: [formerOwner.certificate] }],
+        localGrant: grant,
+        transportSecret: "test-secret",
+        epoch: 2,
+        updatedAt: new Date().toISOString(),
+      })
+      const peers = vi.spyOn(peerStore, "listPeers").mockResolvedValue([])
+
+      try {
+        await expect(verifyChatRecord(record, workspaceId, newOwner.identity.personId)).resolves.toBe(record)
+      } finally {
+        credential.mockRestore()
+        peers.mockRestore()
+        Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: previousIndexedDb })
+      }
     })
   })
 

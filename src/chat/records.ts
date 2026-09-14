@@ -29,6 +29,18 @@ export type ChatRecord = {
   authority: ChatAuthority
 }
 
+async function grantSignedBy(grant: WorkspaceGrant, authority: WorkspaceAuthority): Promise<boolean> {
+  if (grant.signerKeyId === authority.personId) return verifyEnvelope(grant, authority.publicKey)
+  try {
+    const certificates = authority.certificates.filter(cert => cert?.payload?.personId === authority.personId)
+    const deviceKey = await verifyDeviceChain({ personId: authority.personId, publicKey: authority.publicKey,
+      deviceId: grant.signerKeyId, certificates })
+    return verifyEnvelope(grant, deviceKey)
+  } catch {
+    return false
+  }
+}
+
 export async function verifyChatRecord(value: unknown, workspaceId: string, ownerPersonId: string, grantWorkspaceId = workspaceId): Promise<ChatRecord> {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 32768) throw new Error("Chat record too large")
   const record = value as ChatRecord
@@ -70,11 +82,11 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
     if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1 ||
         grant.payload.personId !== p.personId || grant.payload.workspaceId !== grantWorkspaceId ||
         !(p.kind === "chat-profile" ? ["owner", "editor", "visitor"] : ["owner", "editor"]).includes(grant.payload.role)) throw new Error("No permission to write to this chat")
-    if (!await verifyEnvelope(grant, signingOwner.publicKey)) {
-      const ownerDeviceKey = await verifyDeviceChain({ personId: signingOwner.personId,
-        publicKey: signingOwner.publicKey, deviceId: grant.signerKeyId, certificates: signingOwner.certificates })
-      if (!await verifyEnvelope(grant, ownerDeviceKey)) throw new Error("Invalid workspace grant")
+    let validGrant = false
+    for (const owner of owners) {
+      if (await grantSignedBy(grant, owner)) { validGrant = true; break }
     }
+    if (!validGrant) throw new Error("Invalid workspace grant")
   }
   return record
 }

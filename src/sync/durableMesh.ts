@@ -99,6 +99,7 @@ const MESH_INSTANCE_KEY = "match.mesh.instance.v1"
 
 function uniqueCertificates(profile: LocalProfile, certificates: Awaited<ReturnType<typeof defaultProofStore.listCertificates>>) {
   const all = [profile.certificate, ...certificates]
+    .filter(cert => cert?.payload?.personId === profile.identity.personId)
   const seen = new Set<string>()
   return all.filter(cert => {
     const key = `${cert.payload.deviceId}:${cert.signature}`
@@ -276,7 +277,8 @@ export class DurableMesh {
     const ownerCertificates = [...new Map([
       ...credential.ownerCertificates as DeviceCertificate[],
       ...certificates,
-    ].map(certificate => [certificate.signature, certificate])).values()]
+    ].filter(certificate => certificate?.payload?.personId === credential.ownerPersonId)
+      .map(certificate => [certificate.signature, certificate])).values()]
     const hasStaleGrant = credential.localGrant !== undefined
     if (ownerCertificates.length === credential.ownerCertificates.length && !hasStaleGrant) return credential
     const { localGrant: _staleGrant, ...ownerCredential } = credential
