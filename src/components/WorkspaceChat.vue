@@ -376,7 +376,11 @@ function formatDisplayTime(createdAt: string): string {
         </form>
       </footer>
       <button class="chat-resize-handle" type="button" aria-label="Resize chat"
-        @pointerdown="startResize" @keydown="resizeWithKeyboard"></button>
+        @pointerdown="startResize" @keydown="resizeWithKeyboard">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M14 5 5 14M14 10l-4 4" />
+        </svg>
+      </button>
     </section>
   </ModalLayer>
 </template>
@@ -408,10 +412,24 @@ function formatDisplayTime(createdAt: string): string {
   height: 22px;
   padding: 0;
   border: 0;
-  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--ink) 4px 6px);
+  background: transparent;
+  color: var(--muted);
   cursor: nwse-resize;
   touch-action: none;
 }
+
+.chat-resize-handle svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 3px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: square;
+}
+
+.chat-resize-handle:hover { color: var(--ink); }
 
 .chat-resize-handle:focus-visible {
   outline: 3px solid var(--blue);
