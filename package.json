@@ -19,6 +19,7 @@
     "@meta-uber/mesh-identity": "file:vendor/meta-mesh/packages/mesh-identity",
     "@meta-uber/mesh-instance": "file:vendor/meta-mesh/packages/mesh-instance",
     "@meta-uber/mesh-pairing": "file:vendor/meta-mesh/packages/mesh-pairing",
+    "@meta-uber/mesh-peer-store": "file:vendor/meta-mesh/packages/mesh-peer-store",
     "@meta-uber/mesh-transport": "file:vendor/meta-mesh/packages/mesh-transport",
     "fflate": "^0.8.2",
     "qrcode": "^1.5.4",
