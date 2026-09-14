@@ -3,7 +3,7 @@ import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO, startMeshHeartbeat } from "@meta-uber/mesh-transport"
 import { defaultProofStore } from "../domain/proofs"
-import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
+import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorkspaceRevocation, verifyDeviceChain,
   verifyWorkspaceMemberBundle, verifyWorkspaceOwnershipTransfer, verifyWorkspaceRevocation, verifyWorkspaceGrant,
   createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,

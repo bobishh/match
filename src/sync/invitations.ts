@@ -1,5 +1,5 @@
 import { certHashDefault, createWorkspaceGrant } from "../domain/proofs"
-import type { ScopedInvitation } from "./protocol"
+import type { ScopedInvitation } from "@meta-uber/mesh-pairing"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import {
   sha256Base64Url,

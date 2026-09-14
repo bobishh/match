@@ -3,7 +3,7 @@ import { bootstrapIdentity, clearInMemoryProfileForReloadTest, resetIdentityStor
 import { createPersonalRoot } from "../domain/personalRoot"
 import { certHashDefault } from "../domain/proofs"
 import { InvitationService, resetInvitationStorageForTest } from "./invitations"
-import { createDeviceEnrollmentInvite } from "./protocol"
+import { createDeviceEnrollmentInvite } from "@meta-uber/mesh-pairing"
 import { createEnrollmentRequest, enrollmentPayload, installEnrollment, readEnrollmentRequest } from "./enrollment"
 import { defaultStorage } from "../storage"
 import { verifyDeviceChain } from "./meshRecords"

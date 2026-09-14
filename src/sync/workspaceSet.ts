@@ -1,6 +1,6 @@
 import { fromBase64Url, toBase64Url } from "../domain/identity"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
-import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
+import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { DuplexStream, SyncConnection } from "./transport"
 
 export type WorkspaceReplica = {

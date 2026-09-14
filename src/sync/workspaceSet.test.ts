@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { encodePairingFrame, inspectPairingFrame } from "./protocol"
+import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
 import { liveWorkspaceSetSync, workspaceSet } from "./workspaceSet"
 

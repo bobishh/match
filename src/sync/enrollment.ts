@@ -4,7 +4,7 @@ import type { DeviceCertificate, PersonalRootDocumentV1 } from "../domain/model"
 import { certHashDefault, defaultProofStore } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { keyId, verifyDeviceChain } from "./meshRecords"
-import type { DeviceEnrollmentInvitation } from "./protocol"
+import type { DeviceEnrollmentInvitation } from "@meta-uber/mesh-pairing"
 
 const text = z.string().min(1).max(512)
 const certificateSchema = z.object({

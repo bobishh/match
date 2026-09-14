@@ -5,7 +5,7 @@ import {
   deriveTranscriptAuthCode,
 } from "./invitations"
 import { bootstrapIdentity, resetIdentityStorageForTest, verifyEnvelope } from "../domain/identity"
-import { createDeviceEnrollmentInvite, createWorkspaceJoinInvite } from "./protocol"
+import { createDeviceEnrollmentInvite, createWorkspaceJoinInvite } from "@meta-uber/mesh-pairing"
 
 describe("InvitationService (Tasks 3.2 - 3.4)", () => {
   beforeEach(() => {

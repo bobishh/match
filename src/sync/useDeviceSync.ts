@@ -13,7 +13,7 @@ import {
   type ScopedInvitation,
   type DeviceEnrollmentInvitation,
   type WorkspaceJoinInvitation,
-} from "./protocol"
+} from "@meta-uber/mesh-pairing"
 import { irohTransport } from "./irohTransport"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
 import { bootstrapIdentity, fromBase64Url, toBase64Url, type LocalProfile } from "../domain/identity"
