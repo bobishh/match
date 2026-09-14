@@ -25,6 +25,7 @@ for (const width of [1280, 375]) {
     await expect(settings.locator(".effective-value")).toHaveText("Тревожная мимоза")
     await settings.getByRole("button", { name: "Dismiss", exact: true }).click()
     let chat = await openChat(page)
+    if (width === 375) await expect(chat.getByRole("button", { name: "Resize chat" })).toHaveCount(0)
     await expect(chat.getByRole("button", { name: "Send message" })).toBeDisabled()
     await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Hello workspace <script>alert(1)</script>")
     await chat.getByRole("button", { name: "Send message" }).click()
@@ -41,6 +42,30 @@ for (const width of [1280, 375]) {
     await expect(settings.getByRole("textbox", { name: "Your name", exact: true })).toHaveValue("Тревожная мимоза")
   })
 }
+
+test("Given desktop chat, when its corner is dragged, then the window resizes within the viewport", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto("/")
+  const chat = await openChat(page)
+  const handle = chat.getByRole("button", { name: "Resize chat" })
+  await expect(handle).toBeVisible()
+  const before = await chat.boundingBox()
+  expect(before).not.toBeNull()
+
+  const grip = await handle.boundingBox()
+  expect(grip).not.toBeNull()
+  await page.mouse.move(grip!.x + grip!.width / 2, grip!.y + grip!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(before!.x + before!.width + 100, before!.y + before!.height + 80, { steps: 6 })
+  await page.mouse.up()
+
+  const after = await chat.boundingBox()
+  expect(after).not.toBeNull()
+  expect(after!.width).toBeGreaterThan(before!.width + 60)
+  expect(after!.height).toBeGreaterThan(before!.height + 40)
+  expect(after!.x + after!.width).toBeLessThanOrEqual(1280)
+  expect(after!.y + after!.height).toBeLessThanOrEqual(900)
+})
 
 test("Given a storage failure, when a message is submitted, then the draft remains and retry writes once", async ({ page }) => {
   await page.goto("/")

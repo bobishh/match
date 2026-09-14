@@ -45,8 +45,52 @@ const isSubmitting = ref(false)
 const isComposing = ref(false)
 const userJustSent = ref(false)
 const messageListRef = ref<HTMLElement | null>(null)
+const chatDialogRef = ref<HTMLElement | null>(null)
 const isAtBottom = ref(true)
 const visibleCount = ref(100)
+const chatSize = ref<{ width: number; height: number } | null>(null)
+const chatDialogStyle = computed<Record<string, string> | undefined>(() => chatSize.value
+  ? { "--chat-width": `${chatSize.value.width}px`, "--chat-height": `${chatSize.value.height}px` }
+  : undefined)
+
+function boundedChatSize(width: number, height: number) {
+  const gutter = 48
+  return {
+    width: Math.min(Math.max(width, Math.min(360, window.innerWidth - gutter)), window.innerWidth - gutter),
+    height: Math.min(Math.max(height, Math.min(360, window.innerHeight - gutter)), window.innerHeight - gutter),
+  }
+}
+
+function startResize(event: PointerEvent) {
+  if (window.matchMedia("(max-width: 600px)").matches) return
+  const dialog = chatDialogRef.value
+  const handle = event.currentTarget as HTMLElement
+  if (!dialog) return
+  const rect = dialog.getBoundingClientRect()
+  const origin = { x: event.clientX, y: event.clientY, width: rect.width, height: rect.height }
+  handle.setPointerCapture(event.pointerId)
+  const move = (next: PointerEvent) => {
+    chatSize.value = boundedChatSize(origin.width + next.clientX - origin.x, origin.height + next.clientY - origin.y)
+  }
+  const stop = () => {
+    handle.removeEventListener("pointermove", move)
+    handle.removeEventListener("pointerup", stop)
+    handle.removeEventListener("pointercancel", stop)
+  }
+  handle.addEventListener("pointermove", move)
+  handle.addEventListener("pointerup", stop)
+  handle.addEventListener("pointercancel", stop)
+  event.preventDefault()
+}
+
+function resizeWithKeyboard(event: KeyboardEvent) {
+  const delta = { ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] }[event.key]
+  const dialog = chatDialogRef.value
+  if (!delta || !dialog) return
+  const rect = dialog.getBoundingClientRect()
+  chatSize.value = boundedChatSize(rect.width + delta[0], rect.height + delta[1])
+  event.preventDefault()
+}
 
 const availableMessages = computed<readonly ChatMessage[]>(() => {
   if (!props.messages) return []
@@ -212,7 +256,9 @@ function formatDisplayTime(createdAt: string): string {
     @close="closeChat"
   >
     <section
+      ref="chatDialogRef"
       class="dialog chat-dialog"
+      :style="chatDialogStyle"
       role="dialog"
       aria-modal="true"
       aria-label="Workspace chat"
@@ -329,23 +375,47 @@ function formatDisplayTime(createdAt: string): string {
           </div>
         </form>
       </footer>
+      <button class="chat-resize-handle" type="button" aria-label="Resize chat"
+        @pointerdown="startResize" @keydown="resizeWithKeyboard"></button>
     </section>
   </ModalLayer>
 </template>
 
 <style scoped>
 .chat-dialog {
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: min(680px, 100%);
-  height: min(720px, calc(100dvh - 32px));
-  max-height: 100dvh;
+  width: min(var(--chat-width, 680px), 100%);
+  height: min(var(--chat-height, 720px), calc(100dvh - 48px));
+  min-width: min(360px, calc(100vw - 48px));
+  min-height: min(360px, calc(100dvh - 48px));
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
   padding: 24px;
   overflow: hidden;
   border: 2px solid var(--line);
   background: var(--panel);
   box-shadow: 6px 6px 0 var(--ink);
   box-sizing: border-box;
+}
+
+.chat-resize-handle {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 4px, var(--ink) 4px 6px);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.chat-resize-handle:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
 }
 
 .chat-head {
@@ -556,11 +626,16 @@ function formatDisplayTime(createdAt: string): string {
   .chat-dialog {
     width: 100vw;
     height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100vw;
     max-height: 100dvh;
     padding: 14px 12px;
     border: none;
     box-shadow: none;
   }
+
+  .chat-resize-handle { display: none; }
 
   .chat-head {
     margin-bottom: 8px;
