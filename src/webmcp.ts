@@ -41,6 +41,7 @@ export type ToolStore = {
   switchWorkspace?: (id: string) => Promise<void>
   trashItems?: any
   placementIssues?: any
+  sendChatMessage?: (body: string) => Promise<void>
 }
 
 const statuses = Object.keys(statusLabels) as LeadStatus[]
@@ -740,6 +741,28 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
       const value = objectInput(input)
       noUnknown(value, [])
       return store.workspace.templates
+    },
+  })
+
+  await register({
+    name: "send_chat_message",
+    title: "Send workspace chat message",
+    description: "Send one message to the active workspace chat.",
+    inputSchema: {
+      type: "object",
+      properties: { body: { type: "string" } },
+      required: ["body"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false },
+    async execute(input) {
+      const value = objectInput(input)
+      noUnknown(value, ["body"])
+      const body = requiredString(value, "body")
+      if ([...body].length > 8000) throw new Error("Message must contain 1–8,000 characters")
+      if (!store.sendChatMessage) throw new Error("Workspace chat is not available")
+      await store.sendChatMessage(body)
+      return { sent: true }
     },
   })
 

@@ -34,6 +34,7 @@ describe("WebMCP tools and legacy aliases (Task 1.12)", () => {
   })
 
   it("registers both generic WebMCP commands and legacy aliases", async () => {
+    const sendChatMessage = vi.fn().mockResolvedValue(undefined)
     await registerWebMcp({
       workspace: match.workspace,
       createLead: match.createLead,
@@ -48,6 +49,7 @@ describe("WebMCP tools and legacy aliases (Task 1.12)", () => {
       createWorkspaceAsync: match.createWorkspaceAsync,
       availableWorkspaces: match.availableWorkspaces,
       activeWorkspace: match.activeWorkspace,
+      sendChatMessage,
     }, mockContext)
 
     // Verify generic commands exist
@@ -71,6 +73,11 @@ describe("WebMCP tools and legacy aliases (Task 1.12)", () => {
     expect(registeredTools.has("move_lead")).toBe(true)
     expect(registeredTools.has("list_templates")).toBe(true)
     expect(registeredTools.has("record_pdf_artifact")).toBe(true)
+    expect(registeredTools.has("send_chat_message")).toBe(true)
+
+    await expect(registeredTools.get("send_chat_message").execute({ body: "Vacancy audit complete" }))
+      .resolves.toEqual({ sent: true })
+    expect(sendChatMessage).toHaveBeenCalledWith("Vacancy audit complete")
   })
 
   it("reads and atomically applies the complete workspace settings through WebMCP", async () => {

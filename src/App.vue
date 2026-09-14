@@ -22,7 +22,7 @@ import ColumnDialog from "./components/ColumnDialog.vue"
 import SchemaEditorDialog from "./components/SchemaEditorDialog.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
 import WorkspaceNameSettings from "./components/WorkspaceNameSettings.vue"
-import { configureChat, exportChat, receiveChat, subscribeChat } from "./chat/service"
+import { configureChat, exportChat, receiveChat, sendChatMessage, subscribeChat } from "./chat/service"
 import { useWorkspaceChat } from "./chat/useWorkspaceChat"
 import type { BoardSchemaDraft } from "./domain/schema"
 import { isArchiveColumn } from "./domain/archive"
@@ -666,6 +666,7 @@ onMounted(async () => {
     activeWorkspace,
     trashItems,
     placementIssues,
+    sendChatMessage: body => sendChatMessage(activeWorkspace.id, body),
   })
   hasExperimentalMcp.value = Boolean(unregisterWebMcp)
   await setupBoardSortables()
