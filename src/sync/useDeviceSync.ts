@@ -1,5 +1,6 @@
 import { computed, ref, type Ref } from "vue"
 import QRCode from "qrcode"
+import { MeshNetworkError as SyncNetworkError, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO, startMeshHeartbeat } from "@meta-uber/mesh-transport"
 import {
   createPairingSecret,
   createDeviceEnrollmentInvite,
@@ -21,7 +22,7 @@ import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { createEnrollmentRequest, readEnrollmentRequest, installEnrollment, enrollmentPayload } from "./enrollment"
 import { registerDeviceInRoot } from "../domain/personalRoot"
-import { workspaceSet, liveWorkspaceSetSync, networkConnection, networkIO, startMeshHeartbeat, SyncNetworkError, isNetworkFailure, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { workspaceSet, liveWorkspaceSetSync, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 import { DurableMesh, startPersistentNode, type MeshPeerView, type MeshSuccessionView } from "./durableMesh"
 
 function dialPairingPeer(node: SyncNode, endpoint: string) {

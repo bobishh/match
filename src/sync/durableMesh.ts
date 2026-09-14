@@ -1,6 +1,7 @@
 import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
+import { MeshReconnectPolicy, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO, startMeshHeartbeat } from "@meta-uber/mesh-transport"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
 import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorkspaceRevocation, verifyDeviceChain,
@@ -11,12 +12,11 @@ import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorksp
   MAX_SUCCESSION_EDITORS,
   type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
-import { MeshReconnectPolicy } from "./meshReconnectPolicy"
 import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { isNetworkFailure, liveWorkspaceSetSync, networkConnection, networkIO, startMeshHeartbeat, workspaceSet, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 
 export type MeshWorkspaceEnvelope = {
   version: 1

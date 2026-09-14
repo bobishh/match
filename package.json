@@ -18,6 +18,7 @@
     "@automerge/automerge": "^3.4.1",
     "@meta-uber/mesh-identity": "file:vendor/meta-mesh/packages/mesh-identity",
     "@meta-uber/mesh-instance": "file:vendor/meta-mesh/packages/mesh-instance",
+    "@meta-uber/mesh-transport": "file:vendor/meta-mesh/packages/mesh-transport",
     "fflate": "^0.8.2",
     "qrcode": "^1.5.4",
     "sortablejs": "^1.15.7",

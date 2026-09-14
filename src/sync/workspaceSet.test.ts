@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { encodePairingFrame, inspectPairingFrame } from "./protocol"
 import type { SyncConnection } from "./transport"
-import { liveWorkspaceSetSync, startMeshHeartbeat, workspaceSet } from "./workspaceSet"
+import { liveWorkspaceSetSync, workspaceSet } from "./workspaceSet"
 
 describe("workspace invitation scope", () => {
   it.each([
@@ -46,23 +46,6 @@ describe("live mesh heartbeat", () => {
     expect(sent).toHaveLength(1)
     expect(inspectPairingFrame(sent[0]!)).toEqual({ type: "sync-heartbeat", secret: "mesh-secret" })
     await session.close()
-  })
-
-  it("Given one heartbeat is pending, when another interval passes, then the scheduler does not stack probes", async () => {
-    vi.useFakeTimers()
-    let finish!: () => void
-    const heartbeat = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
-    const stop = startMeshHeartbeat({ heartbeat }, vi.fn(), () => 0.5)
-
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(heartbeat).toHaveBeenCalledOnce()
-    finish()
-    await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(5_000)
-    expect(heartbeat).toHaveBeenCalledTimes(2)
-
-    stop()
-    vi.useRealTimers()
   })
 
   it("Given a joined peer requests durable handoff, when live sync receives it, then control reaches the host without parsing it as data", async () => {

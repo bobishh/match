@@ -1,4 +1,5 @@
 import { fromBase64Url, toBase64Url } from "../domain/identity"
+import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "./protocol"
 import type { DuplexStream, SyncConnection } from "./transport"
 
@@ -15,63 +16,7 @@ export type LiveWorkspaceSync = {
   done: Promise<void>
 }
 
-export const MESH_HEARTBEAT_INTERVAL_MS = 5_000
 export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
-export const MESH_HEARTBEAT_JITTER = 0.2
-
-export function startMeshHeartbeat(
-  session: Pick<LiveWorkspaceSync, "heartbeat">,
-  onFailure: (error: unknown) => void,
-  random: () => number = Math.random,
-) {
-  let stopped = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const schedule = () => {
-    const spread = MESH_HEARTBEAT_INTERVAL_MS * MESH_HEARTBEAT_JITTER
-    const delay = MESH_HEARTBEAT_INTERVAL_MS - spread + random() * spread * 2
-    timer = setTimeout(run, delay)
-  }
-  const run = async () => {
-    if (stopped) return
-    try {
-      await session.heartbeat?.()
-      if (!stopped) schedule()
-    } catch (error) {
-      if (!stopped) onFailure(error)
-    }
-  }
-  schedule()
-  return () => {
-    stopped = true
-    clearTimeout(timer)
-  }
-}
-
-export class SyncNetworkError extends Error {}
-
-export async function networkIO<T>(operation: Promise<T>): Promise<T> {
-  try { return await operation } catch (error) {
-    throw new SyncNetworkError(error instanceof Error ? error.message : String(error))
-  }
-}
-
-export function networkConnection(connection: SyncConnection): SyncConnection {
-  const stream = (value: DuplexStream): DuplexStream => ({
-    read: () => networkIO(value.read()),
-    send: bytes => networkIO(value.send(bytes)),
-    closeSend: () => networkIO(value.closeSend()),
-  })
-  return {
-    openStream: async () => stream(await networkIO(connection.openStream())),
-    acceptStream: async () => stream(await networkIO(connection.acceptStream())),
-    // Closing an already disconnected transport must not replace its original failure.
-    close: () => connection.close().catch(() => {}),
-  }
-}
-
-export function isNetworkFailure(error: unknown) {
-  return error instanceof SyncNetworkError || /bootstrap|relay|network|fetch failed/i.test(error instanceof Error ? error.message : String(error))
-}
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
