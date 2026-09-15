@@ -30,7 +30,7 @@ describe("mesh transport instance lease", () => {
 
   it("Given Web Locks are unavailable, when one tab reloads, then its session instance identity stays stable", async () => {
     const instanceId = "ephemeral-8cc6b3bb-fdee-42c4-8d58-57ad04f47303"
-    const first = await acquireMeshInstanceLease({ locks: undefined, preferredInstanceId: instanceId })
+    const first = await acquireMeshInstanceLease({ locks: null, preferredInstanceId: instanceId })
 
     expect(first.instanceId).toBe(instanceId)
     await first.release()

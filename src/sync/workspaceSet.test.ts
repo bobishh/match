@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
-import { liveWorkspaceSetSync, workspaceSet } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet } from "./workspaceSet"
 
 describe("workspace invitation scope", () => {
   it.each([
@@ -69,6 +69,33 @@ describe("live mesh heartbeat", () => {
     })
 
     await vi.waitFor(() => expect(delivered).toBe(true))
+    await session.close()
+  })
+})
+
+describe("incremental workspace control plane", () => {
+  it("Given ownership state changes, when a control frame arrives, then it merges without a full workspace document", async () => {
+    const mergeMesh = vi.fn(async () => {})
+    let accepted = false
+    const stream = {
+      send: vi.fn(), closeSend: vi.fn(async () => {}),
+      read: vi.fn(async () => encodePairingFrame("mesh-control-sync", "mesh-secret",
+        new TextEncoder().encode(JSON.stringify({ version: 1, workspaceId: "workspace", mesh: { epoch: 2 } })))),
+    }
+    const connection: SyncConnection = {
+      openStream: vi.fn(),
+      acceptStream: vi.fn(async () => {
+        if (!accepted) { accepted = true; return stream }
+        return new Promise<never>(() => {})
+      }),
+      close: vi.fn(async () => {}),
+    }
+    const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
+      read: async () => new Uint8Array(), merge: vi.fn(), activate: vi.fn(), mergeMesh,
+    }, "workspace", "local", "remote")
+
+    await vi.waitFor(() => expect(mergeMesh).toHaveBeenCalledWith("workspace", { epoch: 2 }))
+    expect(stream.closeSend).toHaveBeenCalled()
     await session.close()
   })
 })

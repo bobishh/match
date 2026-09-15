@@ -2,6 +2,9 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO, startMeshHeartbeat } from "@meta-uber/mesh-transport"
+import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
+import { selectScopedNeighbors } from "@meta-uber/mesh-replication/gossip"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorkspaceRevocation, verifyDeviceChain,
@@ -16,7 +19,7 @@ import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 
 export type MeshWorkspaceEnvelope = {
   version: 1
@@ -92,9 +95,6 @@ export function shouldReplaceMeshSession(
     if (candidate.remoteRouteSequence === undefined) return false
     return candidate.remoteRouteSequence > previous.remoteRouteSequence!
   }
-  if (candidate.remoteIssuedAt !== previous.remoteIssuedAt) {
-    return candidate.remoteIssuedAt > previous.remoteIssuedAt
-  }
   if (candidate.direction === previous.direction) return false
   return candidate.direction === preferred
 }
@@ -144,7 +144,7 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 
 type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[] }
-const meshCapabilities = ["heartbeat-v1"]
+const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1"]
 
 function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
   return (credential.catalog as MeshCatalog | undefined) ?? {}
@@ -188,6 +188,7 @@ export class DurableMesh {
   private node: SyncNode | undefined
   private acceptor: SyncAcceptor | undefined
   private sessions = new Map<string, SessionEntry>()
+  private syncEngines = new Map<string, AutomergeAntiEntropy>()
   private connecting = new Set<string>()
   private pendingIncomingConnections = 0
   private runSequence = 0
@@ -223,6 +224,24 @@ export class DurableMesh {
 
   private peerKey(workspaceId: string, deviceId: string, instanceId = "legacy") {
     return `${workspaceId}:${deviceId}:${instanceId}`
+  }
+
+  private sessionKey(workspaceId: string, deviceId: string) {
+    return `${workspaceId}:${deviceId}`
+  }
+
+  private syncEngine(workspaceId: string, deviceId: string, localDeviceId: string) {
+    const key = `${workspaceId}:${deviceId}`
+    let engine = this.syncEngines.get(key)
+    if (!engine) {
+      engine = new AutomergeAntiEntropy(localDeviceId, Automerge, {
+        proof: async () => this.options.workspaceStore.readAuthorization?.(
+          await this.options.workspaceStore.read(workspaceId),
+        ),
+      })
+      this.syncEngines.set(key, engine)
+    }
+    return engine
   }
 
   private async acquireInstance() {
@@ -545,16 +564,17 @@ export class DurableMesh {
       await this.store.putWorkspaceCredential({ ...credential, ownerCertificates, updatedAt: new Date().toISOString() })
     }
     const p = verified.advertisement.payload
+    const route = await adaptVerifiedWorkspaceAdvertisement(verified.advertisement)
     if (revokedPersonIds(credential).has(p.personId)) throw new Error("Workspace member is revoked")
     const record: WorkspacePeerRecord = {
-      workspaceId: p.workspaceId,
-      personId: p.personId,
-      deviceId: p.deviceId,
-      instanceId: p.instanceId,
-      endpoint: p.endpoint,
+      workspaceId: route.scopeId,
+      personId: route.personId,
+      deviceId: route.deviceId,
+      instanceId: route.instanceId,
+      endpoint: route.endpoint,
       transportSecret: credential.transportSecret,
       role: verified.role,
-      lastSeen: p.issuedAt,
+      lastSeen: route.issuedAt,
       advertisement: raw,
     }
     await this.store.upsertPeer(record)
@@ -1133,7 +1153,8 @@ export class DurableMesh {
       await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
         remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
         remote.advertisement.payload.routeSequence, "incoming", connection,
-        Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"), connectionId)
+        Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"),
+        Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId)
     } catch (error) {
       this.trace("handshake.incoming.failed", {
         connectionId,
@@ -1252,15 +1273,36 @@ export class DurableMesh {
         nextRouteRefreshAt = Date.now() + DurableMesh.ROUTE_RENEW_MS
         await this.publishAll()
       }
-      const peers = (await this.peerInstances()).filter(peer =>
+      const candidates = (await this.peerInstances()).filter(peer =>
         !peer.revokedAt && peer.deviceId !== profile.device.deviceId)
+      const selected = new Set<string>()
+      for (const workspaceId of new Set(candidates.map(peer => peer.workspaceId))) {
+        const deviceIds = selectScopedNeighbors({
+          localDeviceId: profile.device.deviceId,
+          candidates: candidates.filter(peer => peer.workspaceId === workspaceId).map(peer => ({
+            deviceId: peer.deviceId,
+            health: -(this.failures.get(this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)) ?? 0),
+          })),
+        })
+        for (const deviceId of deviceIds) selected.add(`${workspaceId}:${deviceId}`)
+      }
+      const peers = candidates.filter(peer => selected.has(`${peer.workspaceId}:${peer.deviceId}`))
+      const devices = new Map<string, WorkspacePeerRecord[]>()
       for (const peer of peers) {
-        const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
+        const key = this.sessionKey(peer.workspaceId, peer.deviceId)
+        const routes = devices.get(key) ?? []
+        routes.push(peer)
+        devices.set(key, routes)
+      }
+      for (const [key, routes] of devices) {
         if (signal.aborted || this.sessions.has(key) || this.connecting.has(key)) continue
-        const attempts = this.failures.get(key) ?? 0
-        const retryDelay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
-        if (Date.now() - (this.failedAt.get(key) ?? 0) < retryDelay) continue
-        void this.dialPeer(peer, signal)
+        const eligible = routes.filter(peer => {
+          const routeKey = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
+          const attempts = this.failures.get(routeKey) ?? 0
+          const retryDelay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
+          return Date.now() - (this.failedAt.get(routeKey) ?? 0) >= retryDelay
+        })
+        if (eligible.length) void this.dialDevice(eligible, signal)
       }
       await new Promise<void>(resolve => {
         this.retryTimer = setTimeout(resolve, 1_000)
@@ -1269,16 +1311,57 @@ export class DurableMesh {
     }
   }
 
-  private async dialPeer(peer: WorkspacePeerRecord, signal: AbortSignal) {
-    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
-    const connectionId = this.connectionId("outgoing")
-    let connection: SyncConnection | undefined
+  private async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {
+    const peer = peers[0]!
+    const key = this.sessionKey(peer.workspaceId, peer.deviceId)
     if (this.connecting.has(key)) return
     this.connecting.add(key)
     try {
       if (!this.node || this.sessions.has(key)) return
+      const routeEntries = await Promise.all(peers.map(async candidate => ({
+        peer: candidate,
+        route: await adaptVerifiedWorkspaceAdvertisement(
+          (candidate.advertisement as WorkspaceMemberBundle).advertisement,
+        ),
+      })))
+      const connected = await connectToDevice({
+        targetDeviceId: peer.deviceId,
+        routes: routeEntries.map(value => value.route),
+        fallbackDelayMs: 250,
+        routeHealth: route => -(this.failures.get(this.peerKey(route.scopeId, route.deviceId, route.instanceId)) ?? 0),
+        trace: (event, fields) => this.trace(event, { ...fields }),
+        signal,
+        connect: async (route, routeSignal) => {
+          const entry = routeEntries.find(value => value.route.instanceId === route.instanceId)!
+          return this.connectPeer(entry.peer, route, signal, routeSignal)
+        },
+      })
+      const value = connected.value
+      await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
+        value.issuedAt, value.routeSequence, "outgoing", value.connection,
+        value.heartbeatSupported, value.incrementalSupported, value.connectionId)
+    } catch (error) {
+      this.trace("dial.device.failed", {
+        peerId: peer.deviceId.slice(0, 8),
+        workspaceId: peer.workspaceId.slice(0, 8),
+        routes: peers.length,
+        reason: error instanceof Error ? error.message : String(error),
+      }, "warn")
+      this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+      await this.notify()
+    } finally {
+      this.connecting.delete(key)
+    }
+  }
+
+  private async connectPeer(peer: WorkspacePeerRecord, route: DeviceRoute, signal: AbortSignal, routeSignal: AbortSignal) {
+    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
+    const connectionId = this.connectionId("outgoing")
+    let connection: SyncConnection | undefined
+    try {
+      if (!this.node || signal.aborted || routeSignal.aborted) throw new Error("Mesh dial cancelled")
       let credential = await this.store.getWorkspaceCredential(peer.workspaceId)
-      if (!credential || credential.transportSecret !== peer.transportSecret) return
+      if (!credential || credential.transportSecret !== peer.transportSecret) throw new Error("Mesh credential unavailable")
       const mode = this.reconnectPolicy.mode(this.node, key)
       this.trace("dial.started", {
         connectionId,
@@ -1287,7 +1370,8 @@ export class DurableMesh {
         endpoint: peer.endpoint.slice(0, 8),
         mode,
       })
-      connection = networkConnection(await networkIO(this.reconnectPolicy.dial(this.node, key, peer.endpoint)))
+      connection = networkConnection(await networkIO(this.reconnectPolicy.dial(this.node, key, route.endpoint)))
+      if (signal.aborted || routeSignal.aborted) throw new Error("Mesh dial cancelled")
       this.trace("dial.connected", { connectionId, peerId: peer.deviceId.slice(0, 8), mode })
       const stream = await connection.openStream()
       this.trace("handshake.outgoing.started", { connectionId, peerId: peer.deviceId.slice(0, 8) })
@@ -1307,17 +1391,24 @@ export class DurableMesh {
         ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as any,
         ownerHistory: ownerAuthorities(credential).slice(1),
       })
-      if (verified.advertisement.payload.deviceId !== peer.deviceId || signal.aborted) throw new Error("Unexpected mesh peer")
+      if (verified.advertisement.payload.deviceId !== peer.deviceId || signal.aborted || routeSignal.aborted) throw new Error("Unexpected mesh peer")
       const verifiedInstanceId = verified.advertisement.payload.instanceId ?? "legacy"
       this.trace("handshake.outgoing.verified", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       if (Array.isArray(response.revocations)) await this.mergeRevocations(credential, response.revocations)
       await this.putVerifiedBundle(credential, response.peer)
       this.failures.delete(key)
       this.failedAt.delete(key)
-      await this.installSession(peer.workspaceId, peer.deviceId, verifiedInstanceId,
-        verified.advertisement.payload.issuedAt, verified.advertisement.payload.routeSequence, "outgoing", connection,
-        Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"), connectionId)
+      const result = {
+        connection,
+        connectionId,
+        instanceId: verifiedInstanceId,
+        issuedAt: verified.advertisement.payload.issuedAt,
+        routeSequence: verified.advertisement.payload.routeSequence,
+        heartbeatSupported: Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"),
+        incrementalSupported: Array.isArray(response.capabilities) && response.capabilities.includes("automerge-sync-v1"),
+      }
       connection = undefined
+      return result
     } catch (error) {
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("dial.failed", {
@@ -1334,26 +1425,33 @@ export class DurableMesh {
         this.node = undefined
         await stale?.close("Mesh runtime closed").catch(() => {})
       }
-      await this.notify()
-    } finally {
-      this.connecting.delete(key)
+      throw error
     }
   }
 
   private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
-    connectionId = this.connectionId(direction)) {
-    const key = this.peerKey(workspaceId, deviceId, instanceId)
+    incrementalSupported = false, connectionId = this.connectionId(direction)) {
+    const key = this.sessionKey(workspaceId, deviceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
     const previous = this.sessions.get(key)
-    if (!shouldReplaceMeshSession(previous, { remoteIssuedAt, remoteRouteSequence, direction }, preferred)) {
+    const replace = previous?.instanceId !== instanceId && previous?.direction === direction
+      ? false
+      : shouldReplaceMeshSession(previous, { remoteIssuedAt, remoteRouteSequence, direction }, preferred)
+    if (!replace) {
       this.trace("session.rejected", { connectionId, peerId: deviceId.slice(0, 8), direction, reason: "duplicate direction" })
       return void connection.close()
     }
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return void connection.close()
-    const session = liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
+    const incrementalEngine = incrementalSupported
+      ? this.syncEngine(workspaceId, deviceId, profile.device.deviceId)
+      : undefined
+    const session = incrementalEngine
+      ? liveAutomergeWorkspaceSync(connection, credential.transportSecret, this.options.workspaceStore, workspaceId,
+        profile.device.deviceId, deviceId, incrementalEngine)
+      : liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
     this.sessions.set(key, { workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session })
     this.trace("session.started", {
       connectionId,
@@ -1362,6 +1460,7 @@ export class DurableMesh {
       workspaceId: workspaceId.slice(0, 8),
       direction,
       heartbeat: heartbeatSupported,
+      incremental: incrementalSupported,
       replaced: Boolean(previous),
     })
     this.lastDiagnostic = ""
@@ -1388,9 +1487,11 @@ export class DurableMesh {
       stopHeartbeat?.()
       const wasCurrent = this.sessions.get(key)?.session === session
       if (wasCurrent) this.sessions.delete(key)
+      if (incrementalEngine) incrementalEngine.reset(workspaceId, deviceId)
       this.trace("session.closed", { connectionId, peerId: deviceId.slice(0, 8), wasCurrent })
       await connection.close()
       await this.notify()
+      if (!this.stopped) queueMicrotask(() => { void this.publishAll() })
     })
   }
 

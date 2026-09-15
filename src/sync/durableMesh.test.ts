@@ -21,6 +21,13 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(shouldReplaceMeshSession(renewed, current, "incoming")).toBe(false)
   })
 
+  it("Given equal route sequence with skewed clocks, when duplicate sessions arrive, then time cannot replace the preferred direction", () => {
+    const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
+    const future = { ...current, remoteIssuedAt: "2099-09-14T12:00:00.000Z", direction: "outgoing" as const }
+
+    expect(shouldReplaceMeshSession(current, future, "incoming")).toBe(false)
+  })
+
   it("Given a newer browser instance closed, when an older live instance has no session, then it still dials the known peer", async () => {
     const controller = new AbortController()
     const own = {
@@ -44,13 +51,13 @@ describe("DurableMesh peer catalog gossip", () => {
     internal.node = {}
     internal.instanceId = "slot-0"
     internal.peerInstances = vi.fn(async (workspaceId?: string) => workspaceId ? [own, peer] : [peer])
-    internal.dialPeer = vi.fn(async () => controller.abort())
+    internal.dialDevice = vi.fn(async () => controller.abort())
     const guard = setTimeout(() => controller.abort(), 50)
 
     await internal.dialLoop(controller.signal)
 
     clearTimeout(guard)
-    expect(internal.dialPeer).toHaveBeenCalledWith(peer, controller.signal)
+    expect(internal.dialDevice).toHaveBeenCalledWith([peer], controller.signal)
     await mesh.dispose()
   })
 
@@ -70,13 +77,13 @@ describe("DurableMesh peer catalog gossip", () => {
     const internal = mesh as any
     internal.node = {}
     internal.peerInstances = vi.fn(async () => [peer])
-    internal.dialPeer = vi.fn(async () => controller.abort())
+    internal.dialDevice = vi.fn(async () => controller.abort())
     const guard = setTimeout(() => controller.abort(), 50)
 
     await internal.dialLoop(controller.signal)
 
     clearTimeout(guard)
-    expect(internal.dialPeer).toHaveBeenCalledWith(peer, controller.signal)
+    expect(internal.dialDevice).toHaveBeenCalledWith([peer], controller.signal)
     expect(internal.peerInstances).toHaveBeenCalled()
     await mesh.dispose()
   })

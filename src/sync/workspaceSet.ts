@@ -1,4 +1,6 @@
 import { fromBase64Url, toBase64Url } from "../domain/identity"
+import * as Automerge from "@automerge/automerge/slim"
+import { AutomergeAntiEntropy, type AutomergeDocumentAdapter, type AutomergeSyncFrame } from "@meta-uber/mesh-replication/automerge"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { DuplexStream, SyncConnection } from "./transport"
@@ -17,6 +19,7 @@ export type LiveWorkspaceSync = {
 }
 
 export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
+const MAX_CONTROL_FRAME_BYTES = 256 * 1024
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
@@ -137,5 +140,126 @@ export function liveWorkspaceSetSync(
       stopped = true
       await connection.close()
     },
+  }
+}
+
+export function liveAutomergeWorkspaceSync(
+  connection: SyncConnection,
+  secret: string,
+  store: WorkspaceSetStore,
+  workspaceId: string,
+  localDeviceId: string,
+  remoteDeviceId: string,
+  sharedEngine?: AutomergeAntiEntropy,
+): LiveWorkspaceSync {
+  let stopped = false
+  let syncQueue = Promise.resolve()
+  let heartbeatQueue = Promise.resolve()
+  let lastControlSent = ""
+  const knownChat = new Set<string>()
+  const engine = sharedEngine ?? new AutomergeAntiEntropy(localDeviceId, Automerge, {
+    proof: async () => store.readAuthorization?.(await store.read(workspaceId)),
+  })
+  const adapter: AutomergeDocumentAdapter<Record<string, unknown>> = {
+    scopeId: workspaceId,
+    documentId: workspaceId,
+    async current() { return Automerge.load<Record<string, unknown>>(await store.read(workspaceId)) },
+    async authorize(deviceId) { return deviceId === remoteDeviceId },
+    async validateCandidate({ candidate }) {
+      if ((candidate as { id?: unknown }).id !== workspaceId) throw new Error("Wrong workspace document")
+    },
+    async commit({ candidate, proof }) { await store.merge(workspaceId, Automerge.save(candidate), proof) },
+  }
+  const encodeFrame = (frame: AutomergeSyncFrame) => encodePairingFrame("mesh-automerge-sync", secret,
+    new TextEncoder().encode(JSON.stringify({ ...frame, message: toBase64Url(frame.message) })))
+  const decodeFrame = (bytes: Uint8Array): AutomergeSyncFrame => {
+    const value = JSON.parse(new TextDecoder().decode(decodePairingFrame(bytes, "mesh-automerge-sync", secret)))
+    return { ...value, message: fromBase64Url(value.message) }
+  }
+  const sendFrame = async (frame: AutomergeSyncFrame) => {
+    if (stopped) return
+    const stream = await connection.openStream()
+    await stream.send(encodeFrame(frame))
+    await stream.closeSend()
+  }
+  const controlSnapshot = async () => new TextEncoder().encode(JSON.stringify({
+    version: 1,
+    workspaceId,
+    ...(store.readChat ? { chat: await store.readChat(workspaceId, knownChat) } : {}),
+    ...(store.readMesh ? { mesh: await store.readMesh(workspaceId) } : {}),
+  }))
+  const receiveControl = async (bytes: Uint8Array) => {
+    if (bytes.byteLength > MAX_CONTROL_FRAME_BYTES) throw new Error("Mesh control frame exceeds size limit")
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as {
+      version?: unknown; workspaceId?: unknown; chat?: unknown; mesh?: unknown
+    }
+    if (value.version !== 1 || value.workspaceId !== workspaceId) throw new Error("Invalid mesh control frame")
+    if (value.chat !== undefined && store.mergeChat) await store.mergeChat(workspaceId, value.chat, false)
+    if (value.mesh !== undefined && store.mergeMesh) await store.mergeMesh(workspaceId, value.mesh)
+  }
+  const enqueue = (run: () => Promise<void>) => {
+    syncQueue = syncQueue.then(run)
+    return syncQueue
+  }
+  const done = (async () => {
+    while (!stopped) {
+      const stream = await connection.acceptStream()
+      if (stopped) return
+      const frame = await stream.read()
+      const type = inspectPairingFrame(frame).type
+      if (type === "sync-heartbeat") {
+        decodePairingFrame(frame, "sync-heartbeat", secret)
+        await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))
+        await stream.closeSend()
+        continue
+      }
+      if (type === "mesh-control-sync") {
+        await receiveControl(decodePairingFrame(frame, "mesh-control-sync", secret))
+        await stream.closeSend()
+        continue
+      }
+      if (type !== "mesh-automerge-sync") throw new Error(`Unsupported live workspace frame: ${type}`)
+      await enqueue(async () => {
+        const result = await engine.receive(adapter, remoteDeviceId, decodeFrame(frame))
+        if (result.response) await sendFrame(result.response)
+      })
+      await stream.closeSend()
+    }
+  })().catch(error => { if (!stopped) throw error })
+  return {
+    done,
+    publish() {
+      return enqueue(async () => {
+        const frame = await engine.generate(adapter, remoteDeviceId)
+        if (frame) await sendFrame(frame)
+        const control = await controlSnapshot()
+        const content = toBase64Url(control)
+        if (content !== lastControlSent) {
+          if (control.byteLength > MAX_CONTROL_FRAME_BYTES) throw new Error("Mesh control frame exceeds size limit")
+          const stream = await connection.openStream()
+          await stream.send(encodePairingFrame("mesh-control-sync", secret, control))
+          await stream.closeSend()
+          lastControlSent = content
+        }
+      })
+    },
+    heartbeat() {
+      heartbeatQueue = heartbeatQueue.then(async () => {
+        if (stopped) return
+        const stream = await connection.openStream()
+        await stream.send(encodePairingFrame("sync-heartbeat", secret, new Uint8Array()))
+        await stream.closeSend()
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          const frame = await Promise.race([
+            stream.read(),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new SyncNetworkError("Mesh heartbeat timed out")), MESH_HEARTBEAT_TIMEOUT_MS) }),
+          ])
+          decodePairingFrame(frame, "sync-heartbeat-ack", secret)
+        } finally { clearTimeout(timer) }
+      })
+      return heartbeatQueue
+    },
+    async close() { stopped = true; await connection.close() },
   }
 }

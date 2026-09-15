@@ -7,7 +7,7 @@ import {
 export type { MeshInstanceLease, MeshInstanceLocks }
 
 type MeshInstanceLeaseOptions = {
-  locks?: MeshInstanceLocks
+  locks?: MeshInstanceLocks | null
   preferredInstanceId?: string | null
   slots?: number
 }
