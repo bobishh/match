@@ -13,11 +13,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
+          repository: bobishh/meta-mesh
+          ref: 9cb9a4ac98291e6fd6fe6c51be5367d40c725449
+          path: vendor/meta-mesh
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
-          submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -32,11 +35,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
+          repository: bobishh/meta-mesh
+          ref: 9cb9a4ac98291e6fd6fe6c51be5367d40c725449
+          path: vendor/meta-mesh
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
-          submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -70,11 +76,14 @@ jobs:
           - succession-named
           - succession-quorum
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
+          repository: bobishh/meta-mesh
+          ref: 9cb9a4ac98291e6fd6fe6c51be5367d40c725449
+          path: vendor/meta-mesh
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
-          submodules: recursive
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
