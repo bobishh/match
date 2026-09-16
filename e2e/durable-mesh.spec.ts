@@ -235,6 +235,7 @@ test("Given a connected peer closes its tab, when it returns, then presence turn
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const syncDialog = page.getByRole("dialog", { name: "Device sync" })
     await expect(syncDialog.getByText("Offline · No live channel. Reconnecting automatically.")).toBeVisible()
+    await expect(syncDialog.getByText(/^Reconnect:/)).toHaveCount(0)
     await expect(syncDialog.locator(".mesh-member-presence.is-online")).toHaveCount(1)
     await expect(syncDialog.locator(".mesh-member-presence.is-offline")).toHaveCount(1)
     const selfMember = syncDialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "You" })
