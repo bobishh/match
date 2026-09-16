@@ -28,6 +28,7 @@ import type { BoardSchemaDraft } from "./domain/schema"
 import { isArchiveColumn } from "./domain/archive"
 import type { WorkspaceSettingsDraft } from "./domain/workspaceSettings"
 import TaskFormDialog from "./components/TaskFormDialog.vue"
+import TaskEditDialog from "./components/TaskEditDialog.vue"
 import TaskDetailDialog from "./components/TaskDetailDialog.vue"
 import MoveTaskDialog from "./components/MoveTaskDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
@@ -127,6 +128,8 @@ const savingItem = ref(false)
 const showItemSaving = useDelayedFlag(() => savingItem.value)
 const editingColumn = ref<Column | null>(null)
 const selectedTaskId = ref<string | null>(null)
+const editingTaskId = ref<string | null>(null)
+const taskEditError = ref("")
 const taskToMove = ref<Task | null>(null)
 const showMoveDialog = ref(false)
 const storageError = ref("")
@@ -595,6 +598,13 @@ const selectedTaskHistory = computed(() => {
   const doc = getActiveDoc()
   if (!doc || !selectedTaskId.value) return []
   return projectEntityHistory(doc, selectedTaskId.value)
+})
+
+const editingTask = computed(() => {
+  if (!editingTaskId.value || !getActiveDoc()) return null
+  const doc = getActiveDoc()!
+  const entity = doc.entities[editingTaskId.value]
+  return entity && entity.kind === "task" ? entity : null
 })
 
 async function restoreSelectedTaskVersion(changeHash: string) {
@@ -1100,6 +1110,36 @@ function handleOpenTask(task: Task) {
   selectedTaskId.value = task.id
 }
 
+function handleOpenTaskEdit(task: Task) {
+  taskEditError.value = ""
+  editingTaskId.value = task.id
+  // Close the detail view; it will reopen after save if needed
+  selectedTaskId.value = null
+  historyRestoreError.value = ""
+  historyRestoreNotice.value = ""
+}
+
+async function handleSaveTaskEdit(payload: { title: string; body: string; values: Record<string, FieldValue> }) {
+  if (savingItem.value || !editingTaskId.value) return
+  savingItem.value = true
+  taskEditError.value = ""
+  try {
+    await executeCommandAsync({
+      kind: "patchTask",
+      entityId: editingTaskId.value,
+      title: payload.title,
+      body: payload.body,
+      values: payload.values,
+    })
+    editingTaskId.value = null
+    notice.value = "Item saved"
+  } catch (error: any) {
+    taskEditError.value = error.message || "Save failed"
+  } finally {
+    savingItem.value = false
+  }
+}
+
 function handleAddSubtask(parentTaskId: string) {
   taskFormParentId.value = parentTaskId
   taskFormError.value = ""
@@ -1445,10 +1485,21 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :restore-error="historyRestoreError"
       :restore-notice="historyRestoreNotice"
       @close="selectedTaskId = null; historyRestoreError = ''; historyRestoreNotice = ''"
+      @edit="handleOpenTaskEdit"
       @add-subtask="handleAddSubtask"
       @start-move="handleStartMove"
       @delete-task="handleDeleteTask"
       @restore-version="restoreSelectedTaskVersion"
+    />
+
+    <TaskEditDialog
+      v-if="editingTask"
+      :task="editingTask"
+      :fields="boardFields"
+      :error-message="taskEditError"
+      :saving="savingItem"
+      @cancel="editingTaskId = null; taskEditError = ''"
+      @save="handleSaveTaskEdit"
     />
 
     <TaskFormDialog

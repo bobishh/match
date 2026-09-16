@@ -17,6 +17,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void
+  (e: "edit", task: Task): void
   (e: "addSubtask", parentTaskId: string): void
   (e: "startMove", task: Task): void
   (e: "deleteTask", taskId: string): void
@@ -111,7 +112,10 @@ const emit = defineEmits<{
 
       <div class="dialog-actions dialog-actions-split">
         <button class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteTask', task.id)">Archive task</button>
-        <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
+        <div class="dialog-action-group">
+          <button class="button button-primary" type="button" :disabled="readOnly" @click="emit('edit', task)">Edit</button>
+          <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
+        </div>
       </div>
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
     </section>
