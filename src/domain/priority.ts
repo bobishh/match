@@ -1,4 +1,4 @@
-import type { Board, FieldDefinition, FieldValue, PriorityPolicy, PriorityRule, Task, WorkspaceDocumentV2 } from "./model"
+import type { Board, FieldDefinition, FieldValue, PriorityPolicy, PriorityRule, Item, WorkspaceDocumentV2 } from "./model"
 import { compareRanks } from "./ancestry"
 
 export type PriorityEvaluation = {
@@ -25,28 +25,28 @@ export function evaluatePriority(policy: PriorityPolicy, values: Record<string, 
   return { score, optionId: band?.optionId ?? null, matchedRuleIds: matched.map(rule => rule.id) }
 }
 
-export function projectTaskPriority(board: Board | null | undefined, task: Task): Task {
+export function projectItemPriority(board: Board | null | undefined, item: Item): Item {
   const policy = board?.priorityPolicy
-  if (!policy) return task
-  const evaluation = evaluatePriority(policy, task.values)
+  if (!policy) return item
+  const evaluation = evaluatePriority(policy, item.values)
   return {
-    ...task,
+    ...item,
     values: {
-      ...task.values,
+      ...item.values,
       [policy.priorityFieldId]: evaluation.optionId,
       ...(policy.fitFieldId ? { [policy.fitFieldId]: evaluation.score } : {}),
     },
   }
 }
 
-export function orderTasksByPriority(board: Board | null | undefined, tasks: Task[]): Task[] {
+export function orderItemsByPriority(board: Board | null | undefined, items: Item[]): Item[] {
   const policy = board?.priorityPolicy
   const order = policy?.sort ?? "fit_desc"
-  if (!policy || order === "manual") return tasks
+  if (!policy || order === "manual") return items
   const direction = order === "fit_desc" ? -1 : 1
-  return tasks.map((task, index) => ({ task, index, score: evaluatePriority(policy, task.values).score }))
+  return items.map((item, index) => ({ item, index, score: evaluatePriority(policy, item.values).score }))
     .sort((a, b) => direction * (a.score - b.score) || a.index - b.index)
-    .map(item => item.task)
+    .map(item => item.item)
 }
 
 export function createDefaultPriorityPolicy(board: Board, fields: FieldDefinition[]): PriorityPolicy | null {

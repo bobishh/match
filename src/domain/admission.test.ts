@@ -21,7 +21,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("Trusted-document admission and missing-proof queue (Task 2.3)", () => {
+describe("Trusted-document admission and missing-proof queue (Requirement 2.3)", () => {
   beforeEach(() => {
     resetIdentityStorageForTest()
   })
@@ -49,8 +49,8 @@ describe("Trusted-document admission and missing-proof queue (Task 2.3)", () => 
     const metadata = {
       version: 1,
       transactionId: crypto.randomUUID(),
-      action: "createTask",
-      entityIds: ["task_1"],
+      action: "createItem",
+      entityIds: ["item_1"],
       personId: profile.identity.personId,
       deviceId: profile.device.deviceId,
     }
@@ -82,8 +82,8 @@ describe("Trusted-document admission and missing-proof queue (Task 2.3)", () => 
     const metadata = {
       version: 1,
       transactionId: crypto.randomUUID(),
-      action: "createTask",
-      entityIds: ["task_malicious"],
+      action: "createItem",
+      entityIds: ["item_malicious"],
       personId: alice.identity.personId,
       deviceId: mallory.device.deviceId,
     }
@@ -114,8 +114,8 @@ describe("Trusted-document admission and missing-proof queue (Task 2.3)", () => 
     const metadata = {
       version: 1,
       transactionId: crypto.randomUUID(),
-      action: "createTask",
-      entityIds: ["task_delayed"],
+      action: "createItem",
+      entityIds: ["item_delayed"],
       personId: profile.identity.personId,
       deviceId: profile.device.deviceId,
     }

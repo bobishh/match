@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { placementSchema, entitySchema, workspaceSchema } from "./entitySchemas"
-import type { CommandResult, WorkspaceEntity } from "./model"
+import type { CommandResult, EntityKind } from "./model"
 
 function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
   const result = schema.safeParse(input)
@@ -16,13 +16,13 @@ export const validatePlacement = (input: unknown) => validate(placementSchema, i
 export const validateEntity = (input: unknown) => validate(entitySchema, input)
 export const validateWorkspaceDoc = (input: unknown) => validate(workspaceSchema, input)
 
-const allowedParents: Record<WorkspaceEntity["kind"], readonly (string | null)[]> = {
-  board: [null], column: ["board"], field: ["board"], task: ["column", "task"],
-  document: ["task"], artifact: ["task"], document_template: [null], template: [null],
+const allowedParents: Record<EntityKind, readonly (string | null)[]> = {
+  board: [null], column: ["board"], field: ["board"], item: ["column", "item"],
+  document: ["item"], artifact: ["item"], document_template: [null], template: [null],
 }
 export function validatePlacementParent(childKind: string, parentKind: string | null): CommandResult<void> {
   if (!Object.hasOwn(allowedParents, childKind)) return { ok: false, error: { code: "invalid_input", message: `Unknown entity kind: ${childKind}` } }
-  const parents = allowedParents[childKind as WorkspaceEntity["kind"]]
+  const parents = allowedParents[childKind as EntityKind]
   return parents.includes(parentKind) ? { ok: true, value: undefined }
     : { ok: false, error: { code: "invalid_parent", message: `${childKind} parent must be ${parents.map(value => value ?? "null").join(" or ")}` } }
 }

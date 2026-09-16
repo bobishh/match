@@ -9,9 +9,9 @@ import {
   getVisibleChildren,
   renumberSiblings,
 } from "./ancestry"
-import type { Task, Column, Board, WorkspaceEntity } from "./model"
+import type { Item, Column, Board, WorkspaceEntity } from "./model"
 
-describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => {
+describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)", () => {
   it("compares rational ranks exactly using BigInt arithmetic, not lexicographical string ordering", () => {
     expect(compareRanks("1/10", "1/2")).toBeLessThan(0)
     expect(compareRanks("1/2", "1/10")).toBeGreaterThan(0)
@@ -36,10 +36,9 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
   })
 
   it("breaks equal-rank ties deterministically by entity ID", () => {
-    const taskA: Task = {
-      id: "task_a",
-      kind: "task",
-      title: "Task A",
+    const itemA: Item = {
+      id: "item_a",
+      title: "Item A",
       placement: { parentId: "col_1", rank: "1/1" },
       deleted: false,
       createdAt: "2026-09-09T00:00:00Z",
@@ -47,10 +46,9 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       body: "",
       values: {},
     }
-    const taskB: Task = {
-      id: "task_b",
-      kind: "task",
-      title: "Task B",
+    const itemB: Item = {
+      id: "item_b",
+      title: "Item B",
       placement: { parentId: "col_1", rank: "1/1" }, // same rank
       deleted: false,
       createdAt: "2026-09-09T00:00:00Z",
@@ -59,11 +57,11 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       values: {},
     }
 
-    const sorted1 = sortEntitiesByRank([taskB, taskA])
-    expect(sorted1.map((t) => t.id)).toEqual(["task_a", "task_b"])
+    const sorted1 = sortEntitiesByRank([itemB, itemA])
+    expect(sorted1.map((t) => t.id)).toEqual(["item_a", "item_b"])
 
     // Renumbering equal ranks separates them into consecutive integers
-    const renumbered = renumberSiblings([taskB, taskA])
+    const renumbered = renumberSiblings([itemB, itemA])
     expect(renumbered[0].placement.rank).toBe("0/1")
     expect(renumbered[1].placement.rank).toBe("1/1")
   })
@@ -91,23 +89,21 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       displayHint: "normal",
     }
 
-    // Task cycle: A -> B -> A
-    const taskA: Task = {
-      id: "task_a",
-      kind: "task",
+    // Item cycle: A -> B -> A
+    const itemA: Item = {
+      id: "item_a",
       title: "A",
-      placement: { parentId: "task_b", rank: "0/1" },
+      placement: { parentId: "item_b", rank: "0/1" },
       deleted: false,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
       values: {},
     }
-    const taskB: Task = {
-      id: "task_b",
-      kind: "task",
+    const itemB: Item = {
+      id: "item_b",
       title: "B",
-      placement: { parentId: "task_a", rank: "0/1" },
+      placement: { parentId: "item_a", rank: "0/1" },
       deleted: false,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
@@ -115,10 +111,9 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       values: {},
     }
 
-    // Task with missing parent
-    const taskMissing: Task = {
-      id: "task_orphan",
-      kind: "task",
+    // Item with missing parent
+    const itemMissing: Item = {
+      id: "item_orphan",
       title: "Orphan",
       placement: { parentId: "non_existent_id", rank: "0/1" },
       deleted: false,
@@ -128,10 +123,9 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       values: {},
     }
 
-    // Task with invalid parent kind (task parent is board)
-    const taskBadParent: Task = {
-      id: "task_bad_parent",
-      kind: "task",
+    // Item with invalid parent kind (item parent is board)
+    const itemBadParent: Item = {
+      id: "item_bad_parent",
       title: "Bad Parent",
       placement: { parentId: "board_1", rank: "0/1" },
       deleted: false,
@@ -144,22 +138,22 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
     const entities: Record<string, WorkspaceEntity> = {
       [board.id]: board,
       [col.id]: col,
-      [taskA.id]: taskA,
-      [taskB.id]: taskB,
-      [taskMissing.id]: taskMissing,
-      [taskBadParent.id]: taskBadParent,
+      [itemA.id]: itemA,
+      [itemB.id]: itemB,
+      [itemMissing.id]: itemMissing,
+      [itemBadParent.id]: itemBadParent,
     }
 
     const issues = derivePlacementIssues(entities)
     expect(issues).toHaveLength(4)
 
-    const cycleIssueA = issues.find((i) => i.entityId === "task_a")
+    const cycleIssueA = issues.find((i) => i.entityId === "item_a")
     expect(cycleIssueA?.type).toBe("cycle")
 
-    const orphanIssue = issues.find((i) => i.entityId === "task_orphan")
+    const orphanIssue = issues.find((i) => i.entityId === "item_orphan")
     expect(orphanIssue?.type).toBe("missing-parent")
 
-    const badParentIssue = issues.find((i) => i.entityId === "task_bad_parent")
+    const badParentIssue = issues.find((i) => i.entityId === "item_bad_parent")
     expect(badParentIssue?.type).toBe("invalid-parent-kind")
   })
 
@@ -186,9 +180,8 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       displayHint: "normal",
     }
 
-    const liveChild: Task = {
+    const liveChild: Item = {
       id: "child_live",
-      kind: "task",
       title: "Live Child",
       placement: { parentId: "col_1", rank: "0/1" },
       deleted: false, // Child is NOT deleted, but parent column is deleted
@@ -198,9 +191,8 @@ describe("Ancestry, rational ranks, and placement projection (Task 1.4)", () => 
       values: {},
     }
 
-    const deletedChild: Task = {
+    const deletedChild: Item = {
       id: "child_deleted",
-      kind: "task",
       title: "Deleted Child",
       placement: { parentId: "col_1", rank: "1/1" },
       deleted: true, // Child is separately deleted

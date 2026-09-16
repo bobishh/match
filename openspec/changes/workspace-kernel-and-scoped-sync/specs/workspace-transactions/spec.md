@@ -6,7 +6,7 @@ The system SHALL apply every accepted domain mutation as one native Automerge ch
 
 #### Scenario: Composite restore and move has one history entry
 
-- **GIVEN** a deleted task and a live target column
+- **GIVEN** a deleted item and a live target column
 - **WHEN** restoreAndMove succeeds
 - **THEN** one change contains both modifications and one named transaction
 - **AND** UI and agent subscribers observe the complete committed result.
@@ -20,7 +20,7 @@ The system SHALL apply every accepted domain mutation as one native Automerge ch
 
 #### Scenario: Independent offline field changes survive
 
-- **GIVEN** two replicas share a task
+- **GIVEN** two replicas share an item
 - **WHEN** one edits its title and the other edits a custom field offline
 - **THEN** both edits remain after merge in either order
 - **AND** unrelated entities are not replaced.
@@ -39,11 +39,11 @@ The system SHALL persist candidate change bytes, proof, and receipt atomically b
 #### Scenario: IndexedDB fails during save
 
 - **GIVEN** the next storage transaction is forced to fail
-- **WHEN** a task creation is submitted
+- **WHEN** an item creation is submitted
 - **THEN** the UI reports a retryable save failure and the peer receives no new change
 - **AND** reload shows the previous committed workspace
 - **WHEN** the same transaction is retried after storage recovers
-- **THEN** exactly one task and one receipt are committed.
+- **THEN** exactly one item and one receipt are committed.
 
 #### Scenario: A committed command is retried
 
@@ -59,8 +59,8 @@ The system SHALL store immutable chunks keyed by document and change hash, recon
 #### Scenario: Two tabs save from stale snapshots
 
 - **GIVEN** two tabs share a profile and start at the same heads
-- **WHEN** each writes a different task before receiving the other's notification
-- **THEN** closing both and reopening preserves both tasks and their histories
+- **WHEN** each writes a different item before receiving the other's notification
+- **THEN** closing both and reopening preserves both items and their histories
 - **AND** snapshot compaction does not discard the unseen writer's chunk.
 
 #### Scenario: Canonical reload needs no JSON state cache
@@ -77,7 +77,7 @@ The system SHALL project native changes into a history view with action, entity 
 #### Scenario: Relay preserves original editor
 
 - **GIVEN** A on device J signs an edit and device K relays it to B
-- **WHEN** B opens task history
+- **WHEN** B opens item history
 - **THEN** it shows A / J as author, not the relay
 - **AND** the author proof can be traced to A's device certificate.
 

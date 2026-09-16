@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { evaluatePriority, orderTasksByPriority, projectTaskPriority } from "./priority"
-import type { Board, PriorityPolicy, Task } from "./model"
+import { evaluatePriority, orderItemsByPriority, projectItemPriority } from "./priority"
+import type { Board, PriorityPolicy, Item } from "./model"
 
 const policy: PriorityPolicy = {
   version: 1,
@@ -35,36 +35,36 @@ it("evaluates weighted rules deterministically and clamps fit to 0–10", () => 
 })
 
 describe("priority projection", () => {
-  it("overlays derived outputs without persisting them in source task values", () => {
+  it("overlays derived outputs without persisting them in source item values", () => {
     const board = { priorityPolicy: policy } as Board
-    const task = { values: { mode: "remote", priority: "manual", fit: 1 } } as unknown as Task
-    const projected = projectTaskPriority(board, task)
+    const item = { values: { mode: "remote", priority: "manual", fit: 1 } } as unknown as Item
+    const projected = projectItemPriority(board, item)
     expect(projected.values).toMatchObject({ priority: "p0", fit: 8 })
-    expect(task.values).toMatchObject({ priority: "manual", fit: 1 })
+    expect(item.values).toMatchObject({ priority: "manual", fit: 1 })
   })
 
-  it("returns source task unchanged when automatic priority is disabled", () => {
-    const task = { values: { priority: "manual" } } as unknown as Task
-    expect(projectTaskPriority({ priorityPolicy: null } as Board, task)).toBe(task)
+  it("returns source item unchanged when automatic priority is disabled", () => {
+    const item = { values: { priority: "manual" } } as unknown as Item
+    expect(projectItemPriority({ priorityPolicy: null } as Board, item)).toBe(item)
   })
 })
 
 describe("priority order", () => {
-  const remote = { id: "remote", values: { mode: "remote" } } as unknown as Task
-  const onsite = { id: "onsite", values: { mode: "onsite" } } as unknown as Task
+  const remote = { id: "remote", values: { mode: "remote" } } as unknown as Item
+  const onsite = { id: "onsite", values: { mode: "onsite" } } as unknown as Item
 
   it("orders highest fit first by default and keeps equal scores stable", () => {
     const legacyPolicy = { ...policy, sort: undefined }
-    expect(orderTasksByPriority({ priorityPolicy: legacyPolicy } as Board, [onsite, remote]).map(task => task.id))
+    expect(orderItemsByPriority({ priorityPolicy: legacyPolicy } as Board, [onsite, remote]).map(item => item.id))
       .toEqual(["remote", "onsite"])
-    expect(orderTasksByPriority({ priorityPolicy: policy } as Board, [remote, { ...remote, id: "remote-2" }]).map(task => task.id))
+    expect(orderItemsByPriority({ priorityPolicy: policy } as Board, [remote, { ...remote, id: "remote-2" }]).map(item => item.id))
       .toEqual(["remote", "remote-2"])
   })
 
   it("supports lowest-fit and manual order", () => {
-    expect(orderTasksByPriority({ priorityPolicy: { ...policy, sort: "fit_asc" } } as Board, [remote, onsite]).map(task => task.id))
+    expect(orderItemsByPriority({ priorityPolicy: { ...policy, sort: "fit_asc" } } as Board, [remote, onsite]).map(item => item.id))
       .toEqual(["onsite", "remote"])
-    expect(orderTasksByPriority({ priorityPolicy: { ...policy, sort: "manual" } } as Board, [onsite, remote]))
+    expect(orderItemsByPriority({ priorityPolicy: { ...policy, sort: "manual" } } as Board, [onsite, remote]))
       .toEqual([onsite, remote])
   })
 })

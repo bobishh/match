@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
 import { ref } from "vue"
-import type { Task } from "../domain/model"
+import type { Item } from "../domain/model"
 
 const props = defineProps<{
-  task: Task
+  item: Item
   candidateParents: { id: string; title: string }[]
 }>()
 
@@ -23,17 +23,17 @@ function handleConfirm() {
 
 <template>
   <ModalLayer class="overlay overlay-level-130" @close="emit('close')">
-    <section class="dialog" role="dialog" aria-modal="true" aria-label="Move task">
+    <section class="dialog" role="dialog" aria-modal="true" aria-label="Move item">
       <div class="dialog-head">
         <div>
           <span class="eyebrow">Hierarchy</span>
-          <h2>Move task</h2>
+          <h2>Move item</h2>
         </div>
         <button class="icon-button" type="button" aria-label="Close" @click="emit('close')">×</button>
       </div>
 
       <div class="dialog-body">
-        <p>Moving <strong>{{ task.title }}</strong> to a new parent.</p>
+        <p>Moving <strong>{{ item.title }}</strong> to a new parent.</p>
         <label>
           <span>New parent</span>
           <select v-model="selectedParentId">

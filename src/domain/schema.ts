@@ -11,6 +11,7 @@ import { getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
 import { priorityPolicySchema } from "./entitySchemas"
 import { validatePriorityPolicy } from "./priority"
+import { isItem } from "./model"
 
 export type BoardSchemaColumn = {
   id?: string
@@ -56,7 +57,7 @@ export type SchemaDiff = {
   columnsRenamed: Array<{ id: string; oldTitle: string; newTitle: string }>
   columnsReordered: boolean
   columnsAdded: Array<{ title: string }>
-  columnsSoftDeleted: Array<{ id: string; title: string; retainedTaskCount: number }>
+  columnsSoftDeleted: Array<{ id: string; title: string; retainedItemCount: number }>
   fieldsAdded: Array<{ title: string; valueType: string }>
   fieldsModified: Array<{ id: string; title: string; changes: string[] }>
   fieldsSoftDeleted: Array<{ id: string; title: string }>
@@ -268,13 +269,13 @@ export function diffBoardSchema(
 
   for (const curCol of current.columns) {
     if (curCol.id && !draftColsById.has(curCol.id)) {
-      const childTasks = (getChildren(doc.entities, curCol.id) || []).filter(
-        (e) => e.kind === "task" && !e.deleted
+      const childItems = (getChildren(doc.entities, curCol.id) || []).filter(
+        (e) => isItem(e) && !e.deleted
       )
       columnsSoftDeleted.push({
         id: curCol.id,
         title: curCol.title,
-        retainedTaskCount: childTasks.length,
+        retainedItemCount: childItems.length,
       })
     }
   }

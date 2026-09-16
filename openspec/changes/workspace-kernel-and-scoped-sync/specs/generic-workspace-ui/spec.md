@@ -2,7 +2,7 @@
 
 ### Requirement: Native generic board from workspace data
 
-The system SHALL render boards from stored columns, order, titles, tasks, and fields using native Vue components. It SHALL preserve existing desktop/mobile usability and SHALL NOT require or introduce a declarative UI language for this change.
+The system SHALL render boards from stored columns, order, titles, items, and fields using native Vue components. It SHALL preserve existing desktop/mobile usability and SHALL NOT require or introduce a declarative UI language for this change.
 
 #### Scenario: User changes a board's columns
 
@@ -17,23 +17,23 @@ The system SHALL render boards from stored columns, order, titles, tasks, and fi
 - **WHEN** the user submits an empty title
 - **THEN** it displays field validation without closing or creating a column.
 
-### Requirement: Generic tasks and nested detail
+### Requirement: Generic items and nested detail
 
-The system SHALL provide task creation/editing based on board fields, parent/subtask navigation, and same-board movement. It SHALL retain job-search template/PDF workflows through the preset adapter.
+The system SHALL provide item creation/editing based on board fields, parent/subitem navigation, and same-board movement. It SHALL retain job-search template/PDF workflows through the preset adapter.
 
-#### Scenario: Non-job task works end to end
+#### Scenario: Non-job item works end to end
 
 - **GIVEN** a Blank board named Reading with a text field Author
-- **WHEN** a user creates a task, fills Author, adds a subtask, and moves the parent
+- **WHEN** a user creates an item, fills Author, adds a subitem, and moves the parent
 - **THEN** all edits remain after reload
 - **AND** no company, role, CV, or application-status control is required.
 
 #### Scenario: Required custom field fails visibly
 
 - **GIVEN** a board has a required custom field
-- **WHEN** a task is submitted without it
+- **WHEN** an item is submitted without it
 - **THEN** the form identifies that field and preserves the draft
-- **AND** neither the board nor its peer shows a partial task.
+- **AND** neither the board nor its peer shows a partial item.
 
 ### Requirement: Trash and placement recovery are reachable
 
@@ -50,17 +50,17 @@ The system SHALL expose Trash and Needs placement outside normal board columns. 
 
 - **GIVEN** a merged graph has a cycle or missing parent
 - **WHEN** the user opens Needs placement
-- **THEN** the affected tasks and reasons are visible without hanging the page
-- **AND** moving a task to a live column resolves its affected subtree where ancestry becomes valid.
+- **THEN** the affected items and reasons are visible without hanging the page
+- **AND** moving an item to a live column resolves its affected subtree where ancestry becomes valid.
 
 ### Requirement: History and synchronization states are visible
 
-The system SHALL expose task history and the scoped Sync modal through ordinary controls. It SHALL distinguish saved, saving/failed, waiting for approval, syncing documents, files pending, connected, and offline states using user-facing language.
+The system SHALL expose item history and the scoped Sync modal through ordinary controls. It SHALL distinguish saved, saving/failed, waiting for approval, syncing documents, files pending, connected, and offline states using user-facing language.
 
 #### Scenario: Author and device appear in history
 
 - **GIVEN** a collaborator's verified edit has arrived
-- **WHEN** the user opens task history
+- **WHEN** the user opens item history
 - **THEN** the action identifies the person and device
 - **AND** legacy entries remain labeled as such.
 
@@ -78,14 +78,14 @@ The system SHALL retain legacy job-search WebMCP adapters while exposing generic
 #### Scenario: Agent mutation matches visible generic state
 
 - **GIVEN** a board is open
-- **WHEN** a valid generic command creates or moves a task
-- **THEN** the same visible task changes and survives reload
+- **WHEN** a valid generic command creates or moves an item
+- **THEN** the same visible item changes and survives reload
 - **AND** unknown fields or nested CRDT payloads return validation errors without mutation.
 
 #### Scenario: Responsive board remains reachable
 
 - **GIVEN** the app opens at 390-by-844 or 1024 CSS pixels wide
-- **WHEN** the user navigates columns and opens task details/Sync
+- **WHEN** the user navigates columns and opens item details/Sync
 - **THEN** controls remain reachable without page-level horizontal clipping or forced rotation
 - **AND** portrait filters start collapsed and columns retain horizontal snap navigation.
 
@@ -170,11 +170,11 @@ The system SHALL derive filter controls and values from the active workspace sch
 - **THEN** the filter shows the new title with the existing option ID
 - **AND** no preset enum or label table overrides it.
 
-#### Scenario: Generic field filters generic tasks
+#### Scenario: Generic field filters generic items
 
-- **GIVEN** a generic workspace has a select field and tasks with different option IDs
+- **GIVEN** a generic workspace has a select field and items with different option IDs
 - **WHEN** one option is selected in its generated filter
-- **THEN** only tasks storing that option ID remain visible
+- **THEN** only items storing that option ID remain visible
 - **AND** no job-search binding is required.
 
 ### Requirement: Complete workspace settings JSON

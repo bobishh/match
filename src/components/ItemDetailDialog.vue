@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
-import type { Task, FieldDefinition } from "../domain/model"
+import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 
 const props = defineProps<{
   readOnly?: boolean
-  task: Task
-  subtasks: Task[]
+  item: Item
+  subitems: Item[]
   fields: FieldDefinition[]
   history?: HistoryEntry[]
   archiveError?: string
@@ -17,39 +17,38 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void
-  (e: "edit", task: Task): void
-  (e: "addSubtask", parentTaskId: string): void
-  (e: "startMove", task: Task): void
-  (e: "deleteTask", taskId: string): void
+  (e: "addSubitem", parentItemId: string): void
+  (e: "startMove", item: Item): void
+  (e: "deleteItem", itemId: string): void
   (e: "restoreVersion", changeHash: string): void
 }>()
 </script>
 
 <template>
   <ModalLayer class="overlay detail-overlay" @close="emit('close')">
-    <section class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Task overview" tabindex="-1">
+    <section class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Item overview" tabindex="-1">
       <div class="detail-head">
         <div>
-          <span class="eyebrow">Task</span>
-          <h2>{{ task.title }}</h2>
+          <span class="eyebrow">Item</span>
+          <h2>{{ item.title }}</h2>
         </div>
         <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('close')">×</button>
       </div>
 
       <div class="detail-scroll detail-content">
-        <div v-if="task.body" class="detail-section">
+        <div v-if="item.body" class="detail-section">
           <span class="detail-label">Notes</span>
-          <p class="detail-copy">{{ task.body }}</p>
+          <p class="detail-copy">{{ item.body }}</p>
         </div>
 
         <div v-if="fields.length" class="detail-grid">
           <template v-for="field in fields" :key="field.id">
-            <div v-if="task.values[field.id] !== undefined && task.values[field.id] !== null && task.values[field.id] !== ''">
+            <div v-if="item.values[field.id] !== undefined && item.values[field.id] !== null && item.values[field.id] !== ''">
               <span class="detail-label">{{ field.title }}</span>
               <strong v-if="field.valueType === 'select'">
-                {{ field.options[String(task.values[field.id])]?.title ?? task.values[field.id] }}
+                {{ field.options[String(item.values[field.id])]?.title ?? item.values[field.id] }}
               </strong>
-              <strong v-else>{{ String(task.values[field.id]) }}</strong>
+              <strong v-else>{{ String(item.values[field.id]) }}</strong>
             </div>
           </template>
         </div>
@@ -57,17 +56,17 @@ const emit = defineEmits<{
         <section class="detail-section detail-subsection">
           <div class="section-heading detail-section-head">
             <div>
-              <span class="detail-label">Subtasks</span>
-              <h3>{{ subtasks.length ? `${subtasks.length} subtasks` : "No subtasks" }}</h3>
+              <span class="detail-label">Subitems</span>
+              <h3>{{ subitems.length ? `${subitems.length} subitems` : "No subitems" }}</h3>
             </div>
-            <button class="button button-small" type="button" :disabled="readOnly" @click="emit('addSubtask', task.id)">+ Add subtask</button>
+            <button class="button button-small" type="button" :disabled="readOnly" @click="emit('addSubitem', item.id)">+ Add subitem</button>
           </div>
 
-          <div v-if="subtasks.length" class="subtask-list">
+          <div v-if="subitems.length" class="subitem-list">
             <div
-              v-for="sub in subtasks"
+              v-for="sub in subitems"
               :key="sub.id"
-              class="subtask-row"
+              class="subitem-row"
             >
               <span>{{ sub.title }}</span>
               <button
@@ -87,17 +86,17 @@ const emit = defineEmits<{
             <span class="detail-label">History</span>
             <h3>{{ history?.length ? `${history.length} changes` : "No recorded history" }}</h3>
           </div>
-          <div v-if="history?.length" class="task-history-list">
+          <div v-if="history?.length" class="item-history-list">
             <div
               v-for="(entry, index) in history"
               :key="entry.hash"
-              class="task-history-entry"
+              class="item-history-entry"
             >
-              <div class="task-history-head">
+              <div class="item-history-head">
                 <strong>{{ entry.action }}</strong>
-                <span class="task-history-time">{{ new Date(entry.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
+                <span class="item-history-time">{{ new Date(entry.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}</span>
               </div>
-              <div class="task-history-author">
+              <div class="item-history-author">
                 Author: <span>{{ entry.authorLabel }}</span>
               </div>
               <button v-if="index < history.length - 1" class="button button-small button-quiet" type="button"
@@ -111,9 +110,8 @@ const emit = defineEmits<{
       </div>
 
       <div class="dialog-actions dialog-actions-split">
-        <button class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteTask', task.id)">Archive task</button>
+        <button class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteItem', item.id)">Archive item</button>
         <div class="dialog-action-group">
-          <button class="button button-primary" type="button" :disabled="readOnly" @click="emit('edit', task)">Edit</button>
           <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
         </div>
       </div>

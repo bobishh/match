@@ -6,8 +6,10 @@ import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } fro
 import { createPersonalRoot } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { executeCommand, type Command } from "./domain/commands"
+import { isItem } from "./domain/model"
 import {
   WorkspaceStorage,
+  normalizeItemEntities,
   setStorageFailureHookForTest,
   createWorkspaceBundleV2,
   readWorkspaceBundleV2,
@@ -21,7 +23,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("Document & Change-hash persistence (Task 1.7)", () => {
+describe("Document & Change-hash persistence (Requirement 1.7)", () => {
   let profile: LocalProfile
   let storage: WorkspaceStorage
 
@@ -30,6 +32,24 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     setStorageFailureHookForTest(false)
     profile = await bootstrapIdentity("Storage User")
     storage = new WorkspaceStorage()
+  })
+
+  it("removes an obsolete discriminator from structurally recognized items", async () => {
+    const raw = createWorkspaceDoc("ws_item_shape", "Item shape", profile.identity.personId, "blank")
+    let doc = Automerge.from<WorkspaceDocumentV2>(raw)
+    const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
+    const created = await executeCommand(doc, { kind: "createItem", parentId: column.id, title: "Shape only" }, profile)
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    doc = Automerge.change(created.value.newDoc, draft => {
+      const item = Object.values(draft.entities).find(isItem)!
+      ;(item as any).kind = "obsolete"
+    })
+
+    const normalized = normalizeItemEntities(doc)
+    const item = Object.values(normalized.entities).find(isItem)!
+    expect(item.title).toBe("Shape only")
+    expect("kind" in item).toBe(false)
   })
 
   it("selects the current identity root after enrollment instead of the first stored root", async () => {
@@ -50,7 +70,7 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     await storage.saveSnapshot("ws_atomic", doc, initialBytes)
 
     const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
-    const cmd: Command = { kind: "createTask", parentId: col.id, title: "Persisted Task" }
+    const cmd: Command = { kind: "createItem", parentId: col.id, title: "Persisted Item" }
 
     const res = await executeCommand(doc, cmd, profile)
     expect(res.ok).toBe(true)
@@ -74,11 +94,11 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     expect(storedProof).toBeDefined()
     expect(storedProof?.payload.changeHash).toBe(res.value.receipt.changeHash)
 
-    // Verify reload reproduces the task
+    // Verify reload reproduces the item
     const reloaded = await storage.loadWorkspaceDoc("ws_atomic")
     expect(reloaded).toBeDefined()
-    const task = Object.values(reloaded!.doc.entities).find((e) => e.kind === "task")
-    expect(task?.title).toBe("Persisted Task")
+    const item = Object.values(reloaded!.doc.entities).find(isItem)
+    expect(item?.title).toBe("Persisted Item")
   })
 
   it("handles same-ID retry idempotently returning existing receipt without duplicating change", async () => {
@@ -87,7 +107,7 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     await storage.saveSnapshot("ws_retry", doc, Automerge.save(doc))
 
     const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
-    const res = await executeCommand(doc, { kind: "createTask", parentId: col.id, title: "Idempotent Task" }, profile)
+    const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Idempotent Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
 
@@ -112,7 +132,7 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     await storage.saveSnapshot("ws_fail", doc, Automerge.save(doc))
 
     const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
-    const res = await executeCommand(doc, { kind: "createTask", parentId: col.id, title: "Failed Task" }, profile)
+    const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Failed Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
 
@@ -131,8 +151,8 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     expect(storedReceipt).toBeNull()
 
     const reloaded = await storage.loadWorkspaceDoc("ws_fail")
-    const task = Object.values(reloaded!.doc.entities).find((e) => e.kind === "task")
-    expect(task).toBeUndefined()
+    const item = Object.values(reloaded!.doc.entities).find(isItem)
+    expect(item).toBeUndefined()
   })
 
   it("handles stale-tab concurrent saves without overwriting unseen writes", async () => {
@@ -142,18 +162,18 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
 
     const todoCol = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
 
-    // Tab 1 creates Task 1
+    // Tab 1 creates Item 1
     const actor1 = "11111111111111111111111111111111"
     const docTab1 = Automerge.clone(doc, { actor: actor1 })
-    const res1 = await executeCommand(docTab1, { kind: "createTask", parentId: todoCol.id, title: "Tab 1 Task" }, profile, actor1)
+    const res1 = await executeCommand(docTab1, { kind: "createItem", parentId: todoCol.id, title: "Tab 1 Item" }, profile, actor1)
     expect(res1.ok).toBe(true)
     if (!res1.ok) return
     await storage.commitTransaction("ws_stale", res1.value.receipt, Automerge.getLastLocalChange(res1.value.newDoc)!, res1.value.proof)
 
-    // Tab 2 (has not loaded Tab 1's change yet) creates Task 2 from original doc
+    // Tab 2 (has not loaded Tab 1's change yet) creates Item 2 from original doc
     const actor2 = "22222222222222222222222222222222"
     const docTab2 = Automerge.clone(doc, { actor: actor2 })
-    const res2 = await executeCommand(docTab2, { kind: "createTask", parentId: todoCol.id, title: "Tab 2 Task" }, profile, actor2)
+    const res2 = await executeCommand(docTab2, { kind: "createItem", parentId: todoCol.id, title: "Tab 2 Item" }, profile, actor2)
     expect(res2.ok).toBe(true)
     if (!res2.ok) return
     await storage.commitTransaction("ws_stale", res2.value.receipt, Automerge.getLastLocalChange(res2.value.newDoc)!, res2.value.proof)
@@ -161,11 +181,11 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     // Reopening workspace must union both Tab 1 and Tab 2 changes!
     const reloaded = await storage.loadWorkspaceDoc("ws_stale")
     expect(reloaded).toBeDefined()
-    const tasks = Object.values(reloaded!.doc.entities).filter((e) => e.kind === "task")
-    expect(tasks).toHaveLength(2)
-    const titles = tasks.map((t) => t.title)
-    expect(titles).toContain("Tab 1 Task")
-    expect(titles).toContain("Tab 2 Task")
+    const items = Object.values(reloaded!.doc.entities).filter(isItem)
+    expect(items).toHaveLength(2)
+    const titles = items.map((t) => t.title)
+    expect(titles).toContain("Tab 1 Item")
+    expect(titles).toContain("Tab 2 Item")
   })
 
   it("compacts snapshot while preserving unseen concurrent writer chunks", async () => {
@@ -175,14 +195,14 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     const todoCol = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
 
     // Save Change 1
-    const res1 = await executeCommand(doc, { kind: "createTask", parentId: todoCol.id, title: "Task 1" }, profile)
+    const res1 = await executeCommand(doc, { kind: "createItem", parentId: todoCol.id, title: "Item 1" }, profile)
     if (!res1.ok) throw new Error("res1 failed")
     await storage.commitTransaction("ws_compact", res1.value.receipt, Automerge.getLastLocalChange(res1.value.newDoc)!, res1.value.proof)
 
     // Concurrently, an unseen writer saves Change 2 on original doc
     const unseenActor = "99999999999999999999999999999999"
     const unseenDoc = Automerge.clone(doc, { actor: unseenActor })
-    const resUnseen = await executeCommand(unseenDoc, { kind: "createTask", parentId: todoCol.id, title: "Unseen Writer Task" }, profile, unseenActor)
+    const resUnseen = await executeCommand(unseenDoc, { kind: "createItem", parentId: todoCol.id, title: "Unseen Writer Item" }, profile, unseenActor)
     if (!resUnseen.ok) throw new Error("resUnseen failed")
     await storage.commitTransaction("ws_compact", resUnseen.value.receipt, Automerge.getLastLocalChange(resUnseen.value.newDoc)!, resUnseen.value.proof)
 
@@ -195,11 +215,11 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
 
     // Reload unions the compacted snapshot and the unseen writer's change
     const reloaded = await storage.loadWorkspaceDoc("ws_compact")
-    const tasks = Object.values(reloaded!.doc.entities).filter((e) => e.kind === "task")
-    expect(tasks).toHaveLength(2)
-    const titles = tasks.map((t) => t.title)
-    expect(titles).toContain("Task 1")
-    expect(titles).toContain("Unseen Writer Task")
+    const items = Object.values(reloaded!.doc.entities).filter(isItem)
+    expect(items).toHaveLength(2)
+    const titles = items.map((t) => t.title)
+    expect(titles).toContain("Item 1")
+    expect(titles).toContain("Unseen Writer Item")
   })
 
   it("persists and reloads personal root document", async () => {
@@ -234,14 +254,14 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     expect(loaded?.workspaces["ws_test"].documentId).toBe("doc_test")
   })
 
-  it("exports v2 bundle with public proofs but without private keys, personal root, or invitation secrets (Task 2.5)", async () => {
+  it("exports v2 bundle with public proofs but without private keys, personal root, or invitation secrets (Requirement 2.5)", async () => {
     const rawWs = createWorkspaceDoc("ws_export", "Export Test", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const heads = Automerge.getHeads(doc).sort()
     const automergeBytes = Automerge.save(doc)
 
     const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
-    const res = await executeCommand(doc, { kind: "createTask", parentId: col.id, title: "Exported Task" }, profile)
+    const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Exported Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
 
@@ -283,7 +303,7 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
     await storage.saveSnapshot("ws_reload", doc, initialBytes)
 
     const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
-    const res = await executeCommand(doc, { kind: "createTask", parentId: col.id, title: "Persisted Task" }, profile)
+    const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Persisted Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
 
@@ -326,8 +346,8 @@ describe("Document & Change-hash persistence (Task 1.7)", () => {
 
     const loadedDoc = await freshStorage.loadWorkspaceDoc("ws_reload")
     expect(loadedDoc).toBeDefined()
-    const tasks = Object.values(loadedDoc!.doc.entities).filter((e) => e.kind === "task")
-    expect(tasks).toHaveLength(1)
-    expect(tasks[0].title).toBe("Persisted Task")
+    const items = Object.values(loadedDoc!.doc.entities).filter(isItem)
+    expect(items).toHaveLength(1)
+    expect(items[0].title).toBe("Persisted Item")
   })
 })

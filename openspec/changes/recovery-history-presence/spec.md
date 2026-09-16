@@ -17,7 +17,7 @@ Match targets small trusted groups. It does not claim Byzantine consensus. Signe
 ## Editable content history
 
 - Match SHALL expose native Automerge changes and their historical snapshots.
-- A writable user MAY restore a task to any recorded task version.
+- A writable user MAY restore an item to any recorded item version.
 - Restore SHALL create one new compensating Automerge change. Existing changes, hashes, proofs, and attribution remain immutable.
 - Restoring an earlier version SHALL remain reversible by restoring a later recorded version.
 - Concurrent changes SHALL merge normally. Restore never deletes or rewrites native history.
@@ -40,11 +40,11 @@ Match targets small trusted groups. It does not claim Byzantine consensus. Signe
 
 ## Scenarios
 
-### Restore historical task version
+### Restore historical item version
 
-- **GIVEN** a task moved after creation
-- **WHEN** user restores creation version from task history
-- **THEN** task returns to original column
+- **GIVEN** an item moved after creation
+- **WHEN** user restores creation version from item history
+- **THEN** item returns to original column
 - **AND** restore appears as another immutable history change
 - **AND** reload retains result
 
@@ -52,7 +52,7 @@ Match targets small trusted groups. It does not claim Byzantine consensus. Signe
 
 - **GIVEN** storage rejects writes
 - **WHEN** user restores historical version
-- **THEN** current task remains unchanged
+- **THEN** current item remains unchanged
 - **AND** dialog reports failure with retry available
 
 ### Typing and connection presence

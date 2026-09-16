@@ -1,4 +1,4 @@
-import type { EntityId, Task } from "./domain/model"
+import type { EntityId, Item } from "./domain/model"
 
 export type FilterRange = { min: string; max: string }
 
@@ -30,19 +30,19 @@ function matchesRange(value: unknown, range: FilterRange, kind: "number" | "date
   return (!range.min || value >= range.min) && (!range.max || value <= range.max)
 }
 
-export function matchesTaskFilters(task: Task, columnId: EntityId, filters: BoardFilters) {
+export function matchesItemFilters(item: Item, columnId: EntityId, filters: BoardFilters) {
   if (filters.columnId && filters.columnId !== columnId) return false
 
   for (const [fieldId, expected] of Object.entries(filters.fieldValues)) {
     if (!expected) continue
-    const actual = task.values[fieldId]
+    const actual = item.values[fieldId]
     if (expected === "__true" ? actual !== true : expected === "__false" ? actual !== false : actual !== expected) return false
   }
   for (const [fieldId, range] of Object.entries(filters.numberRanges)) {
-    if (!matchesRange(task.values[fieldId], range, "number")) return false
+    if (!matchesRange(item.values[fieldId], range, "number")) return false
   }
   for (const [fieldId, range] of Object.entries(filters.dateRanges)) {
-    if (!matchesRange(task.values[fieldId], range, "date")) return false
+    if (!matchesRange(item.values[fieldId], range, "date")) return false
   }
   return true
 }

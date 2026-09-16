@@ -3,6 +3,7 @@ import {
   type Rank,
   type WorkspaceEntity,
   type ProjectionIssue,
+  entityKind,
   validatePlacementParent,
 } from "./model"
 
@@ -154,7 +155,7 @@ export function getAncestryPath(
           },
         }
       }
-      const validParent = validatePlacementParent(entity.kind, parent.kind)
+      const validParent = validatePlacementParent(entityKind(entity), entityKind(parent))
       if (!validParent.ok) {
         return {
           path,
@@ -166,7 +167,7 @@ export function getAncestryPath(
         }
       }
     } else {
-      const validRoot = validatePlacementParent(entity.kind, null)
+      const validRoot = validatePlacementParent(entityKind(entity), null)
       if (!validRoot.ok) {
         return {
           path,

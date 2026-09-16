@@ -4,7 +4,7 @@ import type {
   CommandResult,
   WorkspaceDocumentV2,
   WorkspaceEntity,
-  Task,
+  Item,
   Column,
   Board,
   FieldDefinition,
@@ -133,8 +133,8 @@ export function createMigrationPlan(
     }
   }
 
-  // Migrate leads into tasks
-  let taskRank = 0
+  // Migrate leads into items
+  let itemRank = 0
   for (const lead of legacyWorkspace.leads) {
     const parentId = statusMap[lead.status] || leadColId
     const values: Record<string, any> = {}
@@ -155,18 +155,17 @@ export function createMigrationPlan(
       values[bindings["field.priority"]] = bindings[`option.priority.${lead.priority}`]
     }
 
-    const task: Task = {
+    const item: Item = {
       id: lead.id,
-      kind: "task",
       title: `${lead.company} — ${lead.role}`,
       body: lead.description || "",
-      placement: { parentId, rank: `${taskRank++}/1` },
+      placement: { parentId, rank: `${itemRank++}/1` },
       deleted: false,
       createdAt: lead.createdAt || new Date().toISOString(),
       updatedAt: lead.updatedAt || new Date().toISOString(),
       values,
     }
-    entities[lead.id] = task
+    entities[lead.id] = item
   }
 
   // Migrate documents

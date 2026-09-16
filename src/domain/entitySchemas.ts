@@ -38,7 +38,7 @@ export const columnSchema = z.strictObject({
   displayHint: z.enum(["normal", "collapsed"]),
   archive: z.literal(true).optional(),
 })
-export const taskSchema = z.strictObject({ ...common, kind: z.literal("task"), body: z.string(), values: z.record(z.string(), fieldValueSchema) })
+export const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema) })
 export const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, deleted: z.boolean() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
 export const fieldSchema = z.discriminatedUnion("valueType", [
@@ -60,8 +60,8 @@ export const artifactSchema = z.strictObject({
   ...common, kind: z.literal("artifact"), artifactKind: z.enum(["cv", "cover_letter"]), templateId: z.string(),
   pdf: fileReferenceSchema, sourceMarkdown: fileReferenceSchema.nullable(),
 })
-export const entitySchema = z.discriminatedUnion("kind", [
-  boardSchema, columnSchema, taskSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema,
+export const entitySchema = z.union([
+  boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema,
 ])
 export const workspaceSchema = z.strictObject({
   kind: z.literal("workspace"), formatVersion: z.literal(2), id, title: z.string(), deleted: z.boolean(), ownerPersonId: z.string(),
@@ -78,7 +78,7 @@ export type FieldValue = z.infer<typeof fieldValueSchema>
 export type PriorityRule = z.infer<typeof priorityRuleSchema>
 export type PriorityBand = z.infer<typeof priorityBandSchema>
 export type PriorityPolicy = z.infer<typeof priorityPolicySchema>
-export type Task = z.infer<typeof taskSchema>
+export type Item = z.infer<typeof itemSchema> & { readonly kind?: never }
 export type FieldOption = z.infer<typeof fieldOptionSchema>
 export type FieldDefinition = z.infer<typeof fieldSchema>
 export type FileReference = z.infer<typeof fileReferenceSchema>
@@ -86,5 +86,19 @@ export type AttachedDocument = z.infer<typeof documentSchema>
 export type DocumentTemplate = z.infer<typeof templateSchema>
 export type LegacyWritingTemplate = z.infer<typeof legacyTemplateSchema>
 export type PdfArtifact = z.infer<typeof artifactSchema>
-export type WorkspaceEntity = z.infer<typeof entitySchema>
-export type WorkspaceDocumentV2 = z.infer<typeof workspaceSchema>
+export type WorkspaceEntity = Board | Column | Item | FieldDefinition | AttachedDocument | DocumentTemplate | LegacyWritingTemplate | PdfArtifact
+export type WorkspaceDocumentV2 = Omit<z.infer<typeof workspaceSchema>, "entities"> & { entities: Record<string, WorkspaceEntity> }
+
+export type EntityKind = Exclude<WorkspaceEntity, Item>["kind"] | "item"
+
+export function isItem(entity: unknown): entity is Item {
+  if (!entity || typeof entity !== "object") return false
+  const candidate = entity as Record<string, unknown>
+  return typeof candidate.id === "string" && typeof candidate.title === "string" &&
+    typeof candidate.body === "string" && Boolean(candidate.values) && typeof candidate.values === "object" &&
+    Boolean(candidate.placement) && typeof candidate.placement === "object"
+}
+
+export function entityKind(entity: WorkspaceEntity): EntityKind {
+  return isItem(entity) ? "item" : entity.kind
+}

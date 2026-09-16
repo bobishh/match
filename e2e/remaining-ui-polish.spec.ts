@@ -11,7 +11,7 @@ async function createBlankBoard(page: Page, title: string) {
   await dialog.getByRole("button", { name: "Create" }).click()
 }
 
-async function addTask(page: Page, title: string) {
+async function addItem(page: Page, title: string) {
   await page.getByRole("region", { name: "To do" }).getByRole("button", { name: "Add item to To do" }).click()
   const dialog = page.getByRole("dialog", { name: "Item details" })
   await dialog.getByLabel("Title *").fill(title)
@@ -19,30 +19,30 @@ async function addTask(page: Page, title: string) {
   await expect(page.getByRole("button", { name: `Open ${title}` })).toBeVisible()
 }
 
-test("Given an archived task, when Undo is pressed, then it returns to its original column and position", async ({ page }) => {
+test("Given an archived item, when Undo is pressed, then it returns to its original column and position", async ({ page }) => {
   await createBlankBoard(page, "Archive undo board")
-  await addTask(page, "First task")
-  await addTask(page, "Second task")
+  await addItem(page, "First item")
+  await addItem(page, "Second item")
 
-  await page.getByRole("button", { name: "Open First task" }).click()
-  await page.getByRole("dialog", { name: "Task overview" }).getByRole("button", { name: "Archive task" }).click()
+  await page.getByRole("button", { name: "Open First item" }).click()
+  await page.getByRole("dialog", { name: "Item overview" }).getByRole("button", { name: "Archive item" }).click()
   const notice = page.getByRole("status").filter({ hasText: "Item archived" })
   await expect(notice.getByRole("button", { name: "Undo" })).toBeVisible()
   await notice.getByRole("button", { name: "Undo" }).click()
 
   const cards = page.getByRole("region", { name: "To do" }).locator(".lead-card")
   await expect(cards).toHaveCount(2)
-  await expect(cards.first()).toContainText("First task")
+  await expect(cards.first()).toContainText("First item")
 })
 
-test("Given archive persistence fails, when a task is archived, then the task remains visible and the failure is honest", async ({ page }) => {
+test("Given archive persistence fails, when an item is archived, then the item remains visible and the failure is honest", async ({ page }) => {
   await createBlankBoard(page, "Archive failure board")
-  await addTask(page, "Durable task")
-  await page.getByRole("button", { name: "Open Durable task" }).click()
+  await addItem(page, "Durable item")
+  await page.getByRole("button", { name: "Open Durable item" }).click()
   await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
-  await page.getByRole("dialog", { name: "Task overview" }).getByRole("button", { name: "Archive task" }).click()
+  await page.getByRole("dialog", { name: "Item overview" }).getByRole("button", { name: "Archive item" }).click()
 
-  await expect(page.getByRole("dialog", { name: "Task overview" }).getByRole("alert")).toContainText("Archive failed")
+  await expect(page.getByRole("dialog", { name: "Item overview" }).getByRole("alert")).toContainText("Archive failed")
 })
 
 test("Given a mobile board, when navigating columns, then the next column peeks and the switcher changes the active column", async ({ page }) => {
@@ -141,9 +141,9 @@ test("Given a lead dragged to Archive, when Undo fails then retries, then its or
 
 test("Given an archived item, when the workspace changes, then its Undo cannot act on the new board", async ({ page }) => {
   await createBlankBoard(page, "Undo source")
-  await addTask(page, "Archived here")
+  await addItem(page, "Archived here")
   await page.getByRole("button", { name: "Open Archived here", exact: true }).click()
-  await page.getByRole("button", { name: "Archive task", exact: true }).click()
+  await page.getByRole("button", { name: "Archive item", exact: true }).click()
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Open workspaces", exact: true }).click()
   await page.getByRole("dialog", { name: "Workspaces", exact: true }).getByRole("button", { name: "Untitled", exact: true }).click()

@@ -575,7 +575,7 @@ function handleConfirmApply() {
               <h4 class="preview-danger">Soft-Deleted Columns</h4>
               <ul>
                 <li v-for="c in schemaDiff.columnsSoftDeleted" :key="c.id">
-                  Soft delete: Column "{{ c.title }}" ({{ c.retainedTaskCount }} card{{ c.retainedTaskCount === 1 ? '' : 's' }} will be retained in trash)
+                  Soft delete: Column "{{ c.title }}" ({{ c.retainedItemCount }} card{{ c.retainedItemCount === 1 ? '' : 's' }} will be retained in trash)
                 </li>
               </ul>
             </div>

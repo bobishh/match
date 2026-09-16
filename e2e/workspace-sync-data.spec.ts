@@ -209,7 +209,7 @@ test("Given three workspaces, when sharing A and B while viewing Private, then o
   }
 })
 
-test("Given a sender without mesh support, when joining, then request an update before importing its tasks", async ({ browser, page }) => {
+test("Given a sender without mesh support, when joining, then request an update before importing its items", async ({ browser, page }) => {
   test.setTimeout(45_000)
   await page.route("**/src/sync/useDeviceSync.ts", async route => {
     const response = await route.fetch()
@@ -219,7 +219,7 @@ test("Given a sender without mesh support, when joining, then request an update 
     await route.fulfill({ response, body: legacy })
   })
   await page.goto("/")
-  await addLead(page, "Legacy sender task")
+  await addLead(page, "Legacy sender item")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
   await host.getByRole("button", { name: "Add someone" }).click()
@@ -235,7 +235,7 @@ test("Given a sender without mesh support, when joining, then request an update 
     await page.getByRole("button", { name: "Approve access" }).click()
     await expect(dialog.getByRole("alert")).toHaveText("The other device needs an update. Reload it and generate a new invitation.", { timeout: 25_000 })
     await dialog.getByRole("button", { name: "Dismiss" }).click()
-    await expect(guest.getByRole("button", { name: "Open Legacy sender task — Engineer" })).toHaveCount(0)
+    await expect(guest.getByRole("button", { name: "Open Legacy sender item — Engineer" })).toHaveCount(0)
   } finally {
     await context.close()
   }

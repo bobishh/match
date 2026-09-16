@@ -23,9 +23,9 @@ If steps 1-6 fail, the previously committed state remains authoritative. Retryin
 | setWorkspaceDeleted | deleted | Soft-delete/restore shared workspace; owner only |
 | createBoard | title, preset | Seed board/columns/fields in one workspace transaction |
 | createColumn | boardId, title, beforeId or null | Create live column under board at requested order |
-| createTask | parentId, title, body?, values? | Parent column/task on a valid live board; validate board fields |
-| patchTask | entityId, title?, body?, values? | Patch supplied fields only; omitted values unchanged; null clears |
-| moveEntity | entityId, parentId, beforeId or null | Column reorder within same board; task move/nesting within same board; replace placement atomically |
+| createItem | parentId, title, body?, values? | Parent column/item on a valid live board; validate board fields |
+| patchItem | entityId, title?, body?, values? | Patch supplied fields only; omitted values unchanged; null clears |
+| moveEntity | entityId, parentId, beforeId or null | Column reorder within same board; item move/nesting within same board; replace placement atomically |
 | renameEntity | entityId, title | Rename existing entity without changing ID or links |
 | setEntityDeleted | entityId, deleted | Change only own flag; restore may report hidden ancestor without moving |
 | restoreAndMove | entityId, parentId, beforeId or null | Restore and assign valid live placement in one transaction |
@@ -33,12 +33,12 @@ If steps 1-6 fail, the previously committed state remains authoritative. Retryin
 | patchField | fieldId, title?, required?, min?, max? | Keep stored values; newly invalid existing values show validation issues |
 | createFieldOption | fieldId, title, beforeId or null | Select field only; stable UUID option |
 | patchFieldOption | fieldId, optionId, title?, deleted? | Preserve existing selected option IDs; deleted choice no longer selectable |
-| addDocument / patchDocument | taskId or entityId, typed document fields | Preserve old attached notes/files; parent must be task |
+| addDocument / patchDocument | itemId or entityId, typed document fields | Preserve old attached notes/files; parent must be item |
 | createTemplate / patchTemplate | typed template fields | Workspace-root entity; deleting template does not delete artifacts |
 | updateWorkspaceSettings | settings, expectedHeads? | Validate full typed configuration; patch title/board/columns/fields/templates in one change; omissions soft-delete |
-| recordArtifact | taskId, templateId, title, artifactKind, pdf, sourceMarkdown? | Match live template kind when creating; retain reference after later template deletion |
+| recordArtifact | itemId, templateId, title, artifactKind, pdf, sourceMarkdown? | Match live template kind when creating; retain reference after later template deletion |
 
-Only `moveEntity`, `restoreAndMove`, and creation write placement. `patchTask` cannot alter kind, ID, creation time, parent, or deleted flag. `renameEntity` requires non-empty title after trim. Schema-derived fields are validated only against the containing board; unknown field IDs fail.
+Only `moveEntity`, `restoreAndMove`, and creation write placement. `patchItem` cannot alter kind, ID, creation time, parent, or deleted flag. `renameEntity` requires non-empty title after trim. Schema-derived fields are validated only against the containing board; unknown field IDs fail.
 
 New select values store option UUIDs, never option labels. New URL values require http/https; dates use `YYYY-MM-DD`; numbers must be finite and within optional bounds; booleans are true/false. Missing/null optional fields are empty. Required fields reject empty/null on create/update. Soft-deleted fields no longer participate in required validation, but their values remain. Previously stored invalid values caused by a changed definition are displayed with an issue, not coerced or erased. Field type changes return `field_type_change`; create a replacement field explicitly instead. Existing select values whose options were deleted display the retained option label plus an unavailable marker.
 
@@ -54,31 +54,31 @@ Structural or field-definition edits by editors are allowed. Identity, grants, s
 - `listTrash`: own-deleted entities and deleted workspace header; identify any deleted ancestor.
 - `listPlacementIssues`: recovery entries, including hidden descendants affected by invalid ancestry.
 - `history(entityId?)`: native changes and verified author/device mapping; legacy changes explicitly unattributed.
-- `getGenerationContext(taskId, templateId)`: current task context + Markdown template; no artifact created.
-- `getWorkspaceSettings`: full editable configuration projection plus current heads; no tasks, identity, trust, sync state, or history payloads.
+- `getGenerationContext(itemId, templateId)`: current item context + Markdown template; no artifact created.
+- `getWorkspaceSettings`: full editable configuration projection plus current heads; no items, identity, trust, sync state, or history payloads.
 
 ## Legacy tool adapter
 
-Existing lead commands keep working only against a selected job-search board with valid preset bindings. They translate old `status` names to bound column IDs and old lead fields to bound field IDs. Preserve old create validation for company/role and exact duplicate URL/company+role behavior. Generic commands impose no job-search requirement. A missing/deleted binding yields an actionable error, never silently creates another column. Legacy list operations report only tasks on that board; a nested task's legacy status is its ancestor column. Keep existing template/artifact tool names as aliases where payloads still map losslessly.
+Existing lead commands keep working only against a selected job-search board with valid preset bindings. They translate old `status` names to bound column IDs and old lead fields to bound field IDs. Preserve old create validation for company/role and exact duplicate URL/company+role behavior. Generic commands impose no job-search requirement. A missing/deleted binding yields an actionable error, never silently creates another column. Legacy list operations report only items on that board; a nested item's legacy status is its ancestor column. Keep existing template/artifact tool names as aliases where payloads still map losslessly.
 
 ## Legacy migration table
 
 | Legacy source | v2 target |
 | --- | --- |
 | Workspace without ID | New UUID allocated once in durable migration plan |
-| `lead.id` | Same entity ID, `kind: task` |
-| company + role | Initial task title `${company} — ${role}` plus separate text fields preserving original strings |
-| `lead.status` | Task placement referencing seeded column through bindings `status.lead`, `status.applied`, etc. |
+| `lead.id` | Same entity ID; item recognized structurally by body, values, and placement |
+| company + role | Initial item title `${company} — ${role}` plus separate text fields preserving original strings |
+| `lead.status` | Item placement referencing seeded column through bindings `status.lead`, `status.applied`, etc. |
 | `archived`, `rejected`, `bin` | Single live column with `archive: true`; collapsed presentation is derived |
 | unknown status | Live "Unsorted" column, created once in plan; preserve original status in a legacy-status text field |
 | url, location, notes, sourceText | Corresponding optional URL/text fields, exact stored strings preserved |
-| description | Task body |
+| description | Item body |
 | workMode | Select option UUID mapped from remote/hybrid/onsite/unknown |
 | priority | Select option UUID mapped from p0/p1/p2/p3 |
 | fitScore | Number field, optional; preset bounds 0..10 |
-| document.id / leadId | Same document ID; parent task ID unchanged |
+| document.id / leadId | Same document ID; parent item ID unchanged |
 | template.id / name / kind | Same template ID; title/name mapping; root placement; typed templateKind |
-| artifact.id / leadId / templateId | Same artifact ID; parent task and template provenance links unchanged |
+| artifact.id / leadId / templateId | Same artifact ID; parent item and template provenance links unchanged |
 | localPath / pdfPath / sourceMarkdownPath | Device-local file location plus portable fileId reference; no claim that bytes are embedded |
 | createdAt / updatedAt | Exact original values |
 

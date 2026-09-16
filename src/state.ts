@@ -3,11 +3,12 @@ import { assertWorkspaceTransition } from "./domain/permissions"
 import { computed, reactive, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
-import { defaultStorage, WorkspaceStorage, loadWorkspaceRecord, saveWorkspace, saveWorkspaceRecord, type WorkspaceRecord } from "./storage"
+import { defaultStorage, WorkspaceStorage, loadWorkspaceRecord, normalizeItemEntities, saveWorkspace, saveWorkspaceRecord, type WorkspaceRecord } from "./storage"
 import { bootstrapIdentity, sha256Base64Url, type LocalProfile } from "./domain/identity"
 import { createPersonalRoot, registerWorkspaceInRoot, reconcilePersonalRootWorkspaces } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { validateWorkspaceDoc } from "./domain/model"
+import { isItem } from "./domain/model"
 import { applyMigrationPlan, createMigrationPlan } from "./domain/migration"
 import { executeCommand, type Command } from "./domain/commands"
 import type {
@@ -15,7 +16,7 @@ import type {
   WorkspaceEntity,
   Board,
   Column,
-  Task,
+  Item,
   FieldDefinition,
   AttachedDocument,
   DocumentTemplate,
@@ -38,7 +39,7 @@ import type {
 } from "./types"
 import { normalizeWorkspace, statusOrder } from "./types"
 import { getVisibleChildren, derivePlacementIssues, getChildren, isEntityVisible } from "./domain/ancestry"
-import { projectTaskPriority } from "./domain/priority"
+import { projectItemPriority } from "./domain/priority"
 
 const workspace = reactive<Workspace>({ leads: [], documents: [], templates: [], artifacts: [] })
 const ready = reactive({ value: false })
@@ -131,14 +132,14 @@ function projectWorkspace(doc: Automerge.Doc<WorkspaceDocumentV2>): Workspace {
     }
   }
 
-  const tasks = Object.values(doc.entities).filter(
-    (e): e is Task => e.kind === "task" && isEntityVisible(doc.entities, e.id)
+  const items = Object.values(doc.entities).filter(
+    (e): e is Item => isItem(e) && isEntityVisible(doc.entities, e.id)
   )
 
   const leads: Lead[] = []
-  for (const sourceTask of tasks) {
-    const task = projectTaskPriority(board, sourceTask)
-    let colId: string | null = task.placement.parentId
+  for (const sourceItem of items) {
+    const item = projectItemPriority(board, sourceItem)
+    let colId: string | null = item.placement.parentId
     let curr: WorkspaceEntity | undefined = colId ? doc.entities[colId] : undefined
     const visited = new Set<string>()
     while (curr && curr.kind !== "column") {
@@ -154,27 +155,27 @@ function projectWorkspace(doc: Automerge.Doc<WorkspaceDocumentV2>): Workspace {
     if (!col) continue
     const status: LeadStatus = (col && colIdToStatus[col.id]) || "lead"
 
-    // Parse company & role from task title or values
-    let company = task.title
+    // Parse company & role from item title or values
+    let company = item.title
     let role = ""
-    if (task.title.includes(" — ")) {
-      const parts = task.title.split(" — ")
+    if (item.title.includes(" — ")) {
+      const parts = item.title.split(" — ")
       company = parts[0]
       role = parts.slice(1).join(" — ")
     }
 
     const lead: Lead = {
-      id: task.id,
+      id: item.id,
       company,
       role,
       status,
-      description: task.body,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
+      description: item.body,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
     }
 
     // Map custom values to lead fields
-    for (const [fieldId, val] of Object.entries(task.values)) {
+    for (const [fieldId, val] of Object.entries(item.values)) {
       const fieldName = fieldIdToName[fieldId]
       if (!fieldName || val === null) continue
       if (fieldName === "company") lead.company = String(val)
@@ -294,7 +295,7 @@ export async function hydrate(storage = defaultStorage) {
       legacyWorkspace.artifacts.length > 0
     const loadedHasContent = loaded
       ? Object.values(loaded.doc.entities ?? {}).some((entity) =>
-          entity.kind === "task" ||
+          isItem(entity) ||
           entity.kind === "document" ||
           entity.kind === "document_template" ||
           entity.kind === "template" ||
@@ -355,7 +356,7 @@ export async function hydrate(storage = defaultStorage) {
   // Handle fixture injection if present (e.g. in e2e/recovery.spec.ts)
   if (typeof window !== "undefined" && (window as any).__MATCH_INJECT_FIXTURE__) {
     const fixture = (window as any).__MATCH_INJECT_FIXTURE__
-    if (fixture.tasks && activeDoc) {
+    if (fixture.items && activeDoc) {
       activeDoc = Automerge.change(activeDoc, (draft) => {
         const board = Object.values(draft.entities).find((e): e is Board => e.kind === "board")
         if (board) {
@@ -375,10 +376,9 @@ export async function hydrate(storage = defaultStorage) {
             }
           }
         }
-        for (const t of fixture.tasks) {
+        for (const t of fixture.items) {
           draft.entities[t.id] = {
             id: t.id,
-            kind: "task",
             title: t.title,
             body: "",
             placement: { parentId: t.parentId, rank: "0/1" },
@@ -523,18 +523,18 @@ export function useMatch() {
       .filter((e): e is Column => e.kind === "column" && !e.deleted)
 
     return cols.map((col) => {
-      const tasks = getVisibleChildren(activeDoc!.entities, col.id)
-        .filter((e): e is Task => e.kind === "task")
+      const items = getVisibleChildren(activeDoc!.entities, col.id)
+        .filter((e): e is Item => isItem(e))
 
       return {
         ...col,
-        tasks: tasks.map((sourceTask) => {
-          const task = projectTaskPriority(activeBoard.value, sourceTask)
-          const subtasks = getChildren(activeDoc!.entities, task.id)
-            .filter((e): e is Task => e.kind === "task" && !e.deleted)
+        items: items.map((sourceItem) => {
+          const item = projectItemPriority(activeBoard.value, sourceItem)
+          const subitems = getChildren(activeDoc!.entities, item.id)
+            .filter((e): e is Item => isItem(e) && !e.deleted)
           return {
-            ...task,
-            subtasks,
+            ...item,
+            subitems,
           }
         }),
       }
@@ -689,18 +689,18 @@ export function useMatch() {
     }
 
     const title = `${input.company} — ${input.role}`
-    const taskId = (input as any).id ?? crypto.randomUUID()
+    const itemId = (input as any).id ?? crypto.randomUUID()
     await commitAndPersist({
-      kind: "createTask",
-      id: taskId,
+      kind: "createItem",
+      id: itemId,
       parentId: colId,
       title,
       body: input.description ?? "",
       values,
     })
 
-    const created = workspace.leads.find((l) => l.id === taskId) ?? {
-      id: taskId,
+    const created = workspace.leads.find((l) => l.id === itemId) ?? {
+      id: itemId,
       company: input.company,
       role: input.role,
       status: input.status,
@@ -763,7 +763,7 @@ export function useMatch() {
     const newTitle = newCompany && newRole ? `${newCompany} — ${newRole}` : undefined
 
     void commitAndPersist({
-      kind: "patchTask",
+      kind: "patchItem",
       entityId: leadId,
       title: newTitle,
       body: patch.description,
@@ -794,7 +794,7 @@ export function useMatch() {
     await commitAndPersist({
       kind: "addDocument",
       id: docId,
-      taskId: input.leadId,
+      itemId: input.leadId,
       documentKind: input.kind,
       title: input.title,
       format: input.format,
@@ -885,7 +885,7 @@ export function useMatch() {
     await commitAndPersist({
       kind: "recordArtifact",
       id: artId,
-      taskId: input.leadId,
+      itemId: input.leadId,
       templateId: input.templateId,
       title: input.title,
       artifactKind: input.kind,
@@ -981,7 +981,7 @@ export function useMatch() {
       await useMatch().mergeScopedWorkspaceBytes(id, bytes)
     },
     async mergeScopedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
-      const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
+      const remote = normalizeItemEntities(Automerge.load<WorkspaceDocumentV2>(bytes))
       if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
       let local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
       let merged = remote
@@ -1023,15 +1023,15 @@ export function useMatch() {
     },
     async mergeRemoteBytes(bytes: Uint8Array, storage = defaultStorage): Promise<void> {
       if (!activeDoc) return
-      const remoteDoc = Automerge.load<WorkspaceDocumentV2>(bytes)
+      const remoteDoc = normalizeItemEntities(Automerge.load<WorkspaceDocumentV2>(bytes))
       let merged: WorkspaceDocumentV2
 
-      const localHasTasks = Object.values(activeDoc.entities ?? {}).some((e) => e.kind === "task" && !e.deleted)
-      const remoteHasTasks = Object.values(remoteDoc.entities ?? {}).some((e) => e.kind === "task" && !e.deleted)
+      const localHasItems = Object.values(activeDoc.entities ?? {}).some((e) => isItem(e) && !e.deleted)
+      const remoteHasItems = Object.values(remoteDoc.entities ?? {}).some((e) => isItem(e) && !e.deleted)
 
-      if (localHasTasks && !remoteHasTasks) {
+      if (localHasItems && !remoteHasItems) {
         merged = activeDoc
-      } else if (!localHasTasks && remoteHasTasks) {
+      } else if (!localHasItems && remoteHasItems) {
         merged = remoteDoc
       } else {
         try {

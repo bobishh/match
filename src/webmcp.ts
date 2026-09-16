@@ -3,10 +3,10 @@ import * as Automerge from "@automerge/automerge/slim"
 import type { Artifact, ArtifactInput, ArtifactKind, Document, DocumentInput, Lead, LeadInput, LeadPriority, LeadStatus, Workspace } from "./types"
 import { artifactKindLabels, statusLabels } from "./types"
 import type { Command } from "./domain/commands"
-import type { WorkspaceDocumentV2, WorkspaceEntity, Task, Column, Board } from "./domain/model"
+import { entityKind, isItem, type WorkspaceDocumentV2, type WorkspaceEntity, type Item, type Column, type Board } from "./domain/model"
 import { isEntityVisible } from "./domain/ancestry"
 import { projectWorkspaceSettings, type WorkspaceSettingsDraft } from "./domain/workspaceSettings"
-import { projectTaskPriority } from "./domain/priority"
+import { projectItemPriority } from "./domain/priority"
 
 export type ModelContext = {
   registerTool: (tool: {
@@ -358,9 +358,9 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
   })
 
   await register({
-    name: "list_tasks",
-    title: "List tasks",
-    description: "List visible non-deleted tasks in the active workspace. Supports filtering by parent column or search text.",
+    name: "list_items",
+    title: "List items",
+    description: "List visible non-deleted items in the active workspace. Supports filtering by parent column or search text.",
     inputSchema: {
       type: "object",
       properties: {
@@ -381,8 +381,8 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
       const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.deleted)
 
       return Object.values(doc.entities)
-        .filter((e): e is Task => e.kind === "task" && isEntityVisible(doc.entities, e.id))
-        .map(task => projectTaskPriority(board, task))
+        .filter((e): e is Item => isItem(e) && isEntityVisible(doc.entities, e.id))
+        .map(item => projectItemPriority(board, item))
         .filter((t) => (!parentId || t.placement.parentId === parentId))
         .filter((t) => (!search || `${t.title} ${t.body}`.toLowerCase().includes(search)))
         .map((t) => ({
@@ -420,9 +420,9 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
   })
 
   await register({
-    name: "create_task",
-    title: "Create task",
-    description: "Create a new task under a parent column or parent task.",
+    name: "create_item",
+    title: "Create item",
+    description: "Create a new item under a parent column or parent item.",
     inputSchema: {
       type: "object",
       properties: {
@@ -446,7 +446,7 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
       if (store.executeCommandAsync) {
         const id = crypto.randomUUID()
         await store.executeCommandAsync({
-          kind: "createTask",
+          kind: "createItem",
           id,
           parentId,
           title,
@@ -460,9 +460,9 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
   })
 
   await register({
-    name: "patch_task",
-    title: "Patch task",
-    description: "Update title, body, or custom field values of an existing task.",
+    name: "patch_item",
+    title: "Patch item",
+    description: "Update title, body, or custom field values of an existing item.",
     inputSchema: {
       type: "object",
       properties: {
@@ -485,7 +485,7 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
 
       if (store.executeCommandAsync) {
         await store.executeCommandAsync({
-          kind: "patchTask",
+          kind: "patchItem",
           entityId,
           title,
           body,
@@ -500,7 +500,7 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
   await register({
     name: "move_entity",
     title: "Move entity",
-    description: "Reorder or move an entity to a new parent column or task.",
+    description: "Reorder or move an entity to a new parent column or item.",
     inputSchema: {
       type: "object",
       properties: {
@@ -640,18 +640,18 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
     execute() {
       if (store.trashItems) {
         const list = Array.isArray(store.trashItems) ? store.trashItems : store.trashItems.value ?? []
-        return list.map((item: any) => ({
-          id: item.entity?.id ?? item.id,
-          title: item.entity?.title ?? item.title,
-          kind: item.entity?.kind ?? item.kind,
-          parentTitle: item.parentTitle,
+        return list.map((entry: any) => ({
+          id: entry.entity?.id ?? entry.id,
+          title: entry.entity?.title ?? entry.title,
+          kind: entityKind(entry.entity ?? entry),
+          parentTitle: entry.parentTitle,
         }))
       }
       const doc = store.getActiveDoc?.()
       if (!doc) return []
       return Object.values(doc.entities)
         .filter((e) => e.deleted)
-        .map((e) => ({ id: e.id, title: e.title, kind: e.kind }))
+        .map((e) => ({ id: e.id, title: e.title, kind: entityKind(e) }))
     },
   })
 

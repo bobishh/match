@@ -11,9 +11,9 @@ import { downloadWorkspaceBundle, readWorkspaceBundle, defaultStorage } from "./
 import { exportWorkspaceBundleV2, readWorkspaceBundleV2 } from "./domain/migration"
 import { defaultProofStore } from "./domain/proofs"
 import { hydrate, useMatch } from "./state"
-import type { ArtifactKind, DocumentKind, Lead, LeadInput, LeadPriority, LeadStatus } from "./types"
+import type { ArtifactKind, DocumentKind, Lead, LeadPriority, LeadStatus } from "./types"
 import { artifactKindLabels, documentKindLabels, priorityLabels, statusLabels } from "./types"
-import type { Task, Column, FieldValue } from "./domain/model"
+import { isItem, type Item, type Column, type FieldValue } from "./domain/model"
 import { registerWebMcp } from "./webmcp"
 import SyncDialog from "./components/SyncDialog.vue"
 import LeadFilters from "./components/LeadFilters.vue"
@@ -27,19 +27,17 @@ import { useWorkspaceChat } from "./chat/useWorkspaceChat"
 import type { BoardSchemaDraft } from "./domain/schema"
 import { isArchiveColumn } from "./domain/archive"
 import type { WorkspaceSettingsDraft } from "./domain/workspaceSettings"
-import TaskFormDialog from "./components/TaskFormDialog.vue"
-import TaskEditDialog from "./components/TaskEditDialog.vue"
-import TaskDetailDialog from "./components/TaskDetailDialog.vue"
-import MoveTaskDialog from "./components/MoveTaskDialog.vue"
+import ItemFormDialog from "./components/ItemFormDialog.vue"
+import ItemDetailDialog from "./components/ItemDetailDialog.vue"
+import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
-import { activeFilterCount, defaultBoardFilters, matchesTaskFilters, type BoardFilters } from "./filters"
+import { activeFilterCount, defaultBoardFilters, matchesItemFilters, type BoardFilters } from "./filters"
 import { useDeviceSync } from "./sync/useDeviceSync"
 import { projectEntityHistory } from "./domain/history"
-import { useDelayedFlag } from "./ui/useDelayedFlag"
 import { hideLeavingElement, showEnteringElement } from "./ui/modal"
 import { describeUserAgent } from "./ui/deviceInfo"
-import { orderTasksByPriority } from "./domain/priority"
+import { orderItemsByPriority } from "./domain/priority"
 
 const {
   workspace,
@@ -87,14 +85,13 @@ const {
 const selectedLeadId = ref<string | null>(null)
 const detailDialog = ref<HTMLElement | null>(null)
 const importInput = ref<HTMLInputElement | null>(null)
-const showLeadForm = ref(false)
 const showDocumentForm = ref(false)
 const showArtifactForm = ref(false)
 const search = ref("")
 const filters = ref<BoardFilters>(defaultBoardFilters())
 const notice = ref("")
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
-type ArchiveUndo = { workspaceId: string; taskId: string; title: string; action: "restore" } | { workspaceId: string; taskId: string; title: string; action: "move"; parentId: string; beforeId: string | null }
+type ArchiveUndo = { workspaceId: string; itemId: string; title: string; action: "restore" } | { workspaceId: string; itemId: string; title: string; action: "move"; parentId: string; beforeId: string | null }
 const archiveUndo = ref<ArchiveUndo | null>(null)
 const undoSaving = ref(false)
 const archiveError = ref("")
@@ -116,21 +113,18 @@ let columnSortable: Sortable | null = null
 let cardSortables: Sortable[] = []
 let cardTouchPoint: { x: number; y: number } | null = null
 let removeCardTouchTracking: (() => void) | null = null
-const movedTaskId = ref<string | null>(null)
+const movedItemId = ref<string | null>(null)
 const movedColumnId = ref<string | null>(null)
 let movedHighlightTimer: ReturnType<typeof setTimeout> | undefined
 const activeMobileColumnIndex = ref(0)
-const showTaskForm = ref(false)
-const taskFormParentId = ref("")
-const taskFormError = ref("")
-const leadFormError = ref("")
+const showItemForm = ref(false)
+const itemFormParentId = ref("")
+const itemFormError = ref("")
 const savingItem = ref(false)
-const showItemSaving = useDelayedFlag(() => savingItem.value)
 const editingColumn = ref<Column | null>(null)
-const selectedTaskId = ref<string | null>(null)
-const editingTaskId = ref<string | null>(null)
-const taskEditError = ref("")
-const taskToMove = ref<Task | null>(null)
+const selectedItemId = ref<string | null>(null)
+const editingItemId = ref<string | null>(null)
+const itemToMove = ref<Item | null>(null)
 const showMoveDialog = ref(false)
 const storageError = ref("")
 const hasExperimentalMcp = ref(false)
@@ -139,7 +133,22 @@ const menuButtonRef = ref<HTMLButtonElement | null>(null)
 const workspaceLabel = computed(() => activeWorkspace.title.toLowerCase() === "job search" ? "jobs" : activeWorkspace.title)
 const entityName = computed(() => activeBoard.value?.entityName || (activeBoard.value?.preset?.key === "job-search" ? "lead" : "item"))
 const addItemLabel = computed(() => `+ Add ${entityName.value}`)
-const automaticPriorityEnabled = computed(() => Boolean(activeBoard.value?.priorityPolicy))
+const itemFormColumns = computed(() => genericColumns.value.map(column => ({
+  ...column,
+  formValue: isBlankBoard.value ? column.id : columnStatus(column.id) ?? column.id,
+})))
+const itemFormParentValue = computed(() => isBlankBoard.value
+  ? itemFormParentId.value
+  : columnStatus(itemFormParentId.value) ?? itemFormParentId.value)
+const computedItemFieldIds = computed(() => {
+  const policy = activeBoard.value?.priorityPolicy
+  return policy ? [policy.priorityFieldId, policy.fitFieldId].filter((id): id is string => Boolean(id)) : []
+})
+const itemFormOptionValues = computed(() => Object.fromEntries(
+  Object.entries(activeBoard.value?.preset?.bindings ?? {})
+    .filter(([binding]) => binding.startsWith("option."))
+    .map(([binding, optionId]) => [optionId, binding.split(".").at(-1)!]),
+))
 
 function toggleMobileMenu() {
   showMobileMenu.value = !showMobileMenu.value
@@ -322,21 +331,6 @@ async function revokeWorkspacePeer(personId: string) {
   finally { revokingPeer.value = "" }
 }
 
-const newLead = ref<LeadInput>({
-  company: "",
-  role: "",
-  url: "",
-  location: "Berlin / remote",
-  workMode: "remote",
-  status: "lead",
-  priority: "p2",
-  rejectionReason: "",
-  fitScore: undefined,
-  description: "",
-  notes: "",
-  sourceText: "",
-})
-
 const newDocument = ref({
   kind: "note" as DocumentKind,
   title: "",
@@ -355,17 +349,21 @@ const artifactDraft = ref({
 })
 
 const selectedLead = computed(() => workspace.leads.find((lead) => lead.id === selectedLeadId.value) ?? null)
+const selectedLeadItem = computed(() => {
+  const entity = selectedLeadId.value ? getActiveDoc()?.entities[selectedLeadId.value] : null
+  return isItem(entity) ? entity : null
+})
 const selectedDocuments = computed(() => selectedLead.value ? documentsFor(selectedLead.value.id) : [])
 const selectedArtifacts = computed(() => selectedLead.value ? artifactsFor(selectedLead.value.id) : [])
 const availableArtifactTemplates = computed(() => workspace.templates)
 const totalDocuments = computed(() => workspace.documents.length + workspace.artifacts.length)
-const totalTasks = computed(() => genericColumns.value.reduce((total, column) => total + column.tasks.length, 0))
-const visibleTasks = computed(() => genericColumns.value.reduce((total, column) => total + tasksForColumn(column).length, 0))
+const totalItems = computed(() => genericColumns.value.reduce((total, column) => total + column.items.length, 0))
+const visibleItems = computed(() => genericColumns.value.reduce((total, column) => total + itemsForColumn(column).length, 0))
 const hasFilters = computed(() => Boolean(search.value.trim()) || activeFilterCount(filters.value) > 0)
 const workspacePresenceSummary = computed(() => {
   const cards = hasFilters.value
-    ? `${visibleTasks.value} of ${totalTasks.value} cards`
-    : `${totalTasks.value} ${totalTasks.value === 1 ? "card" : "cards"}`
+    ? `${visibleItems.value} of ${totalItems.value} cards`
+    : `${totalItems.value} ${totalItems.value === 1 ? "card" : "cards"}`
   const docs = `${totalDocuments.value} ${totalDocuments.value === 1 ? "doc" : "docs"}`
   const devices = onlineWorkspaceDevices.value
   return `${cards} · ${docs} · ${devices} ${devices === 1 ? "device" : "devices"}`
@@ -374,7 +372,7 @@ const visibleColumns = computed(() => {
   if (!hasFilters.value || isEditingBoard.value) return genericColumns.value
   // An explicitly selected empty state remains a useful destination for new cards.
   if (filters.value.columnId) return genericColumns.value.filter((column) => column.id === filters.value.columnId)
-  return genericColumns.value.filter((column) => tasksForColumn(column).length > 0)
+  return genericColumns.value.filter((column) => itemsForColumn(column).length > 0)
 })
 function clearFilters() {
   search.value = ""
@@ -382,22 +380,22 @@ function clearFilters() {
 }
 function reloadPage() { window.location.reload() }
 
-function leadForTask(task: Task) {
+function leadForItem(item: Item) {
   if (isBlankBoard.value) return undefined
-  return workspace.leads.find((lead) => lead.id === task.id)
+  return workspace.leads.find((lead) => lead.id === item.id)
 }
 
-function cardNotes(task: Task) {
-  return leadForTask(task)?.notes || task.body
+function cardNotes(item: Item) {
+  return leadForItem(item)?.notes || item.body
 }
 
-function cardFields(task: Task) {
+function cardFields(item: Item) {
   const bindings = activeBoard.value?.preset?.bindings ?? {}
-  const summaryFields = leadForTask(task)
+  const summaryFields = leadForItem(item)
     ? ["company", "role", "priority", "location", "fitScore"].map((name) => bindings[`field.${name}`])
     : []
   return boardFields.value.flatMap((field) => {
-    const value = task.values[field.id]
+    const value = item.values[field.id]
     if (field.deleted || summaryFields.includes(field.id) || value === null || value === undefined || value === "") return []
     const label = field.valueType === "select"
       ? field.options[String(value)]?.title
@@ -412,26 +410,26 @@ function columnStatus(columnId: string): LeadStatus | null {
   return (Object.entries(bindings).find(([, id]) => id === columnId)?.[0].replace("status.", "") as LeadStatus | undefined) ?? null
 }
 
-function taskIsVisible(task: Task, columnId: string) {
-  const lead = leadForTask(task)
+function itemIsVisible(item: Item, columnId: string) {
+  const lead = leadForItem(item)
   const query = search.value.trim().toLowerCase()
-  const fieldText = Object.values(task.values).filter((value) => value !== null).join(" ")
+  const fieldText = Object.values(item.values).filter((value) => value !== null).join(" ")
   const searchable = lead
     ? `${lead.company} ${lead.role} ${lead.notes ?? ""} ${fieldText}`
-    : `${task.title} ${task.body} ${fieldText}`
-  return (!query || searchable.toLowerCase().includes(query)) && matchesTaskFilters(task, columnId, filters.value)
+    : `${item.title} ${item.body} ${fieldText}`
+  return (!query || searchable.toLowerCase().includes(query)) && matchesItemFilters(item, columnId, filters.value)
 }
 
-function tasksForColumn(column: { id: string; tasks: Task[] }) {
-  return orderTasksByPriority(activeBoard.value, column.tasks.filter((task) => taskIsVisible(task, column.id)))
+function itemsForColumn(column: { id: string; items: Item[] }) {
+  return orderItemsByPriority(activeBoard.value, column.items.filter((item) => itemIsVisible(item, column.id)))
 }
 
-function highlightMoved(entityId: string, kind: "task" | "column") {
+function highlightMoved(entityId: string, kind: "item" | "column") {
   if (movedHighlightTimer) clearTimeout(movedHighlightTimer)
-  if (kind === "task") movedTaskId.value = entityId
+  if (kind === "item") movedItemId.value = entityId
   else movedColumnId.value = entityId
   movedHighlightTimer = setTimeout(() => {
-    movedTaskId.value = null
+    movedItemId.value = null
     movedColumnId.value = null
   }, 700)
 }
@@ -460,9 +458,9 @@ function moveMobileColumn(direction: -1 | 1) {
   activeMobileColumnIndex.value = target
 }
 
-function openBoardTask(task: Task) {
-  if (!isBlankBoard.value && leadForTask(task)) selectedLeadId.value = task.id
-  else handleOpenTask(task)
+function openBoardItem(item: Item) {
+  if (!isBlankBoard.value && leadForItem(item)) selectedLeadId.value = item.id
+  else handleOpenItem(item)
 }
 
 function destroyBoardSortables() {
@@ -526,7 +524,7 @@ async function setupBoardSortables() {
     cardSortables.push(Sortable.create(stack, {
       group: "board-cards",
       animation: reducedMotion() ? 0 : 180,
-      draggable: ".lead-card[data-task-id]",
+      draggable: ".lead-card[data-item-id]",
       ghostClass: "card-sortable-ghost",
       chosenClass: "card-sortable-chosen",
       dragClass: "card-sortable-drag",
@@ -543,7 +541,7 @@ async function setupBoardSortables() {
       scrollSpeed: 16,
       onEnd(event) {
         const item = event.item as HTMLElement
-        const taskId = item.dataset.taskId
+        const itemId = item.dataset.itemId
         let target = event.to as HTMLElement
         if (cardTouchPoint) {
           const hoveredColumn = [...board.querySelectorAll<HTMLElement>(":scope > .column")].find(column => {
@@ -555,20 +553,20 @@ async function setupBoardSortables() {
         }
         cardTouchPoint = null
         const parentId = target.dataset.columnId
-        if (!taskId || !parentId) return
-        const cards = [...target.querySelectorAll<HTMLElement>(":scope > .lead-card[data-task-id]")]
-        const index = cards.findIndex((card) => card.dataset.taskId === taskId)
-        const beforeId = cards[index + 1]?.dataset.taskId ?? null
+        if (!itemId || !parentId) return
+        const cards = [...target.querySelectorAll<HTMLElement>(":scope > .lead-card[data-item-id]")]
+        const index = cards.findIndex((card) => card.dataset.itemId === itemId)
+        const beforeId = cards[index + 1]?.dataset.itemId ?? null
         const sourceColumn = genericColumns.value.find((column) => column.id === event.from.dataset.columnId)
-        const sourceIndex = sourceColumn?.tasks.findIndex((task) => task.id === taskId) ?? -1
-        const sourceBeforeId = sourceIndex >= 0 ? sourceColumn?.tasks[sourceIndex + 1]?.id ?? null : null
+        const sourceIndex = sourceColumn?.items.findIndex((item) => item.id === itemId) ?? -1
+        const sourceBeforeId = sourceIndex >= 0 ? sourceColumn?.items[sourceIndex + 1]?.id ?? null : null
         const targetColumn = genericColumns.value.find((column) => column.id === parentId)
         const isArchiveTarget = targetColumn ? isArchiveColumn(targetColumn) : false
-        void executeCommandAsync({ kind: "moveEntity", entityId: taskId, parentId, beforeId })
+        void executeCommandAsync({ kind: "moveEntity", entityId: itemId, parentId, beforeId })
           .then(() => {
-            highlightMoved(taskId, "task")
+            highlightMoved(itemId, "item")
             if (isArchiveTarget && sourceColumn) {
-              archiveUndo.value = { workspaceId: activeWorkspace.id, taskId, title: item.getAttribute("aria-label")?.replace(/^Open /, "") || "item", action: "move", parentId: sourceColumn.id, beforeId: sourceBeforeId }
+              archiveUndo.value = { workspaceId: activeWorkspace.id, itemId, title: item.getAttribute("aria-label")?.replace(/^Open /, "") || "item", action: "move", parentId: sourceColumn.id, beforeId: sourceBeforeId }
               notice.value = "Item archived"
             } else notice.value = "Item moved"
           })
@@ -578,42 +576,42 @@ async function setupBoardSortables() {
   }
 }
 
-const selectedTask = computed(() => {
-  if (!selectedTaskId.value || !getActiveDoc()) return null
+const selectedItem = computed(() => {
+  if (!selectedItemId.value || !getActiveDoc()) return null
   const doc = getActiveDoc()!
-  const entity = doc.entities[selectedTaskId.value]
-  return entity && entity.kind === "task" ? entity : null
+  const entity = doc.entities[selectedItemId.value]
+  return isItem(entity) ? entity : null
 })
 
-const subtasksForSelectedTask = computed(() => {
-  if (!selectedTaskId.value || !getActiveDoc()) return []
+const subitemsForSelectedItem = computed(() => {
+  if (!selectedItemId.value || !getActiveDoc()) return []
   const doc = getActiveDoc()!
   return Object.values(doc.entities).filter(
-    (e): e is Task => e.kind === "task" && e.placement.parentId === selectedTaskId.value && !e.deleted
+    (e): e is Item => isItem(e) && e.placement.parentId === selectedItemId.value && !e.deleted
   )
 })
 
-const selectedTaskHistory = computed(() => {
+const selectedItemHistory = computed(() => {
   void docVersion.value
   const doc = getActiveDoc()
-  if (!doc || !selectedTaskId.value) return []
-  return projectEntityHistory(doc, selectedTaskId.value)
+  if (!doc || !selectedItemId.value) return []
+  return projectEntityHistory(doc, selectedItemId.value)
 })
 
-const editingTask = computed(() => {
-  if (!editingTaskId.value || !getActiveDoc()) return null
+const editingItem = computed(() => {
+  if (!editingItemId.value || !getActiveDoc()) return null
   const doc = getActiveDoc()!
-  const entity = doc.entities[editingTaskId.value]
-  return entity && entity.kind === "task" ? entity : null
+  const entity = doc.entities[editingItemId.value]
+  return isItem(entity) ? entity : null
 })
 
-async function restoreSelectedTaskVersion(changeHash: string) {
-  if (!selectedTaskId.value || historyRestoreSaving.value) return
+async function restoreSelectedItemVersion(changeHash: string) {
+  if (!selectedItemId.value || historyRestoreSaving.value) return
   historyRestoreSaving.value = true
   historyRestoreError.value = ""
   historyRestoreNotice.value = ""
   try {
-    await executeCommandAsync({ kind: "restoreTaskVersion", entityId: selectedTaskId.value, changeHash })
+    await executeCommandAsync({ kind: "restoreItemVersion", entityId: selectedItemId.value, changeHash })
     historyRestoreNotice.value = "Version restored"
   } catch (error) {
     historyRestoreError.value = `Restore failed: ${error instanceof Error ? error.message : "try again"}`
@@ -623,10 +621,10 @@ async function restoreSelectedTaskVersion(changeHash: string) {
 }
 
 const candidateParentsForMove = computed(() => {
-  if (!taskToMove.value || !getActiveDoc()) return []
+  if (!itemToMove.value || !getActiveDoc()) return []
   const doc = getActiveDoc()!
   return Object.values(doc.entities)
-    .filter((e): e is Task => e.kind === "task" && e.id !== taskToMove.value!.id && !e.deleted)
+    .filter((e): e is Item => isItem(e) && e.id !== itemToMove.value!.id && !e.deleted)
     .map((t) => ({ id: t.id, title: t.title }))
 })
 
@@ -691,7 +689,7 @@ watch(
     isArchiveOpen.value,
     boardRenderKey.value,
     hasFilters.value,
-    visibleColumns.value.map((column) => `${column.id}:${tasksForColumn(column).map((task) => task.id).join(",")}`).join("|"),
+    visibleColumns.value.map((column) => `${column.id}:${itemsForColumn(column).map((item) => item.id).join(",")}`).join("|"),
   ],
   () => { void setupBoardSortables() },
   { flush: "post" },
@@ -707,8 +705,7 @@ watch(() => activeWorkspace.id, () => {
   isEditingBoard.value = false
   editingColumn.value = null
   showEntitySettings.value = false
-  showTaskForm.value = false
-  showLeadForm.value = false
+  showItemForm.value = false
   filters.value = defaultBoardFilters()
   search.value = ""
   activeMobileColumnIndex.value = 0
@@ -731,64 +728,6 @@ onBeforeUnmount(() => {
   if (movedHighlightTimer) clearTimeout(movedHighlightTimer)
 })
 
-async function submitLead() {
-  if (savingItem.value) return
-  if (!newLead.value.company.trim() || !newLead.value.role.trim()) {
-    notice.value = "Company and role required"
-    return
-  }
-
-  const duplicate = workspace.leads.find((lead) =>
-    (newLead.value.url && lead.url === newLead.value.url) ||
-    (lead.company.toLowerCase() === newLead.value.company.trim().toLowerCase() &&
-      lead.role.toLowerCase() === newLead.value.role.trim().toLowerCase()),
-  )
-
-  if (duplicate) {
-    notice.value = `Possible duplicate: ${duplicate.company} — ${duplicate.role}`
-    selectedLeadId.value = duplicate.id
-    showLeadForm.value = false
-    return
-  }
-
-  savingItem.value = true
-  leadFormError.value = ""
-  try {
-    const lead = await createLeadAsync({
-      ...newLead.value,
-      company: newLead.value.company.trim(),
-      role: newLead.value.role.trim(),
-      url: newLead.value.url?.trim() || undefined,
-      fitScore: newLead.value.fitScore || undefined,
-    })
-    selectedLeadId.value = lead.id
-    showLeadForm.value = false
-    notice.value = "Lead added"
-    resetLeadForm()
-  } catch (error) {
-    leadFormError.value = error instanceof Error ? error.message : "Save failed. Try again."
-  } finally {
-    savingItem.value = false
-  }
-}
-
-function resetLeadForm() {
-  newLead.value = {
-    company: "",
-    role: "",
-    url: "",
-    location: "Berlin / remote",
-    workMode: "remote",
-    status: "lead",
-    priority: "p2",
-    rejectionReason: "",
-    fitScore: undefined,
-    description: "",
-    notes: "",
-    sourceText: "",
-  }
-}
-
 async function submitDocument() {
   if (!selectedLead.value || !newDocument.value.title.trim()) return
   await createDocumentAsync({
@@ -802,17 +741,6 @@ async function submitDocument() {
   showDocumentForm.value = false
   newDocument.value = { kind: "note", title: "", format: "markdown", content: "", localPath: "" }
   notice.value = "Document attached"
-}
-
-function openAddItem(columnId: string) {
-  if (isBlankBoard.value) {
-    openAddTask(columnId)
-    return
-  }
-  resetLeadForm()
-  leadFormError.value = ""
-  newLead.value.status = columnStatus(columnId) ?? "lead"
-  showLeadForm.value = true
 }
 
 async function handleSaveTemplate(payload: { id?: string; name: string; markdown: string }) {
@@ -857,20 +785,20 @@ async function submitArtifact() {
 
 async function setStatus(status: LeadStatus) {
   if (!selectedLead.value) return
-  const task = selectedTask.value ?? getActiveDoc()?.entities[selectedLead.value.id]
-  if (!task || task.kind !== "task") return
+  const item = selectedItem.value ?? getActiveDoc()?.entities[selectedLead.value.id]
+  if (!isItem(item)) return
   const targetColumn = genericColumns.value.find((column) => columnStatus(column.id) === status)
   if (!targetColumn) return
-  const priorColumn = genericColumns.value.find((column) => column.id === task.placement.parentId)
-  const priorParentId = task.placement.parentId
+  const priorColumn = genericColumns.value.find((column) => column.id === item.placement.parentId)
+  const priorParentId = item.placement.parentId
   if (!priorParentId) return
-  const priorIndex = priorColumn?.tasks.findIndex((item) => item.id === task.id) ?? -1
-  const beforeId = priorIndex >= 0 ? priorColumn?.tasks[priorIndex + 1]?.id ?? null : null
+  const priorIndex = priorColumn?.items.findIndex((item) => item.id === item.id) ?? -1
+  const beforeId = priorIndex >= 0 ? priorColumn?.items[priorIndex + 1]?.id ?? null : null
   try {
     archiveError.value = ""
-    await executeCommandAsync({ kind: "moveEntity", entityId: task.id, parentId: targetColumn.id, beforeId: null })
+    await executeCommandAsync({ kind: "moveEntity", entityId: item.id, parentId: targetColumn.id, beforeId: null })
     if (isArchiveColumn(targetColumn)) {
-      archiveUndo.value = { workspaceId: activeWorkspace.id, taskId: task.id, title: task.title, action: "move", parentId: priorParentId, beforeId }
+      archiveUndo.value = { workspaceId: activeWorkspace.id, itemId: item.id, title: item.title, action: "move", parentId: priorParentId, beforeId }
       notice.value = "Item archived"
     }
   } catch (error) {
@@ -948,12 +876,12 @@ async function importWorkspace(event: Event) {
 
 function closeDetail() {
   selectedLeadId.value = null
-  selectedTaskId.value = null
+  selectedItemId.value = null
   showDocumentForm.value = false
   showArtifactForm.value = false
 }
 
-// Workspace, board, and task operations
+// Workspace, board, and item operations
 async function handleCreateWorkspace(payload: { title: string; preset: "blank" | "job-search" }) {
   await createWorkspaceAsync(payload.title, payload.preset)
   notice.value = `Workspace "${payload.title}" created`
@@ -976,17 +904,17 @@ async function handleDeleteWorkspace(id: string) {
   notice.value = "Workspace deleted"
 }
 
-function openAddTask(columnId?: string) {
+function openAddItem(columnId?: string) {
   storageError.value = ""
-  taskFormError.value = ""
+  itemFormError.value = ""
   if (columnId) {
-    taskFormParentId.value = columnId
+    itemFormParentId.value = columnId
   } else {
     const firstGeneric = genericColumns.value[0]?.id
     const boardCols = activeDocColIds()
-    taskFormParentId.value = firstGeneric || boardCols[0] || activeBoard.value?.id || ""
+    itemFormParentId.value = firstGeneric || boardCols[0] || activeBoard.value?.id || ""
   }
-  showTaskForm.value = true
+  showItemForm.value = true
 }
 
 function activeDocColIds(): string[] {
@@ -997,34 +925,60 @@ function activeDocColIds(): string[] {
     .map((c) => c.id)
 }
 
-async function handleSaveTask(payload: { title: string; body: string; parentId?: string; values: Record<string, FieldValue> }) {
+async function handleSaveItem(payload: { title: string; body: string; parentId?: string; values: Record<string, FieldValue> }) {
   if (savingItem.value) return
   savingItem.value = true
   try {
     storageError.value = ""
-    taskFormError.value = ""
+    itemFormError.value = ""
     const values = { ...payload.values }
-    if (!isBlankBoard.value) {
-      for (const field of boardFields.value) {
-        if (field.required && !field.deleted && (values[field.id] === undefined || values[field.id] === "")) {
-          if (field.title === "Company") values[field.id] = payload.title
-          else if (field.title === "Role") values[field.id] = "Task"
-        }
+    const requestedParent = payload.parentId || itemFormParentId.value
+    const parentId = genericColumns.value.find(column =>
+      column.id === requestedParent || columnStatus(column.id) === requestedParent
+    )?.id ?? requestedParent
+    const item = editingItem.value
+    const bindings = activeBoard.value?.preset?.bindings ?? {}
+    const company = values[bindings["field.company"]]
+    const role = values[bindings["field.role"]]
+    const projectedTitle = [company, role]
+      .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+      .map(value => value.trim())
+      .join(" — ")
+    const title = isBlankBoard.value
+      ? payload.title || item?.title || "Untitled item"
+      : projectedTitle || item?.title || "Untitled item"
+    if (item) {
+      await executeCommandAsync({
+        kind: "patchItem",
+        entityId: item.id,
+        title,
+        body: payload.body,
+        values,
+      })
+      if (parentId && parentId !== item.placement.parentId) {
+        await executeCommandAsync({ kind: "moveEntity", entityId: item.id, parentId, beforeId: null })
+      }
+      editingItemId.value = null
+      if (!isBlankBoard.value) selectedLeadId.value = item.id
+    } else {
+      const idsBefore = new Set(Object.keys(getActiveDoc()?.entities ?? {}))
+      await executeCommandAsync({
+        kind: "createItem",
+        parentId,
+        title,
+        body: payload.body,
+        values,
+      })
+      if (!isBlankBoard.value) {
+        const created = Object.values(getActiveDoc()?.entities ?? {}).find(entity => isItem(entity) && !idsBefore.has(entity.id))
+        if (created) selectedLeadId.value = created.id
       }
     }
-    const parentId = payload.parentId || taskFormParentId.value
-    await executeCommandAsync({
-      kind: "createTask",
-      parentId,
-      title: payload.title,
-      body: payload.body,
-      values,
-    })
-    showTaskForm.value = false
+    showItemForm.value = false
     notice.value = "Item saved"
   } catch (error: any) {
     storageError.value = "Storage failure: Save failed"
-    taskFormError.value = error.message || "Storage failure: Save failed"
+    itemFormError.value = error.message || "Storage failure: Save failed"
   } finally {
     savingItem.value = false
   }
@@ -1066,17 +1020,17 @@ async function handleApplyWorkspaceSettings(payload: { settings: WorkspaceSettin
   }
 }
 
-async function handleDeleteTask(taskId: string) {
-  const task = selectedTask.value
+async function handleDeleteItem(itemId: string) {
+  const item = selectedItem.value
   try {
     archiveError.value = ""
     await executeCommandAsync({
       kind: "setEntityDeleted",
-      entityId: taskId,
+      entityId: itemId,
       deleted: true,
     })
-    archiveUndo.value = task ? { workspaceId: activeWorkspace.id, taskId, title: task.title, action: "restore" } : null
-    selectedTaskId.value = null
+    archiveUndo.value = item ? { workspaceId: activeWorkspace.id, itemId, title: item.title, action: "restore" } : null
+    selectedItemId.value = null
     notice.value = "Item archived"
   } catch (error) {
     archiveError.value = `Archive failed: ${error instanceof Error ? error.message : "try again"}`
@@ -1090,14 +1044,14 @@ async function undoArchive() {
   undoSaving.value = true
   try {
     if (archived.action === "restore") {
-      await executeCommandAsync({ kind: "setEntityDeleted", entityId: archived.taskId, deleted: false })
+      await executeCommandAsync({ kind: "setEntityDeleted", entityId: archived.itemId, deleted: false })
     } else {
-      await executeCommandAsync({ kind: "moveEntity", entityId: archived.taskId, parentId: archived.parentId, beforeId: archived.beforeId })
+      await executeCommandAsync({ kind: "moveEntity", entityId: archived.itemId, parentId: archived.parentId, beforeId: archived.beforeId })
     }
     archiveUndo.value = null
     archiveError.value = ""
     notice.value = `Restored ${archived.title}`
-    highlightMoved(archived.taskId, "task")
+    highlightMoved(archived.itemId, "item")
   } catch (error) {
     archiveError.value = `Restore failed: ${error instanceof Error ? error.message : "try again"}`
     notice.value = archiveError.value
@@ -1106,62 +1060,42 @@ async function undoArchive() {
   }
 }
 
-function handleOpenTask(task: Task) {
-  selectedTaskId.value = task.id
+function handleOpenItem(item: Item) {
+  selectedItemId.value = item.id
 }
 
-function handleOpenTaskEdit(task: Task) {
-  taskEditError.value = ""
-  editingTaskId.value = task.id
-  // Close the detail view; it will reopen after save if needed
-  selectedTaskId.value = null
+function handleOpenItemEdit(item: Item) {
+  editingItemId.value = item.id
+  itemFormParentId.value = item.placement.parentId ?? ""
+  showItemForm.value = true
+  selectedItemId.value = null
+  selectedLeadId.value = null
   historyRestoreError.value = ""
   historyRestoreNotice.value = ""
 }
 
-async function handleSaveTaskEdit(payload: { title: string; body: string; values: Record<string, FieldValue> }) {
-  if (savingItem.value || !editingTaskId.value) return
-  savingItem.value = true
-  taskEditError.value = ""
-  try {
-    await executeCommandAsync({
-      kind: "patchTask",
-      entityId: editingTaskId.value,
-      title: payload.title,
-      body: payload.body,
-      values: payload.values,
-    })
-    editingTaskId.value = null
-    notice.value = "Item saved"
-  } catch (error: any) {
-    taskEditError.value = error.message || "Save failed"
-  } finally {
-    savingItem.value = false
-  }
+function handleAddSubitem(parentItemId: string) {
+  itemFormParentId.value = parentItemId
+  itemFormError.value = ""
+  showItemForm.value = true
 }
 
-function handleAddSubtask(parentTaskId: string) {
-  taskFormParentId.value = parentTaskId
-  taskFormError.value = ""
-  showTaskForm.value = true
-}
-
-function handleStartMove(task: Task) {
-  taskToMove.value = task
+function handleStartMove(item: Item) {
+  itemToMove.value = item
   showMoveDialog.value = true
 }
 
 async function handleConfirmMove(newParentId: string) {
-  if (!taskToMove.value) return
+  if (!itemToMove.value) return
   await executeCommandAsync({
     kind: "moveEntity",
-    entityId: taskToMove.value.id,
+    entityId: itemToMove.value.id,
     parentId: newParentId,
     beforeId: null,
   })
   showMoveDialog.value = false
-  taskToMove.value = null
-  notice.value = "Task moved"
+  itemToMove.value = null
+  notice.value = "Item moved"
 }
 
 async function handleRenameColumn(newTitle: string) {
@@ -1313,7 +1247,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     />
 
     <TransitionGroup name="notice" tag="aside" class="notice-overlay" aria-live="polite" aria-atomic="true" @before-enter="showEnteringElement" @before-leave="hideLeavingElement">
-      <div v-if="storageError && !showTaskForm" key="storage-error" role="alert" class="notice notice-error">
+      <div v-if="storageError && !showItemForm" key="storage-error" role="alert" class="notice notice-error">
         <span>{{ storageError }}</span>
         <button type="button" class="notice-dismiss" aria-label="Dismiss storage notice" @click="storageError = ''">×</button>
       </div>
@@ -1337,7 +1271,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     </section>
 
     <div v-if="hasFilters" class="filter-summary" aria-live="polite">
-      <span>{{ visibleTasks ? 'Showing matching cards' : 'No matching cards' }}</span>
+      <span>{{ visibleItems ? 'Showing matching cards' : 'No matching cards' }}</span>
       <button class="button button-small button-quiet" type="button" @click="clearFilters">Clear search and filters</button>
     </div>
 
@@ -1357,30 +1291,30 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         :aria-label="column.title"
         :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && (isArchiveOpen || hasFilters), 'column-moved': movedColumnId === column.id }]"
       >
-        <button v-if="isArchiveColumn(column) && !isArchiveOpen && !hasFilters" class="bin-closed" type="button" :aria-label="`Open ${column.title} with ${tasksForColumn(column).length} cards`" @click="isArchiveOpen = true"><span class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ tasksForColumn(column).length }}</small></button>
+        <button v-if="isArchiveColumn(column) && !isArchiveOpen && !hasFilters" class="bin-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="isArchiveOpen = true"><span class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ itemsForColumn(column).length }}</small></button>
         <template v-else>
           <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
             <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
-            <div class="column-actions"><span class="count">{{ tasksForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
+            <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
           </header>
           <div class="card-stack" :data-column-id="column.id">
-            <button v-for="task in tasksForColumn(column)" :key="task.id" class="lead-card task-card" :class="{ 'card-moved': movedTaskId === task.id }" :data-task-id="task.id" type="button" :aria-label="`Open ${task.title}`" @click="openBoardTask(task)">
+            <button v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="{ 'card-moved': movedItemId === item.id }" :data-item-id="item.id" type="button" :aria-label="`Open ${item.title}`" @click="openBoardItem(item)">
               <div class="card-main">
-              <template v-if="leadForTask(task)">
-                <div class="card-head"><span class="company">{{ leadForTask(task)?.company }}</span><span v-if="leadForTask(task)?.priority" class="priority" :class="leadForTask(task)?.priority">{{ leadForTask(task)?.priority?.toUpperCase() }}</span></div>
-                <strong>{{ leadForTask(task)?.role }}</strong>
-                <div class="card-meta"><span v-if="leadForTask(task)?.location">{{ leadForTask(task)?.location }}</span><span v-if="leadForTask(task)?.fitScore !== undefined" class="fit">{{ leadForTask(task)?.fitScore }}/10 fit</span></div>
+              <template v-if="leadForItem(item)">
+                <div class="card-head"><span class="company">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
+                <strong>{{ leadForItem(item)?.role }}</strong>
+                <div class="card-meta"><span v-if="leadForItem(item)?.location">{{ leadForItem(item)?.location }}</span><span v-if="leadForItem(item)?.fitScore !== undefined" class="fit">{{ leadForItem(item)?.fitScore }}/10 fit</span></div>
               </template>
-              <template v-else><strong>{{ task.title }}</strong><p v-if="task.body && !hasFilters" class="task-card-body">{{ task.body }}</p></template>
+              <template v-else><strong>{{ item.title }}</strong><p v-if="item.body && !hasFilters" class="item-card-body">{{ item.body }}</p></template>
               </div>
-              <div v-if="hasFilters && (cardNotes(task) || cardFields(task).length)" class="card-context">
-                <p v-if="cardNotes(task)" class="card-notes">{{ cardNotes(task) }}</p>
-                <dl v-if="cardFields(task).length" class="card-fields">
-                  <div v-for="field in cardFields(task)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
+              <div v-if="hasFilters && (cardNotes(item) || cardFields(item).length)" class="card-context">
+                <p v-if="cardNotes(item)" class="card-notes">{{ cardNotes(item) }}</p>
+                <dl v-if="cardFields(item).length" class="card-fields">
+                  <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
                 </dl>
               </div>
             </button>
-            <div v-if="!tasksForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
+            <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
           <button v-if="!isEditingBoard && canEditItems" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
         </template>
@@ -1473,51 +1407,45 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @save-template="handleSaveTemplate"
     />
 
-    <TaskDetailDialog
-      v-if="selectedTask"
-      :task="selectedTask"
+    <ItemDetailDialog
+      v-if="selectedItem"
+      :item="selectedItem"
       :read-only="!canEditItems"
-      :subtasks="subtasksForSelectedTask"
+      :subitems="subitemsForSelectedItem"
       :fields="boardFields"
-      :history="selectedTaskHistory"
+      :history="selectedItemHistory"
       :archive-error="archiveError"
       :restore-saving="historyRestoreSaving"
       :restore-error="historyRestoreError"
       :restore-notice="historyRestoreNotice"
-      @close="selectedTaskId = null; historyRestoreError = ''; historyRestoreNotice = ''"
-      @edit="handleOpenTaskEdit"
-      @add-subtask="handleAddSubtask"
+      @close="selectedItemId = null; historyRestoreError = ''; historyRestoreNotice = ''"
+      @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
-      @delete-task="handleDeleteTask"
-      @restore-version="restoreSelectedTaskVersion"
+      @delete-item="handleDeleteItem"
+      @restore-version="restoreSelectedItemVersion"
     />
 
-    <TaskEditDialog
-      v-if="editingTask"
-      :task="editingTask"
+    <ItemFormDialog
+      v-if="showItemForm"
+      :parent-id="itemFormParentValue"
       :fields="boardFields"
-      :error-message="taskEditError"
+      :columns="itemFormColumns"
+      :item="editingItem"
+      :show-core-fields="isBlankBoard"
+      :hidden-field-ids="computedItemFieldIds"
+      :computed-fields-message="computedItemFieldIds.length ? 'Priority and fit are calculated from workspace preferences.' : undefined"
+      :option-values="itemFormOptionValues"
+      :error-message="itemFormError"
       :saving="savingItem"
-      @cancel="editingTaskId = null; taskEditError = ''"
-      @save="handleSaveTaskEdit"
+      @cancel="showItemForm = false; editingItemId = null; itemFormError = ''"
+      @save="handleSaveItem"
     />
 
-    <TaskFormDialog
-      v-if="showTaskForm"
-      :parent-id="taskFormParentId"
-      :fields="boardFields"
-      :columns="genericColumns"
-      :error-message="taskFormError"
-      :saving="savingItem"
-      @cancel="showTaskForm = false; taskFormError = ''"
-      @save="handleSaveTask"
-    />
-
-    <MoveTaskDialog
-      v-if="showMoveDialog && taskToMove"
-      :task="taskToMove"
+    <MoveItemDialog
+      v-if="showMoveDialog && itemToMove"
+      :item="itemToMove"
       :candidate-parents="candidateParentsForMove"
-      @close="showMoveDialog = false; taskToMove = null"
+      @close="showMoveDialog = false; itemToMove = null"
       @confirm="handleConfirmMove"
     />
 
@@ -1571,33 +1499,15 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @stop="sync.close"
     />
 
-    <ModalLayer protect-draft :busy="savingItem" v-if="showLeadForm" class="overlay" @close="showLeadForm = false">
-      <form class="dialog" role="dialog" aria-modal="true" aria-label="Add item" :aria-busy="savingItem" @submit.prevent="submitLead">
-        <div class="dialog-head"><div><span class="eyebrow">New item</span><h2>Add item</h2></div><button class="icon-button" type="button" aria-label="Close" :disabled="savingItem" @click="showLeadForm = false">×</button></div>
-        <fieldset class="form-grid" :disabled="savingItem">
-          <label><span>Company *</span><input v-model="newLead.company" autofocus required /></label>
-          <label><span>Role *</span><input v-model="newLead.role" required /></label>
-          <label class="wide"><span>Job URL</span><input v-model="newLead.url" type="url" placeholder="https://" /></label>
-          <label><span>Location</span><input v-model="newLead.location" /></label>
-          <label><span>Work mode</span><select v-model="newLead.workMode"><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">On-site</option><option value="unknown">Unknown</option></select></label>
-          <label><span>Status</span><select v-model="newLead.status"><option v-for="(label, status) in statusLabels" :key="status" :value="status">{{ label }}</option></select></label>
-          <p v-if="automaticPriorityEnabled" class="wide computed-priority-note">Priority and fit are calculated from workspace preferences.</p>
-          <template v-else>
-            <label><span>Priority</span><select v-model="newLead.priority"><option v-for="(label, priority) in priorityLabels" :key="priority" :value="priority">{{ label }}</option></select></label>
-            <label><span>Fit score</span><input v-model.number="newLead.fitScore" type="number" min="0" max="10" placeholder="0–10" /></label>
-          </template>
-          <label class="wide"><span>Notes</span><textarea v-model="newLead.notes" rows="3" placeholder="Why this matters, gaps, next move…"></textarea></label>
-          <label class="wide"><span>Source snapshot</span><textarea v-model="newLead.sourceText" rows="4" placeholder="Paste description if useful for later tailoring…"></textarea></label>
-          <label v-if="newLead.status === 'rejected'" class="wide"><span>Rejection notes / retrospective</span><textarea v-model="newLead.rejectionReason" rows="3" placeholder="Optional retrospective note on what went wrong…"></textarea></label>
-        </fieldset>
-        <p v-if="leadFormError" class="form-error form-error-spaced" role="alert">{{ leadFormError }}</p>
-        <div class="dialog-actions"><button class="button button-quiet" type="button" :disabled="savingItem" @click="showLeadForm = false">Cancel</button><button class="button button-primary" type="submit" :disabled="savingItem">{{ showItemSaving ? 'Saving…' : leadFormError ? 'Retry save' : 'Create item' }}</button></div>
-      </form>
-    </ModalLayer>
-
     <ModalLayer v-if="selectedLead" class="overlay detail-overlay" @close="closeDetail">
       <section ref="detailDialog" class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Lead details" tabindex="-1" @keydown.esc="closeDetail">
-        <div class="detail-head"><div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div><button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button></div>
+        <div class="detail-head">
+          <div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div>
+          <div class="detail-head-actions">
+            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="handleOpenItemEdit(selectedLeadItem)">Edit</button>
+            <button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button>
+          </div>
+        </div>
       <div class="status-strip"><button v-for="(label, status) in statusLabels" :key="status" :disabled="!canEditItems" type="button" :class="{ active: selectedLead.status === status }" @click="setStatus(status)">{{ label }}</button></div>
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       <button v-if="archiveUndo && archiveUndo.workspaceId === activeWorkspace.id" class="button button-small" type="button" :disabled="undoSaving" @click="undoArchive">{{ undoSaving ? 'Restoring…' : 'Undo archive' }}</button>

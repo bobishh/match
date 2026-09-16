@@ -11,7 +11,7 @@ import {
   type LocalProfile,
 } from "./identity"
 
-describe("Local identity, signing, and bootstrap (Task 1.2)", () => {
+describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
   beforeEach(() => {
     resetIdentityStorageForTest()
   })

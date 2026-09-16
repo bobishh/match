@@ -237,13 +237,13 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .detail-subsection { padding-top: 16px; border-top: 2px solid var(--line); }
 .detail-section-head { margin-bottom: 12px; }
 .detail-section-head h3 { margin: 0; font-size: 1rem; }
-.subtask-list, .task-history-list { display: grid; gap: 8px; }
-.subtask-row, .task-history-entry { padding: 10px 12px; border: 2px solid var(--soft); background: white; }
-.subtask-row, .task-history-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.task-history-list { max-height: 170px; overflow-y: auto; }
-.task-history-entry { font-size: .825rem; }
-.task-history-head { margin-bottom: 4px; }
-.task-history-time, .task-history-author { color: var(--muted); }
+.subitem-list, .item-history-list { display: grid; gap: 8px; }
+.subitem-row, .item-history-entry { padding: 10px 12px; border: 2px solid var(--soft); background: white; }
+.subitem-row, .item-history-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.item-history-list { max-height: 170px; overflow-y: auto; }
+.item-history-entry { font-size: .825rem; }
+.item-history-head { margin-bottom: 4px; }
+.item-history-time, .item-history-author { color: var(--muted); }
 .templates-dialog { width: min(980px, 100%); }
 .templates-layout { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 20px; }
 .workspace-list { display: grid; gap: 8px; margin: 24px 0; }
@@ -290,7 +290,9 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .dialog .dialog-actions, .dialog .dialog-action-group { flex-wrap: wrap; }
 .dialog .template-editor textarea, .dialog .schema-json-textarea { font: 400 .875rem/1.6 ui-monospace, monospace; }
 
-.detail-dialog { display: flex; flex-direction: column; width: min(620px, 100%); max-height: calc(100vh - 60px); overflow: hidden; }
+.detail-dialog { display: flex; flex-direction: column; width: min(620px, 100%); max-height: calc(100vh - 60px); overflow: hidden; border-radius: 0; }
+.detail-dialog:focus { outline: none; }
+.detail-head-actions { display: flex; align-items: center; gap: 10px; }
 .detail-scroll { min-height: 0; overflow: auto; padding-right: 3px; }
 .status-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 24px; }.status-strip button { border: 2px solid var(--line); padding: 8px 9px; color: var(--ink); background: white; font: 800 .66rem/1 ui-monospace, monospace; text-transform: uppercase; }.status-strip button.active { color: white; background: var(--ink); }.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 15px 0; border-top: 2px solid var(--line); border-bottom: 2px solid var(--line); }.detail-grid div { display: grid; gap: 6px; }.detail-grid strong { font-size: .88rem; text-transform: capitalize; }.detail-grid small { color: var(--muted); font-size: .72rem; }.source-link { display: inline-block; margin: 18px 0 4px; color: var(--blue); font-weight: 800; text-decoration-thickness: 2px; text-underline-offset: 3px; }.detail-section { margin-top: 25px; }.detail-copy, .source-snapshot { margin-top: 9px; color: var(--ink); white-space: pre-wrap; font-size: .88rem; line-height: 1.55; }.source-snapshot { max-height: 190px; overflow: auto; padding: 11px; border: 2px solid var(--line); background: white; font: .7rem/1.5 ui-monospace, monospace; }.section-heading { justify-content: space-between; align-items: end; }.section-heading h3 { margin-top: 6px; font-size: 1rem; }.document-form { display: grid; gap: 11px; margin-top: 14px; padding: 14px; border: 2px solid var(--line); background: var(--soft); }.document-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px; border: 2px solid var(--line); background: white; }.document-icon { width: 30px; height: 30px; display: grid; place-items: center; border: 2px solid var(--line); color: var(--blue); font: 900 .55rem/1 ui-monospace, monospace; }.document-row div { display: grid; gap: 3px; flex: 1; }.document-row strong { font-size: .8rem; }.document-row span { color: var(--muted); font: 700 .64rem/1 ui-monospace, monospace; }.open-path { color: var(--blue); font: 800 .65rem/1 ui-monospace, monospace; }
 

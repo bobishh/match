@@ -232,7 +232,7 @@ export function createWorkspaceDoc(
     entities[rejId] = {
       id: rejId,
       kind: "field",
-      title: "Rejection reason",
+      title: "Rejection notes / retrospective",
       placement: { parentId: boardId, rank: "9/1" },
       deleted: false,
       createdAt: nowIso,

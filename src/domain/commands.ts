@@ -4,7 +4,7 @@ import type {
   CommandErrorCode,
   WorkspaceDocumentV2,
   WorkspaceEntity,
-  Task,
+  Item,
   Column,
   Board,
   FieldDefinition,
@@ -23,6 +23,7 @@ import { validateBoardSchemaDraft, type BoardSchemaDraft } from "./schema"
 import { setArchiveColumn } from "./archive"
 import { validateWorkspaceSettingsDraft, type WorkspaceSettingsDraft } from "./workspaceSettings"
 import { validatePlacementParent } from "./model"
+import { entityKind, isItem } from "./model"
 import {
   calculateRankBetween,
   compareRanks,
@@ -30,7 +31,7 @@ import {
   getAncestryPath,
   renumberSiblings,
 } from "./ancestry"
-import { validateTaskValues, patchFieldDefinition } from "./fields"
+import { validateItemValues, patchFieldDefinition } from "./fields"
 import {
   createActorBinding,
   createChangeProof,
@@ -46,9 +47,9 @@ export type Command =
   | { kind: "setWorkspaceDeleted"; deleted: boolean }
   | { kind: "createBoard"; title: string; preset: "job-search" | "blank" }
   | { kind: "createColumn"; boardId: string; title: string; beforeId?: string | null }
-  | { kind: "createTask"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
-  | { kind: "patchTask"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue> }
-  | { kind: "restoreTaskVersion"; entityId: string; changeHash: string }
+  | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
+  | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue> }
+  | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
   | { kind: "renameEntity"; entityId: string; title: string }
   | { kind: "setEntityDeleted"; entityId: string; deleted: boolean }
@@ -57,11 +58,11 @@ export type Command =
   | { kind: "patchField"; fieldId: string; title?: string; required?: boolean; min?: number | null; max?: number | null; valueType?: string }
   | { kind: "createFieldOption"; fieldId: string; title: string; beforeId?: string | null }
   | { kind: "patchFieldOption"; fieldId: string; optionId: string; title?: string; deleted?: boolean }
-  | { kind: "addDocument"; taskId: string; documentKind: "cv" | "cover_letter" | "note" | "attachment"; title: string; format: "markdown" | "html" | "pdf" | "path"; content?: string | null; localPath?: string }
+  | { kind: "addDocument"; itemId: string; documentKind: "cv" | "cover_letter" | "note" | "attachment"; title: string; format: "markdown" | "html" | "pdf" | "path"; content?: string | null; localPath?: string }
   | { kind: "patchDocument"; documentId: string; title?: string; content?: string | null }
   | { kind: "createTemplate"; title: string; markdown: string }
   | { kind: "patchTemplate"; templateId: string; title?: string; markdown?: string }
-  | { kind: "recordArtifact"; taskId: string; templateId: string; title: string; artifactKind: "cv" | "cover_letter"; pdf: FileReference; sourceMarkdown?: FileReference | null }
+  | { kind: "recordArtifact"; itemId: string; templateId: string; title: string; artifactKind: "cv" | "cover_letter"; pdf: FileReference; sourceMarkdown?: FileReference | null }
   | { kind: "updateBoardSchema"; boardId: string; schema: BoardSchemaDraft; expectedHeads?: Heads }
   | { kind: "updateWorkspaceSettings"; settings: WorkspaceSettingsDraft; expectedHeads?: Heads }
 
@@ -75,7 +76,7 @@ function findRootBoardId(entities: Record<string, WorkspaceEntity>, entityId: st
   while (curr) {
     if (visited.has(curr.id)) return null
     visited.add(curr.id)
-    if (curr.kind === "board") return curr.id
+    if (!isItem(curr) && curr.kind === "board") return curr.id
     if (curr.placement.parentId === null) return null
     curr = entities[curr.placement.parentId]
   }
@@ -281,7 +282,7 @@ export async function executeCommand(
       const additions: Array<{ binding: string; entity: WorkspaceEntity }> = []
       const definitions = [
         { binding: "status.rejected", kind: "column", title: "Rejected" },
-        { binding: "field.rejectionReason", kind: "field", title: "Rejection reason" },
+        { binding: "field.rejectionReason", kind: "field", title: "Rejection notes / retrospective" },
       ] as const
       for (const definition of definitions) {
         // Existing bindings include intentionally soft-deleted schema elements.
@@ -310,13 +311,13 @@ export async function executeCommand(
       }
       break
     }
-    case "createTask": {
+    case "createItem": {
       if (!command.title || !command.title.trim()) {
-        return err("invalid_input", "Task title is required", "title")
+        return err("invalid_input", "Item title is required", "title")
       }
       const parent = doc.entities[command.parentId]
       if (!parent) return err("not_found", `Parent ${command.parentId} not found`)
-      const validParent = validatePlacementParent("task", parent.kind)
+      const validParent = validatePlacementParent("item", entityKind(parent))
       if (!validParent.ok) return err("invalid_parent", validParent.error.message)
 
       // Validate board fields
@@ -327,32 +328,32 @@ export async function executeCommand(
         const companyFieldId = bindings["field.company"]
         const roleFieldId = bindings["field.role"]
 
-        const taskValues = { ...(command.values ?? {}) }
-        if (companyFieldId && !taskValues[companyFieldId]) {
-          taskValues[companyFieldId] = command.title.includes(" — ")
+        const itemValues = { ...(command.values ?? {}) }
+        if (companyFieldId && !itemValues[companyFieldId]) {
+          itemValues[companyFieldId] = command.title.includes(" — ")
             ? command.title.split(" — ")[0].trim()
             : command.title.trim()
         }
-        if (roleFieldId && !taskValues[roleFieldId]) {
-          taskValues[roleFieldId] = command.title.includes(" — ")
+        if (roleFieldId && !itemValues[roleFieldId]) {
+          itemValues[roleFieldId] = command.title.includes(" — ")
             ? command.title.split(" — ").slice(1).join(" — ").trim()
             : command.title.trim()
         }
-        command.values = taskValues
+        command.values = itemValues
 
         const boardFields = Object.values(doc.entities).filter(
           (e): e is FieldDefinition => e.kind === "field" && e.placement.parentId === boardId
         )
-        const valRes = validateTaskValues(boardFields, command.values)
+        const valRes = validateItemValues(boardFields, command.values)
         if (!valRes.ok) {
           const firstErrKey = Object.keys(valRes.errors)[0]
           return err("invalid_input", valRes.errors[firstErrKey], firstErrKey)
         }
       }
 
-      const taskId = command.id ?? crypto.randomUUID()
+      const itemId = command.id ?? crypto.randomUUID()
       const { rank, renumbered } = computeInsertionRank(doc.entities, command.parentId)
-      changedEntityIds.push(taskId)
+      changedEntityIds.push(itemId)
 
       applyFn = (draft) => {
         if (renumbered) {
@@ -360,9 +361,8 @@ export async function executeCommand(
             if (draft.entities[id]) draft.entities[id].placement = { ...draft.entities[id].placement, rank: newRank }
           }
         }
-        draft.entities[taskId] = {
-          id: taskId,
-          kind: "task",
+        draft.entities[itemId] = {
+          id: itemId,
           title: command.title.trim(),
           body: command.body ?? "",
           placement: { parentId: command.parentId, rank },
@@ -375,21 +375,21 @@ export async function executeCommand(
       break
     }
 
-    case "patchTask": {
-      const task = doc.entities[command.entityId]
-      if (!task || task.kind !== "task") return err("not_found", `Task ${command.entityId} not found`)
+    case "patchItem": {
+      const item = doc.entities[command.entityId]
+      if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
       if (command.title !== undefined && !command.title.trim()) {
-        return err("invalid_input", "Task title cannot be empty", "title")
+        return err("invalid_input", "Item title cannot be empty", "title")
       }
 
       if (command.values) {
-        const boardId = findRootBoardId(doc.entities, task.id)
+        const boardId = findRootBoardId(doc.entities, item.id)
         if (boardId) {
           const boardFields = Object.values(doc.entities).filter(
             (e): e is FieldDefinition => e.kind === "field" && e.placement.parentId === boardId
           )
-          const mergedValues = { ...task.values, ...command.values }
-          const valRes = validateTaskValues(boardFields, mergedValues)
+          const mergedValues = { ...item.values, ...command.values }
+          const valRes = validateItemValues(boardFields, mergedValues)
           if (!valRes.ok) {
             const firstErr = Object.keys(valRes.errors)[0]
             return err("invalid_input", valRes.errors[firstErr], firstErr)
@@ -399,7 +399,7 @@ export async function executeCommand(
 
       changedEntityIds.push(command.entityId)
       applyFn = (draft) => {
-        const t = draft.entities[command.entityId] as Task
+        const t = draft.entities[command.entityId] as Item
         if (command.title !== undefined) t.title = command.title.trim()
         if (command.body !== undefined) t.body = command.body
         if (command.values) {
@@ -412,20 +412,20 @@ export async function executeCommand(
       break
     }
 
-    case "restoreTaskVersion": {
-      const task = doc.entities[command.entityId]
-      if (!task || task.kind !== "task") return err("not_found", `Task ${command.entityId} not found`)
+    case "restoreItemVersion": {
+      const item = doc.entities[command.entityId]
+      if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
       const historical = Automerge.getHistory(doc).find(item => item.change.hash === command.changeHash)
       const target = historical?.snapshot.entities[command.entityId]
-      if (!target || target.kind !== "task") return err("not_found", "Recorded task version is unavailable")
+      if (!isItem(target)) return err("not_found", "Recorded item version is unavailable")
       const parent = target.placement.parentId ? doc.entities[target.placement.parentId] : undefined
-      if (!parent || !validatePlacementParent("task", parent.kind).ok) {
-        return err("invalid_parent", "Recorded task parent is unavailable")
+      if (!parent || !validatePlacementParent("item", entityKind(parent)).ok) {
+        return err("invalid_parent", "Recorded item parent is unavailable")
       }
-      const restored = JSON.parse(JSON.stringify(target)) as Task
+      const restored = JSON.parse(JSON.stringify(target)) as Item
       changedEntityIds.push(command.entityId)
       applyFn = (draft) => {
-        const current = draft.entities[command.entityId] as Task
+        const current = draft.entities[command.entityId] as Item
         current.title = restored.title
         current.body = restored.body
         current.values = restored.values
@@ -452,7 +452,7 @@ export async function executeCommand(
       // Check target parent kind
       const targetParent = doc.entities[command.parentId]
       if (!targetParent) return err("not_found", `Target parent ${command.parentId} not found`)
-      const validParent = validatePlacementParent(entity.kind, targetParent.kind)
+      const validParent = validatePlacementParent(entityKind(entity), entityKind(targetParent))
       if (!validParent.ok) return err("invalid_parent", validParent.error.message)
 
       // Cross-board move check
@@ -513,7 +513,7 @@ export async function executeCommand(
 
       const targetParent = doc.entities[command.parentId]
       if (!targetParent) return err("not_found", `Target parent ${command.parentId} not found`)
-      const validParent = validatePlacementParent(entity.kind, targetParent.kind)
+      const validParent = validatePlacementParent(entityKind(entity), entityKind(targetParent))
       if (!validParent.ok) return err("invalid_parent", validParent.error.message)
 
       const { rank, renumbered } = computeInsertionRank(doc.entities, command.parentId, command.beforeId)
@@ -674,10 +674,10 @@ export async function executeCommand(
       if (!command.title || !command.title.trim()) {
         return err("invalid_input", "Document title is required", "title")
       }
-      const task = doc.entities[command.taskId]
-      if (!task || task.kind !== "task") return err("not_found", `Task ${command.taskId} not found`)
+      const item = doc.entities[command.itemId]
+      if (!isItem(item)) return err("not_found", `Item ${command.itemId} not found`)
       const docId = (command as any).id ?? crypto.randomUUID()
-      const { rank, renumbered } = computeInsertionRank(doc.entities, command.taskId)
+      const { rank, renumbered } = computeInsertionRank(doc.entities, command.itemId)
       changedEntityIds.push(docId)
       applyFn = (draft) => {
         if (renumbered) {
@@ -695,7 +695,7 @@ export async function executeCommand(
           file: command.localPath
             ? { type: "local-file", fileId: crypto.randomUUID(), fileName: command.localPath }
             : null,
-          placement: { parentId: command.taskId, rank },
+          placement: { parentId: command.itemId, rank },
           deleted: false,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -721,10 +721,10 @@ export async function executeCommand(
       if (!command.title || !command.title.trim()) {
         return err("invalid_input", "Artifact title is required", "title")
       }
-      const task = doc.entities[command.taskId]
-      if (!task || task.kind !== "task") return err("not_found", `Task ${command.taskId} not found`)
+      const item = doc.entities[command.itemId]
+      if (!isItem(item)) return err("not_found", `Item ${command.itemId} not found`)
       const artId = (command as any).id ?? crypto.randomUUID()
-      const { rank, renumbered } = computeInsertionRank(doc.entities, command.taskId)
+      const { rank, renumbered } = computeInsertionRank(doc.entities, command.itemId)
       changedEntityIds.push(artId)
       applyFn = (draft) => {
         if (renumbered) {
@@ -740,7 +740,7 @@ export async function executeCommand(
           templateId: command.templateId,
           pdf: command.pdf,
           sourceMarkdown: command.sourceMarkdown ?? null,
-          placement: { parentId: command.taskId, rank },
+          placement: { parentId: command.itemId, rank },
           deleted: false,
           createdAt: nowIso,
           updatedAt: nowIso,
@@ -935,7 +935,7 @@ export async function executeCommand(
           }
         })
 
-        // Soft-delete removed columns (preserve child tasks and relationships!)
+        // Soft-delete removed columns (preserve child items and relationships!)
         for (const existingCol of existingColumns) {
           if (!draftColIds.has(existingCol.id) && !existingCol.deleted) {
             const col = draft.entities[existingCol.id] as any

@@ -7,7 +7,7 @@ import {
 import { bootstrapIdentity, resetIdentityStorageForTest, verifyEnvelope } from "../domain/identity"
 import { createDeviceEnrollmentInvite, createWorkspaceJoinInvite } from "@meta-uber/mesh-pairing"
 
-describe("InvitationService (Tasks 3.2 - 3.4)", () => {
+describe("InvitationService (Requirements 3.2 - 3.4)", () => {
   beforeEach(() => {
     resetIdentityStorageForTest()
     resetInvitationStorageForTest()
@@ -84,7 +84,7 @@ describe("InvitationService (Tasks 3.2 - 3.4)", () => {
     expect(approval.certificate.payload.personId).toBe(profileHost.identity.personId)
   })
 
-  it("prevents non-owner editor from issuing workspace grants (Task 3.4)", async () => {
+  it("prevents non-owner editor from issuing workspace grants (Requirement 3.4)", async () => {
     const owner = await bootstrapIdentity("Owner Alice")
     resetIdentityStorageForTest()
     const editor = await bootstrapIdentity("Editor Bob")

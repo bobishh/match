@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Match is a local-first workspace board and task kernel with Automerge durability, scoped sync, and WebMCP tools." />
+    <meta name="description" content="Match is a local-first workspace board and item kernel with Automerge durability, scoped sync, and WebMCP tools." />
     <link rel="canonical" href="/agent/" />
     <title>Match — agent guide</title>
     <style>
@@ -65,11 +65,11 @@
       <section class="guide-card">
         <h2>Working model</h2>
         <p>A device owns a local catalog of independent workspaces. Each workspace is one Automerge document containing its board schema, items, document templates, history, and collaboration metadata. WebMCP commands target the current workspace shown in Match; creating a workspace makes it current.</p>
-        <div class="model-grid"><span>board</span><span>columns</span><span>fields</span><span>tasks</span><span>document templates</span><span>artifacts</span></div>
+        <div class="model-grid"><span>board</span><span>columns</span><span>fields</span><span>items</span><span>document templates</span><span>artifacts</span></div>
         <ul>
           <li>Every entity has a stable UUID. Titles are display text and may change.</li>
-          <li><code>placement.parentId</code> links a column to its board, a task to a column or parent task, and an artifact to its task. <code>placement.rank</code> orders siblings.</li>
-          <li><strong>Soft deletion</strong> applies to entities. Deleting a column hides its descendant tasks; restoring the column reveals them with their relationships intact.</li>
+          <li><code>placement.parentId</code> links a column to its board, an item to a column or parent item, and an artifact to its item. <code>placement.rank</code> orders siblings.</li>
+          <li><strong>Soft deletion</strong> applies to entities. Deleting a column hides its descendant items; restoring the column reveals them with their relationships intact.</li>
           <li>Archive is a normal workspace column. Trash contains explicitly deleted entities. Broken or cyclic ancestry appears through placement issues.</li>
           <li>Job search is one preset. Its lead vocabulary and pipeline are workspace-specific, never kernel assumptions.</li>
         </ul>
@@ -80,7 +80,7 @@
         <ol>
           <li>Call <code>list_workspaces</code> to inspect the local catalog. The user controls which existing workspace is current.</li>
           <li>Call <code>get_workspace_settings</code>. Resolve board, column, field, option, and template IDs from its result.</li>
-          <li>Read items with <code>list_tasks</code> or inspect one typed entity with <code>get_entity</code>.</li>
+          <li>Read items with <code>list_items</code> or inspect one typed entity with <code>get_entity</code>.</li>
           <li>Use generic mutation tools. Put custom values under stable field IDs, not field titles.</li>
           <li>Re-read visible state after mutations. Treat returned IDs and CRDT heads as authoritative.</li>
         </ol>
@@ -107,10 +107,10 @@
         </div>
         <h3 class="subhead">Entities</h3>
         <div class="tool-grid">
-          <article class="tool"><span class="tool-name">list_tasks</span><p>List visible tasks; optionally filter by parent ID or text.</p></article>
+          <article class="tool"><span class="tool-name">list_items</span><p>List visible items; optionally filter by parent ID or text.</p></article>
           <article class="tool"><span class="tool-name">get_entity</span><p>Read one raw typed entity by UUID.</p></article>
-          <article class="tool"><span class="tool-name">create_task</span><p>Create a task under a column or another task.</p></article>
-          <article class="tool"><span class="tool-name">patch_task</span><p>Update task title, body, or field values.</p></article>
+          <article class="tool"><span class="tool-name">create_item</span><p>Create an item under a column or another item.</p></article>
+          <article class="tool"><span class="tool-name">patch_item</span><p>Update item title, body, or field values.</p></article>
           <article class="tool"><span class="tool-name">move_entity</span><p>Move or reorder an entity using parent and optional sibling IDs.</p></article>
           <article class="tool"><span class="tool-name">rename_entity</span><p>Rename an entity without changing placement.</p></article>
           <article class="tool"><span class="tool-name">set_entity_deleted</span><p>Soft-delete or restore an entity.</p></article>

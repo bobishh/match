@@ -39,7 +39,7 @@ The system SHALL export v2 bundles containing the canonical document, manifest, 
 
 #### Scenario: Round trip preserves workspace identity and layout data
 
-- **GIVEN** a board has renamed columns, a nested task, deleted content, and custom fields
+- **GIVEN** a board has renamed columns, a nested item, deleted content, and custom fields
 - **WHEN** its bundle is exported and imported into an authorized installation
 - **THEN** the same IDs, ordering, values, history, and deletion states remain
 - **AND** the receiving UI renders the board from those records.
@@ -48,7 +48,7 @@ The system SHALL export v2 bundles containing the canonical document, manifest, 
 
 - **GIVEN** one workspace is already present locally
 - **WHEN** another bundle with that workspace ID and compatible lineage is imported
-- **THEN** native changes merge without duplicating tasks
+- **THEN** native changes merge without duplicating items
 - **WHEN** a bundle with another workspace ID is imported
 - **THEN** it is registered separately rather than merged into the selected workspace.
 
@@ -72,10 +72,10 @@ The system SHALL distinguish replicated blob references from device-local file l
 
 #### Scenario: Remote device lacks a referenced local PDF
 
-- **GIVEN** a task has a PDF artifact stored only as a local path on another device
+- **GIVEN** an item has a PDF artifact stored only as a local path on another device
 - **WHEN** the workspace syncs
 - **THEN** the artifact and its provenance are visible
-- **AND** its file state says unavailable on this device rather than complete or broken task.
+- **AND** its file state says unavailable on this device rather than complete or broken item.
 
 #### Scenario: Deleted attachment stays recoverable
 

@@ -59,7 +59,7 @@ test.describe("Trello-like board dragging", () => {
       await createBlankWorkspace(page, "Mobile scroll board")
       await createItem(page, "First", "To do")
       await createItem(page, "Second", "To do")
-      const second = await page.locator('.lead-card[data-task-id]:has-text("Second")').boundingBox()
+      const second = await page.locator('.lead-card[data-item-id]:has-text("Second")').boundingBox()
       if (!second) throw new Error("Touch source missing")
       const session = await context.newCDPSession(page)
       const start = { x: second.x + second.width / 2, y: second.y + second.height / 2 }
@@ -86,7 +86,7 @@ test.describe("Trello-like board dragging", () => {
     try {
       await createBlankWorkspace(page, "Mobile drag board")
       await createItem(page, "Touch me", "To do")
-      await touchDrag(context, page, '.lead-card[data-task-id]:has-text("Touch me")', '[role="region"][aria-label="Doing"] .card-stack')
+      await touchDrag(context, page, '.lead-card[data-item-id]:has-text("Touch me")', '[role="region"][aria-label="Doing"] .card-stack')
 
       await expect(page.getByRole("region", { name: "Doing" }).getByText("Touch me")).toBeVisible()
       await expect(page.getByRole("status")).toContainText("Item moved")
@@ -101,7 +101,7 @@ test.describe("Trello-like board dragging", () => {
     try {
       await createBlankWorkspace(page, "Mobile column drop board")
       await createItem(page, "Drop on column", "To do")
-      await touchDrag(context, page, '.lead-card[data-task-id]:has-text("Drop on column")', '[role="region"][aria-label="Doing"] .column-header')
+      await touchDrag(context, page, '.lead-card[data-item-id]:has-text("Drop on column")', '[role="region"][aria-label="Doing"] .column-header')
 
       await expect(page.getByRole("region", { name: "Doing" }).getByText("Drop on column")).toBeVisible()
       await expect(page.getByRole("status")).toContainText("Item moved")
@@ -133,7 +133,7 @@ test.describe("Trello-like board dragging", () => {
     await createItem(page, "First", "To do")
     await createItem(page, "Second", "To do")
 
-    const source = '.lead-card[data-task-id]:has-text("Second")'
+    const source = '.lead-card[data-item-id]:has-text("Second")'
     const target = '[role="region"][aria-label="Doing"] .card-stack'
     await drag(page, source, target)
 
@@ -149,8 +149,8 @@ test.describe("Trello-like board dragging", () => {
     await createItem(page, "Second", "To do")
     await createItem(page, "Third", "To do")
 
-    const source = await page.locator('.lead-card[data-task-id]:has-text("Third")').boundingBox()
-    const target = await page.locator('.lead-card[data-task-id]:has-text("First")').boundingBox()
+    const source = await page.locator('.lead-card[data-item-id]:has-text("Third")').boundingBox()
+    const target = await page.locator('.lead-card[data-item-id]:has-text("First")').boundingBox()
     if (!source || !target) throw new Error("Card drag target missing")
     await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
     await page.mouse.down()
@@ -169,7 +169,7 @@ test.describe("Trello-like board dragging", () => {
     await createItem(page, "Keep here", "To do")
     await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
 
-    await drag(page, '.lead-card[data-task-id]:has-text("Keep here")', '[role="region"][aria-label="Doing"] .card-stack')
+    await drag(page, '.lead-card[data-item-id]:has-text("Keep here")', '[role="region"][aria-label="Doing"] .card-stack')
 
     await expect(page.getByRole("status")).toContainText("Move failed")
     await expect(page.getByRole("region", { name: "To do" }).getByText("Keep here")).toBeVisible()

@@ -106,7 +106,7 @@ The system SHALL use native Automerge sync state per peer/document, verify autho
 #### Scenario: Later edit transfers a delta
 
 - **GIVEN** two devices have synchronized a workspace with a long history
-- **WHEN** one task title changes
+- **WHEN** one item title changes
 - **THEN** the other converges through native sync messages
 - **AND** instrumentation shows no full-document save payload for that live edit
 - **AND** the idle connection stops sending once peers are up to date.
@@ -139,7 +139,7 @@ The system SHALL replicate referenced available blobs by hash with bounded resum
 
 - **GIVEN** workspace changes arrived but a PDF transfer is interrupted
 - **WHEN** the board opens
-- **THEN** tasks are usable and the artifact says file pending
+- **THEN** items are usable and the artifact says file pending
 - **WHEN** transfer resumes and its hash verifies
 - **THEN** the artifact becomes available without retransmitting completed chunks.
 

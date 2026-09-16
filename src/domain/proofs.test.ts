@@ -20,7 +20,7 @@ import {
 } from "./proofs"
 import type { DeviceCertificate } from "./model"
 
-describe("Cryptographic proofs, authority, and certificate chains (Task 2.2)", () => {
+describe("Cryptographic proofs, authority, and certificate chains (Requirement 2.2)", () => {
   beforeEach(() => {
     resetIdentityStorageForTest()
   })

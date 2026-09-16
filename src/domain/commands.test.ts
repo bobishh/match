@@ -9,7 +9,7 @@ import {
   createCommandQueue,
   type Command,
 } from "./commands"
-import type { WorkspaceDocumentV2, Task } from "./model"
+import { isItem, type WorkspaceDocumentV2, type Item } from "./model"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -17,7 +17,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () => {
+describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)", () => {
   let profile: LocalProfile
   let initialDoc: Automerge.Doc<WorkspaceDocumentV2>
 
@@ -28,7 +28,7 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     initialDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
   })
 
-  it("executes createTask and patchTask, produces native metadata, and signs a change proof", async () => {
+  it("executes createItem and patchItem, produces native metadata, and signs a change proof", async () => {
     const queue = createCommandQueue(initialDoc, profile)
     const board = Object.values(initialDoc.entities).find((e) => e.kind === "board")!
     const leadCol = Object.values(initialDoc.entities).find((e) => e.kind === "column" && e.title === "Lead")!
@@ -37,10 +37,10 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     const roleField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Role")!
 
     const createCmd: Command = {
-      kind: "createTask",
+      kind: "createItem",
       parentId: leadCol.id,
-      title: "First Task",
-      body: "Initial task description",
+      title: "First Item",
+      body: "Initial item description",
       values: {
         [companyField.id]: "Acme",
         [roleField.id]: "Engineer",
@@ -56,13 +56,13 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     expect(receipt.changeHash).toBeTruthy()
     expect(receipt.changedEntityIds).toHaveLength(1)
 
-    const createdTaskId = receipt.changedEntityIds[0]
+    const createdItemId = receipt.changedEntityIds[0]
     const updatedDoc = queue.getDocument()
-    const task = updatedDoc.entities[createdTaskId] as Task
-    expect(task).toBeDefined()
-    expect(task.title).toBe("First Task")
-    expect(task.body).toBe("Initial task description")
-    expect(task.placement.parentId).toBe(leadCol.id)
+    const item = updatedDoc.entities[createdItemId] as Item
+    expect(item).toBeDefined()
+    expect(item.title).toBe("First Item")
+    expect(item.body).toBe("Initial item description")
+    expect(item.placement.parentId).toBe(leadCol.id)
 
     // Verify proof
     const proof = res1.value.proof
@@ -71,16 +71,16 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
 
     // Now patch title
     const patchCmd: Command = {
-      kind: "patchTask",
-      entityId: createdTaskId,
+      kind: "patchItem",
+      entityId: createdItemId,
       title: "Patched Title",
     }
     const res2 = await queue.transact(patchCmd)
     expect(res2.ok).toBe(true)
 
-    const patchedTask = queue.getDocument().entities[createdTaskId] as Task
-    expect(patchedTask.title).toBe("Patched Title")
-    expect(patchedTask.body).toBe("Initial task description") // body preserved
+    const patchedItem = queue.getDocument().entities[createdItemId] as Item
+    expect(patchedItem.title).toBe("Patched Title")
+    expect(patchedItem.body).toBe("Initial item description") // body preserved
   })
 
   it("preserves independent offline title and value edits when merged", async () => {
@@ -91,15 +91,15 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     const roleField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Role")!
 
     const createRes = await queue.transact({
-      kind: "createTask",
+      kind: "createItem",
       parentId: leadCol.id,
-      title: "Base Task",
+      title: "Base Item",
       body: "Base Body",
       values: { [companyField.id]: "Initial Company", [roleField.id]: "Developer" },
     })
     expect(createRes.ok).toBe(true)
     if (!createRes.ok) return
-    const taskId = createRes.value.receipt.changedEntityIds[0]
+    const itemId = createRes.value.receipt.changedEntityIds[0]
 
     // Fork document into replica A and replica B with valid hex actor IDs
     const actorA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -112,80 +112,80 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
 
     // Replica A updates title
     await queueA.transact({
-      kind: "patchTask",
-      entityId: taskId,
+      kind: "patchItem",
+      entityId: itemId,
       title: "Title by Tab A",
     })
 
     // Replica B updates company field value
     await queueB.transact({
-      kind: "patchTask",
-      entityId: taskId,
+      kind: "patchItem",
+      entityId: itemId,
       values: { [companyField.id]: "Company by Tab B" },
     })
 
     // Merge A and B
     const merged = Automerge.merge(queueA.getDocument(), queueB.getDocument())
-    const mergedTask = merged.entities[taskId] as Task
+    const mergedItem = merged.entities[itemId] as Item
 
     // BOTH edits survived because actual properties were patched in place!
-    expect(mergedTask.title).toBe("Title by Tab A")
-    expect(mergedTask.values[companyField.id]).toBe("Company by Tab B")
-    expect(mergedTask.body).toBe("Base Body")
+    expect(mergedItem.title).toBe("Title by Tab A")
+    expect(mergedItem.values[companyField.id]).toBe("Company by Tab B")
+    expect(mergedItem.body).toBe("Base Body")
   })
 
-  it("restores any recorded task version through a new compensating change", async () => {
+  it("restores any recorded item version through a new compensating change", async () => {
     const raw = createWorkspaceDoc("ws_history", "History", profile.identity.personId, "blank")
     const queue = createCommandQueue(Automerge.from<WorkspaceDocumentV2>(raw), profile)
     const todo = Object.values(queue.getDocument().entities).find(entity => entity.kind === "column" && entity.title === "To do")!
-    const created = await queue.transact({ kind: "createTask", parentId: todo.id, title: "Before", body: "Original" })
+    const created = await queue.transact({ kind: "createItem", parentId: todo.id, title: "Before", body: "Original" })
     expect(created.ok).toBe(true)
     if (!created.ok) return
-    const taskId = created.value.receipt.changedEntityIds[0]
+    const itemId = created.value.receipt.changedEntityIds[0]
     const creationHash = created.value.receipt.changeHash
-    const patched = await queue.transact({ kind: "patchTask", entityId: taskId, title: "After", body: "Changed" })
+    const patched = await queue.transact({ kind: "patchItem", entityId: itemId, title: "After", body: "Changed" })
     expect(patched.ok).toBe(true)
     if (!patched.ok) return
     const patchHash = patched.value.receipt.changeHash
 
-    const restored = await queue.transact({ kind: "restoreTaskVersion", entityId: taskId, changeHash: creationHash })
+    const restored = await queue.transact({ kind: "restoreItemVersion", entityId: itemId, changeHash: creationHash })
     expect(restored.ok).toBe(true)
-    expect((queue.getDocument().entities[taskId] as Task)).toMatchObject({ title: "Before", body: "Original" })
-    expect(Automerge.getHistory(queue.getDocument()).at(-1)?.change.message).toContain("restoreTaskVersion")
+    expect((queue.getDocument().entities[itemId] as Item)).toMatchObject({ title: "Before", body: "Original" })
+    expect(Automerge.getHistory(queue.getDocument()).at(-1)?.change.message).toContain("restoreItemVersion")
 
-    const redone = await queue.transact({ kind: "restoreTaskVersion", entityId: taskId, changeHash: patchHash })
+    const redone = await queue.transact({ kind: "restoreItemVersion", entityId: itemId, changeHash: patchHash })
     expect(redone.ok).toBe(true)
-    expect((queue.getDocument().entities[taskId] as Task)).toMatchObject({ title: "After", body: "Changed" })
+    expect((queue.getDocument().entities[itemId] as Item)).toMatchObject({ title: "After", body: "Changed" })
   })
 
   it("rejects invalid commands and cycle-creating moves without mutating document", async () => {
-    // Test on a blank board workspace where tasks have no required fields
+    // Test on a blank board workspace where items have no required fields
     const rawWs = createWorkspaceDoc("ws_blank_test", "Blank Board", profile.identity.personId, "blank")
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const queue = createCommandQueue(blankDoc, profile)
     const todoCol = Object.values(blankDoc.entities).find((e) => e.kind === "column" && e.title === "To do")!
 
-    // Create Parent Task
+    // Create Parent Item
     const resP = await queue.transact({
-      kind: "createTask",
+      kind: "createItem",
       parentId: todoCol.id,
-      title: "Parent Task",
+      title: "Parent Item",
     })
     expect(resP.ok).toBe(true)
     const parentId = resP.ok ? resP.value.receipt.changedEntityIds[0] : ""
 
-    // Create Child Task under Parent
+    // Create Child Item under Parent
     const resC = await queue.transact({
-      kind: "createTask",
+      kind: "createItem",
       parentId,
-      title: "Child Task",
+      title: "Child Item",
     })
     expect(resC.ok).toBe(true)
     const childId = resC.ok ? resC.value.receipt.changedEntityIds[0] : ""
 
     const headsBefore = Automerge.getHeads(queue.getDocument())
 
-    // Try to move Parent Task under Child Task -> creates cycle
+    // Try to move Parent Item under Child Item -> creates cycle
     const cycleMoveRes = await queue.transact({
       kind: "moveEntity",
       entityId: parentId,
@@ -221,18 +221,18 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
 
     // Launch 3 concurrent transactions
     const [r1, r2, r3] = await Promise.all([
-      queue.transact({ kind: "createTask", parentId: todoCol.id, title: "Concurrent 1" }),
-      queue.transact({ kind: "createTask", parentId: todoCol.id, title: "Concurrent 2" }),
-      queue.transact({ kind: "createTask", parentId: todoCol.id, title: "Concurrent 3" }),
+      queue.transact({ kind: "createItem", parentId: todoCol.id, title: "Concurrent 1" }),
+      queue.transact({ kind: "createItem", parentId: todoCol.id, title: "Concurrent 2" }),
+      queue.transact({ kind: "createItem", parentId: todoCol.id, title: "Concurrent 3" }),
     ])
 
     expect(r1.ok).toBe(true)
     expect(r2.ok).toBe(true)
     expect(r3.ok).toBe(true)
 
-    const allTasks = Object.values(queue.getDocument().entities).filter((e) => e.kind === "task")
-    expect(allTasks).toHaveLength(3)
-    const titles = allTasks.map((t) => t.title)
+    const allItems = Object.values(queue.getDocument().entities).filter(isItem)
+    expect(allItems).toHaveLength(3)
+    const titles = allItems.map((t) => t.title)
     expect(titles).toContain("Concurrent 1")
     expect(titles).toContain("Concurrent 2")
     expect(titles).toContain("Concurrent 3")
@@ -292,7 +292,7 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     expect(field.options[lowOpt.id].title).toBe("Minor")
   })
 
-  it("validates datetime field values when creating and patching tasks", async () => {
+  it("validates datetime field values when creating and patching items", async () => {
     const rawWs = createWorkspaceDoc("ws_dt_test", "Datetime Board", profile.identity.personId, "blank")
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const queue = createCommandQueue(blankDoc, profile)
@@ -311,35 +311,35 @@ describe("Transaction wrapper, commands, and publication queue (Task 1.6)", () =
     const fieldId = fieldRes.value.receipt.changedEntityIds[0]
 
     // Creating with valid datetime succeeds
-    const taskRes = await queue.transact({
-      kind: "createTask",
+    const itemRes = await queue.transact({
+      kind: "createItem",
       parentId: col.id,
       title: "Maintenance",
       body: "",
       values: { [fieldId]: "2026-09-12T03:00" },
     })
-    expect(taskRes.ok).toBe(true)
-    if (!taskRes.ok) return
-    const taskId = taskRes.value.receipt.changedEntityIds[0]
-    const task = queue.getDocument().entities[taskId] as any
-    expect(task.values[fieldId]).toBe("2026-09-12T03:00")
+    expect(itemRes.ok).toBe(true)
+    if (!itemRes.ok) return
+    const itemId = itemRes.value.receipt.changedEntityIds[0]
+    const item = queue.getDocument().entities[itemId] as any
+    expect(item.values[fieldId]).toBe("2026-09-12T03:00")
 
     // Patching with invalid datetime fails
     const patchInvalid = await queue.transact({
-      kind: "patchTask",
-      entityId: taskId,
+      kind: "patchItem",
+      entityId: itemId,
       values: { [fieldId]: "invalid-datetime" },
     })
     expect(patchInvalid.ok).toBe(false)
 
     // Patching with valid ISO datetime with seconds and Z succeeds
     const patchValid = await queue.transact({
-      kind: "patchTask",
-      entityId: taskId,
+      kind: "patchItem",
+      entityId: itemId,
       values: { [fieldId]: "2026-09-12T03:30:00Z" },
     })
     expect(patchValid.ok).toBe(true)
-    const updatedTask = queue.getDocument().entities[taskId] as any
-    expect(updatedTask.values[fieldId]).toBe("2026-09-12T03:30:00Z")
+    const updatedItem = queue.getDocument().entities[itemId] as any
+    expect(updatedItem.values[fieldId]).toBe("2026-09-12T03:30:00Z")
   })
 })

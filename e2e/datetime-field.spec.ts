@@ -58,7 +58,7 @@ test.describe("Datetime field type", () => {
 
     // Open detail dialog and check field rendering
     await card.click()
-    const detailDialog = page.getByRole("dialog", { name: "Task overview" })
+    const detailDialog = page.getByRole("dialog", { name: "Item overview" })
     await expect(detailDialog).toBeVisible()
     await expect(detailDialog).toContainText("Target Launch")
     await expect(detailDialog).toContainText("2026-09-15T14:30")
@@ -80,7 +80,7 @@ test.describe("Datetime field type", () => {
 
     // Open detail dialog and check persistence
     await reloadedCard.click()
-    const reloadedDetail = page.getByRole("dialog", { name: "Task overview" })
+    const reloadedDetail = page.getByRole("dialog", { name: "Item overview" })
     await expect(reloadedDetail).toBeVisible()
     await expect(reloadedDetail).toContainText("Target Launch")
     await expect(reloadedDetail).toContainText("2026-09-15T14:30")
@@ -111,7 +111,7 @@ test.describe("Datetime field type", () => {
 
     await page.getByRole("button", { name: "Done" }).click()
 
-    // Verify the added field renders datetime-local input in task dialog
+    // Verify the added field renders datetime-local input in item dialog
     await page.getByRole("button", { name: /Add item to/ }).first().click()
     const itemDialog = page.getByRole("dialog", { name: "Item details" })
     await expect(itemDialog.locator('input[type="datetime-local"]')).toBeVisible()

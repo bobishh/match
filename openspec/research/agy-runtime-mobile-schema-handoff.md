@@ -11,7 +11,7 @@ This section supersedes the earlier single-workspace invitation UI and library-s
 - Outer BDD: Sync opens selection with active workspace checked; Generate creates usable single-workspace invite without extra navigation; selecting A+B transfers A+B but excludes C and future D; empty selection and invalid/expired grant set fail truthfully; enrollment stays distinct. Check mobile layouts and keyboard/focus behavior.
 - Implement our OWN domain-specific schema/AST editor. No dependency research detour and no imported generic JSON form-builder as the primary UX. A maintained text-editing/highlighting primitive may be reused if needed. Typed JSON text and structural tree share one draft; custom nodes/property editors/type validation understand Match IDs, parent-child relationships, fields, options and soft deletion. Preserve the existing validation/atomic Apply/conflict requirements below. This remains schema editing, not an executable DSL or a second state authority.
 
-Execute this task now in /Users/bogdan/Workspace/personal/alcoholics_audacious/match. User selected Gemini 3.8 Flash with high thinking and explicitly authorized --dangerously-skip-permissions. Work autonomously on implementation and verification. Do not touch Emacs or unrelated personal apps. Preserve dirty changes, including legacy migration fixes and any newer repairs. Read applicable AGENTS.md, GEMINI.md, README.md and the existing OpenSpec before editing.
+Execute this work now in /Users/bogdan/Workspace/personal/alcoholics_audacious/match. User selected Gemini 3.8 Flash with high thinking and explicitly authorized --dangerously-skip-permissions. Work autonomously on implementation and verification. Do not touch Emacs or unrelated personal apps. Preserve dirty changes, including legacy migration fixes and any newer repairs. Read applicable AGENTS.md, GEMINI.md, README.md and the existing OpenSpec before editing.
 
 ## Outcome and workflow
 
@@ -19,7 +19,7 @@ URGENT USER CORRECTION: Rejected was an existing column and has disappeared. Tre
 
 Finish the workspace-kernel-and-scoped-sync change with real runtime integration, then repair mobile navigation and implement a typed JSON / visual AST schema editor. User also wants a Rejected column in Job search with an optional rejection reason / retrospective note. Update OpenSpec to capture these newly authorized UI requirements; preserve existing security, durability and compatibility guarantees.
 
-The prior review is a list of findings to recheck against current files, not an instruction to redo repairs already completed. Existing green tests and checked tasks alone are not evidence. Reopen unsupported checkboxes. Do not weaken requirements or manufacture success states. Keep a concise evidence record for each gate: actual invariant, initially failing test, implementation, passing commands, remaining gaps. Continue beyond diagnosis until the requested implementation is complete.
+The prior review is a list of findings to recheck against current files, not an instruction to redo repairs already completed. Existing green tests and checked boxes alone are not evidence. Reopen unsupported checkboxes. Do not weaken requirements or manufacture success states. Keep a concise evidence record for each gate: actual invariant, initially failing test, implementation, passing commands, remaining gaps. Continue beyond diagnosis until the requested implementation is complete.
 
 ## A. Validation and atomic persistence
 
@@ -63,7 +63,7 @@ Apply validates the entire draft and previews meaningful schema changes, then tr
 
 ## F. Rejected in Job search
 
-Add/restore Rejected as an ordinary configurable column in the Job search preset with stable column ID/binding, and an optional rejection reason / retrospective note (what went wrong). Rejected is a business state, separate from Archive and Trash. Retain task data, documents, timestamps, original history and relationships; no automatic deletion. Generic workspaces should not acquire job-specific fields. Migrate existing rejected data without dropping cards or confusing it with deleted/bin data; avoid re-adding a deliberately removed column on every load. Reason can be absent or unknown; never invent feedback. Make the preset schema editable through the same editor.
+Add/restore Rejected as an ordinary configurable column in the Job search preset with stable column ID/binding, and an optional rejection reason / retrospective note (what went wrong). Rejected is a business state, separate from Archive and Trash. Retain item data, documents, timestamps, original history and relationships; no automatic deletion. Generic workspaces should not acquire job-specific fields. Migrate existing rejected data without dropping cards or confusing it with deleted/bin data; avoid re-adding a deliberately removed column on every load. Reason can be absent or unknown; never invent feedback. Make the preset schema editable through the same editor.
 
 ## Verification and handoff
 

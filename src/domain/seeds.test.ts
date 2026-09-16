@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest"
 import { createWorkspaceDoc } from "./seeds"
 import { validateWorkspaceDoc } from "./model"
 
-describe("Workspace creation and seeds (Task 1.3)", () => {
+describe("Workspace creation and seeds (Requirement 1.3)", () => {
   it("creates an independent Blank board workspace with To do / Doing / Done and no job search fields", () => {
-    const ws = createWorkspaceDoc("ws_blank", "Personal Tasks", "person_123", "blank")
+    const ws = createWorkspaceDoc("ws_blank", "Personal Items", "person_123", "blank")
 
     expect(ws.id).toBe("ws_blank")
-    expect(ws.title).toBe("Personal Tasks")
+    expect(ws.title).toBe("Personal Items")
     expect(ws.ownerPersonId).toBe("person_123")
     expect(ws.deleted).toBe(false)
     expect(ws.migration).toBeNull()
@@ -69,7 +69,7 @@ describe("Workspace creation and seeds (Task 1.3)", () => {
     expect(fieldTitles).toContain("Work mode")
     expect(fieldTitles).toContain("Priority")
     expect(fieldTitles).toContain("Fit score")
-    expect(fieldTitles).toContain("Rejection reason")
+    expect(fieldTitles).toContain("Rejection notes / retrospective")
 
     expect(bindings["field.company"]).toBeDefined()
     expect(bindings["field.role"]).toBeDefined()

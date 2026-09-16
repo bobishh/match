@@ -1,6 +1,6 @@
 ## Context and reading order
 
-Read `proposal.md`, `contracts/model.ts`, `contracts/commands.md`, the six capability specs, then `tasks.md`. Normative behavior lives in the specs; exact shapes live in the contracts. This document resolves architectural choices. Do not invent another storage model while implementing a task.
+Read `proposal.md`, `contracts/model.ts`, `contracts/commands.md`, the six capability specs, then `tasks.md`. Normative behavior lives in the specs; exact shapes live in the contracts. This document resolves architectural choices. Do not invent another storage model while implementing an item.
 
 Current source facts, inspected 2026-09-09:
 
@@ -32,7 +32,7 @@ The root is a logical catalog, not a giant document containing every workspace. 
 
 ## 2. Typed records and hierarchy
 
-Use the discriminated unions in `contracts/model.ts`; no EAV table and no generic unvalidated `Record<string, any>`. `entities[id]` contains boards, columns, tasks, field definitions, documents, templates, and artifacts. Only task `values[fieldId]` is user-defined data.
+Use the discriminated unions in `contracts/model.ts`; no EAV table and no generic unvalidated `Record<string, any>`. `entities[id]` contains boards, columns, items, field definitions, documents, templates, and artifacts. Only item `values[fieldId]` is user-defined data.
 
 New application entities, workspace IDs, transaction IDs, and invitation IDs use UUIDv4. Person/device IDs use fingerprints of public keys. Actor IDs belong to Automerge writers and are separate from both. Legacy record IDs remain byte-for-byte unchanged, even when they are not UUIDs.
 
@@ -42,23 +42,23 @@ Allowed parent edges:
 | --- | --- |
 | board | workspace root (`parentId: null`) |
 | column | board |
-| task | column or task |
+| item | column or item |
 | field | board |
-| document | task |
+| document | item |
 | document_template | workspace root (`parentId: null`) |
-| artifact | task |
+| artifact | item |
 
-Containment determines inherited visibility. Non-parent references, such as `artifact.templateId`, preserve provenance but do not propagate deletion. Tasks/subtasks derive their board and column from ancestry; do not also store `status`, `stateId`, `columnId`, `boardId`, or child-ID arrays. Cross-board task moves and cross-workspace moves are rejected in this version; moving between columns or nesting under a task on the same board is supported.
+Containment determines inherited visibility. Non-parent references, such as `artifact.templateId`, preserve provenance but do not propagate deletion. Items/subitems derive their board and column from ancestry; do not also store `status`, `stateId`, `columnId`, `boardId`, or child-ID arrays. Cross-board item moves and cross-workspace moves are rejected in this version; moving between columns or nesting under an item on the same board is supported.
 
 ### Parent and sibling order are one placement value
 
 Store `placement: { parentId, rank }` and replace this small value as one semantic register when moving/reordering. Two independent scalar writes could merge a parent from one concurrent move with the rank from another. All other independent entity fields are updated in place. Do not replace whole entities, `entities`, or top-level maps.
 
-Ranks are canonical reduced rational strings `n/d`, with signed integer numerator, positive denominator, and exact BigInt comparison. Initial ranks are `0/1`, `1/1`, ... . Between distinct ranks use the mediant; before/after endpoints subtract/add one. Equal concurrent ranks sort by entity ID using bytewise ASCII comparison. When a requested insertion is between equal ranks, renumber that sibling group to consecutive integers in current deterministic order inside the same transaction, then allocate the insertion rank. Never compare rational strings lexicographically or use wall-clock time for order. Concurrent reorders may produce a combined order, but no duplicate membership or vanished task.
+Ranks are canonical reduced rational strings `n/d`, with signed integer numerator, positive denominator, and exact BigInt comparison. Initial ranks are `0/1`, `1/1`, ... . Between distinct ranks use the mediant; before/after endpoints subtract/add one. Equal concurrent ranks sort by entity ID using bytewise ASCII comparison. When a requested insertion is between equal ranks, renumber that sibling group to consecutive integers in current deterministic order inside the same transaction, then allocate the insertion rank. Never compare rational strings lexicographically or use wall-clock time for order. Concurrent reorders may produce a combined order, but no duplicate membership or vanished item.
 
 ### Soft deletion
 
-`deleted` belongs to each mutable entity and the workspace header. Delete/restore toggles only that record. Never walk descendants to rewrite them. Clearing a field uses `null`; removing an option sets its `deleted` flag; deleting an entire field preserves task values. IDs and historical records are never reused.
+`deleted` belongs to each mutable entity and the workspace header. Delete/restore toggles only that record. Never walk descendants to rewrite them. Clearing a field uses `null`; removing an option sets its `deleted` flag; deleting an entire field preserves item values. IDs and historical records are never reused.
 
 `isVisible(id)` is true only if the workspace, entity, and every containment ancestor are live and the ancestry is structurally valid. Restore under a deleted ancestor remains hidden and reports that ancestor. A recovery command can combine restore and move to a live valid parent. An individually deleted descendant remains deleted when its parent is restored.
 
@@ -74,7 +74,7 @@ Fresh workspace creation selects "Job search" or "Blank board". Both use the sam
 
 The Archive column is an ordinary live column with the explicit `archive: true` role. A board permits at most one. Its collapsed presentation is derived from that role; title and preset binding do not define behavior. Legacy `displayHint: "collapsed"` columns project as Archive until settings rewrite them. Archive is NOT soft delete. The existing archived/rejected/bin leads map there and remain available when expanded. Trash is a separate utility.
 
-Document templates are generic workspace-root entities with title and Markdown. No template-kind enum is stored; use and generation behavior comes from the operation invoking a template. Job-specific PDF commands remain an adapter over generic tasks and document-template/artifact records. Do not build a plugin runtime. The preset copies data on creation; later preset updates never rewrite a user's board.
+Document templates are generic workspace-root entities with title and Markdown. No template-kind enum is stored; use and generation behavior comes from the operation invoking a template. Job-specific PDF commands remain an adapter over generic items and document-template/artifact records. Do not build a plugin runtime. The preset copies data on creation; later preset updates never rewrite a user's board.
 
 ### Board editing and workspace settings
 
@@ -82,13 +82,13 @@ Normal mode drags cards within or across column stacks and persists exact `befor
 
 `Edit board` lives in the desktop header and mobile Settings group. Edit mode exposes inline add, double-click/edit column controls, and `Edit {entityName}` for the singular entity label and typed fields. Workspace Settings contains Document templates plus an advanced JSON view.
 
-The JSON projection contains only `formatVersion`, workspace title, active board title/entity name/ordered columns/ordered fields, and ordered document templates. It excludes tasks, field values, personal identity, device keys/certificates, grants, invitations, proofs, sync state, and native log data. `get_workspace_settings` returns projection plus current heads. `apply_workspace_settings` validates stable IDs and applies the complete draft through one `updateWorkspaceSettings` Automerge transaction using optional expected heads. Missing columns, fields, options, or templates are soft-deleted; descendants and values remain.
+The JSON projection contains only `formatVersion`, workspace title, active board title/entity name/ordered columns/ordered fields, and ordered document templates. It excludes items, field values, personal identity, device keys/certificates, grants, invitations, proofs, sync state, and native log data. `get_workspace_settings` returns projection plus current heads. `apply_workspace_settings` validates stable IDs and applies the complete draft through one `updateWorkspaceSettings` Automerge transaction using optional expected heads. Missing columns, fields, options, or templates are soft-deleted; descendants and values remain.
 
 ## 4. Transactions, history, and durability
 
 `WorkspaceStore.transact(command, context)` is the only write boundary. It validates permissions, shape, references, field values, and local graph invariants, then makes exactly one Automerge change. Metadata is a versioned JSON string in the native change `message`: transaction ID, command kind, affected entity IDs, person ID, device ID. Native dependencies and actor remain native metadata.
 
-Do not maintain `transactions[]`, a replay reducer, and a second state object as parallel authorities. The user history UI projects native Automerge changes plus verified attribution. The command wrapper can return before/after heads and changed IDs for subscriptions. Task restore reads a native historical snapshot and emits one explicit compensating command; it never mutates or reorders signed changes.
+Do not maintain `transactions[]`, a replay reducer, and a second state object as parallel authorities. The user history UI projects native Automerge changes plus verified attribution. The command wrapper can return before/after heads and changed IDs for subscriptions. Item restore reads a native historical snapshot and emits one explicit compensating command; it never mutates or reorders signed changes.
 
 Build changes on a private candidate. Persist change bytes and their proof atomically in IndexedDB before publishing the candidate as committed, notifying subscribers, or offering it to a peer. On write failure retain the previous committed document and show retryable failure; retry uses the same transaction ID and cannot duplicate a change. A UI may show an unsaved draft, but must label it pending. Do not save only JSON to a fallback and claim CRDT history was preserved.
 
@@ -159,7 +159,7 @@ Document readiness and file readiness are separate: "Workspace ready; 3 files pe
 
 ## 9. Native UI and compatibility
 
-Use the existing Vue stack and real application routes. Route contract: `/` selects/restores the last workspace; `/w/:workspaceId/b/:boardId` opens a board; `/pair#...` opens the typed invitation flow. Static hosting must serve the app for deep links. Keep existing mobile snap columns, 1024px controls, template/artifact workflows, and keyboard-accessible task movement.
+Use the existing Vue stack and real application routes. Route contract: `/` selects/restores the last workspace; `/w/:workspaceId/b/:boardId` opens a board; `/pair#...` opens the typed invitation flow. Static hosting must serve the app for deep links. Keep existing mobile snap columns, 1024px controls, template/artifact workflows, and keyboard-accessible item movement.
 
 Sync modal opens directly with workspace selection checkboxes, with the active workspace preselected, and a single "Generate link" action on the same screen (empty selection disables generation). "Add my device" ("Sync all") is provided as a distinct secondary action for personal identity enrollment. No invitation or transport starts merely from opening the dialog. Flows run Scope -> Invitation -> Approval/Acceptance -> Transfer -> Connected, with waiting, retry, cancelled, expired, and failed states. Persist peers; after reload a live known peer can reconnect without another QR. Selecting a mesh member expands their known devices with presence, shortened device ID, last-seen time, signed self-reported device name and user agent, and a clearly best-effort browser/OS description. Device metadata never grants identity, membership, or authority; missing metadata from an older peer renders as unknown.
 
@@ -168,7 +168,7 @@ Sync modal opens directly with workspace selection checkboxes, with the active w
 | Old pending `match` requirement | New source of truth |
 | --- | --- |
 | Fixed lead pipeline / status enum | `workspace-model`, job-search preset only |
-| Flat lead cards / mandatory company and role | Generic task + preset adapter; legacy tools retain their validation |
+| Flat lead cards / mandatory company and role | Generic item + preset adapter; legacy tools retain their validation |
 | Physical deletion / delete cascade | `workspace-model` soft deletion |
 | One default workspace / import merge into it | `workspace-portability` and private catalog |
 | Automatic QR on opening Sync / Connect to mesh | `scoped-sync` typed chooser and explicit acceptance |

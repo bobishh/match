@@ -9,6 +9,7 @@ import { createWorkspaceOwnershipTransfer } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
 import { validateIncomingChanges } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
+import { isItem } from "../domain/model"
 
 const peerStoreState = vi.hoisted(() => ({ credential: null as any }))
 vi.mock("./peerStore", () => ({ peerStore: { getWorkspaceCredential: async () => peerStoreState.credential, listPeers: async () => [] } }))
@@ -39,17 +40,17 @@ async function fixture(command: (board: string, column: string) => Command, role
   return { local, remote: result.value.newDoc, record }
 }
 it("rejects visitor writes even with a valid device signature and owner-issued visitor grant", async () => {
-  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Forbidden" }), "visitor")
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
   await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/Visitors/)
   expect(() => assertWorkspaceTransition("visitor", local, remote)).toThrow(/Visitors/)
 })
-it("accepts signed editor task changes, including when forwarded by another peer", async () => {
-  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Allowed" }), "editor")
+it("accepts signed editor item changes, including when forwarded by another peer", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Allowed" }), "editor")
   await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
   expect(() => assertWorkspaceTransition("editor", local, remote)).not.toThrow()
 })
 it("accepts a historical editor grant when its signed authorization carries a missing owner device certificate", async () => {
-  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Forwarded" }), "editor")
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forwarded" }), "editor")
   peerStoreState.credential = {
     workspaceId: local.id,
     ownerPersonId: owner.identity.personId,
@@ -71,12 +72,12 @@ for (const action of ["renameWorkspace", "createColumn"] as const) {
   })
 }
 it("rejects a valid signature over a different change hash", async () => {
-  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Original" }), "editor")
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Original" }), "editor")
   const forged = Automerge.change(Automerge.clone(remote), draft => { draft.title = "Forged" })
   await expect(validateIncomingChanges(local, forged, [record])).rejects.toThrow(/Unsigned/)
 })
 it("rejects tampering with an owner-issued role", async () => {
-  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createTask", parentId, title: "Forbidden" }), "visitor")
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
   record.grant.payload.role = "editor"
   await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/signature/)
 })
@@ -100,7 +101,7 @@ it("Given split owners wrote on separate partitions, when the branches meet, the
   const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Partitioned", owner.identity.personId, "blank"))
   const column = Object.values(base.entities).find(entity => entity.kind === "column")!
   const write = async (profile: LocalProfile, title: string) => {
-    const result = await executeCommand(base, { kind: "createTask", parentId: column.id, title }, profile)
+    const result = await executeCommand(base, { kind: "createItem", parentId: column.id, title }, profile)
     if (!result.ok) throw new Error(result.error.message)
     return result.value.newDoc
   }
@@ -117,7 +118,7 @@ it("Given split owners wrote on separate partitions, when the branches meet, the
     catalog: { ownershipTransfers: transfers },
   }
 
-  const titles = Object.values(merged.entities).filter(entity => entity.kind === "task").map(entity => entity.title)
+  const titles = Object.values(merged.entities).filter(isItem).map(entity => entity.title)
   expect(titles).toEqual(expect.arrayContaining(["A write", "B write"]))
   await expect(validateIncomingChanges(branchA, merged, [])).rejects.toThrow(/conflicting ownership records/i)
 })

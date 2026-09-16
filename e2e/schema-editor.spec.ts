@@ -47,13 +47,13 @@ test.describe("Visual board and entity editing", () => {
 
   test("Given a column with an item, when it is deleted from visual edit mode, then its item is hidden", async ({ page }) => {
     await page.goto("/")
-    await createBlankWorkspace(page, "Task Retention Board")
+    await createBlankWorkspace(page, "Item Retention Board")
 
     await page.getByRole("button", { name: /Add item to/ }).first().click()
-    const taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Persistent Work Item")
-    await taskForm.getByLabel("Status *").selectOption({ label: "Doing" })
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    const itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Persistent Work Item")
+    await itemForm.getByLabel("Status *").selectOption({ label: "Doing" })
+    await itemForm.getByRole("button", { name: "Save item" }).click()
     await expect(page.getByText("Persistent Work Item")).toBeVisible()
 
     await page.getByRole("button", { name: "Edit board" }).click()

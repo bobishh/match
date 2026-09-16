@@ -12,8 +12,8 @@ test.describe("Agent guide", () => {
     for (const tool of [
       "get_workspace_settings",
       "apply_workspace_settings",
-      "create_task",
-      "patch_task",
+      "create_item",
+      "patch_item",
       "move_entity",
       "set_entity_deleted",
       "restore_and_move",
@@ -27,7 +27,7 @@ test.describe("Agent guide", () => {
     await expect(guide).toContainText("Soft deletion")
     await expect(guide).toContainText("current workspace")
     await expect(guide).toContainText("Add my device")
-    await expect(guide.getByText("move_task", { exact: true })).toHaveCount(0)
+    await expect(guide.getByText("move_item", { exact: true })).toHaveCount(0)
     await expect(guide).not.toContainText("global CV and cover-letter")
   })
 

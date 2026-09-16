@@ -41,7 +41,7 @@ describe("mesh transport instance lease", () => {
     let releaseLegacy!: () => void
     let markLegacyReady!: () => void
     const legacyReady = new Promise<void>(resolve => { markLegacyReady = resolve })
-    const legacyTask = locks.request("match:mesh-leader", { mode: "exclusive", ifAvailable: true }, async lock => {
+    const legacyRun = locks.request("match:mesh-leader", { mode: "exclusive", ifAvailable: true }, async lock => {
       expect(lock).not.toBeNull()
       markLegacyReady()
       await new Promise<void>(resolve => { releaseLegacy = resolve })
@@ -53,6 +53,6 @@ describe("mesh transport instance lease", () => {
 
     await upgraded.release()
     releaseLegacy()
-    await legacyTask
+    await legacyRun
   })
 })

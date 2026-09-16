@@ -1,4 +1,4 @@
-import type { WorkspaceDocumentV2 } from "./model"
+import { entityKind, isItem, type WorkspaceDocumentV2 } from "./model"
 import { canonicalizeJson } from "./identity"
 
 export type WorkspaceRole = "owner" | "editor" | "visitor"
@@ -12,7 +12,8 @@ export function assertWorkspaceTransition(role: WorkspaceRole, before: Workspace
   for (const id of new Set([...Object.keys(beforeEntities), ...Object.keys(afterEntities)])) {
     const a = beforeEntities[id], b = afterEntities[id]
     if (canonicalizeJson(a ?? null) === canonicalizeJson(b ?? null)) continue
-    if (!b || !["task", "document", "artifact"].includes(b.kind) || (a && a.kind !== b.kind)) throw new Error("Only the owner can edit board structure")
-    if (b.kind === "task" && !["column", "task"].includes(afterEntities[b.placement.parentId ?? ""]?.kind ?? "")) throw new Error("Invalid task parent")
+    if (!b || !(isItem(b) || b.kind === "document" || b.kind === "artifact") || (a && entityKind(a) !== entityKind(b))) throw new Error("Only the owner can edit board structure")
+    const parent = afterEntities[b.placement.parentId ?? ""]
+    if (isItem(b) && !(parent && (isItem(parent) || parent.kind === "column"))) throw new Error("Invalid item parent")
   }
 }

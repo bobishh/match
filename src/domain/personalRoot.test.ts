@@ -8,7 +8,7 @@ import {
 } from "./personalRoot"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url } from "./identity"
 
-describe("Personal Root Document and Catalog (Task 2.1)", () => {
+describe("Personal Root Document and Catalog (Requirement 2.1)", () => {
   beforeEach(() => {
     resetIdentityStorageForTest()
   })

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   validateFieldValue,
-  validateTaskValues,
+  validateItemValues,
   resolveSelectDisplay,
   patchFieldDefinition,
 } from "./fields"
-import type { FieldDefinition, Task } from "./model"
+import type { FieldDefinition, Item } from "./model"
 
-describe("Field validation and lifecycle (Task 1.5)", () => {
+describe("Field validation and lifecycle (Requirement 1.5)", () => {
   const baseField = {
     id: "f_text",
     kind: "field" as const,
@@ -95,7 +95,7 @@ describe("Field validation and lifecycle (Task 1.5)", () => {
     expect(unknownDisplay).toEqual({ label: "Unknown (opt_missing)", unavailable: true })
   })
 
-  it("ensures soft-deleted required fields stop blocking task edits but preserve values", () => {
+  it("ensures soft-deleted required fields stop blocking item edits but preserve values", () => {
     const reqField: FieldDefinition = {
       ...baseField,
       id: "f_req",
@@ -105,16 +105,16 @@ describe("Field validation and lifecycle (Task 1.5)", () => {
     }
 
     // Initially fails when missing
-    const res1 = validateTaskValues([reqField], {})
+    const res1 = validateItemValues([reqField], {})
     expect(res1.ok).toBe(false)
 
     // Once field is soft-deleted, required validation stops blocking
     const deletedReqField: FieldDefinition = { ...reqField, deleted: true }
-    const res2 = validateTaskValues([deletedReqField], {})
+    const res2 = validateItemValues([deletedReqField], {})
     expect(res2.ok).toBe(true)
 
     // But if a value was previously stored, it is still valid and preserved
-    const res3 = validateTaskValues([deletedReqField], { f_req: "Preserved Value" })
+    const res3 = validateItemValues([deletedReqField], { f_req: "Preserved Value" })
     expect(res3.ok).toBe(true)
   })
 

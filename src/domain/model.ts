@@ -8,7 +8,8 @@ export type Rank = string // canonical reduced rational: signed numerator/positi
 export type Hash = string
 export type Heads = Hash[]
 
-export type { Placement, EntityBase, Board, Column, FieldValue, PriorityRule, PriorityBand, PriorityPolicy, Task, FieldOption, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2 } from "./entitySchemas"
+export type { Placement, EntityBase, Board, Column, FieldValue, PriorityRule, PriorityBand, PriorityPolicy, Item, FieldOption, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2, EntityKind } from "./entitySchemas"
+export { isItem, entityKind } from "./entitySchemas"
 import type { WorkspaceEntity } from "./entitySchemas"
 export { isValidRank } from "./rank"
 export { validatePlacement, validatePlacementParent, validateEntity, validateWorkspaceDoc } from "./validation"

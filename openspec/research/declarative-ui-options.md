@@ -1,6 +1,6 @@
 # Declarative workspace UI options
 
-Research date: 2026-09-09. Status: **research only; deferred**. This note introduces no dependency, implementation task, or requirement for the current workspace/data-model change.
+Research date: 2026-09-09. Status: **research only; deferred**. This note introduces no dependency, implementation work, or requirement for the current workspace/data-model change.
 
 ## Recommendation
 
@@ -52,7 +52,7 @@ Store references rather than copying column definitions into the view. A view mu
 
 All renderer actions would call existing domain commands. Renderers would consume derived readable data; their temporary state would not become a second replication model. If a form library reports an entire edited object, its adapter would submit changed fields rather than replace the workspace.
 
-Potential later acceptance evidence, not tasks for the current change:
+Potential later acceptance evidence, not items for the current change:
 
 - **Given** two supported configurations over the same workspace, **when** the user switches views and edits a card, **then** both views show the same persisted entity and history.
 - **Given** a configuration referencing a deleted column or field, **when** it renders, **then** existing soft-delete rules remain effective and unavailable configuration is explained without reviving or discarding data.

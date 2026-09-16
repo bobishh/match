@@ -9,7 +9,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 ## 0. Baseline and outer scenarios
 
 - [x] 0.1 Capture current `npm test` and `npm run build` results; inventory existing UI/agent/sync scenarios and save representative legacy data covering every field/status, one dangling link, templates, PDF artifacts, and local paths. Do not rewrite old expectations until their replacement scenario exists.
-- [x] 0.2 Add `e2e/workspaces.spec.ts` with Given/When/Then cases for Blank board creation, renamed column persistence, custom-field failure, and subtask movement. Run to demonstrate the new behavior is absent, with failures attributable to missing feature rather than setup.
+- [x] 0.2 Add `e2e/workspaces.spec.ts` with Given/When/Then cases for Blank board creation, renamed column persistence, custom-field failure, and subitem movement. Run to demonstrate the new behavior is absent, with failures attributable to missing feature rather than setup.
 - [x] 0.3 Add outer Trash/restore and Needs placement scenarios, including a separately deleted child and a cycle fixture. Add pending/save-failure scenario using a narrowly scoped storage-failure test hook.
 - [x] 0.4 Add separate scoped-sync outer scenarios for own-device approval and workspace join, with an expired invite and a waiting approval state. Keep these unavailable to normal users until Gate C passes; do not ship buttons that claim unsupported access guarantees.
 
@@ -25,16 +25,16 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 - [x] 1.8 Replace `src/state.ts` root-array copy commits with repository-backed projections/subscriptions. Notify replication only after durable commit. Verify focus/BroadcastChannel reconciliation and no outbound change on failed save.
 - [x] 1.9 Implement migration plan/backup/application and v2 bundle validation from `contracts/commands.md`. Verify exact preservation of IDs/relationships/timestamps, archived versus deleted distinction, interrupted resume, different-workspace import, corrupt bundle rejection, and competing migration conflict.
 - [x] 1.10 Build native workspace/board selection and data-driven columns in Vue. Satisfy 0.2's workspace/rename/reorder happy paths and empty-title failure. Preserve mobile snap behavior and 1024px controls.
-- [x] 1.11 Build generic task/custom-field forms, subtask navigation, Trash, and Needs placement recovery. Satisfy 0.2/0.3, including restore-under-deleted-parent explanation and save failure without partial task publication.
+- [x] 1.11 Build generic item/custom-field forms, subitem navigation, Trash, and Needs placement recovery. Satisfy 0.2/0.3, including restore-under-deleted-parent explanation and save failure without partial item publication.
 - [x] 1.12 Port job-search filters and template/artifact flows to preset bindings. Implement generic WebMCP commands and legacy aliases over the same store. Verify both valid visible mutation and invalid-input/no-mutation paths.
-- [x] 1.13 Gate A evidence: run focused unit suites, `npm run build`, and new local-workspace Playwright scenarios. Demonstrate a Reading board with Author field and nested task alongside Job search, with reload/export/import. No DSL, extra sync engine, or parallel state authority.
+- [x] 1.13 Gate A evidence: run focused unit suites, `npm run build`, and new local-workspace Playwright scenarios. Demonstrate a Reading board with Author field and nested item alongside Job search, with reload/export/import. No DSL, extra sync engine, or parallel state authority.
 
 ## 2. Gate B: Private root, authority, and verified history
 
 - [x] 2.1 Implement private personal-root persistence, device registry, workspace references, and idempotent cross-document registration. Verify interruption after durable workspace creation resumes catalog registration without another workspace.
 - [x] 2.2 Implement canonical signed envelopes, certificate-chain validation, actor bindings, workspace genesis/grants, and proof storage. Use one shared canonical encoder and domain separation; record fixed test vectors. Verify tampering, wrong document/person, chain cycle/depth, and unsupported algorithm failures.
 - [x] 2.3 Implement trusted-document admission with isolated candidates and bounded missing-proof queues. Verify unauthorized root/workspace changes never publish and proof dependencies can arrive later without false durable acknowledgement.
-- [x] 2.4 Implement native history projection and task history UI. Verify A/J attribution survives relay through K, old changes remain Legacy/imported, and timestamps never decide conflicts.
+- [x] 2.4 Implement native history projection and item history UI. Verify A/J attribution survives relay through K, old changes remain Legacy/imported, and timestamps never decide conflicts.
 - [x] 2.5 Gate B evidence: run all local regression checks plus signing/admission suites and history happy/failure UI cases. Confirm workspace export contains public proofs but no private keys, personal root, or invitation secrets.
 
 ## 3. Gate C: Two explicit connection flows
@@ -54,7 +54,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 - [x] 4.4 Implement content-addressed blob storage and resumable 256 KiB chunks with hash verification. Preserve deleted references/blobs. Verify interrupted transfer resumes and corrupted bytes never become available.
 - [x] 4.5 Implement per-workspace document/file progress and complete-sync aggregation. Verify usable workspace with pending files, unavailable local-path artifacts, and no false "Everything synced" while transfer remains incomplete.
 - [x] 4.6 Add same-browser multi-tab and isolated-profile reconnect regression coverage using the real transport adapter; deterministic transport fault tests complement rather than replace browser pairing.
-- [x] 4.7 Gate D evidence: run relevant complete unit suites, `npm run build`, and scoped-sync/multi-profile Playwright suites. Record first-transfer bytes versus one-edit bytes, document load time, and peak memory for a fixed fixture of 1,000 tasks / 10,000 changes. Treat numbers as baseline measurements, not unsupported scalability promises.
+- [x] 4.7 Gate D evidence: run relevant complete unit suites, `npm run build`, and scoped-sync/multi-profile Playwright suites. Record first-transfer bytes versus one-edit bytes, document load time, and peak memory for a fixed fixture of 1,000 items / 10,000 changes. Treat numbers as baseline measurements, not unsupported scalability promises.
 
 ## 5. Integration and handoff
 
@@ -72,7 +72,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 ## 7. Gate F: Job search Rejected column and retrospective notes
 
 - [x] 7.1 Restore `status.rejected` column definition in Job search preset seeds (`src/domain/seeds.ts`) and schema migrations (`src/domain/migration.ts`).
-- [x] 7.2 Add optional retrospective note field (`field.rejectionReason`) to Job search board schema and card form dialogs (`src/components/TaskFormDialog.vue`, `src/components/TaskDetailDialog.vue`).
+- [x] 7.2 Add optional retrospective note field (`field.rejectionReason`) to Job search board schema and card form dialogs (`src/components/ItemFormDialog.vue`, `src/components/ItemDetailDialog.vue`).
 - [x] 7.3 Gate F evidence: run migration and seed unit tests (`src/domain/migration.test.ts`, `src/domain/seeds.test.ts`), and Playwright E2E suite (`e2e/job-search-rejected.spec.ts`: 2/2 passed, `e2e/legacy-migration.spec.ts`: 2/2 passed) proving legacy rejected leads upgrade cleanly, move to Rejected retains retrospective notes across reload, and cards are never lost or mapped to Trash.
 
 ## 8. User Steering: Direct sync selection and custom workspace sets
@@ -103,7 +103,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 ## 11. User Steering: Schema-driven filters
 
 - [x] 11.1 Replace job-search filter enums with column IDs, live select option IDs/titles, number ranges, boolean values, and date ranges from the active schema.
-- [x] 11.2 Apply the same search/filter path to preset and generic workspace tasks; reset filter state when switching workspaces.
+- [x] 11.2 Apply the same search/filter path to preset and generic workspace items; reset filter state when switching workspaces.
 - [x] 11.3 Verify renamed options, generic select filtering, numeric schema bounds, regressions, build, and OpenSpec.
 
 ## 12. User Steering: Wide desktop board layout

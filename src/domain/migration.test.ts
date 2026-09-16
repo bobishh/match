@@ -9,7 +9,7 @@ import {
   exportWorkspaceBundleV2,
   readWorkspaceBundleV2,
 } from "./migration"
-import type { Task, Column } from "./model"
+import { isItem, type Item, type Column } from "./model"
 import type { Workspace } from "../types"
 
 beforeAll(async () => {
@@ -18,7 +18,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("Migration plan, application, and v2 bundle validation (Task 1.9)", () => {
+describe("Migration plan, application, and v2 bundle validation (Requirement 1.9)", () => {
   const ownerPersonId = "person_owner_123"
 
   it("migrates representative legacy workspace preserving exact IDs, relationships, and timestamps", () => {
@@ -33,18 +33,19 @@ describe("Migration plan, application, and v2 bundle validation (Task 1.9)", () 
     expect(migratedDoc.ownerPersonId).toBe(ownerPersonId)
     expect(migratedDoc.migration?.sourceFormat).toBe("match-0.0.1")
 
-    // Check all legacy leads became tasks with exact same IDs
+    // Check all legacy leads became items with exact same IDs
     for (const lead of representativeLegacyWorkspace.leads) {
-      const task = migratedDoc.entities[lead.id] as Task
-      expect(task).toBeDefined()
-      expect(task.kind).toBe("task")
-      expect(task.createdAt).toBe(lead.createdAt)
-      expect(task.updatedAt).toBe(lead.updatedAt)
+      const item = migratedDoc.entities[lead.id] as Item
+      expect(item).toBeDefined()
+      expect(isItem(item)).toBe(true)
+      expect("kind" in item).toBe(false)
+      expect(item.createdAt).toBe(lead.createdAt)
+      expect(item.updatedAt).toBe(lead.updatedAt)
 
       // Archived card check: archived != deleted
       if (lead.status === "archived") {
-        expect(task.deleted).toBe(false)
-        const col = migratedDoc.entities[task.placement.parentId!] as Column
+        expect(item.deleted).toBe(false)
+        const col = migratedDoc.entities[item.placement.parentId!] as Column
         expect(col.title).toBe("Archive")
         expect(col.displayHint).toBe("collapsed")
       }
@@ -160,11 +161,11 @@ describe("Migration plan, application, and v2 bundle validation (Task 1.9)", () 
     const legacyDoc = Automerge.from(workspaceWithRejected)
     const migratedDoc = applyMigrationPlan(planResult.value, legacyDoc)
 
-    const task = migratedDoc.entities["lead_rejected_1"] as Task
-    expect(task).toBeDefined()
-    expect(task.deleted).toBe(false)
+    const item = migratedDoc.entities["lead_rejected_1"] as Item
+    expect(item).toBeDefined()
+    expect(item.deleted).toBe(false)
 
-    const parentCol = migratedDoc.entities[task.placement.parentId!] as Column
+    const parentCol = migratedDoc.entities[item.placement.parentId!] as Column
     expect(parentCol).toBeDefined()
     expect(parentCol.title).toBe("Rejected")
     expect(parentCol.displayHint).toBe("normal")

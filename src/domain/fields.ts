@@ -87,7 +87,7 @@ export function validateFieldValue(
   }
 }
 
-export function validateTaskValues(
+export function validateItemValues(
   boardFields: FieldDefinition[],
   values: Record<string, FieldValue>,
   allowDeprecatedOptions = false

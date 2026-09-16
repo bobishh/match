@@ -7,14 +7,14 @@ import {
   type WorkspaceDocumentV2,
   type Board,
   type Column,
-  type Task,
+  type Item,
   type FieldDefinition,
   type AttachedDocument,
   type DocumentTemplate,
   type PdfArtifact,
 } from "./model"
 
-describe("model runtime types and validators (Task 1.1)", () => {
+describe("model runtime types and validators (Requirement 1.1)", () => {
   const validPlacement = { parentId: null, rank: "0/1" }
 
   it("validates Board entity and rejects unknown keys", () => {
@@ -62,11 +62,10 @@ describe("model runtime types and validators (Task 1.1)", () => {
     expect(validateEntity(invalidHint).ok).toBe(false)
   })
 
-  it("validates Task entity and custom values map", () => {
-    const validTask: Task = {
-      id: "task_1",
-      kind: "task",
-      title: "Task 1",
+  it("validates Item entity and custom values map", () => {
+    const validItem: Item = {
+      id: "item_1",
+      title: "Item 1",
       body: "Body text",
       placement: { parentId: "col_1", rank: "0/1" },
       deleted: false,
@@ -80,11 +79,11 @@ describe("model runtime types and validators (Task 1.1)", () => {
       },
     }
 
-    expect(validateEntity(validTask).ok).toBe(true)
+    expect(validateEntity(validItem).ok).toBe(true)
 
     // Values must be scalar or null, not arbitrary objects
     const invalidValues = {
-      ...validTask,
+      ...validItem,
       values: { field_bad: { complex: "object" } },
     }
     expect(validateEntity(invalidValues).ok).toBe(false)
@@ -158,7 +157,7 @@ describe("model runtime types and validators (Task 1.1)", () => {
       id: "doc_1",
       kind: "document",
       title: "Notes",
-      placement: { parentId: "task_1", rank: "0/1" },
+      placement: { parentId: "item_1", rank: "0/1" },
       deleted: false,
       createdAt: "2026-09-09T10:00:00.000Z",
       updatedAt: "2026-09-09T10:00:00.000Z",
@@ -185,7 +184,7 @@ describe("model runtime types and validators (Task 1.1)", () => {
       id: "art_1",
       kind: "artifact",
       title: "CV.pdf",
-      placement: { parentId: "task_1", rank: "0/1" },
+      placement: { parentId: "item_1", rank: "0/1" },
       deleted: false,
       createdAt: "2026-09-09T10:00:00.000Z",
       updatedAt: "2026-09-09T10:00:00.000Z",
@@ -213,26 +212,26 @@ describe("model runtime types and validators (Task 1.1)", () => {
     expect(validatePlacementParent("column", "column").ok).toBe(false)
     expect(validatePlacementParent("column", null).ok).toBe(false)
 
-    // task -> column or task
-    expect(validatePlacementParent("task", "column").ok).toBe(true)
-    expect(validatePlacementParent("task", "task").ok).toBe(true)
-    expect(validatePlacementParent("task", "board").ok).toBe(false)
-    expect(validatePlacementParent("task", null).ok).toBe(false)
+    // item -> column or item
+    expect(validatePlacementParent("item", "column").ok).toBe(true)
+    expect(validatePlacementParent("item", "item").ok).toBe(true)
+    expect(validatePlacementParent("item", "board").ok).toBe(false)
+    expect(validatePlacementParent("item", null).ok).toBe(false)
 
     // field -> board
     expect(validatePlacementParent("field", "board").ok).toBe(true)
     expect(validatePlacementParent("field", "column").ok).toBe(false)
 
-    // document -> task
-    expect(validatePlacementParent("document", "task").ok).toBe(true)
+    // document -> item
+    expect(validatePlacementParent("document", "item").ok).toBe(true)
     expect(validatePlacementParent("document", "column").ok).toBe(false)
 
     // template -> null
     expect(validatePlacementParent("template", null).ok).toBe(true)
     expect(validatePlacementParent("template", "board").ok).toBe(false)
 
-    // artifact -> task
-    expect(validatePlacementParent("artifact", "task").ok).toBe(true)
+    // artifact -> item
+    expect(validatePlacementParent("artifact", "item").ok).toBe(true)
     expect(validatePlacementParent("artifact", "board").ok).toBe(false)
   })
 

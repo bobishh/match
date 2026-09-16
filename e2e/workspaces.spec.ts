@@ -117,11 +117,11 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(page.getByRole("region", { name: "Lead" })).toHaveCount(0)
     await expect(page.getByRole("region", { name: "Interview" })).toHaveCount(0)
 
-    // Adding a card on blank board opens a generic task form (Title + Body, not Company + Role)
+    // Adding a card on blank board opens a generic item form (Title + Body, not Company + Role)
     await page.getByRole("button", { name: /Add item to/ }).first().click()
-    const taskForm = page.getByRole("dialog", { name: "Item details" })
-    await expect(taskForm.getByLabel("Title *")).toBeVisible()
-    await expect(taskForm.getByLabel("Company *")).toHaveCount(0)
+    const itemForm = page.getByRole("dialog", { name: "Item details" })
+    await expect(itemForm.getByLabel("Title *")).toBeVisible()
+    await expect(itemForm.getByLabel("Company *")).toHaveCount(0)
   })
 
   test("Given a board with columns, when a column is renamed, then the new title persists after reload", async ({ page }) => {
@@ -151,7 +151,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(page.getByRole("region", { name: "Backlog" })).toBeVisible()
   })
 
-  test("Given a board with a required custom field, when a task is saved without that field, then validation fails without creating the task", async ({ page }) => {
+  test("Given a board with a required custom field, when an item is saved without that field, then validation fails without creating the item", async ({ page }) => {
     await page.goto("/")
 
     await page.getByRole("button", { name: "Workspaces" }).click()
@@ -174,22 +174,22 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.getByRole("dialog", { name: "Review schema changes" }).getByRole("button", { name: "Confirm apply" }).click()
     await page.getByRole("button", { name: "Done" }).click()
 
-    // Attempt to create a task leaving required "Severity" empty
+    // Attempt to create an item leaving required "Severity" empty
     await page.getByRole("button", { name: /Add item to/ }).first().click()
-    const taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Crash on click")
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    const itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Crash on click")
+    await itemForm.getByRole("button", { name: "Save item" }).click()
 
-    // Validation error should show and task dialog remains open
-    await expect(taskForm.getByRole("alert")).toHaveText(/Severity is required/)
-    await expect(taskForm).toBeVisible()
+    // Validation error should show and item dialog remains open
+    await expect(itemForm.getByRole("alert")).toHaveText(/Severity is required/)
+    await expect(itemForm).toBeVisible()
 
     // Cancel / close form
-    await taskForm.getByRole("button", { name: "Cancel" }).click()
+    await itemForm.getByRole("button", { name: "Cancel" }).click()
     await expect(page.getByText("Crash on click")).toHaveCount(0)
   })
 
-  test("Given a parent task and a subtask, when the subtask is moved to another parent, then the hierarchy updates correctly", async ({ page }) => {
+  test("Given a parent item and a subitem, when the subitem is moved to another parent, then the hierarchy updates correctly", async ({ page }) => {
     await page.goto("/")
 
     await page.getByRole("button", { name: "Workspaces" }).click()
@@ -201,28 +201,28 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
 
     // Create Parent A in To do
     await page.getByRole("button", { name: /Add item to/ }).first().click()
-    let taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Parent A")
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    let itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Parent A")
+    await itemForm.getByRole("button", { name: "Save item" }).click()
 
     // Create Parent B in To do
     await page.getByRole("button", { name: /Add item to/ }).first().click()
-    taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Parent B")
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Parent B")
+    await itemForm.getByRole("button", { name: "Save item" }).click()
 
     // Add Child 1 under Parent A
     await page.getByRole("button", { name: "Open Parent A" }).click()
-    await page.getByRole("button", { name: "+ Add subtask" }).click()
-    taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Child 1")
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    await page.getByRole("button", { name: "+ Add subitem" }).click()
+    itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Child 1")
+    await itemForm.getByRole("button", { name: "Save item" }).click()
     await page.getByRole("button", { name: "Close detail" }).click()
 
     // Move Child 1 from Parent A to Parent B
     await page.getByRole("button", { name: "Open Parent A" }).click()
     await page.getByRole("button", { name: "Move Child 1" }).click()
-    const moveDialog = page.getByRole("dialog", { name: "Move task" })
+    const moveDialog = page.getByRole("dialog", { name: "Move item" })
     await moveDialog.getByLabel("New parent").selectOption({ label: "Parent B" })
     await moveDialog.getByRole("button", { name: "Confirm move" }).click()
     await page.getByRole("button", { name: "Close detail" }).click()
@@ -236,7 +236,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(page.getByText("Child 1")).toBeVisible()
   })
 
-  test("Gate A evidence: Reading board with Author field and nested task alongside Job search, with reload and export", async ({ page }) => {
+  test("Gate A evidence: Reading board with Author field and nested item alongside Job search, with reload and export", async ({ page }) => {
     await page.goto("/")
     await ensureJobSearchWorkspace(page)
 
@@ -272,23 +272,23 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.getByRole("dialog", { name: "Review schema changes" }).getByRole("button", { name: "Confirm apply" }).click()
     await page.getByRole("button", { name: "Done" }).click()
 
-    // 4. Create task "Dune" with Author "Frank Herbert"
+    // 4. Create item "Dune" with Author "Frank Herbert"
     await page.getByRole("button", { name: /Add item to/ }).first().click()
-    let taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Dune")
-    await taskForm.getByLabel("Author").fill("Frank Herbert")
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    let itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Dune")
+    await itemForm.getByLabel("Author").fill("Frank Herbert")
+    await itemForm.getByRole("button", { name: "Save item" }).click()
     await expect(page.getByText("Dune")).toBeVisible()
 
-    // 5. Add nested task "Chapter 1" under "Dune"
+    // 5. Add nested item "Chapter 1" under "Dune"
     await page.getByRole("button", { name: "Open Dune" }).click()
-    await page.getByRole("button", { name: "+ Add subtask" }).click()
-    taskForm = page.getByRole("dialog", { name: "Item details" })
-    await taskForm.getByLabel("Title *").fill("Chapter 1")
-    await taskForm.getByRole("button", { name: "Save item" }).click()
+    await page.getByRole("button", { name: "+ Add subitem" }).click()
+    itemForm = page.getByRole("dialog", { name: "Item details" })
+    await itemForm.getByLabel("Title *").fill("Chapter 1")
+    await itemForm.getByRole("button", { name: "Save item" }).click()
     await page.getByRole("button", { name: "Close detail" }).click()
 
-    // 6. Verify reload preserves Reading board, Author field value, and nested task
+    // 6. Verify reload preserves Reading board, Author field value, and nested item
     await page.reload()
     await expect(page.getByRole("heading", { name: "Reading board" })).toBeVisible()
     await expect(page.getByText("Dune")).toBeVisible()

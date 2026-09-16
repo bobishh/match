@@ -42,7 +42,7 @@ test("Given a status filter, when one state remains, then its column fills the b
   await page.locator(".board").evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => {}))))
   await page.screenshot({ path: testInfo.outputPath("single-state.png"), fullPage: true })
   await card.click()
-  await expect(page.getByRole("dialog", { name: "Task overview" })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
 })
 
 test("Given search results across two states, when search finds nothing then reset restores all states", async ({ page }) => {

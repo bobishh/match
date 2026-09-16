@@ -16,7 +16,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("Native history projection and attribution (Task 2.4)", () => {
+describe("Native history projection and attribution (Requirement 2.4)", () => {
   beforeEach(() => {
     resetIdentityStorageForTest()
   })
@@ -29,8 +29,8 @@ describe("Native history projection and attribution (Task 2.4)", () => {
     const meta = {
       version: 1,
       transactionId: "tx_1",
-      action: "createTask",
-      entityIds: ["task_abc"],
+      action: "createItem",
+      entityIds: ["item_abc"],
       personId: profile.identity.personId,
       deviceId: profile.device.deviceId,
     }
@@ -42,7 +42,7 @@ describe("Native history projection and attribution (Task 2.4)", () => {
     const history = projectDocumentHistory(doc)
     expect(history.length).toBeGreaterThan(0)
     const lastEntry = history[history.length - 1]
-    expect(lastEntry.action).toBe("createTask")
+    expect(lastEntry.action).toBe("createItem")
     expect(lastEntry.personId).toBe(profile.identity.personId)
     expect(lastEntry.deviceId).toBe(profile.device.deviceId)
     expect(lastEntry.isLegacy).toBe(false)
@@ -65,37 +65,37 @@ describe("Native history projection and attribution (Task 2.4)", () => {
     const rawWs = createWorkspaceDoc("ws_filter", "Filter Board", profile.identity.personId, "blank")
     let doc = Automerge.from<WorkspaceDocumentV2>(rawWs)
 
-    const metaTask1 = {
+    const metaItem1 = {
       version: 1,
       transactionId: "tx_1",
-      action: "createTask",
-      entityIds: ["task_1"],
+      action: "createItem",
+      entityIds: ["item_1"],
       personId: profile.identity.personId,
       deviceId: profile.device.deviceId,
     }
-    doc = Automerge.change(doc, { message: JSON.stringify(metaTask1) }, (draft) => {
+    doc = Automerge.change(doc, { message: JSON.stringify(metaItem1) }, (draft) => {
       draft.title = "T1 Edit"
     })
 
-    const metaTask2 = {
+    const metaItem2 = {
       version: 1,
       transactionId: "tx_2",
-      action: "createTask",
-      entityIds: ["task_2"],
+      action: "createItem",
+      entityIds: ["item_2"],
       personId: profile.identity.personId,
       deviceId: profile.device.deviceId,
     }
-    doc = Automerge.change(doc, { message: JSON.stringify(metaTask2) }, (draft) => {
+    doc = Automerge.change(doc, { message: JSON.stringify(metaItem2) }, (draft) => {
       draft.title = "T2 Edit"
     })
 
-    const task1History = projectEntityHistory(doc, "task_1")
-    expect(task1History).toHaveLength(1)
-    expect(task1History[0].entityIds).toContain("task_1")
+    const item1History = projectEntityHistory(doc, "item_1")
+    expect(item1History).toHaveLength(1)
+    expect(item1History[0].entityIds).toContain("item_1")
 
-    const task2History = projectEntityHistory(doc, "task_2")
-    expect(task2History).toHaveLength(1)
-    expect(task2History[0].entityIds).toContain("task_2")
+    const item2History = projectEntityHistory(doc, "item_2")
+    expect(item2History).toHaveLength(1)
+    expect(item2History[0].entityIds).toContain("item_2")
   })
 })
 
@@ -108,8 +108,8 @@ describe("Native history projection and attribution (Task 2.4)", () => {
     const metaAlice = {
       version: 1,
       transactionId: "tx_alice_1",
-      action: "createTask",
-      entityIds: ["task_relay"],
+      action: "createItem",
+      entityIds: ["item_relay"],
       personId: profileA.identity.personId,
       deviceId: profileA.device.deviceId,
     }
@@ -123,7 +123,7 @@ describe("Native history projection and attribution (Task 2.4)", () => {
     docK = Automerge.merge(docK, docA)
 
     // Project history on K
-    const kHistory = projectEntityHistory(docK, "task_relay")
+    const kHistory = projectEntityHistory(docK, "item_relay")
     expect(kHistory).toHaveLength(1)
     expect(kHistory[0].personId).toBe(profileA.identity.personId)
     expect(kHistory[0].deviceId).toBe(profileA.device.deviceId)

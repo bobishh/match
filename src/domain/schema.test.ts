@@ -39,7 +39,7 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(draft.columns.map((c) => c.title)).toEqual(["To do", "Doing", "Done"])
     expect(draft.fields).toEqual([])
 
-    // Verify no private identity, devices, certificates, or tasks are in draft
+    // Verify no private identity, devices, certificates, or items are in draft
     expect((draft as any).ownerPersonId).toBeUndefined()
     expect((draft as any).entities).toBeUndefined()
     expect((draft as any).leads).toBeUndefined()
@@ -83,7 +83,7 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     const validDraftWithDatetime: BoardSchemaDraft = {
       boardId: "board-1",
       boardTitle: "Valid Board",
-      entityName: "task",
+      entityName: "item",
       columns: [{ title: "Col 1" }],
       fields: [
         {

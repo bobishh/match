@@ -43,8 +43,7 @@ export type Column = EntityBase & {
 
 export type FieldValue = string | number | boolean | null
 
-export type Task = EntityBase & {
-  kind: "task"
+export type Item = EntityBase & {
   body: string
   values: Record<EntityId, FieldValue>
 }
@@ -97,7 +96,7 @@ export type PdfArtifact = EntityBase & {
 }
 
 export type WorkspaceEntity =
-  | Board | Column | Task | FieldDefinition
+  | Board | Column | Item | FieldDefinition
   | AttachedDocument | DocumentTemplate | LegacyWritingTemplate | PdfArtifact
 
 export type WorkspaceSettingsDraft = {

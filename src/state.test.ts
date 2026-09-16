@@ -14,7 +14,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("Repository-backed state and projections (Task 1.8)", () => {
+describe("Repository-backed state and projections (Requirement 1.8)", () => {
   beforeEach(async () => {
     setStorageFailureHookForTest(false)
     for (const workspace of await defaultStorage.listWorkspaces()) await defaultStorage.deleteWorkspace(workspace.id)

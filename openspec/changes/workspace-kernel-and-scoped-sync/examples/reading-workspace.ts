@@ -6,8 +6,8 @@ const todoId = "10000000-0000-4000-8000-000000000002"
 const doingId = "10000000-0000-4000-8000-000000000003"
 const doneId = "10000000-0000-4000-8000-000000000004"
 const authorId = "10000000-0000-4000-8000-000000000005"
-const taskId = "10000000-0000-4000-8000-000000000006"
-const subtaskId = "10000000-0000-4000-8000-000000000007"
+const itemId = "10000000-0000-4000-8000-000000000006"
+const subitemId = "10000000-0000-4000-8000-000000000007"
 const timestamps = {
   createdAt: "2026-09-09T12:00:00.000Z",
   updatedAt: "2026-09-09T12:00:00.000Z",
@@ -47,21 +47,21 @@ export const readingWorkspace = {
       placement: { parentId: boardId, rank: "0/1" }, ...timestamps,
       valueType: "text", required: false,
     },
-    [taskId]: {
-      id: taskId, kind: "task", title: "Designing Data-Intensive Applications",
+    [itemId]: {
+      id: itemId, title: "Designing Data-Intensive Applications",
       placement: { parentId: doingId, rank: "0/1" }, ...timestamps,
       deleted: false, body: "Read and record useful ideas.",
       values: { [authorId]: "Martin Kleppmann" },
     },
-    [subtaskId]: {
-      id: subtaskId, kind: "task", title: "Notes on replication",
-      placement: { parentId: taskId, rank: "0/1" }, ...timestamps,
+    [subitemId]: {
+      id: subitemId, title: "Notes on replication",
+      placement: { parentId: itemId, rank: "0/1" }, ...timestamps,
       deleted: false, body: "", values: {},
     },
   },
 } satisfies WorkspaceDocumentV2
 
 // Deleting doingId changes only that column's deleted flag.
-// Both tasks then disappear from normal views; their flags and placements stay.
+// Both items then disappear from normal views; their flags and placements stay.
 // Restoring doingId reveals both unless either was independently soft-deleted.
-// Renaming Author changes one field record; task values remain keyed by authorId.
+// Renaming Author changes one field record; item values remain keyed by authorId.
