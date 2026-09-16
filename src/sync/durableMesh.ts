@@ -80,6 +80,7 @@ type SessionEntry = {
   direction: "incoming" | "outgoing"
   connection: SyncConnection
   session: LiveWorkspaceSync
+  evict: (cause: string) => Promise<void>
 }
 
 type SessionDirection = SessionEntry["direction"]
@@ -1064,9 +1065,8 @@ export class DurableMesh {
 
   private async dropSessions() {
     const sessions = [...this.sessions.values()]
-    this.sessions.clear()
+    await Promise.allSettled(sessions.map(entry => entry.evict("mesh stopped")))
     await this.notify()
-    await Promise.allSettled(sessions.map(entry => entry.session.close()))
   }
 
   private async acceptLoop(signal: AbortSignal) {
@@ -1098,7 +1098,7 @@ export class DurableMesh {
     const entry = [...this.sessions.values()].find(item => item.connection === connection)
     if (!entry) return
     const unsubscribe = this.options.workspace.subscribe?.(() => {
-      void entry.session.publish().catch(() => { void entry.session.close() })
+      void entry.session.publish().catch(() => { void entry.evict("publish failed") })
     })
     try { await entry.session.done } finally { unsubscribe?.() }
   }
@@ -1452,7 +1452,29 @@ export class DurableMesh {
       ? liveAutomergeWorkspaceSync(connection, credential.transportSecret, this.options.workspaceStore, workspaceId,
         profile.device.deviceId, deviceId, incrementalEngine)
       : liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
-    this.sessions.set(key, { workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session })
+    let stopHeartbeat: (() => void) | undefined
+    let evicted = false
+    const entry: SessionEntry = {
+      workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session,
+      evict: async cause => {
+        if (evicted) return
+        evicted = true
+        stopHeartbeat?.()
+        const wasCurrent = this.sessions.get(key) === entry
+        if (wasCurrent) {
+          this.sessions.delete(key)
+          if (incrementalEngine) incrementalEngine.reset(workspaceId, deviceId)
+        }
+        this.trace("session.closed", { connectionId, peerId: deviceId.slice(0, 8), wasCurrent, cause })
+        if (wasCurrent) {
+          if (!this.stopped) queueMicrotask(() => { void this.publishAll() })
+          await Promise.allSettled([this.notify(), session.close(), connection.close()])
+          return
+        }
+        await Promise.allSettled([session.close(), connection.close()])
+      },
+    }
+    this.sessions.set(key, entry)
     this.trace("session.started", {
       connectionId,
       peerId: deviceId.slice(0, 8),
@@ -1465,34 +1487,25 @@ export class DurableMesh {
     })
     this.lastDiagnostic = ""
     this.options.onDiagnostic?.("")
-    await previous?.session.close()
-    await this.notify()
+    void previous?.evict("replaced")
     void session.publish().catch(error => {
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.publish.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
       this.reportProtocolFailure(`Publish ${deviceId.slice(0, 6)}`, error)
-      void session.close()
+      void entry.evict("publish failed")
     })
-    const stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
+    stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
         this.reconnectPolicy.recordFailure(key, error)
         this.trace("session.heartbeat.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
         this.reportProtocolFailure(`Heartbeat ${deviceId.slice(0, 6)}`, error)
-        void session.close()
+        void entry.evict("heartbeat failed")
       }) : undefined
     void session.done.catch(error => {
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.receive.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
       this.reportProtocolFailure(`Receive ${deviceId.slice(0, 6)}`, error)
-    }).finally(async () => {
-      stopHeartbeat?.()
-      const wasCurrent = this.sessions.get(key)?.session === session
-      if (wasCurrent) this.sessions.delete(key)
-      if (incrementalEngine) incrementalEngine.reset(workspaceId, deviceId)
-      this.trace("session.closed", { connectionId, peerId: deviceId.slice(0, 8), wasCurrent })
-      await connection.close()
-      await this.notify()
-      if (!this.stopped) queueMicrotask(() => { void this.publishAll() })
-    })
+    }).finally(() => entry.evict("receive loop ended"))
+    await this.notify()
   }
 
   private async publishAll() {
@@ -1502,7 +1515,7 @@ export class DurableMesh {
       } catch (error) {
         this.reconnectPolicy.recordFailure(key, error)
         this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
-        if (this.sessions.get(key)?.session === entry.session) await entry.session.close()
+        await entry.evict("publish failed")
       }
     }))
   }

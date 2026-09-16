@@ -131,6 +131,39 @@ test("Given a paired editor, when the invitation tab reloads repeatedly, then tr
   } finally { await context.close() }
 })
 
+test("Given two connected clients, when exactly one page reloads after a pending network state, then both sides restore live presence", async ({ browser }) => {
+  test.setTimeout(120_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await pairWorkspace(host, guest)
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+
+    await guest.evaluate(() => window.dispatchEvent(new Event("offline")))
+    await expect(guest.getByLabel("Mesh offline")).toBeVisible()
+    await guest.reload()
+
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
+    for (const client of [host, guest]) {
+      await client.getByRole("button", { name: "Sync", exact: true }).click()
+      const dialog = client.getByRole("dialog", { name: "Device sync" })
+      await expect(dialog.getByText("Connected · Live channel active.")).toBeVisible()
+      await expect(dialog.locator(".mesh-member-presence.is-online")).toHaveCount(2)
+      await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    }
+
+    await addLead(guest, "After one-sided reload")
+    await expect(host.getByRole("button", { name: "Open After one-sided reload — Engineer" })).toBeVisible({ timeout: 20_000 })
+  } finally {
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
 test("Given an existing editor, when the owner enrolls another device, then the owner device verifies that editor after reload", async ({ browser, page }) => {
   test.setTimeout(120_000)
   const editorContext = await isolatedContext(browser)

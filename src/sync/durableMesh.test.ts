@@ -5,6 +5,64 @@ import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRe
 import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given a session whose receive loop hangs, when publish fails and a replacement connects, then stale cleanup cannot evict the replacement", async () => {
+    let rejectSnapshot!: (error: Error) => void
+    let resolveOldAccept!: (stream: never) => void
+    let snapshot = new Promise<Uint8Array>((_resolve, reject) => { rejectSnapshot = reject })
+    const changes: unknown[][] = []
+    const credential = {
+      workspaceId: "workspace-1", ownerPersonId: "owner", ownerPublicKey: "owner-key",
+      ownerCertificates: [], transportSecret: "mesh-secret", epoch: 1, updatedAt: new Date().toISOString(),
+    }
+    const peer = {
+      workspaceId: "workspace-1", personId: "remote-person", deviceId: "remote-device", role: "editor" as const,
+      endpoint: "remote-endpoint", lastSeen: new Date().toISOString(),
+    }
+    const mesh = new DurableMesh({
+      transport: {} as never,
+      workspace: {} as never,
+      workspaceStore: { read: () => snapshot } as never,
+      getProfile: async () => ({ identity: { personId: "local-person" }, device: { deviceId: "local-device" } } as never),
+      store: {
+        getWorkspaceCredential: async () => credential,
+        listWorkspaceCredentials: async () => [credential],
+        listPeers: async () => [peer],
+      } as never,
+      onChange: (...args) => changes.push(args),
+    })
+    const oldConnection = {
+      acceptStream: () => new Promise<never>(resolve => { resolveOldAccept = resolve }),
+      openStream: vi.fn(),
+      close: vi.fn(async () => {}),
+    }
+    const replacementConnection = {
+      acceptStream: () => new Promise<never>(() => {}),
+      openStream: vi.fn(async () => ({ send: async () => {}, closeSend: async () => {}, read: async () => new Uint8Array() })),
+      close: vi.fn(async () => {}),
+    }
+
+    await (mesh as any).installSession("workspace-1", "remote-device", "instance-1",
+      "2026-09-16T09:00:00.000Z", 1, "incoming", oldConnection)
+    expect((mesh as any).sessions.size).toBe(1)
+
+    rejectSnapshot(new Error("publish failed"))
+    await vi.waitFor(() => expect((mesh as any).sessions.size).toBe(0))
+    await expect(mesh.views("workspace-1")).resolves.toMatchObject([{ online: false }])
+
+    snapshot = Promise.resolve(new Uint8Array([1]))
+    await (mesh as any).installSession("workspace-1", "remote-device", "instance-1",
+      "2026-09-16T09:00:00.000Z", 1, "incoming", replacementConnection)
+    const replacement = (mesh as any).sessions.get("workspace-1:remote-device").session
+    resolveOldAccept(undefined as never)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect((mesh as any).sessions.get("workspace-1:remote-device").session).toBe(replacement)
+    await expect(mesh.views("workspace-1")).resolves.toMatchObject([{ online: true }])
+    expect(changes.length).toBeGreaterThan(0)
+    await mesh.dispose()
+  })
+
   it("Given simultaneous dials converge, when the same session arrives again, then only the preferred direction replaces its duplicate", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", direction: "incoming" as const }
 
