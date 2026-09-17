@@ -1,3 +1,4 @@
+import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url, sha256Base64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
 import { AutomergeAntiEntropy, type AutomergeDocumentAdapter, type AutomergeSyncFrame } from "@meta-uber/mesh-replication/automerge"
@@ -182,8 +183,10 @@ export function liveAutomergeWorkspaceSync(
   localDeviceId: string,
   remoteDeviceId: string,
   sharedEngine?: AutomergeAntiEntropy,
+  onDocumentRejected?: (error: WorkspaceChangeRejected | null) => void,
 ): LiveWorkspaceSync {
   let stopped = false
+  let lastRejection: string | undefined
   let syncQueue = Promise.resolve()
   let heartbeatQueue = Promise.resolve()
   let lastControlSent = ""
@@ -229,7 +232,7 @@ export function liveAutomergeWorkspaceSync(
     if (value.mesh !== undefined && store.mergeMesh) await store.mergeMesh(workspaceId, value.mesh)
   }
   const enqueue = (run: () => Promise<void>) => {
-    syncQueue = syncQueue.then(run)
+    syncQueue = syncQueue.then(run, run)
     return syncQueue
   }
   const done = (async () => {
@@ -254,10 +257,22 @@ export function liveAutomergeWorkspaceSync(
         continue
       }
       if (type !== "mesh-automerge-sync") throw new Error(`Unsupported live workspace frame: ${type}`)
-      await enqueue(async () => {
-        const result = await engine.receive(adapter, remoteDeviceId, decodeFrame(frame))
-        if (result.response) await sendFrame(result.response)
-      })
+      try {
+        await enqueue(async () => {
+          const result = await engine.receive(adapter, remoteDeviceId, decodeFrame(frame))
+          if (result.response) await sendFrame(result.response)
+          if (lastRejection && result.acceptedChanges > 0) {
+            lastRejection = undefined
+            onDocumentRejected?.(null)
+          }
+        })
+      } catch (error) {
+        if (!(error instanceof WorkspaceChangeRejected)) throw error
+        // Reject the document, not its authenticated transport. No response or
+        // receipt acknowledges the rejected changes; heartbeat/control stay live.
+        if (lastRejection !== error.message) onDocumentRejected?.(error)
+        lastRejection = error.message
+      }
       await stream.closeSend()
     }
   })().catch(error => { if (!stopped) throw error })

@@ -84,7 +84,10 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
         !(p.kind === "chat-profile" ? ["owner", "editor", "visitor"] : ["owner", "editor"]).includes(grant.payload.role)) throw new Error("No permission to write to this chat")
     let validGrant = false
     for (const owner of owners) {
-      if (await grantSignedBy(grant, owner)) { validGrant = true; break }
+      const certificates = owner.publicKey === authority.publicKey
+        ? [...new Map([...owner.certificates, ...authority.certificates].map(cert => [cert.signature, cert])).values()]
+        : owner.certificates
+      if (await grantSignedBy(grant, { ...owner, certificates })) { validGrant = true; break }
     }
     if (!validGrant) throw new Error("Invalid workspace grant")
   }

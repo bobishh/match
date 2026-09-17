@@ -53,6 +53,28 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
     }
   }
 
+  it("verifies an editor grant with the embedded owner certificate when the local certificate catalog is incomplete", async () => {
+    const owner = await createProfile("Owner")
+    const editor = await createProfile("Editor")
+    const grant = await createWorkspaceGrant(owner, workspaceId, editor.identity.personId, "editor")
+    const record = await createChatRecord(editor, [editor.certificate], makeEditorAuthority(owner, grant), workspaceId, "chat-message", "Hello")
+    const previousIndexedDb = globalThis.indexedDB
+    Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: {} })
+    const credential = vi.spyOn(peerStore,"getWorkspaceCredential").mockResolvedValue({
+      ownerPersonId:owner.identity.personId,ownerPublicKey:owner.identity.publicKey,ownerCertificates:[],ownerHistory:[],
+    } as never)
+    const peers = vi.spyOn(peerStore,"listPeers").mockResolvedValue([])
+    try {
+      await expect(verifyChatRecord(record,workspaceId,owner.identity.personId)).resolves.toBe(record)
+      const forged = structuredClone(record)
+      forged.authority.certificates[0]!.signature = toBase64Url(new Uint8Array(64))
+      await expect(verifyChatRecord(forged,workspaceId,owner.identity.personId)).rejects.toThrow("Invalid workspace grant")
+    } finally {
+      credential.mockRestore(); peers.mockRestore()
+      Object.defineProperty(globalThis,"indexedDB",{configurable:true,value:previousIndexedDb})
+    }
+  })
+
   describe("1. Owner signed message admitted", () => {
     it("admits signed ephemeral typing state and rejects unknown typing values", async () => {
       const owner = await createProfile("Owner Alice")

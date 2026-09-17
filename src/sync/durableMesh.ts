@@ -1500,7 +1500,16 @@ export class DurableMesh {
       : undefined
     const session = incrementalEngine
       ? liveAutomergeWorkspaceSync(connection, credential.transportSecret, this.options.workspaceStore, workspaceId,
-        profile.device.deviceId, deviceId, incrementalEngine)
+        profile.device.deviceId, deviceId, incrementalEngine, error => {
+          const stage = `Workspace ${workspaceId.slice(0, 8)} from ${deviceId.slice(0, 8)}`
+          if (error) {
+            this.trace("document.rejected", { connectionId, workspaceId, peerId: deviceId, instanceId, reason: error.message }, "warn")
+            this.report(stage, error)
+          } else if (this.lastDiagnostic.startsWith(`${stage}:`)) {
+            this.lastDiagnostic = ""
+            this.options.onDiagnostic?.("")
+          }
+        })
       : liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
     let stopHeartbeat: (() => void) | undefined
     let evicted = false

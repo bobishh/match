@@ -7,6 +7,10 @@ import { hasConflictingOwnershipTransfers, verifyDeviceChain, verifyWorkspaceGra
   type WorkspaceSuccessionClaim } from "./meshRecords"
 
 import { assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
+export class WorkspaceChangeRejected extends Error {
+  constructor(message: string) { super(message); this.name = "WorkspaceChangeRejected" }
+}
+
 type Authorization = {
   signed: SignedEnvelope<{ kind: "workspace-changes"; version: 1; workspaceId: string; hashes: string[]; personId: string; deviceId: string }>
   publicKey: string
@@ -194,7 +198,7 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
   for (const change of changes) {
     const decoded = Automerge.decodeChange(change)
     const role = allowed.get(decoded.hash)
-    if (!role) throw new Error("Unsigned workspace change rejected")
+    if (!role) throw new WorkspaceChangeRejected(`Unsigned workspace change rejected: ${decoded.hash} (actor ${decoded.actor}, ${decoded.message || "no change message"})`)
     if (role === "editor") {
       if (!decoded.deps.length) throw new Error("Only the owner can create a workspace")
       assertWorkspaceTransition("editor", Automerge.view(remote, decoded.deps), Automerge.view(remote, [decoded.hash]))

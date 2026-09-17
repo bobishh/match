@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace } from "./workspaceSet"
+import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { sha256Base64Url } from "../domain/identity"
 
 describe("Confirmed ownership delivery", () => {
@@ -137,6 +138,35 @@ describe("incremental workspace control plane", () => {
 
     await vi.waitFor(() => expect(mergeMesh).toHaveBeenCalledWith("workspace", { epoch: 2 }))
     expect(stream.closeSend).toHaveBeenCalled()
+    await session.close()
+  })
+})
+
+
+describe("rejected document isolation", () => {
+  it("keeps heartbeat and control alive after a rejected document and can accept a later corrected frame", async () => {
+    const error = new WorkspaceChangeRejected("Unsigned workspace change rejected")
+    const receive = vi.fn().mockRejectedValueOnce(error).mockResolvedValue({ response: null, acceptedChanges: 1 })
+    const engine = { receive, generate: vi.fn(async () => null) }
+    const reject = vi.fn()
+    const mergeMesh = vi.fn()
+    const sync = () => encodePairingFrame("mesh-automerge-sync", "secret", new TextEncoder().encode(JSON.stringify({message:"AA"})))
+    const frames = [sync(), encodePairingFrame("sync-heartbeat", "secret", new Uint8Array()),
+      encodePairingFrame("mesh-control-sync", "secret", new TextEncoder().encode(JSON.stringify({version:1,workspaceId:"workspace",mesh:{epoch:2}}))), sync()]
+    const streams = frames.map(frame => ({ read: async () => frame, send: vi.fn(), closeSend: vi.fn() }))
+    let index = 0
+    const connection = { acceptStream: async () => streams[index++] ?? new Promise<never>(() => {}), close: vi.fn(), openStream: vi.fn(async () => ({send:vi.fn(), closeSend:vi.fn(), read:vi.fn(async () => new Uint8Array())})) }
+    const session = liveAutomergeWorkspaceSync(connection, "secret", {read:vi.fn(),merge:vi.fn(),activate:vi.fn(),mergeMesh},
+      "workspace","local","remote",engine as never,reject)
+    let ended = false
+    void session.done.then(() => { ended = true }, () => { ended = true })
+    await vi.waitFor(() => expect(receive).toHaveBeenCalledTimes(2))
+    expect(reject).toHaveBeenCalledWith(error)
+    expect(ended).toBe(false)
+    expect(connection.close).not.toHaveBeenCalled()
+    expect(inspectPairingFrame(streams[1]!.send.mock.calls[0]![0]).type).toBe("sync-heartbeat-ack")
+    expect(mergeMesh).toHaveBeenCalledWith("workspace",{epoch:2})
+    await expect(session.publish()).resolves.toBeUndefined()
     await session.close()
   })
 })

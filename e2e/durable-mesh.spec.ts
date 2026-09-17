@@ -438,3 +438,31 @@ test("Given sibling tabs on both devices, when mesh reconnects concurrently, the
     await ownSibling.close()
   } finally { await context.close() }
 })
+
+test("Given an editor has an unsigned change, when sync rejects it, then the channel stays connected and reports the blocked document", async ({ browser, page }) => {
+  test.setTimeout(90_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+    await guest.evaluate(async () => {
+      const state = await import("/src/state.ts")
+      const storage = await import("/src/storage.ts")
+      const A = await import("/@id/@automerge/automerge/slim")
+      const doc = state.useMatch().getActiveDoc()!
+      const unsigned = A.change(A.clone(doc), {message:"Regression unsigned edit"}, (draft: any) => { draft.title = "Untrusted title" })
+      await storage.defaultStorage.saveSnapshot(doc.id, unsigned, A.save(unsigned))
+    })
+    await guest.reload()
+    await page.getByRole("button", {name:"Sync",exact:true}).click()
+    const dialog = page.getByRole("dialog",{name:"Device sync"})
+    await expect(dialog.getByRole("status").filter({hasText:"Unsigned workspace change rejected"})).toContainText("Unsigned workspace change rejected",{timeout:30_000})
+    await expect(dialog.getByRole("status").filter({hasText:"Unsigned workspace change rejected"})).toContainText("Sync issue:")
+    await page.waitForTimeout(18_000)
+    await expect(page.getByLabel("Mesh connected")).toBeVisible()
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible()
+    await expect(dialog.getByRole("status").filter({hasText:"Unsigned workspace change rejected"})).toContainText("Regression unsigned edit")
+    await expect(page.getByRole("heading",{name:/Untrusted title/})).toHaveCount(0)
+  } finally { await context.close() }
+})

@@ -151,7 +151,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <strong>{{ workspaceConnected ? "Connected" : "Offline" }}</strong>
           · {{ workspaceConnected ? "Live channel active." : "No live channel. Reconnecting automatically." }}
         </p>
-        <p v-if="!workspaceConnected && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">Reconnect: {{ meshDiagnostic }}</p>
+        <p v-if="meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
         <p class="dialog-copy">People and devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
           <button
