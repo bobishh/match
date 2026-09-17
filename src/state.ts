@@ -472,6 +472,7 @@ async function reconcile(storage = defaultStorage): Promise<void> {
   if (!ready.value || reconcilePromise || !activeDoc) return reconcilePromise
 
   reconcilePromise = (async () => {
+    availableWorkspaces.value = await storage.listWorkspaces()
     const loaded = await storage.loadWorkspaceDoc(activeDoc!.id)
     if (!loaded) return
     const beforeHeads = Automerge.getHeads(activeDoc!).sort().join(",")
@@ -582,6 +583,7 @@ export function useMatch() {
     }
     updateReactiveState(doc)
     availableWorkspaces.value = await storage.listWorkspaces()
+    storageChannel?.postMessage({ type: "workspace-persisted" })
     return doc
   }
 
@@ -624,6 +626,7 @@ export function useMatch() {
       await storage.savePersonalRoot(root)
     }
     availableWorkspaces.value = await storage.listWorkspaces()
+    storageChannel?.postMessage({ type: "workspace-persisted" })
     if (!wasActive) return
     const replacement = availableWorkspaces.value[0]
     if (replacement) {

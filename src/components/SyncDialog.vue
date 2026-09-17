@@ -206,7 +206,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             class="button" type="button" @click="emit('setSuccessor', null)"
           >Remove named successor</button>
           <button
-            v-if="currentRole === 'editor' && selectedMember.role === 'editor' && !currentVote"
+            v-if="currentRole === 'editor' && succession && !succession.conflicted && !succession.successorPersonId && succession.eligibleEditorPersonIds.includes(currentPersonId || '') && succession.eligibleEditorPersonIds.includes(selectedMember.personId) && selectedMember.role === 'editor' && !currentVote"
             class="button" type="button" @click="emit('voteSuccessor', selectedMember.personId)"
           >Vote for {{ selectedMember.self ? 'yourself' : selectedMember.name }}</button>
           <p v-if="currentRole === 'editor' && currentVote" class="dialog-copy">Vote recorded for {{ (meshMembers || []).find(member => member.personId === currentVote?.candidatePersonId)?.name || 'an editor' }}.</p>

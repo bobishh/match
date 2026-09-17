@@ -19,7 +19,7 @@ import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 
 export type MeshWorkspaceEnvelope = {
   version: 1
@@ -80,6 +80,7 @@ type SessionEntry = {
   direction: "incoming" | "outgoing"
   connection: SyncConnection
   session: LiveWorkspaceSync
+  ownershipReceiptSupported?: boolean
   evict: (cause: string) => Promise<void>
 }
 
@@ -145,7 +146,7 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 
 type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[] }
-const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1"]
+const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1"]
 
 function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
   return (credential.catalog as MeshCatalog | undefined) ?? {}
@@ -813,7 +814,12 @@ export class DurableMesh {
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     const policy = credential && successionPolicy(credential)
     const grant = credential?.localGrant as WorkspaceGrant | undefined
-    if (!credential || !policy || !grant || grant.payload.role !== "editor") throw new Error("Only an eligible editor can vote")
+    if (!credential) throw new Error("Workspace membership is unavailable")
+    if (!policy) throw new Error("The owner has not enabled ownership recovery")
+    if (!grant || grant.payload.role !== "editor" || !policy.payload.eligibleEditorPersonIds.includes(profile.identity.personId)) {
+      throw new Error("You are not an eligible editor in the current recovery policy")
+    }
+    if (policy.payload.successorPersonId) throw new Error("This workspace uses a named successor, not editor voting")
     const existing = successionVotes(credential).find(vote => vote.signed.payload.voterPersonId === profile.identity.personId)
     if (existing?.signed.payload.candidatePersonId === candidatePersonId) return
     if (existing) throw new Error("Your vote is already recorded for this policy")
@@ -889,7 +895,17 @@ export class DurableMesh {
     await this.notify()
   }
 
+  private ownershipQueue: Promise<void> = Promise.resolve()
+
   async transferOwnership(workspaceId: string, personId: string): Promise<void> {
+    const run = () => this.transferOwnershipConfirmed(workspaceId, personId)
+    const result = this.ownershipQueue.then(() => typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(`match-ownership:${workspaceId}`, run) : run())
+    this.ownershipQueue = result.catch(() => {})
+    return result
+  }
+
+  private async transferOwnershipConfirmed(workspaceId: string, personId: string): Promise<void> {
     const profile = await this.options.getProfile()
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential || credential.ownerPersonId !== profile.identity.personId) {
@@ -902,23 +918,38 @@ export class DurableMesh {
       session.workspaceId === workspaceId && session.deviceId === peer.deviceId))) {
       throw new Error("Member must be online to receive ownership")
     }
+    const targetSessions = [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
+      peers.some(peer => peer.deviceId === session.deviceId) && session.ownershipReceiptSupported)
+    if (!targetSessions.length) throw new Error("The recipient must reload Match before receiving ownership")
     const raw = peers.find(peer => peer.advertisement)?.advertisement as WorkspaceMemberBundle | undefined
     if (!raw) throw new Error("Member identity is unavailable")
     const target = await verifyWorkspaceMemberBundle(raw, {
       workspaceId, ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as any, ownerHistory: ownerAuthorities(credential).slice(1),
     })
+    const pending = ownershipTransfers(credential).find(record => record.payload.epoch === credential.epoch + 1 &&
+      record.payload.fromOwnerPersonId === profile.identity.personId)
+    if (pending && pending.payload.toOwnerPersonId !== personId) {
+      throw new Error("An ownership transfer is pending for another member. Reconnect that member to finish it.")
+    }
     const doc = Automerge.load<any>(await this.options.workspaceStore.read(workspaceId))
-    const transfer = await createWorkspaceOwnershipTransfer(profile, workspaceId, {
-      personId: target.payload.personId,
-      publicKey: target.publicKey,
-      certificates: target.certificates,
-    }, Automerge.getHeads(doc), credential.epoch + 1)
+    let transfer: WorkspaceOwnershipTransfer
+    try {
+      transfer = pending ?? await createWorkspaceOwnershipTransfer(profile, workspaceId, {
+        personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates,
+      }, Automerge.getHeads(doc), credential.epoch + 1)
+    } finally { Automerge.free(doc) }
 
-    // Publish proof while old authority is still active. Target applies it before this device demotes itself.
-    await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
+    // Retain the exact signed proposal across unknown outcomes; never sign a
+    // competing successor at this epoch. Only report success after durable receipt.
+    if (!pending) await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
       catalog: { ...meshCatalog(credential), ownershipTransfers: [...ownershipTransfers(credential), transfer] } })
-    await this.publishAll()
+    const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
+    try {
+      await Promise.any(targetSessions.map(entry => publishConfirmedWorkspace(entry.connection, credential.transportSecret, snapshot)))
+    } catch {
+      throw new Error("Ownership delivery is unconfirmed. Keep both devices open and retry the same recipient.")
+    }
     const current = await this.store.getWorkspaceCredential(workspaceId)
     if (!current) throw new Error("Workspace mesh credential disappeared")
     await this.mergeOwnershipTransfers(current, [transfer])
@@ -1154,7 +1185,8 @@ export class DurableMesh {
         remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
         remote.advertisement.payload.routeSequence, "incoming", connection,
         Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"),
-        Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId)
+        Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId,
+        Array.isArray(request.capabilities) && request.capabilities.includes("ownership-receipt-v1"))
     } catch (error) {
       this.trace("handshake.incoming.failed", {
         connectionId,
@@ -1339,7 +1371,7 @@ export class DurableMesh {
       const value = connected.value
       await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
-        value.heartbeatSupported, value.incrementalSupported, value.connectionId)
+        value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported)
     } catch (error) {
       this.trace("dial.device.failed", {
         peerId: peer.deviceId.slice(0, 8),
@@ -1404,6 +1436,7 @@ export class DurableMesh {
         instanceId: verifiedInstanceId,
         issuedAt: verified.advertisement.payload.issuedAt,
         routeSequence: verified.advertisement.payload.routeSequence,
+        ownershipReceiptSupported: Array.isArray(response.capabilities) && response.capabilities.includes("ownership-receipt-v1"),
         heartbeatSupported: Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"),
         incrementalSupported: Array.isArray(response.capabilities) && response.capabilities.includes("automerge-sync-v1"),
       }
@@ -1431,7 +1464,7 @@ export class DurableMesh {
 
   private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
-    incrementalSupported = false, connectionId = this.connectionId(direction)) {
+    incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false) {
     const key = this.sessionKey(workspaceId, deviceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
@@ -1455,7 +1488,7 @@ export class DurableMesh {
     let stopHeartbeat: (() => void) | undefined
     let evicted = false
     const entry: SessionEntry = {
-      workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session,
+      workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session, ownershipReceiptSupported,
       evict: async cause => {
         if (evicted) return
         evicted = true

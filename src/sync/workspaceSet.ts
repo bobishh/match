@@ -1,4 +1,4 @@
-import { fromBase64Url, toBase64Url } from "../domain/identity"
+import { fromBase64Url, toBase64Url, sha256Base64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
 import { AutomergeAntiEntropy, type AutomergeDocumentAdapter, type AutomergeSyncFrame } from "@meta-uber/mesh-replication/automerge"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
@@ -68,6 +68,33 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
   }
 }
 
+// Receipt is bound to the exact document, proofs and ownership catalog on this
+// authenticated peer stream. A timeout is an unknown outcome, never a rollback.
+export async function publishConfirmedWorkspace(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      (async () => {
+        const stream = await connection.openStream()
+        await stream.send(encodePairingFrame("mesh-durable-batch", secret, bytes))
+        await stream.closeSend()
+        const receipt = decodePairingFrame(await stream.read(), "mesh-durable-ack", secret)
+        if (new TextDecoder().decode(receipt) !== await sha256Base64Url(bytes)) throw new Error("Ownership receipt does not match the saved data")
+      })(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Ownership delivery is unconfirmed. Reconnect and retry the same transfer.")), MESH_HEARTBEAT_TIMEOUT_MS)
+      }),
+    ])
+  } finally { clearTimeout(timer) }
+}
+
+async function receiveConfirmedWorkspace(stream: DuplexStream, frame: Uint8Array, secret: string, replica: ReturnType<typeof workspaceSet>) {
+  const bytes = decodePairingFrame(frame, "mesh-durable-batch", secret)
+  await replica.receive(bytes, false)
+  await stream.send(encodePairingFrame("mesh-durable-ack", secret, new TextEncoder().encode(await sha256Base64Url(bytes))))
+  await stream.closeSend()
+}
+
 export function liveWorkspaceSetSync(
   connection: SyncConnection,
   secret: string,
@@ -85,6 +112,10 @@ export function liveWorkspaceSetSync(
       if (stopped) return
       const frame = await stream.read()
       const type = inspectPairingFrame(frame).type
+      if (type === "mesh-durable-batch") {
+        await receiveConfirmedWorkspace(stream, frame, secret, replica)
+        continue
+      }
       if (type === "sync-heartbeat") {
         decodePairingFrame(frame, "sync-heartbeat", secret)
         await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))
@@ -207,6 +238,10 @@ export function liveAutomergeWorkspaceSync(
       if (stopped) return
       const frame = await stream.read()
       const type = inspectPairingFrame(frame).type
+      if (type === "mesh-durable-batch") {
+        await receiveConfirmedWorkspace(stream, frame, secret, workspaceSet(store, [workspaceId]))
+        continue
+      }
       if (type === "sync-heartbeat") {
         decodePairingFrame(frame, "sync-heartbeat", secret)
         await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))

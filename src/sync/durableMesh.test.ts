@@ -5,6 +5,26 @@ import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRe
 import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("explains a missing recovery policy separately from editor eligibility", async () => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "editor" } } as never),
+      store: { getWorkspaceCredential: async () => ({ localGrant: { payload: { role: "editor" } } }) } as never })
+    await expect(mesh.voteForSuccessor("workspace", "editor")).rejects.toThrow("The owner has not enabled ownership recovery")
+    await mesh.dispose()
+  })
+
+  it("refuses to start ownership transfer to a peer without durable receipt support", async () => {
+    const put = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner" } } as never),
+      store: { getWorkspaceCredential: async () => ({ ownerPersonId: "owner" }), putWorkspaceCredential: put,
+        listPeers: async () => [{ personId: "target", deviceId: "target-device" }] } as never })
+    ;(mesh as any).sessions.set("test", { workspaceId: "workspace", deviceId: "target-device" })
+    await expect(mesh.transferOwnership("workspace", "target")).rejects.toThrow(/reload Match/i)
+    expect(put).not.toHaveBeenCalled()
+    ;(mesh as any).sessions.clear()
+    await mesh.dispose()
+  })
   it("Given a session whose receive loop hangs, when publish fails and a replacement connects, then stale cleanup cannot evict the replacement", async () => {
     let rejectSnapshot!: (error: Error) => void
     let resolveOldAccept!: (stream: never) => void

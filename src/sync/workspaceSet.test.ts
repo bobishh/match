@@ -1,7 +1,48 @@
 import { describe, expect, it, vi } from "vitest"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
-import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace } from "./workspaceSet"
+import { sha256Base64Url } from "../domain/identity"
+
+describe("Confirmed ownership delivery", () => {
+  it("waits for a matching receipt instead of treating a sent frame as a durable save", async () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    let acknowledge!: (bytes: Uint8Array) => void
+    const read = new Promise<Uint8Array>(resolve => { acknowledge = resolve })
+    const connection = { openStream: async () => ({ send: vi.fn(), closeSend: vi.fn(), read: () => read }) } as never
+    let finished = false
+    const delivery = publishConfirmedWorkspace(connection, "secret", bytes).then(() => { finished = true })
+    await Promise.resolve()
+    expect(finished).toBe(false)
+    acknowledge(encodePairingFrame("mesh-durable-ack", "secret", new TextEncoder().encode(await sha256Base64Url(bytes))))
+    await delivery
+    expect(finished).toBe(true)
+  })
+
+  it("rejects a receipt for different contents", async () => {
+    const connection = { openStream: async () => ({ send: vi.fn(), closeSend: vi.fn(),
+      read: async () => encodePairingFrame("mesh-durable-ack", "secret", new TextEncoder().encode("wrong")) }) } as never
+    await expect(publishConfirmedWorkspace(connection, "secret", new Uint8Array([1]))).rejects.toThrow(/receipt/i)
+  })
+
+  it("acknowledges only after the document and ownership metadata have been persisted", async () => {
+    let save!: () => void
+    const persisted = new Promise<void>(resolve => { save = resolve })
+    const bytes = new TextEncoder().encode(JSON.stringify([{ id: "workspace", bytes: "AA", mesh: {} }]))
+    const stream = { send: vi.fn(), closeSend: vi.fn(), read: async () => encodePairingFrame("mesh-durable-batch", "secret", bytes) }
+    let accepted = false
+    const connection = { acceptStream: async () => { if (!accepted) { accepted = true; return stream }; return new Promise<never>(() => {}) },
+      close: vi.fn(), openStream: vi.fn() }
+    const mergeMesh = vi.fn(() => persisted)
+    const session = liveWorkspaceSetSync(connection, "secret", workspaceSet({ read: vi.fn(), merge: vi.fn(), activate: vi.fn(), mergeMesh }, ["workspace"]))
+    await vi.waitFor(() => expect(mergeMesh).toHaveBeenCalled())
+    expect(stream.send).not.toHaveBeenCalled()
+    save()
+    await vi.waitFor(() => expect(stream.send).toHaveBeenCalled())
+    expect(inspectPairingFrame(stream.send.mock.calls[0]![0]).type).toBe("mesh-durable-ack")
+    await session.close()
+  })
+})
 
 describe("workspace invitation scope", () => {
   it.each([
