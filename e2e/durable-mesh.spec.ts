@@ -406,3 +406,35 @@ test("Given an online editor, when owner selects them in mesh members and transf
     await guestContext.close()
   }
 })
+
+
+test("Given sibling tabs on both devices, when mesh reconnects concurrently, then connections settle without repeated closure", async ({ browser, page }) => {
+  test.setTimeout(100_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  const messages: string[] = []
+  const observe = (target: Page) => target.on("console", message => {
+    if (message.text().includes("[match.mesh]")) messages.push(message.text())
+  })
+  observe(page); observe(guest)
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+    const sibling = await context.newPage()
+    const ownSibling = await page.context().newPage()
+    observe(sibling); observe(ownSibling)
+    await Promise.all([sibling.goto("/"), ownSibling.goto("/")])
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(sibling.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(ownSibling.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await page.waitForTimeout(5_000)
+    messages.length = 0
+    await page.waitForTimeout(12_000)
+    const failures = messages.filter(message => /session\.(receive|publish|heartbeat)\.failed/.test(message))
+    expect(failures, messages.join("\n")).toHaveLength(0)
+    await addLead(ownSibling, "Stable sibling")
+    await expect(sibling.getByRole("button", { name: "Open Stable sibling — Engineer" })).toBeVisible({ timeout: 20_000 })
+    await ownSibling.close()
+  } finally { await context.close() }
+})

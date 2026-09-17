@@ -3,13 +3,12 @@ import { assertWorkspaceTransition } from "./domain/permissions"
 import { computed, reactive, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
-import { defaultStorage, WorkspaceStorage, loadWorkspaceRecord, normalizeItemEntities, saveWorkspace, saveWorkspaceRecord, type WorkspaceRecord } from "./storage"
+import { defaultStorage, WorkspaceStorage, saveWorkspace, saveWorkspaceRecord, type WorkspaceRecord } from "./storage"
 import { bootstrapIdentity, sha256Base64Url, type LocalProfile } from "./domain/identity"
 import { createPersonalRoot, registerWorkspaceInRoot, reconcilePersonalRootWorkspaces } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { validateWorkspaceDoc } from "./domain/model"
 import { isItem } from "./domain/model"
-import { applyMigrationPlan, createMigrationPlan } from "./domain/migration"
 import { executeCommand, type Command } from "./domain/commands"
 import type {
   WorkspaceDocumentV2,
@@ -37,7 +36,7 @@ import type {
   TemplateInput,
   Workspace,
 } from "./types"
-import { normalizeWorkspace, statusOrder } from "./types"
+import { statusOrder } from "./types"
 import { getVisibleChildren, derivePlacementIssues, getChildren, isEntityVisible } from "./domain/ancestry"
 import { projectItemPriority } from "./domain/priority"
 
@@ -252,22 +251,6 @@ function updateReactiveState(doc: Automerge.Doc<WorkspaceDocumentV2>) {
   workspace.artifacts.splice(0, workspace.artifacts.length, ...projected.artifacts)
 }
 
-async function upgradeJobSearchRejected(doc: Automerge.Doc<WorkspaceDocumentV2>, storage: WorkspaceStorage) {
-  if (!currentProfile) throw new Error("Identity not initialized")
-  if (await workspaceRole(doc, currentProfile) !== "owner") return doc
-  for (const entity of Object.values(doc.entities)) {
-    if (entity.kind !== "board" || entity.deleted || entity.preset?.key !== "job-search") continue
-    if (entity.preset.bindings["status.rejected"] && entity.preset.bindings["field.rejectionReason"]) continue
-    const result = await executeCommand(doc, { kind: "upgradeJobSearchRejected", boardId: entity.id }, currentProfile)
-    if (!result.ok) throw new Error(result.error.message)
-    const bytes = Automerge.getLastLocalChange(result.value.newDoc)!
-    await storage.commitTransaction(doc.id, result.value.receipt, bytes, result.value.proof)
-    await storage.saveSnapshot(doc.id, result.value.newDoc, Automerge.save(result.value.newDoc))
-    doc = result.value.newDoc
-  }
-  return doc
-}
-
 export async function hydrate(storage = defaultStorage) {
   await initializeAutomerge()
   currentProfile = await bootstrapIdentity("Match User")
@@ -285,53 +268,9 @@ export async function hydrate(storage = defaultStorage) {
     initialId = "default"
   }
 
-  if (initialId === "default" && currentProfile && storage === defaultStorage) {
-    const legacyRecord = await loadWorkspaceRecord()
-    const legacyWorkspace = normalizeWorkspace(legacyRecord.workspace)
-    const legacyHasContent =
-      legacyWorkspace.leads.length > 0 ||
-      legacyWorkspace.documents.length > 0 ||
-      legacyWorkspace.templates.length > 0 ||
-      legacyWorkspace.artifacts.length > 0
-    const loadedHasContent = loaded
-      ? Object.values(loaded.doc.entities ?? {}).some((entity) =>
-          isItem(entity) ||
-          entity.kind === "document" ||
-          entity.kind === "document_template" ||
-          entity.kind === "template" ||
-          entity.kind === "artifact"
-        )
-      : false
-
-    if (legacyHasContent && !loadedHasContent) {
-      let legacyDoc: Automerge.Doc<any>
-      try {
-        legacyDoc = legacyRecord.automergeBytes
-          ? Automerge.load<any>(legacyRecord.automergeBytes)
-          : Automerge.from<any>(legacyWorkspace)
-      } catch {
-        legacyDoc = Automerge.from<any>(legacyWorkspace)
-      }
-
-      const plan = createMigrationPlan(
-        legacyWorkspace,
-        currentProfile.identity.personId,
-        Automerge.getHeads(legacyDoc).sort(),
-      )
-      if (!plan.ok) {
-        throw new Error(`Legacy workspace migration failed: ${plan.error.message}`)
-      }
-
-      plan.value.workspaceId = "default"
-      const migrated = applyMigrationPlan(plan.value, legacyDoc)
-      await storage.saveSnapshot("default", migrated, Automerge.save(migrated))
-      await storage.registerWorkspace("default", migrated.title)
-      loaded = { doc: migrated, heads: Automerge.getHeads(migrated).sort() }
-    }
-  }
 
   if (loaded) {
-    updateReactiveState(await upgradeJobSearchRejected(loaded.doc, storage))
+    updateReactiveState(loaded.doc)
   } else {
     const doc = await initializeFirstWorkspace(storage, currentProfile.identity.personId)
     if (!doc) throw new Error("Workspace initialization failed")
@@ -593,7 +532,7 @@ export function useMatch() {
       if (typeof localStorage !== "undefined") {
         localStorage.setItem("match.active_workspace_id", workspaceId)
       }
-      updateReactiveState(await upgradeJobSearchRejected(loaded.doc, storage))
+      updateReactiveState(loaded.doc)
     }
   }
 
@@ -984,7 +923,7 @@ export function useMatch() {
       await useMatch().mergeScopedWorkspaceBytes(id, bytes)
     },
     async mergeScopedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
-      const remote = normalizeItemEntities(Automerge.load<WorkspaceDocumentV2>(bytes))
+      const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
       if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
       let local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
       let merged = remote
@@ -1026,7 +965,7 @@ export function useMatch() {
     },
     async mergeRemoteBytes(bytes: Uint8Array, storage = defaultStorage): Promise<void> {
       if (!activeDoc) return
-      const remoteDoc = normalizeItemEntities(Automerge.load<WorkspaceDocumentV2>(bytes))
+      const remoteDoc = Automerge.load<WorkspaceDocumentV2>(bytes)
       let merged: WorkspaceDocumentV2
 
       const localHasItems = Object.values(activeDoc.entities ?? {}).some((e) => isItem(e) && !e.deleted)

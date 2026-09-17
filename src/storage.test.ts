@@ -9,7 +9,6 @@ import { executeCommand, type Command } from "./domain/commands"
 import { isItem } from "./domain/model"
 import {
   WorkspaceStorage,
-  normalizeItemEntities,
   setStorageFailureHookForTest,
   createWorkspaceBundleV2,
   readWorkspaceBundleV2,
@@ -49,15 +48,12 @@ describe("Workspace catalog across browser tabs", () => {
     expect((await tab().listWorkspaces()).map(w => w.id)).toEqual(expect.arrayContaining(["existing", "new"]))
   })
 
-  it("recovers an unlisted snapshot and migrates legacy entries before a stale legacy writer overwrites the list", async () => {
+  it("recovers an unlisted snapshot without reading the retired catalog", async () => {
     const doc = Automerge.from(createWorkspaceDoc("orphan", "Twang issues", "owner", "blank"))
     await tab().saveSnapshot("orphan", doc, Automerge.save(doc))
-    // Reproduce the legacy incident: only the snapshot remains discoverable.
     for (const key of [...backing.keys()]) if (!key.startsWith("match.snapshot.")) backing.delete(key)
-    backing.set("match.workspaces", JSON.stringify([{ id: "legacy", title: "Jobs", updatedAt: "2026-09-17" }]))
-    expect((await tab().listWorkspaces()).map(w => w.title)).toEqual(expect.arrayContaining(["Twang issues", "Jobs"]))
-    backing.set("match.workspaces", "[]")
-    expect((await tab().listWorkspaces()).map(w => w.id)).toContain("legacy")
+    backing.set("match.workspaces", JSON.stringify([{ id: "legacy", title: "Retired", updatedAt: "2026-09-17" }]))
+    expect((await tab().listWorkspaces()).map(w => w.title)).toEqual(["Twang issues"])
   })
 
   it("does not resurrect a deleted workspace from a stale tab or legacy catalog", async () => {
@@ -97,22 +93,16 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     storage = new WorkspaceStorage()
   })
 
-  it("removes an obsolete discriminator from structurally recognized items", async () => {
-    const raw = createWorkspaceDoc("ws_item_shape", "Item shape", profile.identity.personId, "blank")
+  it("loads stored documents without creating unsigned CRDT changes", async () => {
+    const raw = createWorkspaceDoc(crypto.randomUUID(), "Legacy", profile.identity.personId, "blank")
     let doc = Automerge.from<WorkspaceDocumentV2>(raw)
-    const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
-    const created = await executeCommand(doc, { kind: "createItem", parentId: column.id, title: "Shape only" }, profile)
-    expect(created.ok).toBe(true)
-    if (!created.ok) return
-    doc = Automerge.change(created.value.newDoc, draft => {
-      const item = Object.values(draft.entities).find(isItem)!
-      ;(item as any).kind = "obsolete"
-    })
-
-    const normalized = normalizeItemEntities(doc)
-    const item = Object.values(normalized.entities).find(isItem)!
-    expect(item.title).toBe("Shape only")
-    expect("kind" in item).toBe(false)
+    const column = Object.values(doc.entities).find(e => e.kind === "column")!
+    const result = await executeCommand(doc, { kind: "createItem", parentId: column.id, title: "Legacy" }, profile)
+    if (!result.ok) throw new Error(result.error.message)
+    doc = Automerge.change(result.value.newDoc, draft => { (Object.values(draft.entities).find(isItem) as any).kind = "task" })
+    const heads = Automerge.getHeads(doc)
+    await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
+    expect((await storage.loadWorkspaceDoc(doc.id))!.heads).toEqual(heads)
   })
 
   it("selects the current identity root after enrollment instead of the first stored root", async () => {

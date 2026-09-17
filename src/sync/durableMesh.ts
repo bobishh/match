@@ -111,6 +111,10 @@ type DurableMeshOptions = {
   onDiagnostic?: (message: string) => void
 }
 
+class MeshDialCancelled extends Error {
+  constructor() { super("Mesh dial cancelled"); this.name = "AbortError" }
+}
+
 class MeshNodeRestart extends Error {
   constructor(readonly reason: string) {
     super(reason)
@@ -228,12 +232,12 @@ export class DurableMesh {
     return `${workspaceId}:${deviceId}:${instanceId}`
   }
 
-  private sessionKey(workspaceId: string, deviceId: string) {
+  private deviceKey(workspaceId: string, deviceId: string) {
     return `${workspaceId}:${deviceId}`
   }
 
-  private syncEngine(workspaceId: string, deviceId: string, localDeviceId: string) {
-    const key = `${workspaceId}:${deviceId}`
+  private syncEngine(workspaceId: string, deviceId: string, localDeviceId: string, instanceId: string) {
+    const key = this.peerKey(workspaceId, deviceId, instanceId)
     let engine = this.syncEngines.get(key)
     if (!engine) {
       engine = new AutomergeAntiEntropy(localDeviceId, Automerge, {
@@ -1174,25 +1178,26 @@ export class DurableMesh {
         return
       }
       await this.putVerifiedBundle(credential, request.peer)
+      if (signal?.aborted) return void connection.close()
+      const installed = await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
+        remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
+        remote.advertisement.payload.routeSequence, "incoming", connection,
+        Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"),
+        Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId,
+        Array.isArray(request.capabilities) && request.capabilities.includes("ownership-receipt-v1"))
+      if (!installed) return
       const own = await this.ownBundle(credential)
       await stream.send(encodePairingFrame("mesh-handshake-response", credential.transportSecret,
         new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: own,
           ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
           successionVotes: successionVotes(credential), successionClaims: successionClaims(credential), capabilities: meshCapabilities }))))
       await stream.closeSend()
-      if (signal?.aborted) return
-      await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
-        remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
-        remote.advertisement.payload.routeSequence, "incoming", connection,
-        Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"),
-        Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId,
-        Array.isArray(request.capabilities) && request.capabilities.includes("ownership-receipt-v1"))
     } catch (error) {
       this.trace("handshake.incoming.failed", {
         connectionId,
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
-      this.report("Incoming handshake", error)
+      this.reportProtocolFailure("Incoming handshake", error)
       await connection.close()
     }
   }
@@ -1292,6 +1297,10 @@ export class DurableMesh {
     }
   }
 
+  private hasDeviceSession(workspaceId: string, deviceId: string) {
+    return [...this.sessions.values()].some(entry => entry.workspaceId === workspaceId && entry.deviceId === deviceId)
+  }
+
   private async dialLoop(signal: AbortSignal) {
     let nextRouteRefreshAt = Date.now() + DurableMesh.ROUTE_RENEW_MS
     while (!signal.aborted) {
@@ -1321,13 +1330,13 @@ export class DurableMesh {
       const peers = candidates.filter(peer => selected.has(`${peer.workspaceId}:${peer.deviceId}`))
       const devices = new Map<string, WorkspacePeerRecord[]>()
       for (const peer of peers) {
-        const key = this.sessionKey(peer.workspaceId, peer.deviceId)
+        const key = this.deviceKey(peer.workspaceId, peer.deviceId)
         const routes = devices.get(key) ?? []
         routes.push(peer)
         devices.set(key, routes)
       }
       for (const [key, routes] of devices) {
-        if (signal.aborted || this.sessions.has(key) || this.connecting.has(key)) continue
+        if (signal.aborted || this.hasDeviceSession(routes[0]!.workspaceId, routes[0]!.deviceId) || this.connecting.has(key)) continue
         const eligible = routes.filter(peer => {
           const routeKey = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
           const attempts = this.failures.get(routeKey) ?? 0
@@ -1345,11 +1354,11 @@ export class DurableMesh {
 
   private async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {
     const peer = peers[0]!
-    const key = this.sessionKey(peer.workspaceId, peer.deviceId)
+    const key = this.deviceKey(peer.workspaceId, peer.deviceId)
     if (this.connecting.has(key)) return
     this.connecting.add(key)
     try {
-      if (!this.node || this.sessions.has(key)) return
+      if (!this.node || this.hasDeviceSession(peer.workspaceId, peer.deviceId)) return
       const routeEntries = await Promise.all(peers.map(async candidate => ({
         peer: candidate,
         route: await adaptVerifiedWorkspaceAdvertisement(
@@ -1391,7 +1400,7 @@ export class DurableMesh {
     const connectionId = this.connectionId("outgoing")
     let connection: SyncConnection | undefined
     try {
-      if (!this.node || signal.aborted || routeSignal.aborted) throw new Error("Mesh dial cancelled")
+      if (!this.node || signal.aborted || routeSignal.aborted) throw new MeshDialCancelled()
       let credential = await this.store.getWorkspaceCredential(peer.workspaceId)
       if (!credential || credential.transportSecret !== peer.transportSecret) throw new Error("Mesh credential unavailable")
       const mode = this.reconnectPolicy.mode(this.node, key)
@@ -1403,7 +1412,7 @@ export class DurableMesh {
         mode,
       })
       connection = networkConnection(await networkIO(this.reconnectPolicy.dial(this.node, key, route.endpoint)))
-      if (signal.aborted || routeSignal.aborted) throw new Error("Mesh dial cancelled")
+      if (signal.aborted || routeSignal.aborted) throw new MeshDialCancelled()
       this.trace("dial.connected", { connectionId, peerId: peer.deviceId.slice(0, 8), mode })
       const stream = await connection.openStream()
       this.trace("handshake.outgoing.started", { connectionId, peerId: peer.deviceId.slice(0, 8) })
@@ -1423,11 +1432,13 @@ export class DurableMesh {
         ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as any,
         ownerHistory: ownerAuthorities(credential).slice(1),
       })
-      if (verified.advertisement.payload.deviceId !== peer.deviceId || signal.aborted || routeSignal.aborted) throw new Error("Unexpected mesh peer")
+      if (signal.aborted || routeSignal.aborted) throw new MeshDialCancelled()
+      if (verified.advertisement.payload.deviceId !== peer.deviceId) throw new Error("Unexpected mesh peer")
       const verifiedInstanceId = verified.advertisement.payload.instanceId ?? "legacy"
       this.trace("handshake.outgoing.verified", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       if (Array.isArray(response.revocations)) await this.mergeRevocations(credential, response.revocations)
       await this.putVerifiedBundle(credential, response.peer)
+      if (signal.aborted || routeSignal.aborted) throw new MeshDialCancelled()
       this.failures.delete(key)
       this.failedAt.delete(key)
       const result = {
@@ -1443,6 +1454,11 @@ export class DurableMesh {
       connection = undefined
       return result
     } catch (error) {
+      if (error instanceof MeshDialCancelled || signal.aborted || routeSignal.aborted) {
+        await connection?.close().catch(() => {})
+        this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+        throw new MeshDialCancelled()
+      }
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("dial.failed", {
         connectionId,
@@ -1465,21 +1481,22 @@ export class DurableMesh {
   private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false) {
-    const key = this.sessionKey(workspaceId, deviceId)
+    const key = this.peerKey(workspaceId, deviceId, instanceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential) { await connection.close(); return false }
+    // No await between choosing the winner and registering it: concurrent
+    // handshakes must observe the session installed by the previous continuation.
     const previous = this.sessions.get(key)
-    const replace = previous?.instanceId !== instanceId && previous?.direction === direction
-      ? false
-      : shouldReplaceMeshSession(previous, { remoteIssuedAt, remoteRouteSequence, direction }, preferred)
+    const replace = shouldReplaceMeshSession(previous, { remoteIssuedAt, remoteRouteSequence, direction }, preferred)
     if (!replace) {
       this.trace("session.rejected", { connectionId, peerId: deviceId.slice(0, 8), direction, reason: "duplicate direction" })
-      return void connection.close()
+      await connection.close()
+      return false
     }
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential) return void connection.close()
     const incrementalEngine = incrementalSupported
-      ? this.syncEngine(workspaceId, deviceId, profile.device.deviceId)
+      ? this.syncEngine(workspaceId, deviceId, profile.device.deviceId, instanceId)
       : undefined
     const session = incrementalEngine
       ? liveAutomergeWorkspaceSync(connection, credential.transportSecret, this.options.workspaceStore, workspaceId,
@@ -1522,23 +1539,27 @@ export class DurableMesh {
     this.options.onDiagnostic?.("")
     void previous?.evict("replaced")
     void session.publish().catch(error => {
+      if (evicted) return
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.publish.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
       this.reportProtocolFailure(`Publish ${deviceId.slice(0, 6)}`, error)
       void entry.evict("publish failed")
     })
     stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
+        if (evicted) return
         this.reconnectPolicy.recordFailure(key, error)
         this.trace("session.heartbeat.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
         this.reportProtocolFailure(`Heartbeat ${deviceId.slice(0, 6)}`, error)
         void entry.evict("heartbeat failed")
       }) : undefined
     void session.done.catch(error => {
+      if (evicted) return
       this.reconnectPolicy.recordFailure(key, error)
       this.trace("session.receive.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
       this.reportProtocolFailure(`Receive ${deviceId.slice(0, 6)}`, error)
     }).finally(() => entry.evict("receive loop ended"))
     await this.notify()
+    return true
   }
 
   private async publishAll() {

@@ -9,7 +9,6 @@ import type {
   PersonalRootDocumentV1,
   Heads,
 } from "./domain/model"
-import { isItem } from "./domain/model"
 import type { StoredProofsV1 } from "./domain/proofs"
 
 export type StoredChange = {
@@ -24,16 +23,6 @@ export type StoredSnapshot = {
   heads: Heads
   bytes: Uint8Array
   savedAt: string
-}
-
-export function normalizeItemEntities(doc: Automerge.Doc<WorkspaceDocumentV2>): Automerge.Doc<WorkspaceDocumentV2> {
-  const ids = Object.values(doc.entities ?? {})
-    .filter(entity => isItem(entity) && Object.prototype.hasOwnProperty.call(entity, "kind"))
-    .map(entity => entity.id)
-  if (!ids.length) return doc
-  return Automerge.change(doc, { message: "Remove item discriminators" }, draft => {
-    for (const id of ids) delete (draft.entities[id] as any).kind
-  })
 }
 
 let testStorageFailureHook = false
@@ -112,7 +101,7 @@ export class WorkspaceStorage {
 
   async listWorkspaces(): Promise<{ id: string; title: string; updatedAt: string }[]> {
     // Each workspace owns a separate key: saving one can never erase another.
-    // Migrate the old array and discover snapshots orphaned by stale legacy tabs.
+    // Discover snapshots whose catalog record is missing.
     const records = new Map<string, WorkspaceMeta>()
     const deleted = (id: string) => getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null
     const accept = (value: WorkspaceMeta) => {
@@ -120,10 +109,6 @@ export class WorkspaceStorage {
         records.set(value.id, value)
       }
     }
-    try {
-      const legacy = JSON.parse(getStorageRaw("match.workspaces") ?? "[]")
-      if (Array.isArray(legacy)) legacy.forEach(accept)
-    } catch { /* A damaged legacy catalog must not hide independent records. */ }
     const keys = storageKeys()
     for (const key of keys.filter(key => key.startsWith(workspaceMetaPrefix))) {
       try { accept(JSON.parse(getStorageRaw(key)!)) } catch { /* Recover from the snapshot below. */ }
@@ -258,11 +243,6 @@ export class WorkspaceStorage {
     bytes: Uint8Array
   ): Promise<void> {
     checkStorageFailureHook()
-    const normalized = normalizeItemEntities(doc)
-    if (normalized !== doc) {
-      doc = normalized
-      bytes = Automerge.save(doc)
-    }
     const heads = Automerge.getHeads(doc).sort()
     const snapshot = {
       workspaceId,
@@ -332,11 +312,6 @@ export class WorkspaceStorage {
       }
     }
 
-    const normalized = normalizeItemEntities(doc)
-    if (normalized !== doc) {
-      doc = normalized
-      await this.saveSnapshot(workspaceId, doc, Automerge.save(doc))
-    }
     const heads = Automerge.getHeads(doc).sort()
     if (!snapshot && changes.length === 0) {
       return null

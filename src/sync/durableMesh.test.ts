@@ -25,6 +25,55 @@ describe("DurableMesh peer catalog gossip", () => {
     ;(mesh as any).sessions.clear()
     await mesh.dispose()
   })
+  it("does not report a cancelled losing route as an invalid peer or penalize its health", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never, onDiagnostic })
+    const controller = new AbortController(); controller.abort()
+    ;(mesh as any).node = {}
+    await expect((mesh as any).connectPeer({ workspaceId: "workspace", deviceId: "remote" }, {}, new AbortController().signal, controller.signal)).rejects.toThrow(/cancelled/)
+    expect(onDiagnostic).not.toHaveBeenCalled()
+    expect((mesh as any).failures.size).toBe(0)
+    ;(mesh as any).node = undefined
+    await mesh.dispose()
+  })
+
+  it("Given simultaneous same-peer handshakes, when credentials load concurrently, then only one session owns the receive loop", async () => {
+    const credential = { workspaceId: "workspace", transportSecret: "secret" }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: { read: () => new Promise<Uint8Array>(() => {}) } as never,
+      getProfile: async () => ({ device: { deviceId: "local" } } as never),
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+    const connection = () => ({ acceptStream: vi.fn(() => new Promise<never>(() => {})), openStream: vi.fn(), close: vi.fn(async () => {}) })
+    const first = connection(), second = connection()
+    await Promise.all([first, second].map(value => (mesh as any).installSession("workspace", "remote", "slot-0", "2026-09-17", 1, "incoming", value)))
+    expect(first.acceptStream.mock.calls.length + second.acceptStream.mock.calls.length).toBe(1)
+    expect(first.close.mock.calls.length + second.close.mock.calls.length).toBe(1)
+    await mesh.dispose()
+  })
+
+  it("accepts independent sibling instances without replacing their connections or sharing Automerge state", async () => {
+    const credential = { workspaceId: "workspace", transportSecret: "secret" }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: { read: () => new Promise<Uint8Array>(() => {}) } as never,
+      getProfile: async () => ({ device: { deviceId: "local" } } as never),
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+    const connection = () => ({ acceptStream: vi.fn(() => new Promise<never>(() => {})), openStream: vi.fn(), close: vi.fn(async () => {}) })
+    const first = connection(), sibling = connection()
+    const internal = mesh as any
+    await internal.installSession("workspace", "remote", "slot-0", "2026-09-17", 1, "incoming", first)
+    expect(await internal.installSession("workspace", "remote", "slot-1", "2026-09-17", 99, "outgoing", sibling)).toBe(true)
+    expect(first.close).not.toHaveBeenCalled()
+    expect(sibling.close).not.toHaveBeenCalled()
+    expect(internal.sessions.size).toBe(2)
+    expect(internal.syncEngine("workspace", "remote", "local", "slot-0"))
+      .not.toBe(internal.syncEngine("workspace", "remote", "local", "slot-1"))
+    await internal.sessions.get("workspace:remote:slot-0").evict("remote closed")
+    expect(internal.sessions.get("workspace:remote:slot-1").connection).toBe(sibling)
+    expect(sibling.close).not.toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
   it("Given a session whose receive loop hangs, when publish fails and a replacement connects, then stale cleanup cannot evict the replacement", async () => {
     let rejectSnapshot!: (error: Error) => void
     let resolveOldAccept!: (stream: never) => void
@@ -72,12 +121,12 @@ describe("DurableMesh peer catalog gossip", () => {
     snapshot = Promise.resolve(new Uint8Array([1]))
     await (mesh as any).installSession("workspace-1", "remote-device", "instance-1",
       "2026-09-16T09:00:00.000Z", 1, "incoming", replacementConnection)
-    const replacement = (mesh as any).sessions.get("workspace-1:remote-device").session
+    const replacement = (mesh as any).sessions.get("workspace-1:remote-device:instance-1").session
     resolveOldAccept(undefined as never)
     await Promise.resolve()
     await Promise.resolve()
 
-    expect((mesh as any).sessions.get("workspace-1:remote-device").session).toBe(replacement)
+    expect((mesh as any).sessions.get("workspace-1:remote-device:instance-1").session).toBe(replacement)
     await expect(mesh.views("workspace-1")).resolves.toMatchObject([{ online: true }])
     expect(changes.length).toBeGreaterThan(0)
     await mesh.dispose()

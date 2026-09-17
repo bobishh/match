@@ -41,7 +41,6 @@ import {
 } from "./identity"
 
 export type Command =
-  | { kind: "upgradeJobSearchRejected"; boardId: string }
   | { kind: "createWorkspace"; title: string; preset: "job-search" | "blank" }
   | { kind: "renameWorkspace"; title: string }
   | { kind: "setWorkspaceDeleted"; deleted: boolean }
@@ -274,43 +273,6 @@ export async function executeCommand(
       break
     }
 
-    case "upgradeJobSearchRejected": {
-      const board = doc.entities[command.boardId] as Board | undefined
-      if (board?.kind !== "board" || board.preset?.key !== "job-search") {
-        return err("invalid_input", "Expected a Job search board")
-      }
-      const additions: Array<{ binding: string; entity: WorkspaceEntity }> = []
-      const definitions = [
-        { binding: "status.rejected", kind: "column", title: "Rejected" },
-        { binding: "field.rejectionReason", kind: "field", title: "Rejection notes / retrospective" },
-      ] as const
-      for (const definition of definitions) {
-        // Existing bindings include intentionally soft-deleted schema elements.
-        if (board.preset.bindings[definition.binding]) continue
-        const existing = Object.values(doc.entities).find((entity) =>
-          entity.kind === definition.kind && entity.placement.parentId === board.id && entity.title === definition.title
-        )
-        const id = existing?.id ?? `${board.id}:${definition.binding}`
-        if (!existing && doc.entities[id]) return err("invalid_input", "Preset upgrade ID collision")
-        const rank = computeInsertionRank(doc.entities, board.id,
-          definition.kind === "column" ? board.preset.bindings["status.offer"] : null).rank
-        const base = { id, title: definition.title, placement: { parentId: board.id, rank }, deleted: false, createdAt: nowIso, updatedAt: nowIso }
-        const entity: WorkspaceEntity = existing ?? (definition.kind === "column"
-          ? { ...base, kind: "column", displayHint: "normal" }
-          : { ...base, kind: "field", valueType: "text", required: false })
-        additions.push({ binding: definition.binding, entity })
-        changedEntityIds.push(id)
-      }
-      changedEntityIds.push(board.id)
-      applyFn = (draft) => {
-        const target = draft.entities[board.id] as Board
-        for (const { binding, entity } of additions) {
-          if (!draft.entities[entity.id]) draft.entities[entity.id] = entity
-          target.preset!.bindings[binding] = entity.id
-        }
-      }
-      break
-    }
     case "createItem": {
       if (!command.title || !command.title.trim()) {
         return err("invalid_input", "Item title is required", "title")
