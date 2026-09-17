@@ -232,7 +232,9 @@ const onlineWorkspaceDevices = computed(() => {
 const revokingPeer = ref("")
 const peerAccessError = ref("")
 const isWorkspaceOwner = computed(() => currentRole.value === "owner")
+const historyRepairVersion = ref(0)
 const repairableHistory = computed(() => {
+  void historyRepairVersion.value
   void sync.meshDiagnostic.value
   return isWorkspaceOwner.value ? pendingHistoryRepair(activeWorkspace.id) : 0
 })
@@ -242,6 +244,7 @@ async function repairHistory() {
     const id = activeWorkspace.id
     const recovered = await repairPendingHistory(id, await bootstrapIdentity())
     await mergeAuthorizedWorkspace(id, recovered.bytes, recovered.authorization)
+    historyRepairVersion.value++
     sync.meshDiagnostic.value = ""
   } catch (error) { peerAccessError.value = error instanceof Error ? error.message : String(error) }
 }
