@@ -1,5 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim"
-import { bootstrapIdentity, signEnvelope, verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
+import { bootstrapIdentity, canonicalizeJson, signEnvelope, verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
+import { isItem } from "../domain/model"
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore } from "./peerStore"
@@ -19,6 +20,41 @@ type Authorization = {
   ownerPublicKey: string
   ownerCertificates: DeviceCertificate[]
 }
+type PendingHistoryRepair = { bytes: Uint8Array; hashes: string[]; authorization: Authorization[] }
+const historyRepairs = new Map<string, PendingHistoryRepair>()
+
+function isDiscriminatorCleanup(doc: Automerge.Doc<WorkspaceDocumentV2>, change: Automerge.DecodedChange) {
+  if (!change.deps.length || !change.ops.length) return false
+  const before = Automerge.view(doc, change.deps)
+  const expected = JSON.parse(JSON.stringify(before)) as WorkspaceDocumentV2
+  const itemObjects = new Map(Object.values(before.entities).filter(isItem).map(item => [Automerge.getObjectId(item), item.id]))
+  for (const op of change.ops) {
+    if (op.action !== "del" || op.key !== "kind" || !itemObjects.has(op.obj)) return false
+    const id = itemObjects.get(op.obj)!
+    if (!["task", "item"].includes((before.entities[id] as any).kind)) return false
+    delete (expected.entities[id] as any).kind
+  }
+  return canonicalizeJson(expected) === canonicalizeJson(Automerge.view(doc, [change.hash]))
+}
+
+export function pendingHistoryRepair(workspaceId: string) {
+  return historyRepairs.get(workspaceId)?.hashes.length ?? 0
+}
+
+export async function repairPendingHistory(workspaceId: string, profile: LocalProfile) {
+  const pending = historyRepairs.get(workspaceId)
+  if (!pending) throw new Error("No repairable history is pending")
+  const doc = Automerge.load<WorkspaceDocumentV2>(pending.bytes)
+  try {
+    if (await workspaceRole(doc, profile) !== "owner") throw new Error("Only the owner can repair history signatures")
+    if (await workspaceWritesBlocked(workspaceId)) throw new Error("Workspace ownership is conflicted")
+    for (let offset = 0; offset < pending.hashes.length; offset += 256) {
+      await authorizeLocalChanges(doc, profile, pending.hashes.slice(offset, offset + 256))
+    }
+    return { bytes: pending.bytes, authorization: [...pending.authorization, ...await records(workspaceId)] }
+  } finally { Automerge.free(doc) }
+}
+
 let dbPromise: Promise<IDBDatabase> | undefined
 const memory = new Map<string, Authorization[]>()
 function database() {
@@ -168,7 +204,8 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
   if (!Array.isArray(raw) || raw.length > 20000 || new TextEncoder().encode(JSON.stringify(raw)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const known = new Set(local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : [])
   const changes = Automerge.getAllChanges(remote).filter(change => !known.has(Automerge.decodeChange(change).hash))
-  const needed = new Set(changes.map(change => Automerge.decodeChange(change).hash))
+  // Proofs must propagate even when this replica already has the corresponding changes.
+  const needed = new Set(Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change).hash))
   const allowed = new Map<string, WorkspaceRole>()
   const verified: Authorization[] = []
   for (const record of raw as Authorization[]) {
@@ -195,14 +232,25 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
     }
     verified.push(record)
   }
+  const unsigned = changes.map(change => Automerge.decodeChange(change)).filter(change => !allowed.has(change.hash))
   for (const change of changes) {
     const decoded = Automerge.decodeChange(change)
     const role = allowed.get(decoded.hash)
-    if (!role) throw new WorkspaceChangeRejected(`Unsigned workspace change rejected: ${decoded.hash} (actor ${decoded.actor}, ${decoded.message || "no change message"})`)
     if (role === "editor") {
       if (!decoded.deps.length) throw new Error("Only the owner can create a workspace")
       assertWorkspaceTransition("editor", Automerge.view(remote, decoded.deps), Automerge.view(remote, [decoded.hash]))
     }
   }
+  if (unsigned.length) {
+    historyRepairs.delete(remote.id)
+    if (unsigned.every(change => isDiscriminatorCleanup(remote, change))) {
+      if (historyRepairs.size >= 64) historyRepairs.delete(historyRepairs.keys().next().value!)
+      historyRepairs.set(remote.id, { bytes: Automerge.save(remote), hashes: unsigned.map(change => change.hash), authorization: verified })
+    }
+    const decoded = unsigned[0]!
+    throw new WorkspaceChangeRejected(`Unsigned workspace change rejected: ${decoded.hash} (actor ${decoded.actor}, ${decoded.message || "no change message"})`)
+  }
   await putRecords(remote.id, verified)
+  const pending = historyRepairs.get(remote.id)
+  if (pending?.hashes.every(hash => needed.has(hash) && allowed.has(hash))) historyRepairs.delete(remote.id)
 }

@@ -259,7 +259,11 @@ export function liveAutomergeWorkspaceSync(
       if (type !== "mesh-automerge-sync") throw new Error(`Unsupported live workspace frame: ${type}`)
       try {
         await enqueue(async () => {
-          const result = await engine.receive(adapter, remoteDeviceId, decodeFrame(frame))
+          const decoded = decodeFrame(frame)
+          const result = await engine.receive(adapter, remoteDeviceId, decoded)
+          if (result.acceptedChanges === 0 && store.readAuthorization && decoded.proof !== undefined) {
+            await store.merge(workspaceId, await store.read(workspaceId), decoded.proof)
+          }
           if (result.response) await sendFrame(result.response)
           if (lastRejection && result.acceptedChanges > 0) {
             lastRejection = undefined

@@ -52,6 +52,7 @@ const props = defineProps<{
   meshActionError?: string
   workspaceConnected?: boolean
   meshDiagnostic?: string
+  repairableHistory?: number
   live?: boolean
 }>()
 
@@ -65,6 +66,7 @@ const emit = defineEmits<{
   (e: "generateWorkspaceInvite"): void
   (e: "transferOwnership", personId: string): void
   (e: "leaveMesh"): void
+  (e: "repairHistory"): void
   (e: "setSuccessor", personId: string | null): void
   (e: "voteSuccessor", personId: string): void
   (e: "claimSuccession"): void
@@ -152,6 +154,10 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           · {{ workspaceConnected ? "Live channel active." : "No live channel. Reconnecting automatically." }}
         </p>
         <p v-if="meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
+        <section v-if="currentRole === 'owner' && repairableHistory" class="dialog-copy">
+          <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
+          <button class="button" type="button" @click="emit('repairHistory')">Sign verified cleanup</button>
+        </section>
         <p class="dialog-copy">People and devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
           <button

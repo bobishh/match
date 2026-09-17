@@ -466,3 +466,50 @@ test("Given an editor has an unsigned change, when sync rejects it, then the cha
     await expect(page.getByRole("heading",{name:/Untrusted title/})).toHaveCount(0)
   } finally { await context.close() }
 })
+
+test("Given unsigned cleanup history, when the owner signs verified cleanup, then edits sync and the editor retains the new signatures", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  try {
+    await page.goto("/")
+    await addLead(page,"History repair")
+    const oldHeads = await page.evaluate(async () => {
+      const {useMatch} = await import("/src/state.ts")
+      const {defaultStorage} = await import("/src/storage.ts")
+      const A = await import("/@id/@automerge/automerge/slim")
+      const doc = useMatch().getActiveDoc()!
+      const old = A.change(A.clone(doc), (d:any) => { Object.values(d.entities).find((e:any)=>e.values)!.kind = "task" })
+      const current = A.change(A.clone(old), (d:any) => { delete Object.values(d.entities).find((e:any)=>e.values)!.kind })
+      await defaultStorage.saveSnapshot(doc.id,current,A.save(current))
+      return A.getHeads(old)
+    })
+    await page.reload()
+    await guest.goto("/")
+    await pairWorkspace(page,guest)
+    const cleanupHash = await guest.evaluate(async (heads) => {
+      const {useMatch} = await import("/src/state.ts")
+      const {defaultStorage} = await import("/src/storage.ts")
+      const A = await import("/@id/@automerge/automerge/slim")
+      const doc = useMatch().getActiveDoc()!
+      const cleanup = A.change(A.clone(A.view(doc,heads)),{message:"Remove item discriminators"},(d:any)=>{delete Object.values(d.entities).find((e:any)=>e.values)!.kind})
+      const merged = A.merge(A.clone(doc),cleanup)
+      await defaultStorage.saveSnapshot(doc.id,merged,A.save(merged))
+      return A.getHeads(cleanup)[0]
+    },oldHeads)
+    await guest.reload()
+    await page.getByRole("button",{name:"Sync",exact:true}).click()
+    const dialog = page.getByRole("dialog",{name:"Device sync"})
+    await dialog.getByRole("button",{name:"Sign verified cleanup"}).click({timeout:30_000})
+    await expect(dialog.getByText(/Unsigned workspace change rejected/)).toHaveCount(0)
+    await dialog.getByRole("button",{name:"Close",exact:true}).first().click()
+    await expect.poll(() => guest.evaluate(async hash => {
+      const {useMatch} = await import("/src/state.ts")
+      const {exportAuthorizations} = await import("/src/sync/changeAuthorization.ts")
+      const records = await exportAuthorizations(useMatch().getAutomergeBytes())
+      return records.some((record:any)=>record.signed.payload.hashes.includes(hash))
+    },cleanupHash), {timeout:20_000}).toBe(true)
+    await addLead(guest,"After signature repair")
+    await expect(page.getByRole("button",{name:"Open After signature repair — Engineer"})).toBeVisible({timeout:20_000})
+  } finally { await context.close() }
+})

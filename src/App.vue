@@ -1,6 +1,6 @@
 <!-- Workspace role gates are enforced again at command and sync boundaries. -->
 <script setup lang="ts">
-import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations } from "./sync/changeAuthorization"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations, pendingHistoryRepair, repairPendingHistory } from "./sync/changeAuthorization"
 import type { WorkspaceRole } from "./domain/permissions"
 import { bootstrapIdentity } from "./domain/identity"
 import ModalLayer from "./components/ModalLayer.vue"
@@ -232,6 +232,19 @@ const onlineWorkspaceDevices = computed(() => {
 const revokingPeer = ref("")
 const peerAccessError = ref("")
 const isWorkspaceOwner = computed(() => currentRole.value === "owner")
+const repairableHistory = computed(() => {
+  void sync.meshDiagnostic.value
+  return isWorkspaceOwner.value ? pendingHistoryRepair(activeWorkspace.id) : 0
+})
+async function repairHistory() {
+  peerAccessError.value = ""
+  try {
+    const id = activeWorkspace.id
+    const recovered = await repairPendingHistory(id, await bootstrapIdentity())
+    await mergeAuthorizedWorkspace(id, recovered.bytes, recovered.authorization)
+    sync.meshDiagnostic.value = ""
+  } catch (error) { peerAccessError.value = error instanceof Error ? error.message : String(error) }
+}
 const meshParticipantDevices = computed(() => sync.meshPeers.value
   .filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value)
   .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
@@ -1476,6 +1489,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :mesh-action-error="peerAccessError"
       :workspace-connected="meshPresence === 'connected'"
       :mesh-diagnostic="sync.meshDiagnostic.value"
+      :repairable-history="repairableHistory"
+      @repair-history="repairHistory"
       :live="sync.isLive.value"
       @update:selected-workspace-ids="sync.selectedWorkspaceIds.value = $event"
       @update:selected-workspace-id="sync.selectedWorkspaceId.value = $event"
