@@ -4,7 +4,7 @@ import { ensureJobSearchWorkspace } from "./support/workspaces"
 async function addLead(page: import("@playwright/test").Page, input: { company: string; role: string; priority: string; workMode: string; fit: string }) {
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
-  const form = page.locator("form.dialog")
+  const form = page.getByRole("dialog", { name: /Add item|Item details/ })
   await form.getByLabel("Company *").fill(input.company)
   await form.getByLabel("Role *").fill(input.role)
   await form.getByLabel("Priority").selectOption(input.priority)
