@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { BrowserNode, initSync } from "./iroh-runtime/match_iroh.js"
-import { startIrohBrowserNode } from "./iroh"
+import { startIrohBrowserNode, WasmBlobEngine, WasmGossipEngine } from "./iroh"
+import { fileReferenceSchema } from "./domain/entitySchemas"
 
 // Ensure WASM is initialized for Node environment
 const wasmPath = resolve(__dirname, "./iroh-runtime/match_iroh_bg.wasm")
@@ -83,5 +84,56 @@ describe("Iroh persistent node secret support", () => {
     } finally {
       await customNode.close()
     }
+  })
+})
+
+describe("Iroh gossip and blobs support in match", () => {
+  it("WasmBlobEngine creates content-addressed blob with ticket and verifies payload", () => {
+    const engine = new WasmBlobEngine()
+    const data = new TextEncoder().encode("resume attachment markdown")
+    const blob = engine.createBlob(data, "resume.md", "text/markdown", null)
+
+    expect(blob.blobId).toMatch(/^blake3:[0-9a-f]{64}$/)
+    expect(blob.hash).toMatch(/^[0-9a-f]{64}$/)
+    expect(blob.ticket).toBeDefined()
+    expect(blob.size).toBe(data.byteLength)
+
+    expect(engine.hasBlob(blob.hash)).toBe(true)
+    expect(engine.getBlob(blob.hash)).toEqual(data)
+    expect(engine.verifyBlob(blob.hash, data)).toBe(true)
+
+    // Verify Automerge entity schema validates the blob reference with ticket
+    const fileRef = {
+      type: "blob" as const,
+      hash: blob.hash,
+      ticket: blob.ticket,
+      byteLength: blob.size,
+      mimeType: blob.mediaType,
+      fileName: blob.name,
+    }
+    const validated = fileReferenceSchema.parse(fileRef)
+    expect(validated).toEqual(fileRef)
+  })
+
+  it("WasmGossipEngine joins workspace topic and broadcasts deduplicated messages", () => {
+    const peer1 = "peer-alpha-001"
+    const peer2 = "peer-beta-002"
+    const engine1 = new WasmGossipEngine(peer1)
+    const engine2 = new WasmGossipEngine(peer2)
+
+    const topicHash1 = engine1.joinTopic("workspace-sync", [])
+    const topicHash2 = engine2.joinTopic("workspace-sync", [])
+    expect(topicHash1).toBe(topicHash2)
+
+    const payload = new TextEncoder().encode("entity-change-notice")
+    const packet = engine1.broadcast("workspace-sync", payload)
+    expect(packet.byteLength).toBeGreaterThan(0)
+
+    const received = engine2.handleMessage(peer1, packet)
+    expect(received).toEqual(payload)
+
+    // Duplicate message delivery returns undefined
+    const duplicate = engine2.handleMessage(peer1, packet)
+    expect(duplicate).toBeUndefined()
   })
 })

@@ -1,4 +1,5 @@
-import irohInit, { BrowserNode } from "./iroh-runtime/match_iroh.js"
+import irohInit, { BrowserNode, WasmBlobEngine, WasmGossipEngine } from "./iroh-runtime/match_iroh.js"
+export { BrowserNode, WasmBlobEngine, WasmGossipEngine }
 
 export type IrohStatus = "unavailable" | "starting" | "ready" | "error"
 

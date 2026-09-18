@@ -47,7 +47,15 @@ export const fieldSchema = z.discriminatedUnion("valueType", [
   z.strictObject({ ...fieldBase, valueType: z.literal("select"), options: z.record(z.string(), fieldOptionSchema) }),
 ])
 export const fileReferenceSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("blob"), sha256: z.string(), byteLength: z.number().int().nonnegative(), mimeType: z.string(), fileName: z.string() }),
+  z.strictObject({
+    type: z.literal("blob"),
+    sha256: z.string().optional(),
+    hash: z.string().optional(),
+    ticket: z.string().optional(),
+    byteLength: z.number().int().nonnegative(),
+    mimeType: z.string(),
+    fileName: z.string(),
+  }),
   z.strictObject({ type: z.literal("local-file"), fileId: z.string(), fileName: z.string() }),
 ])
 export const documentSchema = z.strictObject({
