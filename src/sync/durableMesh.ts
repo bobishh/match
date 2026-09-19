@@ -1382,6 +1382,15 @@ export class DurableMesh {
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
         value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported)
     } catch (error) {
+      if (this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
+        this.trace("dial.device.superseded", {
+          peerId: peer.deviceId.slice(0, 8),
+          workspaceId: peer.workspaceId.slice(0, 8),
+          routes: peers.length,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        return
+      }
       this.trace("dial.device.failed", {
         peerId: peer.deviceId.slice(0, 8),
         workspaceId: peer.workspaceId.slice(0, 8),
@@ -1465,7 +1474,11 @@ export class DurableMesh {
         peerId: peer.deviceId.slice(0, 8),
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
-      this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+      if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
+        this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+      } else {
+        this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+      }
       this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 8))
       this.failedAt.set(key, Date.now())
       await connection?.close().catch(() => {})

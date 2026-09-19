@@ -38,6 +38,35 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given an incoming session wins a dial race, when the losing outgoing route fails, then connected UI stays healthy", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+    const internal = mesh as any
+    const peer = {
+      workspaceId: "workspace", personId: "remote-person", deviceId: "remote-device", instanceId: "legacy:remote",
+      endpoint: "remote-endpoint", transportSecret: "secret", role: "editor", lastSeen: new Date().toISOString(),
+      advertisement: { advertisement: { signerKeyId: "remote-device", signature: "signature", payload: {
+        kind: "peer-advertisement", version: 1, workspaceId: "workspace", personId: "remote-person",
+        deviceId: "remote-device", endpoint: "remote-endpoint", issuedAt: new Date().toISOString(),
+      } } },
+    }
+    internal.node = {}
+    internal.connectPeer = vi.fn(async () => {
+      internal.sessions.set("workspace:remote-device:incoming", { workspaceId: "workspace", deviceId: "remote-device" })
+      throw new Error("All promises were rejected")
+    })
+
+    await internal.dialDevice([peer], new AbortController().signal)
+
+    expect(internal.hasDeviceSession("workspace", "remote-device")).toBe(true)
+    expect(onDiagnostic).not.toHaveBeenCalled()
+    internal.sessions.clear()
+    internal.node = undefined
+    await mesh.dispose()
+  })
+
   it("Given simultaneous same-peer handshakes, when credentials load concurrently, then only one session owns the receive loop", async () => {
     const credential = { workspaceId: "workspace", transportSecret: "secret" }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
