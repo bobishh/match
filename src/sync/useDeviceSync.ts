@@ -123,6 +123,8 @@ export function useDeviceSync({
   const parsedInvite = ref<ScopedInvitation | null>(null)
   const meshPeers = ref<MeshPeerView[]>([])
   const meshDiagnostic = ref("")
+  const meshRetryAt = ref<Record<string, number>>({})
+  const networkOnline = ref(typeof navigator === "undefined" ? true : navigator.onLine)
   const localDeviceId = ref("")
   const localUserAgent = ref("")
   const meshLiveWorkspaceIds = ref<string[]>([])
@@ -139,6 +141,12 @@ export function useDeviceSync({
   let run = 0
   let wakeRetry: (() => void) | undefined
   let approveResolve: ((approved: boolean) => void) | undefined
+  const markNetworkOnline = () => { networkOnline.value = true }
+  const markNetworkOffline = () => { networkOnline.value = false }
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", markNetworkOnline)
+    window.addEventListener("offline", markNetworkOffline)
+  }
   const enrollmentDeviceName = ref("")
   const meshWorkspaceStore: WorkspaceSetStore | undefined = workspaceStore ? { ...workspaceStore } : undefined
   const durableMesh = workspaceStore && meshWorkspaceStore ? new DurableMesh({
@@ -157,6 +165,10 @@ export function useDeviceSync({
     onDiagnostic(message) {
       meshDiagnostic.value = message
     },
+    onRetryChange(retryAtByWorkspace) {
+      meshRetryAt.value = retryAtByWorkspace
+    },
+    networkOnline: () => networkOnline.value,
   }) : undefined
   if (durableMesh && meshWorkspaceStore) {
     meshWorkspaceStore.readMesh = id => durableMesh.exportWorkspace(id)
@@ -219,6 +231,10 @@ export function useDeviceSync({
   async function shutdown() {
     run += 1
     wakeRetry?.()
+    if (typeof window !== "undefined") {
+      window.removeEventListener("online", markNetworkOnline)
+      window.removeEventListener("offline", markNetworkOffline)
+    }
     await durableMesh?.dispose()
     await stopNode("Page closed")
   }
@@ -1034,6 +1050,8 @@ export function useDeviceSync({
     isWorkspaceAccessRevoked: (id: string) => revokedWorkspaceIds.value.includes(id),
     meshPeers,
     meshDiagnostic,
+    meshRetryAt,
+    networkOnline,
     meshSuccession,
     localDeviceId,
     localUserAgent,

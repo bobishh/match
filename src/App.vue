@@ -262,6 +262,7 @@ const meshPresenceLabel = computed(() => ({
   offline: "Mesh offline",
   empty: "Mesh empty",
 }[meshPresence.value]))
+const activeMeshRetryAt = computed(() => sync.meshRetryAt.value[activeWorkspace.id])
 const onlineWorkspaceDevices = computed(() => {
   const ids = new Set(sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt && peer.online)
     .map(peer => peer.deviceId))
@@ -1565,6 +1566,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :mesh-action-error="peerAccessError"
       :workspace-connected="meshPresence === 'connected'"
       :mesh-diagnostic="sync.meshDiagnostic.value"
+      :retry-at="activeMeshRetryAt"
+      :network-online="sync.networkOnline.value"
       :repairable-history="repairableHistory"
       @repair-history="repairHistory"
       :live="sync.isLive.value"

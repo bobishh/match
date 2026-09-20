@@ -145,6 +145,10 @@ test("Given two connected clients, when exactly one page reloads after a pending
 
     await guest.evaluate(() => window.dispatchEvent(new Event("offline")))
     await expect(guest.getByLabel("Mesh offline")).toBeVisible()
+    await guest.getByRole("button", { name: "Sync", exact: true }).click()
+    const offlineDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await expect(offlineDialog.getByText("Offline · Waiting for internet. Changes stay saved on this device.")).toBeVisible()
+    await expect(offlineDialog.getByText(/Retrying in \d+s/)).toHaveCount(0)
     await guest.reload()
 
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
@@ -267,7 +271,7 @@ test("Given a connected peer closes its tab, when it returns, then presence turn
     await expect(page.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const syncDialog = page.getByRole("dialog", { name: "Device sync" })
-    await expect(syncDialog.getByText("Offline · No live channel. Reconnecting automatically.")).toBeVisible()
+    await expect(syncDialog.getByText(/Offline · No live channel. Retrying in \d+s\./)).toBeVisible()
     await expect(syncDialog.getByText(/^Reconnect:/)).toHaveCount(0)
     await expect(syncDialog.locator(".mesh-member-presence.is-online")).toHaveCount(1)
     await expect(syncDialog.locator(".mesh-member-presence.is-offline")).toHaveCount(1)

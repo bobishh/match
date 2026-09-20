@@ -109,6 +109,8 @@ type DurableMeshOptions = {
   store?: PeerStore
   onChange?: (workspaces: string[], peers: MeshPeerView[], revoked: string[], succession: MeshSuccessionView[]) => void
   onDiagnostic?: (message: string) => void
+  onRetryChange?: (retryAtByWorkspace: Record<string, number>) => void
+  networkOnline?: () => boolean
 }
 
 class MeshDialCancelled extends Error {
@@ -1009,6 +1011,7 @@ export class DurableMesh {
     this.retryTimer = undefined
     this.abortController?.abort()
     this.abortController = undefined
+    this.options.onRetryChange?.({})
     await this.task?.catch(() => {})
     this.task = undefined
     await this.shutdown()
@@ -1305,6 +1308,11 @@ export class DurableMesh {
     let nextRouteRefreshAt = Date.now() + DurableMesh.ROUTE_RENEW_MS
     while (!signal.aborted) {
       if (!this.node) throw new MeshNodeRestart("runtime node unavailable")
+      if (this.options.networkOnline?.() === false) {
+        this.options.onRetryChange?.({})
+        await this.waitForDialTick(signal)
+        continue
+      }
       const profile = await this.options.getProfile()
       if (Date.now() >= nextRouteRefreshAt) {
         const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
@@ -1335,21 +1343,50 @@ export class DurableMesh {
         routes.push(peer)
         devices.set(key, routes)
       }
+      const retryAtByWorkspace: Record<string, number> = {}
+      const now = Date.now()
       for (const [key, routes] of devices) {
-        if (signal.aborted || this.hasDeviceSession(routes[0]!.workspaceId, routes[0]!.deviceId) || this.connecting.has(key)) continue
+        if (signal.aborted || this.hasDeviceSession(routes[0]!.workspaceId, routes[0]!.deviceId)) continue
+        if (this.connecting.has(key)) {
+          const workspaceId = routes[0]!.workspaceId
+          retryAtByWorkspace[workspaceId] = Math.min(retryAtByWorkspace[workspaceId] ?? Infinity, now + 1_000)
+          continue
+        }
         const eligible = routes.filter(peer => {
           const routeKey = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
           const attempts = this.failures.get(routeKey) ?? 0
           const retryDelay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
-          return Date.now() - (this.failedAt.get(routeKey) ?? 0) >= retryDelay
+          return now - (this.failedAt.get(routeKey) ?? 0) >= retryDelay
         })
-        if (eligible.length) void this.dialDevice(eligible, signal)
+        if (eligible.length) {
+          void this.dialDevice(eligible, signal)
+          continue
+        }
+        const nextAttemptAt = Math.min(...routes.map(peer => {
+          const routeKey = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
+          const attempts = this.failures.get(routeKey) ?? 0
+          const retryDelay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
+          return (this.failedAt.get(routeKey) ?? now) + retryDelay
+        }))
+        const workspaceId = routes[0]!.workspaceId
+        retryAtByWorkspace[workspaceId] = Math.min(retryAtByWorkspace[workspaceId] ?? Infinity, nextAttemptAt)
       }
-      await new Promise<void>(resolve => {
-        this.retryTimer = setTimeout(resolve, 1_000)
-        signal.addEventListener("abort", () => { clearTimeout(this.retryTimer); resolve() }, { once: true })
-      })
+      this.options.onRetryChange?.(retryAtByWorkspace)
+      await this.waitForDialTick(signal)
     }
+  }
+
+  private waitForDialTick(signal: AbortSignal) {
+    return new Promise<void>(resolve => {
+      const finish = () => {
+        clearTimeout(this.retryTimer)
+        this.retryTimer = undefined
+        signal.removeEventListener("abort", finish)
+        resolve()
+      }
+      this.retryTimer = setTimeout(finish, 1_000)
+      signal.addEventListener("abort", finish, { once: true })
+    })
   }
 
   private async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {

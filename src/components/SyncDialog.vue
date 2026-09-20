@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
-import { computed, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import type { SyncStep } from "../sync/useDeviceSync"
 
 const props = defineProps<{
@@ -53,6 +53,8 @@ const props = defineProps<{
   meshActionError?: string
   workspaceConnected?: boolean
   meshDiagnostic?: string
+  retryAt?: number
+  networkOnline?: boolean
   repairableHistory?: number
   live?: boolean
 }>()
@@ -96,6 +98,17 @@ const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
+const now = ref(Date.now())
+let clock: ReturnType<typeof setInterval> | undefined
+onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 500) })
+onBeforeUnmount(() => clearInterval(clock))
+const retrySeconds = computed(() => Math.max(1, Math.ceil(((props.retryAt ?? now.value) - now.value) / 1_000)))
+const connectionSummary = computed(() => {
+  if (props.workspaceConnected) return "Live channel active."
+  if (props.networkOnline === false) return "Waiting for internet. Changes stay saved on this device."
+  if (props.retryAt) return `No live channel. Retrying in ${retrySeconds.value}s.`
+  return "No live channel. Reconnecting automatically."
+})
 
 function isWorkspaceSelected(id: string) {
   return selectedIds.value.includes(id)
@@ -152,9 +165,9 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       <template v-if="step === 'members'">
         <p class="dialog-copy mesh-connection-summary" role="status">
           <strong>{{ workspaceConnected ? "Connected" : "Offline" }}</strong>
-          · {{ workspaceConnected ? "Live channel active." : "No live channel. Reconnecting automatically." }}
+          · {{ connectionSummary }}
         </p>
-        <p v-if="meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
+        <p v-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
         <section v-if="repairableHistory" class="dialog-copy">
           <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
           <button class="button" type="button" @click="emit('repairHistory')">Sign verified cleanup</button>
