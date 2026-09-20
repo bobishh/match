@@ -753,7 +753,7 @@ onMounted(async () => {
   const unregisterWebMcp = await registerWebMcp({
     getActiveDoc,
     executeCommandAsync,
-    createWorkspaceAsync,
+    createWorkspaceAsync: createAndSyncWorkspace,
     switchWorkspaceAsync: switchWorkspace,
     availableWorkspaces,
     activeWorkspace,
@@ -966,9 +966,15 @@ function closeDetail() {
 
 // Workspace, board, and item operations
 async function handleCreateWorkspace(payload: { title: string; preset: "blank" | "job-search" }) {
-  await createWorkspaceAsync(payload.title, payload.preset)
+  await createAndSyncWorkspace(payload.title, payload.preset)
   notice.value = `Workspace "${payload.title}" created`
   showWorkspaces.value = false
+}
+
+async function createAndSyncWorkspace(title: string, preset: "blank" | "job-search") {
+  const doc = await createWorkspaceAsync(title, preset)
+  await sync.addOwnerWorkspace(doc.id)
+  return doc
 }
 
 async function handleSwitchWorkspace(id: string) {

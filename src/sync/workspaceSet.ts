@@ -19,6 +19,7 @@ export type LiveWorkspaceSync = {
 
 export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
 const MAX_CONTROL_FRAME_BYTES = 256 * 1024
+const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
@@ -85,6 +86,15 @@ export async function publishConfirmedWorkspace(connection: SyncConnection, secr
       }),
     ])
   } finally { clearTimeout(timer) }
+}
+
+export async function publishOwnerWorkspaceOffer(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
+  if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
+  const stream = await connection.openStream()
+  await stream.send(encodePairingFrame("mesh-gossip", secret, bytes))
+  await stream.closeSend()
+  const receipt = decodePairingFrame(await stream.read(), "mesh-durable-ack", secret)
+  if (new TextDecoder().decode(receipt) !== await sha256Base64Url(bytes)) throw new Error("Owner workspace receipt does not match")
 }
 
 async function receiveConfirmedWorkspace(stream: DuplexStream, frame: Uint8Array, secret: string, replica: ReturnType<typeof workspaceSet>) {
@@ -182,6 +192,7 @@ export function liveAutomergeWorkspaceSync(
   remoteDeviceId: string,
   sharedEngine?: AutomergeAntiEntropy,
   onDocumentRejected?: (error: WorkspaceChangeRejected | null) => void,
+  options: { onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void> } = {},
 ): LiveWorkspaceSync {
   let stopped = false
   let lastRejection: string | undefined
@@ -251,6 +262,15 @@ export function liveAutomergeWorkspaceSync(
       }
       if (type === "mesh-control-sync") {
         await receiveControl(decodePairingFrame(frame, "mesh-control-sync", secret))
+        await stream.closeSend()
+        continue
+      }
+      if (type === "mesh-gossip" && options.onOwnerWorkspaceOffer) {
+        const bytes = decodePairingFrame(frame, "mesh-gossip", secret)
+        if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
+        await options.onOwnerWorkspaceOffer(bytes)
+        await stream.send(encodePairingFrame("mesh-durable-ack", secret,
+          new TextEncoder().encode(await sha256Base64Url(bytes))))
         await stream.closeSend()
         continue
       }

@@ -19,7 +19,7 @@ import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishOwnerWorkspaceOffer, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 
 export type MeshWorkspaceEnvelope = {
   version: 1
@@ -111,6 +111,7 @@ type DurableMeshOptions = {
   onDiagnostic?: (message: string) => void
   onRetryChange?: (retryAtByWorkspace: Record<string, number>) => void
   networkOnline?: () => boolean
+  getOwnedWorkspaceIds?: () => Promise<string[]>
 }
 
 class MeshDialCancelled extends Error {
@@ -152,7 +153,7 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 
 type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[] }
-const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1"]
+const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1", "owner-workspace-v1"]
 
 function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
   return (credential.catalog as MeshCatalog | undefined) ?? {}
@@ -397,6 +398,68 @@ export class DurableMesh {
       await this.refreshOwnBundle(credential, profile, endpoint, certificates)
     }
     await this.notify()
+  }
+
+  private async ownerWorkspaceIds(profile: LocalProfile) {
+    return (await this.store.listWorkspaceCredentials())
+      .filter(credential => credential.ownerPersonId === profile.identity.personId &&
+        credential.ownerPublicKey === profile.identity.publicKey)
+      .map(credential => credential.workspaceId)
+      .sort()
+  }
+
+  async addOwnerWorkspace(workspaceId: string): Promise<void> {
+    const profile = await this.options.getProfile()
+    if (!this.node) return
+    await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, profile)
+    void Promise.allSettled([...this.sessions.values()].map(async entry => {
+      const peer = await this.store.getPeer(entry.workspaceId, entry.deviceId)
+      if (peer?.personId !== profile.identity.personId) return
+      const credential = await this.store.getWorkspaceCredential(entry.workspaceId)
+      if (!credential) return
+      await publishOwnerWorkspaceOffer(entry.connection, credential.transportSecret,
+        await this.encodeOwnerWorkspaceOffer(workspaceId))
+    }))
+  }
+
+  private async encodeOwnerWorkspaceOffer(workspaceId: string) {
+    const [envelope] = await this.invitationPayload([workspaceId])
+    const [workspace] = JSON.parse(new TextDecoder().decode(
+      await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot(),
+    ))
+    return new TextEncoder().encode(JSON.stringify({ version: 1, workspaceId, envelope, workspace }))
+  }
+
+  private async receiveOwnerWorkspaceOffer(bytes: Uint8Array, remotePersonId: string) {
+    const profile = await this.options.getProfile()
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as {
+      version?: unknown; workspaceId?: unknown; envelope?: unknown; workspace?: unknown
+    }
+    if (remotePersonId !== profile.identity.personId || value.version !== 1 ||
+      typeof value.workspaceId !== "string" || !value.workspaceId ||
+      (value.envelope as MeshWorkspaceEnvelope | undefined)?.ownerPersonId !== profile.identity.personId ||
+      (value.envelope as MeshWorkspaceEnvelope | undefined)?.workspaceId !== value.workspaceId ||
+      (value.workspace as { id?: unknown } | undefined)?.id !== value.workspaceId) {
+      throw new Error("Invalid owner workspace offer")
+    }
+    await this.receiveInvitation([value.envelope], [value.workspaceId], profile, [])
+    await workspaceSet(this.options.workspaceStore, [value.workspaceId]).receive(
+      new TextEncoder().encode(JSON.stringify([value.workspace])), false)
+    if (!this.node) throw new Error("Workspace mesh is unavailable")
+    await this.ensureOwnerWorkspaces([value.workspaceId], this.node.endpointId, profile)
+  }
+
+  private async offerMissingOwnerWorkspaces(connection: SyncConnection, secret: string,
+    remoteWorkspaceIds: unknown, remotePersonId: string) {
+    const profile = await this.options.getProfile()
+    if (remotePersonId !== profile.identity.personId) return
+    const known = new Set(Array.isArray(remoteWorkspaceIds)
+      ? remoteWorkspaceIds.filter((id): id is string => typeof id === "string")
+      : [])
+    for (const workspaceId of await this.ownerWorkspaceIds(profile)) {
+      if (known.has(workspaceId)) continue
+      await publishOwnerWorkspaceOffer(connection, secret, await this.encodeOwnerWorkspaceOffer(workspaceId))
+    }
   }
 
   async createGuestAdvertisements(workspaceIds: string[], endpoint: string, profile: LocalProfile): Promise<WorkspaceMemberBundle[]> {
@@ -1047,7 +1110,7 @@ export class DurableMesh {
         const storedCredentials = await this.store.listWorkspaceCredentials()
         if (signal.aborted || storedCredentials.length === 0) return
         const profile = await this.options.getProfile()
-        const credentials = await this.detachCredentialsFromPreviousIdentity(storedCredentials, profile)
+        let credentials = await this.detachCredentialsFromPreviousIdentity(storedCredentials, profile)
         if (signal.aborted || credentials.length === 0) return
         // Every browser runtime owns one independently leased transport endpoint.
         // Workspace roles and grants remain attached to the approved device/person.
@@ -1061,6 +1124,12 @@ export class DurableMesh {
           source: nodeSource,
           endpoint: node.endpointId.slice(0, 8),
         })
+        const ownedWorkspaceIds = await this.options.getOwnedWorkspaceIds?.() ?? []
+        if (ownedWorkspaceIds.length > 0) {
+          await this.ensureOwnerWorkspaces(ownedWorkspaceIds, node.endpointId, profile)
+          credentials = await this.detachCredentialsFromPreviousIdentity(
+            await this.store.listWorkspaceCredentials(), profile)
+        }
         const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
         for (let credential of credentials) {
           credential = await this.refreshOwnerCertificates(credential, profile, certificates)
@@ -1182,19 +1251,28 @@ export class DurableMesh {
       }
       await this.putVerifiedBundle(credential, request.peer)
       if (signal?.aborted) return void connection.close()
+      const ownerWorkspaceSupported = Array.isArray(request.capabilities) && request.capabilities.includes("owner-workspace-v1")
       const installed = await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
         remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
         remote.advertisement.payload.routeSequence, "incoming", connection,
         Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"),
         Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId,
-        Array.isArray(request.capabilities) && request.capabilities.includes("ownership-receipt-v1"))
+        Array.isArray(request.capabilities) && request.capabilities.includes("ownership-receipt-v1"),
+        remote.advertisement.payload.personId, ownerWorkspaceSupported)
       if (!installed) return
       const own = await this.ownBundle(credential)
+      const profile = await this.options.getProfile()
+      const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId &&
+        remote.advertisement.payload.personId === profile.identity.personId
+        ? await this.ownerWorkspaceIds(profile) : undefined
       await stream.send(encodePairingFrame("mesh-handshake-response", credential.transportSecret,
         new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: own,
           ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
-          successionVotes: successionVotes(credential), successionClaims: successionClaims(credential), capabilities: meshCapabilities }))))
+          successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+          ownerWorkspaceIds, capabilities: meshCapabilities }))))
       await stream.closeSend()
+      if (ownerWorkspaceSupported) await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret,
+        request.ownerWorkspaceIds, remote.advertisement.payload.personId)
     } catch (error) {
       this.trace("handshake.incoming.failed", {
         connectionId,
@@ -1415,9 +1493,15 @@ export class DurableMesh {
         },
       })
       const value = connected.value
-      await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
+      const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
-        value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported)
+        value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported,
+        value.personId, value.ownerWorkspaceSupported)
+      if (installed && value.ownerWorkspaceSupported) {
+        const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
+        if (credential) await this.offerMissingOwnerWorkspaces(value.connection, credential.transportSecret,
+          value.ownerWorkspaceIds, value.personId)
+      }
     } catch (error) {
       if (this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
         this.trace("dial.device.superseded", {
@@ -1462,10 +1546,15 @@ export class DurableMesh {
       this.trace("dial.connected", { connectionId, peerId: peer.deviceId.slice(0, 8), mode })
       const stream = await connection.openStream()
       this.trace("handshake.outgoing.started", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+      const profile = await this.options.getProfile()
+      const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId &&
+        peer.personId === profile.identity.personId
+        ? await this.ownerWorkspaceIds(profile) : undefined
       await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
         new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
           ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
-          successionVotes: successionVotes(credential), successionClaims: successionClaims(credential), capabilities: meshCapabilities }))))
+          successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+          ownerWorkspaceIds, capabilities: meshCapabilities }))))
       await stream.closeSend()
       const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
       if (Array.isArray(response.ownershipTransfers)) {
@@ -1493,6 +1582,9 @@ export class DurableMesh {
         instanceId: verifiedInstanceId,
         issuedAt: verified.advertisement.payload.issuedAt,
         routeSequence: verified.advertisement.payload.routeSequence,
+        personId: verified.advertisement.payload.personId,
+        ownerWorkspaceIds: response.ownerWorkspaceIds,
+        ownerWorkspaceSupported: Array.isArray(response.capabilities) && response.capabilities.includes("owner-workspace-v1"),
         ownershipReceiptSupported: Array.isArray(response.capabilities) && response.capabilities.includes("ownership-receipt-v1"),
         heartbeatSupported: Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"),
         incrementalSupported: Array.isArray(response.capabilities) && response.capabilities.includes("automerge-sync-v1"),
@@ -1530,7 +1622,8 @@ export class DurableMesh {
 
   private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
-    incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false) {
+    incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
+    remotePersonId = "", ownerWorkspaceSupported = false) {
     const key = this.peerKey(workspaceId, deviceId, instanceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
@@ -1559,6 +1652,10 @@ export class DurableMesh {
             this.lastDiagnostic = ""
             this.options.onDiagnostic?.("")
           }
+        }, {
+          onOwnerWorkspaceOffer: ownerWorkspaceSupported && remotePersonId === profile.identity.personId
+            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId)
+            : undefined,
         })
       : liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
     let stopHeartbeat: (() => void) | undefined

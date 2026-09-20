@@ -225,6 +225,51 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondContext.close()
     }
   })
+
+  test("Given an enrolled owner device is offline, when another device creates a workspace, then it receives the workspace after reconnecting without another invite", async ({ browser, page }) => {
+    test.setTimeout(120_000)
+    const secondContext = await browser.newContext()
+    const secondPage = await secondContext.newPage()
+
+    try {
+      await page.goto("/")
+      await page.getByRole("button", { name: "Sync", exact: true }).click()
+      const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
+      await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
+
+      await secondPage.goto(await hostDialog.getByLabel("Pairing link").inputValue())
+      const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
+      await secondDialog.getByRole("button", { name: "Add this device" }).click()
+      await hostDialog.getByRole("button", { name: "Approve device" }).click()
+      await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
+      await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
+      await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await secondDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+
+      await secondContext.setOffline(true)
+      await secondPage.evaluate(() => window.dispatchEvent(new Event("offline")))
+      await expect(secondPage.getByLabel("Mesh offline")).toBeVisible({ timeout: 15_000 })
+
+      await page.getByRole("button", { name: "Open workspaces" }).click()
+      await page.getByRole("button", { name: "New workspace" }).click()
+      const createDialog = page.getByRole("dialog", { name: "Create workspace" })
+      await createDialog.getByLabel("Title").fill("Future plans")
+      await createDialog.getByRole("button", { name: "Create" }).click()
+
+      await secondContext.setOffline(false)
+      await secondPage.evaluate(() => window.dispatchEvent(new Event("online")))
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+      await secondPage.getByRole("button", { name: "Open workspaces" }).click()
+      await expect(secondPage.getByRole("button", { name: "Future plans" })).toBeVisible({ timeout: 30_000 })
+      await secondPage.getByRole("button", { name: "Future plans" }).click()
+      await expect(secondPage.getByRole("heading", { name: "Future plans" })).toBeVisible()
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+    } finally {
+      await secondContext.close()
+    }
+  })
 })
 
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
-import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishOwnerWorkspaceOffer } from "./workspaceSet"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { sha256Base64Url } from "../domain/identity"
 
@@ -139,6 +139,39 @@ describe("incremental workspace control plane", () => {
     await vi.waitFor(() => expect(mergeMesh).toHaveBeenCalledWith("workspace", { epoch: 2 }))
     expect(stream.closeSend).toHaveBeenCalled()
     await session.close()
+  })
+
+  it("Given two owner devices, when a workspace offer arrives, then it is persisted before acknowledgement", async () => {
+    const offer = new TextEncoder().encode('{"version":1,"workspaceId":"future"}')
+    const accepted = vi.fn(async () => {})
+    let delivered = false
+    const inbound = {
+      send: vi.fn(), closeSend: vi.fn(async () => {}),
+      read: vi.fn(async () => encodePairingFrame("mesh-gossip", "mesh-secret", offer)),
+    }
+    const connection: SyncConnection = {
+      openStream: vi.fn(),
+      acceptStream: vi.fn(async () => {
+        if (!delivered) { delivered = true; return inbound }
+        return new Promise<never>(() => {})
+      }),
+      close: vi.fn(async () => {}),
+    }
+    const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
+      read: async () => new Uint8Array(), merge: vi.fn(), activate: vi.fn(),
+    }, "workspace", "local", "remote", undefined, undefined, { onOwnerWorkspaceOffer: accepted })
+
+    await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith(offer))
+    expect(inspectPairingFrame(inbound.send.mock.calls[0]![0]).type).toBe("mesh-durable-ack")
+    await session.close()
+  })
+
+  it("requires a matching receipt when publishing an owner workspace", async () => {
+    const offer = new Uint8Array([1, 2, 3])
+    const connection = { openStream: async () => ({ send: vi.fn(), closeSend: vi.fn(),
+      read: async () => encodePairingFrame("mesh-durable-ack", "secret",
+        new TextEncoder().encode(await sha256Base64Url(offer))) }) } as never
+    await expect(publishOwnerWorkspaceOffer(connection, "secret", offer)).resolves.toBeUndefined()
   })
 })
 

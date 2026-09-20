@@ -169,6 +169,15 @@ export function useDeviceSync({
       meshRetryAt.value = retryAtByWorkspace
     },
     networkOnline: () => networkOnline.value,
+    getOwnedWorkspaceIds: async () => {
+      if (!workspaceOwner) return []
+      const profile = await getProfile()
+      const result: string[] = []
+      for (const workspace of availableWorkspaces.value) {
+        if (await workspaceOwner(workspace.id) === profile.identity.personId) result.push(workspace.id)
+      }
+      return result
+    },
   }) : undefined
   if (durableMesh && meshWorkspaceStore) {
     meshWorkspaceStore.readMesh = id => durableMesh.exportWorkspace(id)
@@ -219,6 +228,10 @@ export function useDeviceSync({
   async function startDurableMesh(adoptedNode?: SyncNode) {
     revokedWorkspaceIds.value = await durableMesh?.revokedWorkspaceIds() ?? []
     await durableMesh?.resumeAll(adoptedNode)
+  }
+
+  async function addOwnerWorkspace(workspaceId: string) {
+    await durableMesh?.addOwnerWorkspace(workspaceId)
   }
 
   async function handoffDirectNode(reason: string) {
@@ -1081,6 +1094,7 @@ export function useDeviceSync({
     prepareJoin,
     joinFromLocation,
     startDurableMesh,
+    addOwnerWorkspace,
     shutdown,
     revokePeer,
     transferOwnership,
