@@ -7,6 +7,7 @@ import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identit
 import { useMatch, hydrate, resetStateForTest } from "./state"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
+import { exportAuthorizations } from "./sync/changeAuthorization"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -90,8 +91,9 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const match = useMatch()
     await match.createLeadAsync({ company: "Local data", role: "Engineer", status: "lead" })
     const id = match.getActiveDoc()!.id
-    const unrelated = Automerge.from(createWorkspaceDoc(id, "Remote board", "remote-owner", "blank"))
-    await match.mergeScopedWorkspaceBytes(id, Automerge.save(unrelated))
+    const unrelated = Automerge.from(createWorkspaceDoc(id, "Remote board", match.getActiveDoc()!.ownerPersonId, "blank"))
+    const bytes = Automerge.save(unrelated)
+    await match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizations(bytes))
 
     expect(match.activeWorkspace.id).not.toBe(id)
     expect(match.activeWorkspace.title).toBe("Job search (local)")
@@ -105,7 +107,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const match = useMatch()
     const before = match.getAutomergeBytes()
     const remote = Automerge.from(createWorkspaceDoc("other", "Remote board", "owner", "blank"))
-    await expect(match.mergeScopedWorkspaceBytes("selected", Automerge.save(remote))).rejects.toThrow(/Invalid workspace/)
+    await expect(match.mergeAuthorizedWorkspace("selected", Automerge.save(remote), [])).rejects.toThrow(/Invalid workspace/)
     expect(match.getAutomergeBytes()).toEqual(before)
   })
 
@@ -114,8 +116,17 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const before = match.getActiveDoc()!
     const owner = before.ownerPersonId
     const forged = Automerge.change(Automerge.clone(before), draft => { draft.ownerPersonId = "attacker" })
-    await expect(match.mergeScopedWorkspaceBytes(before.id, Automerge.save(forged))).rejects.toThrow(/ownership/)
+    await expect(match.mergeAuthorizedWorkspace(before.id, Automerge.save(forged), [])).rejects.toThrow(/owner/i)
     expect(match.getActiveDoc()!.ownerPersonId).toBe(owner)
+  })
+
+  it("keeps unsigned merge helpers private and rejects importing another owner's workspace", async () => {
+    const match = useMatch()
+    expect(match).not.toHaveProperty("mergeRemoteBytes")
+    expect(match).not.toHaveProperty("mergeScopedWorkspaceBytes")
+    const foreign = Automerge.from(createWorkspaceDoc("foreign", "Foreign", "another-person", "blank"))
+    await expect(match.importWorkspaceDocument(foreign)).rejects.toThrow(/owner/i)
+    expect(match.availableWorkspaces.value.some(workspace => workspace.id === "foreign")).toBe(false)
   })
 
   it("deletes the active workspace and opens a remaining workspace", async () => {

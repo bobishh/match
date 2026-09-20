@@ -7,8 +7,6 @@ import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@me
 import type { DuplexStream, SyncConnection } from "./transport"
 
 export type WorkspaceReplica = {
-  getBytes: () => Uint8Array
-  mergeBytes: (bytes: Uint8Array) => Promise<void>
   subscribe?: (listener: () => void) => () => void
 }
 

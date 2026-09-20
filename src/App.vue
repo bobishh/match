@@ -1,13 +1,13 @@
 <!-- Workspace role gates are enforced again at command and sync boundaries. -->
 <script setup lang="ts">
-import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations, pendingHistoryRepair, repairPendingHistory } from "./sync/changeAuthorization"
-import type { WorkspaceRole } from "./domain/permissions"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations, pendingHistoryRepair, repairPendingHistory, workspaceWritesBlocked } from "./sync/changeAuthorization"
+import { canWorkspace, type WorkspaceRole } from "./domain/permissions"
 import { bootstrapIdentity } from "./domain/identity"
 import ModalLayer from "./components/ModalLayer.vue"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import Sortable from "sortablejs"
 import * as Automerge from "@automerge/automerge/slim"
-import { downloadWorkspaceBundle, readWorkspaceBundle, defaultStorage } from "./storage"
+import { downloadWorkspaceBundle, readWorkspaceBundle } from "./storage"
 import { exportWorkspaceBundleV2, readWorkspaceBundleV2 } from "./domain/workspaceBundle"
 import { defaultProofStore } from "./domain/proofs"
 import { hydrate, useMatch } from "./state"
@@ -76,8 +76,9 @@ const {
   getAutomergeBytes,
   readWorkspaceBytes,
   mergeAuthorizedWorkspace,
+  importWorkspaceDocument,
+  getWorkspaceRole,
   refreshIdentity,
-  mergeRemoteBytes,
   mergeWorkspaceRecord,
   subscribeLocalChanges
 } = useMatch()
@@ -177,10 +178,11 @@ const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId)
 const currentRole = ref<WorkspaceRole>("visitor")
 const roleWorkspaceId = ref("")
 const currentWorkspaceOwnerId = ref("")
+const workspaceAccess = ref<Record<string, { role: WorkspaceRole; blocked: boolean }>>({})
 const sync = useDeviceSync({
   displayName: () => chat.displayName.value,
   identityChanged: refreshIdentity,
-  workspace: { getBytes: getAutomergeBytes, mergeBytes: mergeRemoteBytes, subscribe: listener => {
+  workspace: { subscribe: listener => {
     const stopWorkspace = subscribeLocalChanges(listener)
     const stopChat = subscribeChat(() => listener())
     return () => { stopWorkspace(); stopChat() }
@@ -194,22 +196,55 @@ const sync = useDeviceSync({
     return effectiveWorkspaceOwner(id, doc.ownerPersonId)
   },
 })
-watch([() => activeWorkspace.id, docVersion, ready, sync.ownershipRevision], async (_, __, onCleanup) => {
+watch([() => activeWorkspace.id, () => availableWorkspaces.value.map(item => item.id).join("|"), docVersion, ready, sync.ownershipRevision], async (_, __, onCleanup) => {
   let cancelled = false
   onCleanup(() => { cancelled = true })
   const doc = getActiveDoc()
   if (!doc) return
   const id = doc.id
   const profile = await bootstrapIdentity("My Device")
-  const [role, ownerId] = await Promise.all([workspaceRole(doc, profile), effectiveWorkspaceOwner(id, doc.ownerPersonId)])
+  const [role, ownerId, entries] = await Promise.all([
+    workspaceRole(doc, profile),
+    effectiveWorkspaceOwner(id, doc.ownerPersonId),
+    Promise.all(availableWorkspaces.value.map(async item => [item.id, {
+      role: await getWorkspaceRole(item.id),
+      blocked: await workspaceWritesBlocked(item.id),
+    }] as const)),
+  ])
   if (!cancelled && activeWorkspace.id === id) {
     currentRole.value = role
     currentWorkspaceOwnerId.value = ownerId
     roleWorkspaceId.value = id
+    workspaceAccess.value = Object.fromEntries(entries)
   }
 }, { immediate: true })
-const canEditItems = computed(() => roleWorkspaceId.value === activeWorkspace.id && currentRole.value !== "visitor" &&
-  !sync.isWorkspaceAccessRevoked(activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id)?.conflicted)
+const activePolicyAvailable = computed(() => roleWorkspaceId.value === activeWorkspace.id &&
+  workspaceAccess.value[activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(activeWorkspace.id) &&
+  !sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id)?.conflicted)
+const canEditItems = computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, "content.write"))
+const canEditBoard = computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, "board.configure"))
+const canManageAccess = computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, "access.manage"))
+const canImportWorkspace = computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, "workspace.import"))
+const canRepairHistory = computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, "history.repair"))
+const canRenameWorkspace = (id: string) => {
+  const access = workspaceAccess.value[id]
+  return Boolean(access && !access.blocked && canWorkspace(access.role, "workspace.rename"))
+}
+watch(canEditBoard, allowed => {
+  if (allowed) return
+  isEditingBoard.value = false
+  editingColumn.value = null
+  showEntitySettings.value = false
+})
+watch(canEditItems, allowed => {
+  if (allowed) return
+  showItemForm.value = false
+  editingItemId.value = null
+  showDocumentForm.value = false
+  showArtifactForm.value = false
+  showMoveDialog.value = false
+  itemToMove.value = null
+})
 const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
   peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
 ))
@@ -231,12 +266,11 @@ const onlineWorkspaceDevices = computed(() => {
 })
 const revokingPeer = ref("")
 const peerAccessError = ref("")
-const isWorkspaceOwner = computed(() => currentRole.value === "owner")
 const historyRepairVersion = ref(0)
 const repairableHistory = computed(() => {
   void historyRepairVersion.value
   void sync.meshDiagnostic.value
-  return isWorkspaceOwner.value ? pendingHistoryRepair(activeWorkspace.id) : 0
+  return canRepairHistory.value ? pendingHistoryRepair(activeWorkspace.id) : 0
 })
 async function repairHistory() {
   peerAccessError.value = ""
@@ -496,6 +530,7 @@ async function setupBoardSortables() {
   if (!board || !activeBoard.value || !canEditItems.value) return
 
   if (isEditingBoard.value) {
+    if (!canEditBoard.value) return
     columnSortable = Sortable.create(board, {
       animation: reducedMotion() ? 0 : 180,
       direction: "horizontal",
@@ -860,19 +895,17 @@ async function importWorkspace(event: Event) {
   const file = input.files?.[0]
   input.value = ""
   if (!file) return
-  if (!isWorkspaceOwner.value) { notice.value = "Only the owner can import into this workspace"; return }
+  if (!canImportWorkspace.value) { notice.value = "Only the owner can import into this workspace"; return }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const v2Result = await readWorkspaceBundleV2(bytes)
     if (v2Result.ok) {
+      await importWorkspaceDocument(v2Result.value.doc as any)
       for (const proof of v2Result.value.proofs) {
         if (proof?.payload?.changeHash) {
           await defaultProofStore.putChangeProof(proof.payload.changeHash, proof)
         }
       }
-      await defaultStorage.saveSnapshot(v2Result.value.doc.id, v2Result.value.doc as any, Automerge.save(v2Result.value.doc as any))
-      await defaultStorage.registerWorkspace(v2Result.value.doc.id, v2Result.value.doc.title)
-      await switchWorkspace(v2Result.value.doc.id)
       notice.value = "Match bundle imported"
     } else {
       await mergeWorkspaceRecord(await readWorkspaceBundle(file))
@@ -1213,7 +1246,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Settings</button>
-        <button v-if="isWorkspaceOwner" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
+        <button v-if="canEditBoard" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
         <button v-if="isEditingBoard" class="button button-primary" type="button" @click="showEntitySettings = true">Edit {{ entityName }}</button>
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
         <input ref="importInput" class="sr-only" type="file" accept=".match,application/vnd.match+zip" @change="importWorkspace" />
@@ -1245,7 +1278,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :is-open="showMobileMenu"
       :active-workspace-title="workspaceLabel"
       :is-editing-board="isEditingBoard"
-      :can-edit-board="isWorkspaceOwner"
+      :can-edit-board="canEditBoard"
       :entity-name="entityName"
       @close="closeMobileMenu"
       @open-workspaces="showWorkspaces = true"
@@ -1338,6 +1371,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :workspaces="availableWorkspaces"
       :active-workspace-id="activeWorkspace.id"
       :rename-workspace="handleRenameWorkspace"
+      :can-rename-workspace="canRenameWorkspace"
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
       @create="handleCreateWorkspace"
@@ -1356,7 +1390,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     <SchemaEditorDialog
       v-if="showBoardSettings && activeBoard && getActiveDoc()"
       :doc="getActiveDoc()!"
-      :read-only="!isWorkspaceOwner"
+      :read-only="!canEditBoard"
       :board="activeBoard"
       :columns="genericColumns"
       :fields="boardFields"
@@ -1372,9 +1406,9 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
           @save="chat.rename" @randomize="chat.randomize" />
         <section class="chat-members" aria-label="Known workspace participants">
           <h3>Participants</h3>
-          <p>{{ isWorkspaceOwner ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
+          <p>{{ canManageAccess ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
           <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.personId === currentWorkspaceOwnerId ? "Owner" : member.personId === chat.personId.value ? currentRole : meshParticipantDevices.find(peer => peer.personId === member.personId)?.role ?? "Member" }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
-          <template v-if="isWorkspaceOwner && meshParticipantDevices.length">
+          <template v-if="canManageAccess && meshParticipantDevices.length">
             <h4>Trusted peer devices</h4>
             <ul>
               <li v-for="peer in meshParticipantDevices" :key="peer.deviceId" class="peer-device-row">
@@ -1404,7 +1438,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
     <SchemaEditorDialog
       v-if="showEntitySettings && activeBoard && getActiveDoc()"
       :doc="getActiveDoc()!"
-      :read-only="!isWorkspaceOwner"
+      :read-only="!canEditBoard"
       :board="activeBoard"
       :columns="genericColumns"
       :fields="boardFields"
@@ -1480,7 +1514,8 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :current-role="currentRole"
       :succession="activeSuccession"
       :can-claim-succession="canClaimSuccession"
-      :can-manage-mesh="isWorkspaceOwner"
+      :can-manage-mesh="canManageAccess"
+      :can-import="canImportWorkspace"
       :transferring-ownership="transferringOwnership"
       :mesh-action-error="peerAccessError"
       :workspace-connected="meshPresence === 'connected'"

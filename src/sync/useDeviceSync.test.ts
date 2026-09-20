@@ -27,7 +27,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
       { id: "ws_2", title: "Reading list" },
     ]
     const sync = useDeviceSync({
-      workspace: { getBytes: () => new Uint8Array(), mergeBytes: async () => {} },
+      workspace: {},
       origin: () => "http://localhost:3000",
       transport: mockTransport as any,
       availableWorkspaces: { value: availableWorkspaces } as any,
@@ -43,7 +43,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
 
   it("handles empty workspace selection disabling generation", async () => {
     const sync = useDeviceSync({
-      workspace: { getBytes: () => new Uint8Array(), mergeBytes: async () => {} },
+      workspace: {},
       origin: () => "http://localhost:3000",
       availableWorkspaces: { value: [{ id: "ws_1", title: "Job search" }] } as any,
       activeWorkspaceId: () => "ws_1",
@@ -61,7 +61,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
   it("Given an editor, when they generate an invite, rejects before starting a network node", async () => {
     let transportStarted = false
     const sync = useDeviceSync({
-      workspace: { getBytes: () => new Uint8Array(), mergeBytes: async () => {} },
+      workspace: {},
       origin: () => "http://localhost:3000",
       transport: { start: async () => { transportStarted = true; throw new Error("must not start") } } as any,
       availableWorkspaces: { value: [{ id: "ws_1", title: "Shared" }] } as any,
@@ -79,7 +79,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
 
   it("handles expired invitation by setting error state and preventing connection", async () => {
     const sync = useDeviceSync({
-      workspace: { getBytes: () => new Uint8Array(), mergeBytes: async () => {} },
+      workspace: {},
       origin: () => "http://localhost:3000",
     })
 

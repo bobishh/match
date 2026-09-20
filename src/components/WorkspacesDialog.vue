@@ -6,6 +6,7 @@ const props = defineProps<{
   workspaces: { id: string; title: string; updatedAt: string }[]
   activeWorkspaceId: string
   renameWorkspace: (payload: { id: string; title: string }) => Promise<void>
+  canRenameWorkspace: (id: string) => boolean
 }>()
 
 const emit = defineEmits<{
@@ -103,7 +104,7 @@ function displayTitle(title: string) {
             <span v-if="ws.id === activeWorkspaceId" class="workspace-active-badge">Active</span>
           </button>
           <div class="workspace-item-actions">
-            <button type="button" aria-label="Rename" @click="startRename(ws)">Rename</button>
+            <button v-if="canRenameWorkspace(ws.id)" type="button" aria-label="Rename" @click="startRename(ws)">Rename</button>
             <button type="button" aria-label="Delete" @click="startDelete(ws.id)">Delete</button>
           </div>
           <form v-if="editingId === ws.id" class="workspace-rename-form" :aria-busy="renaming" @submit.prevent="handleRename">

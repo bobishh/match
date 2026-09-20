@@ -7,7 +7,7 @@ import { peerStore } from "./peerStore"
 import { hasConflictingOwnershipTransfers, verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim } from "./meshRecords"
 
-import { assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
+import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
   constructor(message: string) { super(message); this.name = "WorkspaceChangeRejected" }
 }
@@ -46,7 +46,7 @@ export async function repairPendingHistory(workspaceId: string, profile: LocalPr
   if (!pending) throw new Error("No repairable history is pending")
   const doc = Automerge.load<WorkspaceDocumentV2>(pending.bytes)
   try {
-    if (await workspaceRole(doc, profile) !== "owner") throw new Error("Only the owner can repair history signatures")
+    assertWorkspaceCapability(await workspaceRole(doc, profile), "history.repair")
     if (await workspaceWritesBlocked(workspaceId)) throw new Error("Workspace ownership is conflicted")
     for (let offset = 0; offset < pending.hashes.length; offset += 256) {
       await authorizeLocalChanges(doc, profile, pending.hashes.slice(offset, offset + 256))
@@ -192,7 +192,12 @@ export async function exportAuthorizations(bytes: Uint8Array) {
   return records(doc.id)
 }
 export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown) {
-  const credential = await peerStore.getWorkspaceCredential(remote.id)
+  let credential: Awaited<ReturnType<typeof peerStore.getWorkspaceCredential>> | null = null
+  try {
+    credential = await peerStore.getWorkspaceCredential(remote.id)
+  } catch (error) {
+    if (typeof indexedDB !== "undefined" || !/IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) throw error
+  }
   if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
   if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
@@ -222,7 +227,13 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
       const grantRole = await verifiedGrantRole(record.grant, remote.id, p.personId, grantOwners)
       const historical = historicalHashes.get(p.personId)
       if (grantRole !== "editor" && !historical) throw new Error("Visitors cannot write workspace changes")
-      if ((await peerStore.listPeers(remote.id)).some(peer => peer.personId === p.personId && peer.revokedAt)) throw new Error("Workspace access revoked")
+      let revoked = false
+      try {
+        revoked = (await peerStore.listPeers(remote.id)).some(peer => peer.personId === p.personId && peer.revokedAt)
+      } catch (error) {
+        if (typeof indexedDB !== "undefined" || !/IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) throw error
+      }
+      if (revoked) throw new Error("Workspace access revoked")
       role = grantRole === "editor" ? "editor" : "owner"
     }
     for (const hash of p.hashes) {

@@ -3,6 +3,7 @@ import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { validateDisplayName, normalizeDisplayName } from "./names"
 import { peerStore } from "../sync/peerStore"
 import { keyId, verifyDeviceChain, type WorkspaceAuthority } from "../sync/meshRecords"
+import { canWorkspace } from "../domain/permissions"
 
 export type ChatPayload = {
   kind: "chat-message" | "chat-profile" | "chat-typing"
@@ -81,7 +82,7 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
     if (!grant && owners.slice(1).some(owner => owner.personId === p.personId)) return record
     if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1 ||
         grant.payload.personId !== p.personId || grant.payload.workspaceId !== grantWorkspaceId ||
-        !(p.kind === "chat-profile" ? ["owner", "editor", "visitor"] : ["owner", "editor"]).includes(grant.payload.role)) throw new Error("No permission to write to this chat")
+        !canWorkspace(grant.payload.role, p.kind === "chat-profile" ? "chat.profile" : "chat.write")) throw new Error("No permission to write to this chat")
     let validGrant = false
     for (const owner of owners) {
       const certificates = owner.publicKey === authority.publicKey

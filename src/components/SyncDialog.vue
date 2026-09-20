@@ -48,6 +48,7 @@ const props = defineProps<{
   }
   canClaimSuccession?: boolean
   canManageMesh?: boolean
+  canImport?: boolean
   transferringOwnership?: string
   meshActionError?: string
   workspaceConnected?: boolean
@@ -154,7 +155,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           · {{ workspaceConnected ? "Live channel active." : "No live channel. Reconnecting automatically." }}
         </p>
         <p v-if="meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
-        <section v-if="currentRole === 'owner' && repairableHistory" class="dialog-copy">
+        <section v-if="repairableHistory" class="dialog-copy">
           <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
           <button class="button" type="button" @click="emit('repairHistory')">Sign verified cleanup</button>
         </section>
@@ -297,7 +298,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <p class="sync-section-copy">Move or back up this workspace:</p>
           <div class="dialog-actions sync-data-actions">
             <button class="button button-quiet" type="button" @click="emit('export')">Export .match</button>
-            <button class="button button-quiet" type="button" @click="emit('import')">Import .match</button>
+            <button v-if="canImport" class="button button-quiet" type="button" @click="emit('import')">Import .match</button>
           </div>
         </section>
       </template>

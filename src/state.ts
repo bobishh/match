@@ -1,5 +1,5 @@
 import { workspaceRole, workspaceWritesBlocked, authorizeLocalChanges, validateIncomingChanges } from "./sync/changeAuthorization"
-import { assertWorkspaceTransition } from "./domain/permissions"
+import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "./domain/permissions"
 import { computed, reactive, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
@@ -368,13 +368,31 @@ async function persistCommand(command: Command, storage: WorkspaceStorage): Prom
     throw new Error("Workspace not hydrated")
   }
 
-  if (await workspaceWritesBlocked(activeDoc.id)) {
+  const next = await persistAuthorizedCommand(activeDoc, command, currentProfile, storage)
+
+  // ONLY after durable commit: publish document & notify
+  updateReactiveState(next)
+  await saveWorkspace(workspace).catch(() => {})
+  storageChannel?.postMessage({ type: "workspace-persisted" })
+
+  for (const listener of localChangeListeners) {
+    listener()
+  }
+}
+
+async function persistAuthorizedCommand(
+  doc: Automerge.Doc<WorkspaceDocumentV2>,
+  command: Command,
+  profile: LocalProfile,
+  storage: WorkspaceStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  if (await workspaceWritesBlocked(doc.id)) {
     throw new Error("Workspace writes paused: conflicting ownership records")
   }
 
-  const role = await workspaceRole(activeDoc, currentProfile)
-  if (role === "visitor") throw new Error("Visitors can only view this workspace")
-  const result = await executeCommand(activeDoc, command, currentProfile)
+  const role = await workspaceRole(doc, profile)
+  if (role === "visitor") assertWorkspaceCapability(role, "content.write")
+  const result = await executeCommand(doc, command, profile)
   if (!result.ok) {
     throw new Error(`Command failed: [${result.error.code}] ${result.error.message}`)
   }
@@ -384,28 +402,17 @@ async function persistCommand(command: Command, storage: WorkspaceStorage): Prom
     throw new Error("No change produced")
   }
 
-  assertWorkspaceTransition(role, activeDoc, result.value.newDoc)
-  await authorizeLocalChanges(result.value.newDoc, currentProfile, [result.value.receipt.changeHash])
+  assertWorkspaceTransition(role, doc, result.value.newDoc)
+  await authorizeLocalChanges(result.value.newDoc, profile, [result.value.receipt.changeHash])
 
-  // Atomic durable persistence
   await storage.commitTransaction(
-    activeDoc.id,
+    doc.id,
     result.value.receipt,
     changeBytes,
     result.value.proof
   )
-
-  // Also update snapshot in storage so browser reload gets latest state
-  await storage.saveSnapshot(activeDoc.id, result.value.newDoc, Automerge.save(result.value.newDoc))
-
-  // ONLY after durable commit: publish document & notify
-  updateReactiveState(result.value.newDoc)
-  await saveWorkspace(workspace).catch(() => {})
-  storageChannel?.postMessage({ type: "workspace-persisted" })
-
-  for (const listener of localChangeListeners) {
-    listener()
-  }
+  await storage.saveSnapshot(doc.id, result.value.newDoc, Automerge.save(result.value.newDoc))
+  return result.value.newDoc
 }
 
 async function reconcile(storage = defaultStorage): Promise<void> {
@@ -537,6 +544,13 @@ export function useMatch() {
     }
   }
 
+  async function getWorkspaceRole(workspaceId: string, storage = defaultStorage): Promise<WorkspaceRole> {
+    if (!currentProfile) currentProfile = await bootstrapIdentity("Match User")
+    const doc = activeDoc?.id === workspaceId ? activeDoc : (await storage.loadWorkspaceDoc(workspaceId))?.doc
+    if (!doc) throw new Error("Workspace not found")
+    return workspaceRole(doc, currentProfile)
+  }
+
   async function renameWorkspaceAsync(workspaceId: string, title: string, storage = defaultStorage) {
     const cleanTitle = title.trim()
     if (!cleanTitle) throw new Error("Workspace name is required")
@@ -546,16 +560,7 @@ export function useMatch() {
     } else {
       const loaded = await storage.loadWorkspaceDoc(workspaceId)
       if (!loaded) throw new Error("Workspace not found")
-      const role = await workspaceRole(loaded.doc, currentProfile)
-      if (role === "visitor") throw new Error("Visitors can only view this workspace")
-      const result = await executeCommand(loaded.doc, { kind: "renameWorkspace", title: cleanTitle }, currentProfile)
-      if (!result.ok) throw new Error(result.error.message)
-      assertWorkspaceTransition(role, loaded.doc, result.value.newDoc)
-      const change = Automerge.getLastLocalChange(result.value.newDoc)
-      if (!change) throw new Error("Workspace rename produced no change")
-      await authorizeLocalChanges(result.value.newDoc, currentProfile, [result.value.receipt.changeHash])
-      await storage.commitTransaction(workspaceId, result.value.receipt, change, result.value.proof)
-      await storage.saveSnapshot(workspaceId, result.value.newDoc, Automerge.save(result.value.newDoc))
+      await persistAuthorizedCommand(loaded.doc, { kind: "renameWorkspace", title: cleanTitle }, currentProfile, storage)
     }
     availableWorkspaces.value = await storage.listWorkspaces()
   }
@@ -872,6 +877,71 @@ export function useMatch() {
     return workspace.artifacts.filter((a) => a.leadId === leadId)
   }
 
+  async function mergeValidatedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
+    const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
+    if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
+    let local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
+    let merged = remote
+    if (local) {
+      const sharedBoard = Object.values(local.entities).some(e => e.kind === "board" && remote.entities[e.id]?.kind === "board")
+      if (!sharedBoard) {
+        const titles = new Set((await storage.listWorkspaces()).map(workspace => workspace.title))
+        const baseTitle = `${local.title} (local)`
+        let localTitle = baseTitle
+        for (let suffix = 2; titles.has(localTitle); suffix += 1) localTitle = `${baseTitle} ${suffix}`
+        const localId = crypto.randomUUID()
+        const moved = await storage.rekeyWorkspace(id, localId, localTitle)
+        if (activeDoc?.id === id) {
+          if (typeof localStorage !== "undefined") localStorage.setItem("match.active_workspace_id", localId)
+          updateReactiveState(moved)
+        }
+        const root = await storage.loadPersonalRoot()
+        if (root) {
+          const previous = root.workspaces[id]
+          delete root.workspaces[id]
+          root.workspaces[localId] = previous
+            ? { ...previous, workspaceId: localId, documentId: localId }
+            : { workspaceId: localId, documentId: localId, grantHash: "genesis", forgotten: false }
+          registerWorkspaceInRoot(root, id, id, "shared")
+          await storage.savePersonalRoot(root)
+        }
+        local = undefined
+      } else {
+        if (remote.ownerPersonId !== local.ownerPersonId) throw new Error("Workspace ownership cannot change through sync.")
+        merged = Automerge.merge(Automerge.clone(local), remote)
+        if (Automerge.getHeads(merged).sort().join() === Automerge.getHeads(local).sort().join()) return
+      }
+    }
+    await storage.saveSnapshot(id, merged, Automerge.save(merged))
+    if (activeDoc?.id === id) updateReactiveState(merged)
+    availableWorkspaces.value = await storage.listWorkspaces()
+    storageChannel?.postMessage({ type: "workspace-persisted" })
+    for (const listener of localChangeListeners) listener()
+  }
+
+  async function importWorkspaceDocument(doc: Automerge.Doc<WorkspaceDocumentV2>, storage = defaultStorage) {
+    if (!validateWorkspaceDoc(doc).ok) throw new Error("Invalid workspace received.")
+    if (!currentProfile) currentProfile = await bootstrapIdentity("Match User")
+    const existing = (await storage.loadWorkspaceDoc(doc.id))?.doc
+    if (existing) {
+      const role = await workspaceRole(existing, currentProfile)
+      assertWorkspaceCapability(role, "workspace.import")
+      if (existing.ownerPersonId !== doc.ownerPersonId) throw new Error("Workspace ownership cannot change through import.")
+    } else if (doc.ownerPersonId !== currentProfile.identity.personId) {
+      throw new Error("Only the workspace owner can import a new workspace")
+    }
+    await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
+    await storage.registerWorkspace(doc.id, doc.title)
+    const root = await storage.loadPersonalRoot()
+    if (root) {
+      registerWorkspaceInRoot(root, doc.id, doc.id, "import")
+      await storage.savePersonalRoot(root)
+    }
+    await switchWorkspace(doc.id, storage)
+    availableWorkspaces.value = await storage.listWorkspaces()
+    storageChannel?.postMessage({ type: "workspace-persisted" })
+  }
+
   return {
     workspace,
     ready,
@@ -888,6 +958,7 @@ export function useMatch() {
     placementIssues,
     createWorkspaceAsync,
     switchWorkspace,
+    getWorkspaceRole,
     renameWorkspaceAsync,
     deleteWorkspaceAsync,
     executeCommandAsync: commitAndPersist,
@@ -921,91 +992,16 @@ export function useMatch() {
     },
     async mergeAuthorizedWorkspace(id: string, bytes: Uint8Array, authorization: unknown) {
       const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
+      if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
       let local = (await defaultStorage.loadWorkspaceDoc(id))?.doc
       if (local && !Object.values(local.entities).some(e => e.kind === "board" && remote.entities[e.id]?.kind === "board")) local = undefined
       await validateIncomingChanges(local, remote, authorization)
-      await useMatch().mergeScopedWorkspaceBytes(id, bytes)
+      await mergeValidatedWorkspaceBytes(id, bytes)
     },
-    async mergeScopedWorkspaceBytes(id: string, bytes: Uint8Array, storage = defaultStorage): Promise<void> {
-      const remote = Automerge.load<WorkspaceDocumentV2>(bytes)
-      if (remote.id !== id || !validateWorkspaceDoc(remote).ok) throw new Error("Invalid workspace received.")
-      let local = activeDoc?.id === id ? activeDoc : (await storage.loadWorkspaceDoc(id))?.doc
-      let merged = remote
-      if (local) {
-        const sharedBoard = Object.values(local.entities).some(e => e.kind === "board" && remote.entities[e.id]?.kind === "board")
-        if (!sharedBoard) {
-          const titles = new Set((await storage.listWorkspaces()).map(workspace => workspace.title))
-          const baseTitle = `${local.title} (local)`
-          let localTitle = baseTitle
-          for (let suffix = 2; titles.has(localTitle); suffix += 1) localTitle = `${baseTitle} ${suffix}`
-          const localId = crypto.randomUUID()
-          const moved = await storage.rekeyWorkspace(id, localId, localTitle)
-          if (activeDoc?.id === id) {
-            if (typeof localStorage !== "undefined") localStorage.setItem("match.active_workspace_id", localId)
-            updateReactiveState(moved)
-          }
-          const root = await storage.loadPersonalRoot()
-          if (root) {
-            const previous = root.workspaces[id]
-            delete root.workspaces[id]
-            root.workspaces[localId] = previous
-              ? { ...previous, workspaceId: localId, documentId: localId }
-              : { workspaceId: localId, documentId: localId, grantHash: "genesis", forgotten: false }
-            registerWorkspaceInRoot(root, id, id, "shared")
-            await storage.savePersonalRoot(root)
-          }
-          local = undefined
-        } else {
-          if (remote.ownerPersonId !== local.ownerPersonId) throw new Error("Workspace ownership cannot change through sync.")
-          merged = Automerge.merge(Automerge.clone(local), remote)
-          if (Automerge.getHeads(merged).sort().join() === Automerge.getHeads(local).sort().join()) return
-        }
-      }
-      await storage.saveSnapshot(id, merged, Automerge.save(merged))
-      if (activeDoc?.id === id) updateReactiveState(merged)
-      availableWorkspaces.value = await storage.listWorkspaces()
-      storageChannel?.postMessage({ type: "workspace-persisted" })
-      for (const listener of localChangeListeners) listener()
-    },
-    async mergeRemoteBytes(bytes: Uint8Array, storage = defaultStorage): Promise<void> {
-      if (!activeDoc) return
-      const remoteDoc = Automerge.load<WorkspaceDocumentV2>(bytes)
-      let merged: WorkspaceDocumentV2
-
-      const localHasItems = Object.values(activeDoc.entities ?? {}).some((e) => isItem(e) && !e.deleted)
-      const remoteHasItems = Object.values(remoteDoc.entities ?? {}).some((e) => isItem(e) && !e.deleted)
-
-      if (localHasItems && !remoteHasItems) {
-        merged = activeDoc
-      } else if (!localHasItems && remoteHasItems) {
-        merged = remoteDoc
-      } else {
-        try {
-          merged = Automerge.merge(Automerge.clone(activeDoc), Automerge.clone(remoteDoc))
-        } catch {
-          merged = Automerge.clone(activeDoc)
-        }
-        merged = Automerge.clone(merged)
-        merged = Automerge.change(merged, (draft) => {
-          for (const [id, entity] of Object.entries(activeDoc!.entities ?? {})) {
-            if (!draft.entities[id]) draft.entities[id] = entity
-          }
-          for (const [id, entity] of Object.entries(remoteDoc.entities ?? {})) {
-            if (!draft.entities[id]) draft.entities[id] = entity
-          }
-        })
-      }
-
-      activeDoc = merged
-      updateReactiveState(merged)
-      await storage.saveSnapshot(activeDoc.id, merged, Automerge.save(merged))
-      await saveWorkspace(workspace).catch(() => {})
-      storageChannel?.postMessage({ type: "workspace-persisted" })
-      for (const listener of localChangeListeners) {
-        listener()
-      }
-    },
+    importWorkspaceDocument,
     async mergeWorkspaceRecord(record: WorkspaceRecord, storage = defaultStorage): Promise<void> {
+      if (!activeDoc || !currentProfile) throw new Error("Workspace not hydrated")
+      assertWorkspaceCapability(await workspaceRole(activeDoc, currentProfile), "workspace.import")
       await saveWorkspaceRecord(record)
       await reconcile(storage)
     },
