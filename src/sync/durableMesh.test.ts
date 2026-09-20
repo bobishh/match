@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { MeshNetworkError } from "@meta-uber/mesh-transport"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
@@ -63,6 +64,30 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(internal.hasDeviceSession("workspace", "remote-device")).toBe(true)
     expect(onDiagnostic).not.toHaveBeenCalled()
     internal.sessions.clear()
+    internal.node = undefined
+    await mesh.dispose()
+  })
+
+  it("Given every route reaches an offline device, when dialing exhausts network routes, then UI stays in reconnecting state", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+    const internal = mesh as any
+    const peer = {
+      workspaceId: "workspace", personId: "remote-person", deviceId: "remote-device", instanceId: "legacy:remote",
+      endpoint: "remote-endpoint", transportSecret: "secret", role: "editor", lastSeen: new Date().toISOString(),
+      advertisement: { advertisement: { signerKeyId: "remote-device", signature: "signature", payload: {
+        kind: "peer-advertisement", version: 1, workspaceId: "workspace", personId: "remote-person",
+        deviceId: "remote-device", endpoint: "remote-endpoint", issuedAt: new Date().toISOString(),
+      } } },
+    }
+    internal.node = {}
+    internal.connectPeer = vi.fn(async () => { throw new MeshNetworkError("remote device offline") })
+
+    await internal.dialDevice([peer], new AbortController().signal)
+
+    expect(onDiagnostic).not.toHaveBeenCalled()
     internal.node = undefined
     await mesh.dispose()
   })

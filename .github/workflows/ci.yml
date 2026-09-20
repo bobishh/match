@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: bobishh/meta-mesh
-          ref: ef5e5da5033da92e5a39169b3ee353828fa9ac5d
+          ref: 898593cab9a55f660e2304f5fef997e70b394a23
           path: vendor/meta-mesh
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
       - uses: actions/setup-node@v7
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: bobishh/meta-mesh
-          ref: ef5e5da5033da92e5a39169b3ee353828fa9ac5d
+          ref: 898593cab9a55f660e2304f5fef997e70b394a23
           path: vendor/meta-mesh
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
       - uses: actions/setup-node@v7
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: bobishh/meta-mesh
-          ref: ef5e5da5033da92e5a39169b3ee353828fa9ac5d
+          ref: 898593cab9a55f660e2304f5fef997e70b394a23
           path: vendor/meta-mesh
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
       - uses: actions/setup-node@v7
