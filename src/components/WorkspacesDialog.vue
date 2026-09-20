@@ -5,13 +5,13 @@ import { ref } from "vue"
 const props = defineProps<{
   workspaces: { id: string; title: string; updatedAt: string }[]
   activeWorkspaceId: string
+  renameWorkspace: (payload: { id: string; title: string }) => Promise<void>
 }>()
 
 const emit = defineEmits<{
   (e: "close"): void
   (e: "switch", id: string): void
   (e: "create", payload: { title: string; preset: "blank" | "job-search" }): void
-  (e: "rename", payload: { id: string; title: string }): void
   (e: "delete", id: string): void
 }>()
 
@@ -22,6 +22,7 @@ const error = ref("")
 const editingId = ref("")
 const editingTitle = ref("")
 const renameError = ref("")
+const renaming = ref(false)
 const deletingId = ref("")
 
 function handleCreate() {
@@ -46,14 +47,21 @@ function startRename(workspace: { id: string; title: string }) {
   renameError.value = ""
 }
 
-function handleRename() {
+async function handleRename() {
   if (!editingTitle.value.trim()) {
     renameError.value = "Workspace name is required"
     return
   }
-  emit("rename", { id: editingId.value, title: editingTitle.value.trim() })
-  editingId.value = ""
   renameError.value = ""
+  renaming.value = true
+  try {
+    await props.renameWorkspace({ id: editingId.value, title: editingTitle.value.trim() })
+    editingId.value = ""
+  } catch (error) {
+    renameError.value = error instanceof Error ? error.message : "Could not rename workspace"
+  } finally {
+    renaming.value = false
+  }
 }
 
 function startDelete(id: string) {
@@ -98,13 +106,13 @@ function displayTitle(title: string) {
             <button type="button" aria-label="Rename" @click="startRename(ws)">Rename</button>
             <button type="button" aria-label="Delete" @click="startDelete(ws.id)">Delete</button>
           </div>
-          <form v-if="editingId === ws.id" class="workspace-rename-form" @submit.prevent="handleRename">
+          <form v-if="editingId === ws.id" class="workspace-rename-form" :aria-busy="renaming" @submit.prevent="handleRename">
             <label>
               <span class="sr-only">Workspace name</span>
-              <input v-model="editingTitle" aria-label="Workspace name" autofocus />
+              <input v-model="editingTitle" aria-label="Workspace name" :disabled="renaming" autofocus />
             </label>
-            <button class="button button-primary" type="submit">Save name</button>
-            <button class="button button-quiet" type="button" @click="editingId = ''; renameError = ''">Cancel</button>
+            <button class="button button-primary" type="submit" :disabled="renaming">{{ renaming ? 'Saving…' : 'Save name' }}</button>
+            <button class="button button-quiet" type="button" :disabled="renaming" @click="editingId = ''; renameError = ''">Cancel</button>
             <p v-if="renameError" class="form-error" role="alert">{{ renameError }}</p>
           </form>
           <div v-if="deletingId === ws.id" class="workspace-delete-confirm" role="group" :aria-label="`Delete ${ws.title}`">

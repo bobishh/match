@@ -21,6 +21,7 @@ async function fixture() {
   const result = await service.approveEnrollment(invite.invitationId, guest.device, owner)
   if (!result.ok) throw new Error(result.error)
   const root = createPersonalRoot(owner, await certHashDefault(owner.certificate))
+  root.displayNamePreset = "Owner preset"
   const bytes = await enrollmentPayload(invite, owner, result.certificate, root, [{ id: "ws", title: "Board" }],
     "ws", [{ workspaceId: "ws", ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey, optionalMeshField: undefined }], new TextEncoder().encode("[]"))
   return { owner, guest, service, invite, bytes, certificate: result.certificate }
@@ -54,6 +55,13 @@ describe("device enrollment boundary", () => {
   it("carries the sender's active workspace for the enrolled device", async () => {
     const { guest, invite, bytes } = await fixture()
     expect((await installEnrollment(bytes, invite, guest)).activeWorkspaceId).toBe("ws")
+  })
+
+  it("carries the personal display-name preset to the enrolled device", async () => {
+    const { guest, invite, bytes } = await fixture()
+    const enrolled = await installEnrollment(bytes, invite, guest)
+    expect(enrolled.personalRoot.displayNamePreset).toBe("Owner preset")
+    expect(defaultStorage.savePersonalRoot).toHaveBeenCalledWith(expect.objectContaining({ displayNamePreset: "Owner preset" }))
   })
 
   it("rejects forged or replayed approvals before changing local identity", async () => {

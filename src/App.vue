@@ -1336,10 +1336,10 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       v-if="showWorkspaces"
       :workspaces="availableWorkspaces"
       :active-workspace-id="activeWorkspace.id"
+      :rename-workspace="handleRenameWorkspace"
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
       @create="handleCreateWorkspace"
-      @rename="handleRenameWorkspace"
       @delete="handleDeleteWorkspace"
     />
 

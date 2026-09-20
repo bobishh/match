@@ -15,6 +15,7 @@ const certificateSchema = z.object({
 const identitySchema = z.object({ personId: text, publicKey: text, displayName: text })
 const rootSchema = z.object({ kind: z.literal("personal-root"), formatVersion: z.literal(1), rootId: text,
   identity: identitySchema,
+  displayNamePreset: z.string().min(1).max(256).optional(),
   devices: z.record(z.string(), z.object({ deviceId: text, publicKey: text, displayName: text, certificateHash: text, addedAt: text })),
   workspaces: z.record(z.string(), z.object({ workspaceId: text, documentId: text, grantHash: text, forgotten: z.boolean() })),
 })

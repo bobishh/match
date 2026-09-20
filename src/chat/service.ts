@@ -4,6 +4,7 @@ import { chatStore, type StoredChatMessage, type StoredChatProfile } from "./sto
 import { createChatRecord, verifyChatRecord, type ChatRecord, type ChatAuthority } from "./records"
 import { normalizeDisplayName, randomDisplayName, validateDisplayName } from "./names"
 import { peerStore } from "../sync/peerStore"
+import { defaultStorage } from "../storage"
 
 export type ChatChange = { workspaceId: string; added: StoredChatMessage[]; remote: boolean; history: boolean; typing?: ChatRecord[] }
 export type ChatTyping = { personId: string; deviceId: string }
@@ -67,6 +68,29 @@ function member(record: ChatRecord): StoredChatProfile {
   return { workspaceId: p.workspaceId, personId: p.personId, name: p.text, revision: p.revision, record }
 }
 
+async function loadOrCreateDisplayNamePreset(): Promise<string> {
+  return navigator.locks.request("match-chat-name-preset", async () => {
+    const root = await defaultStorage.loadPersonalRoot()
+    const existing = normalizeDisplayName(root?.displayNamePreset ?? "")
+    if (root && !validateDisplayName(existing)) return existing
+    const generated = randomDisplayName()
+    if (root) {
+      root.displayNamePreset = generated
+      await defaultStorage.savePersonalRoot(root)
+    }
+    return generated
+  })
+}
+
+async function saveDisplayNamePreset(name: string): Promise<void> {
+  await navigator.locks.request("match-chat-name-preset", async () => {
+    const root = await defaultStorage.loadPersonalRoot()
+    if (!root || root.displayNamePreset === name) return
+    root.displayNamePreset = name
+    await defaultStorage.savePersonalRoot(root)
+  })
+}
+
 async function credentials(workspaceId: string, profile: LocalProfile): Promise<ChatAuthority> {
   const credential = typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceCredential(workspaceId)
   const owner = credential?.ownerPersonId ?? await readOwner(workspaceId)
@@ -104,7 +128,7 @@ export async function ensureChatProfile(workspaceId: string) {
     const profile = await bootstrapIdentity()
     const own = (await loadChat(workspaceId)).profiles.find(p => p.personId === profile.identity.personId)
     if (own) return own
-    const name = randomDisplayName()
+    const name = await loadOrCreateDisplayNamePreset()
     const value = member(await signed(workspaceId, "chat-profile", name, 1))
     await chatStore.putProfile(value)
     publish({ workspaceId, added: [], remote: false, history: true })
@@ -121,6 +145,7 @@ export async function renameChatProfile(workspaceId: string, name: string) {
     const own = (await loadChat(workspaceId)).profiles.find(p => p.personId === profile.identity.personId)
     const value = member(await signed(workspaceId, "chat-profile", name, (own?.revision ?? 0) + 1))
     await chatStore.putProfile(value)
+    await saveDisplayNamePreset(name)
     publish({ workspaceId, added: [], remote: false, history: false })
   })
 }

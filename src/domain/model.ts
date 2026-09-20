@@ -40,6 +40,7 @@ export type PersonalRootDocumentV1 = {
   formatVersion: 1
   rootId: string
   identity: PublicIdentity
+  displayNamePreset?: string
   devices: Record<DeviceId, RegisteredDevice>
   workspaces: Record<WorkspaceId, WorkspaceReference>
 }

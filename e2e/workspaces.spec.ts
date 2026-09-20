@@ -62,6 +62,20 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(page.getByRole("button", { name: "Open Kept card" })).toBeVisible()
   })
 
+  test("Given workspace rename persistence fails, when save is attempted, then the form keeps the draft and shows the error", async ({ page }) => {
+    await page.goto("/")
+    await page.getByRole("button", { name: "Open workspaces" }).click()
+    const workspaces = page.getByRole("dialog", { name: "Workspaces" })
+    await workspaces.locator(".workspace-item", { hasText: "Untitled" }).getByRole("button", { name: "Rename", exact: true }).click()
+    await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("Still editable")
+    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await workspaces.getByRole("button", { name: "Save name" }).click()
+    await expect(workspaces.getByRole("alert")).toContainText("Storage failure injected")
+    await expect(workspaces.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Still editable")
+    await expect(workspaces.getByRole("button", { name: "Save name" })).toBeEnabled()
+    await page.evaluate(() => { delete (window as any).__MATCH_INJECT_STORAGE_FAILURE__ })
+  })
+
   test("Given local workspaces, when delete is cancelled or confirmed, then confirmation protects data and active deletion selects a safe replacement", async ({ page }) => {
     await page.goto("/")
     await page.getByRole("button", { name: "Open workspaces" }).click()

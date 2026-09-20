@@ -43,6 +43,28 @@ for (const width of [1280, 375]) {
   })
 }
 
+test("Given a chosen profile name, when a new workspace is created, then it reuses the personal name preset", async ({ page }) => {
+  await page.goto("/")
+  let settings = await profileSettings(page)
+  await settings.getByRole("textbox", { name: "Your name", exact: true }).fill("Тревожная мимоза")
+  await settings.getByRole("button", { name: "Save name", exact: true }).click()
+  await expect(settings.locator(".effective-value")).toHaveText("Тревожная мимоза")
+  await settings.getByRole("button", { name: "Dismiss", exact: true }).click()
+
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  await page.getByRole("button", { name: "New workspace" }).click()
+  const create = page.getByRole("dialog", { name: "Create workspace" })
+  await create.getByLabel("Title").fill("Second board")
+  await create.getByRole("radio", { name: "Blank board" }).check()
+  await create.getByRole("button", { name: "Create" }).click()
+
+  settings = await profileSettings(page)
+  await expect(settings.getByRole("textbox", { name: "Your name", exact: true })).toHaveValue("Тревожная мимоза")
+  await page.reload()
+  settings = await profileSettings(page)
+  await expect(settings.getByRole("textbox", { name: "Your name", exact: true })).toHaveValue("Тревожная мимоза")
+})
+
 test("Given desktop chat, when its corner is dragged, then the window resizes within the viewport", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto("/")
