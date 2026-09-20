@@ -1,8 +1,18 @@
 import { installPairingCodec } from "@meta-uber/mesh-pairing"
-import irohInit, { BrowserNode, WasmBlobEngine, WasmGossipEngine, WasmPairingCodec } from "@meta-uber/mesh-transport/wasm"
+import { installMeshRustRuntime } from "@meta-uber/mesh-replication/runtime"
+import irohInit, {
+  BrowserNode,
+  WasmAutomergeSyncEngine,
+  WasmBlobEngine,
+  WasmDeviceRouteCatalog,
+  WasmGossipEngine,
+  WasmPairingCodec,
+  WasmStateCore,
+} from "@meta-uber/mesh-transport/wasm"
 export { BrowserNode, WasmBlobEngine, WasmGossipEngine, WasmPairingCodec }
 
 let pairingCodecInstalled = false
+let rustRuntimeInstalled = false
 
 export type IrohStatus = "unavailable" | "starting" | "ready" | "error"
 
@@ -47,6 +57,15 @@ export async function startIrohBrowserNode(secret?: Uint8Array): Promise<IrohNod
     throw new Error("Iroh node secret must be exactly 32 bytes")
   }
   await irohInit()
+  if (!rustRuntimeInstalled) {
+    installMeshRustRuntime({
+      state: WasmStateCore,
+      createDeviceRouteCatalog: () => new WasmDeviceRouteCatalog(),
+      createAutomergeSyncEngine: (localDeviceId, maximumFrameBytes) =>
+        new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
+    })
+    rustRuntimeInstalled = true
+  }
   if (!pairingCodecInstalled) {
     installPairingCodec(new WasmPairingCodec())
     pairingCodecInstalled = true
