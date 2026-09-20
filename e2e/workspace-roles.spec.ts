@@ -36,10 +36,11 @@ for (const role of ["visitor", "editor"] as const) {
       const rejection = await guest.evaluate(async () => {
         const { useMatch } = await import('/src/state.ts')
         const state = useMatch()
-        try { await state.executeCommandAsync({ kind: 'renameWorkspace', title: 'Not allowed' }); return 'allowed' }
+        try { await state.executeCommandAsync({ kind: 'renameWorkspace', title: 'editor renamed' }); return 'allowed' }
         catch (error) { return String(error) }
       })
-      expect(rejection).toContain(role === 'visitor' ? 'Visitors can only view' : 'Only the owner')
+      if (role === 'visitor') expect(rejection).toContain('Visitors can only view')
+      else expect(rejection).toBe('allowed')
       if (role === "visitor") {
         await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
         await guest.getByRole("button", { name: "Open Role test — Engineer" }).click()

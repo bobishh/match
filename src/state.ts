@@ -546,11 +546,14 @@ export function useMatch() {
     } else {
       const loaded = await storage.loadWorkspaceDoc(workspaceId)
       if (!loaded) throw new Error("Workspace not found")
-      if (await workspaceRole(loaded.doc, currentProfile) !== "owner") throw new Error("Only the owner can rename this workspace")
+      const role = await workspaceRole(loaded.doc, currentProfile)
+      if (role === "visitor") throw new Error("Visitors can only view this workspace")
       const result = await executeCommand(loaded.doc, { kind: "renameWorkspace", title: cleanTitle }, currentProfile)
       if (!result.ok) throw new Error(result.error.message)
+      assertWorkspaceTransition(role, loaded.doc, result.value.newDoc)
       const change = Automerge.getLastLocalChange(result.value.newDoc)
       if (!change) throw new Error("Workspace rename produced no change")
+      await authorizeLocalChanges(result.value.newDoc, currentProfile, [result.value.receipt.changeHash])
       await storage.commitTransaction(workspaceId, result.value.receipt, change, result.value.proof)
       await storage.saveSnapshot(workspaceId, result.value.newDoc, Automerge.save(result.value.newDoc))
     }

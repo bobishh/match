@@ -63,14 +63,18 @@ it("accepts a historical editor grant when its signed authorization carries a mi
 
   await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
 })
-for (const action of ["renameWorkspace", "createColumn"] as const) {
-  it(`rejects editor ${action} through the same policy used for local commands`, async () => {
-    const { local, remote, record } = await fixture(boardId => action === "renameWorkspace"
-      ? { kind: action, title: "Forbidden" } : { kind: action, boardId, title: "Forbidden" }, "editor")
-    await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/Only the owner/)
-    expect(() => assertWorkspaceTransition("editor", local, remote)).toThrow(/Only the owner/)
-  })
-}
+it("accepts an editor changing only workspace title casing", async () => {
+  const { local, remote, record } = await fixture(() => ({ kind: "renameWorkspace", title: "twang" }), "editor")
+  await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
+  expect(() => assertWorkspaceTransition("editor", local, remote)).not.toThrow()
+  expect(remote.title).toBe("twang")
+})
+
+it("rejects editor board-structure changes through the same policy used for local commands", async () => {
+  const { local, remote, record } = await fixture(boardId => ({ kind: "createColumn", boardId, title: "Forbidden" }), "editor")
+  await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/Only the owner/)
+  expect(() => assertWorkspaceTransition("editor", local, remote)).toThrow(/Only the owner/)
+})
 it("rejects a valid signature over a different change hash", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Original" }), "editor")
   const forged = Automerge.change(Automerge.clone(remote), draft => { draft.title = "Forged" })
