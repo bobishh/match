@@ -69,7 +69,7 @@ Device sync has a transport boundary:
 - After the authenticated snapshot handshake, the connection remains open. Each local Automerge commit sends an authenticated update frame to the paired peer; remote merges do not echo back. Live sync lasts only while both tabs keep the peer connection open, not across reloads.
 - Same-profile browser tabs announce completed IndexedDB writes through `BroadcastChannel`; receiving tabs re-read and merge the persisted Automerge document. Returning focus also reconciles IndexedDB, covering background tabs that missed an announcement.
 
-The browser adapter is compiled separately under `iroh-wasm/` because the upstream browser crate is alpha and main-thread-only. UI must show failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist; implementation names stay out of the product flow.
+The browser adapter comes from canonical `@meta-uber/mesh-transport/wasm`. Its browser-only dependency remains isolated in meta-mesh because the upstream crate is alpha and main-thread-only. UI must show failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist; implementation names stay out of the product flow.
 
 Long documents and file payloads remain separate addressable objects. A future `.match` export may package manifest, cards, documents, and blobs without making one monolithic sync payload.
 

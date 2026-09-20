@@ -63,9 +63,9 @@ Complete settings writes should preserve returned entity IDs and pass returned h
    ```bash
    npm install
    ```
-2. Build the browser Iroh/WASM transport adapter:
+2. Build the canonical browser Iroh/WASM runtime in the checked-out meta-mesh dependency after Rust changes:
    ```bash
-   npm run build:iroh
+   (cd vendor/meta-mesh && sh scripts/build-wasm.sh)
    ```
 3. Start the Vite development server:
    ```bash

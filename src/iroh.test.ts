@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { BrowserNode, initSync } from "./iroh-runtime/match_iroh.js"
-import { startIrohBrowserNode, WasmBlobEngine, WasmGossipEngine } from "./iroh"
+import { BrowserNode, initSync } from "@meta-uber/mesh-transport/wasm"
+import { startIrohBrowserNode, WasmBlobEngine, WasmGossipEngine, WasmPairingCodec } from "./iroh"
 import { fileReferenceSchema } from "./domain/entitySchemas"
 
 // Ensure WASM is initialized for Node environment
-const wasmPath = resolve(__dirname, "./iroh-runtime/match_iroh_bg.wasm")
+const wasmPath = resolve(__dirname, "../vendor/meta-mesh/packages/mesh-transport/wasm/meta_mesh_bg.wasm")
 const wasmBytes = readFileSync(wasmPath)
 initSync({ module: wasmBytes })
 
@@ -88,6 +88,22 @@ describe("Iroh persistent node secret support", () => {
 })
 
 describe("Iroh gossip and blobs support in match", () => {
+  it("Given the shared Rust core, when a pairing frame is decoded, then binary payload survives", () => {
+    const codec = new WasmPairingCodec()
+    const payload = new Uint8Array([0, 1, 255])
+    const frame = codec.encode("mesh-control-sync", "workspace-secret", payload)
+
+    expect(codec.inspect(frame)).toEqual({ type: "mesh-control-sync", secret: "workspace-secret" })
+    expect(codec.decode(frame, "mesh-control-sync", "workspace-secret")).toEqual(payload)
+  })
+
+  it("Given the shared Rust core, when pairing secret is wrong, then decoding fails closed", () => {
+    const codec = new WasmPairingCodec()
+    const frame = codec.encode("sync-request", "secret-a", new Uint8Array([1]))
+
+    expect(() => codec.decode(frame, "sync-request", "secret-b")).toThrow("Pairing authorization failed")
+  })
+
   it("WasmBlobEngine creates content-addressed blob with ticket and verifies payload", () => {
     const engine = new WasmBlobEngine()
     const data = new TextEncoder().encode("resume attachment markdown")
