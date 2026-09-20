@@ -3,6 +3,7 @@ import { assertWorkspaceTransition } from "./domain/permissions"
 import { computed, reactive, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
+import { initializeIrohBrowserRuntime } from "./iroh"
 import { defaultStorage, WorkspaceStorage, saveWorkspace, saveWorkspaceRecord, type WorkspaceRecord } from "./storage"
 import { bootstrapIdentity, sha256Base64Url, type LocalProfile } from "./domain/identity"
 import { createPersonalRoot, registerWorkspaceInRoot, reconcilePersonalRootWorkspaces } from "./domain/personalRoot"
@@ -252,7 +253,7 @@ function updateReactiveState(doc: Automerge.Doc<WorkspaceDocumentV2>) {
 }
 
 export async function hydrate(storage = defaultStorage) {
-  await initializeAutomerge()
+  await Promise.all([initializeAutomerge(), initializeIrohBrowserRuntime()])
   currentProfile = await bootstrapIdentity("Match User")
 
   // Check last active workspace from localStorage if in browser
