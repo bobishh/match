@@ -59,14 +59,14 @@ The system SHALL store company and role directly on a lead card. It SHALL NOT re
 
 #### Scenario: Agent creates a lead
 
-- **WHEN** a valid `create_lead` command supplies company, role, and status
+- **WHEN** a valid generic item command supplies the seeded company and role fields under a Job search column
 - **THEN** the app creates one visible card
 - **AND** the card appears in the requested status column
 - **AND** no organization or application setup is requested.
 
 #### Scenario: Invalid lead is rejected
 
-- **WHEN** `create_lead` omits company, role, or uses an unsupported status
+- **WHEN** a Job search item omits required seeded fields or supplies an invalid field value
 - **THEN** the command fails with field-level validation
 - **AND** no partial card is persisted.
 
@@ -82,7 +82,7 @@ The system SHALL let each lead show and manage attached notes and file reference
 
 #### Scenario: Agent attaches a document
 
-- **WHEN** a valid `add_document` command supplies `leadId`, kind `note` or `attachment`, title, and format
+- **WHEN** the user attaches a valid note or file reference to an item
 - **THEN** the document is attached to that lead
 - **AND** the detail panel shows it without changing lead status.
 
@@ -119,22 +119,6 @@ The system SHALL represent generated CVs and cover letters as dedicated PDF arti
 - **THEN** the app shows a validation error
 - **AND** no artifact is persisted.
 
-### Requirement: Agent-local PDF generation boundary
-
-The system SHALL expose the Markdown template and lead context for a local agent, and SHALL let it record only a completed PDF artifact.
-
-#### Scenario: Agent requests generation context
-
-- **WHEN** an agent calls `get_generation_context` with an existing lead id and template id
-- **THEN** it receives that lead and template Markdown
-- **AND** no output artifact is created.
-
-#### Scenario: Agent records generated PDF
-
-- **WHEN** an agent calls `record_pdf_artifact` with an existing lead, matching template kind, title, and local PDF path
-- **THEN** the app attaches the PDF artifact to that lead
-- **AND** no styling or renderer settings are stored in the workspace.
-
 ### Requirement: Local workspace persistence
 
 The system SHALL persist leads and documents on the current device without a backend.
@@ -146,7 +130,7 @@ The system SHALL persist leads and documents on the current device without a bac
 
 #### Scenario: User exports workspace
 
-- **WHEN** the user invokes `export_workspace`
+- **WHEN** the user invokes the visible workspace export action
 - **THEN** the app downloads a `.match` bundle containing a manifest, readable leads/documents JSON, and Automerge state.
 
 ### Requirement: Local merge transport
@@ -206,8 +190,8 @@ The system SHALL expose imperative WebMCP tools that call the same domain comman
 
 #### Scenario: Valid tool mutation updates visible state
 
-- **WHEN** a supported browser calls `create_lead` with a valid flat payload
-- **THEN** the tool returns the created card id and status
+- **WHEN** a supported browser calls `create_item` with a valid flat payload
+- **THEN** the tool returns the created item id and parent id
 - **AND** the card is visible in the board.
 
 #### Scenario: Tool rejects nested or unknown input

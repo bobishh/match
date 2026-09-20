@@ -30,7 +30,7 @@ export type Board = EntityBase & {
   preset: null | {
     key: "job-search" | "blank"
     version: 1
-    /** Stable compatibility keys -> seeded IDs; rename never changes IDs. */
+    /** Stable preset keys -> seeded IDs; rename never changes IDs. */
     bindings: Record<string, EntityId>
   }
 }

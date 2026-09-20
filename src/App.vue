@@ -675,14 +675,6 @@ onMounted(async () => {
   }
   if (!sync.joinFromLocation(window.location.href)) await sync.startDurableMesh()
   const unregisterWebMcp = await registerWebMcp({
-    workspace,
-    createLead,
-    createLeadAsync,
-    updateLead,
-    moveLead,
-    createDocument,
-    createArtifact,
-    persist,
     getActiveDoc,
     executeCommandAsync,
     createWorkspaceAsync,

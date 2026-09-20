@@ -5,7 +5,7 @@ Match is a local-first, peer-to-peer workspace board and item kernel with increm
 ## Features
 
 - **Generic Workspace Kernel**: Create independent workspaces (such as the default *Job search* pipeline or *Blank* boards) with custom columns, rational rank positioning, nested item hierarchies, workspace document templates, and typed fields (text, number, boolean, select, URL, date, datetime).
-- **Preset Adapters & Legacy Aliases**: The *Job search* preset maps generic items to lead properties, document templates, and generated PDF artifacts while preserving its older lead-oriented tools.
+- **Preset Seeds**: The *Job search* preset creates an ordinary board, fields, and document templates. After creation it uses the same generic workspace model and commands as every other board.
 - **Trash & Needs Placement Recovery**: Soft-deleted columns and cards can be restored safely. Items with missing parents or cyclic references are deterministically surfaced under *Needs placement* for recovery without destructive repair writes.
 - **Local Automerge Durability & Restore**: All mutations are recorded as signed Automerge changes persisted atomically with change hashes, receipts, and public proofs in IndexedDB. Item history can restore any recorded version through a new compensating change; original evidence remains immutable. Focus changes and `BroadcastChannel` synchronize same-device tabs instantly without network pairing.
 - **Two Scoped Connection Flows**:
@@ -33,7 +33,7 @@ Match is a local-first, peer-to-peer workspace board and item kernel with increm
 
 ## WebMCP Tools
 
-When opened in an environment exposing WebMCP (`document.modelContext` or `navigator.modelContext`), Match registers generic workspace commands alongside job-search compatibility aliases. Commands target the workspace currently open in Match.
+When opened in an environment exposing WebMCP (`document.modelContext` or `navigator.modelContext`), Match registers generic workspace commands. Commands target the workspace currently open in Match.
 
 ### Generic Commands
 - `list_workspaces` — list available workspaces.
@@ -55,16 +55,6 @@ When opened in an environment exposing WebMCP (`document.modelContext` or `navig
 - `create_column` — create a column under a board.
 
 Complete settings writes should preserve returned entity IDs and pass returned heads as `expectedHeads`. Omitted columns, fields, and document templates are soft-deleted while their descendants and stored values remain intact. Unknown fields, stale heads, and field type changes are rejected without partial mutation.
-
-### Job Search Compatibility Aliases
-- `list_leads` — list leads with status and search filtering.
-- `create_lead` — create a lead card with company, role, and status.
-- `move_lead` — move a lead card by ID and status.
-- `list_templates` — read workspace document templates through the legacy shape.
-- `get_generation_context` — retrieve card and template context for artifact generation.
-- `record_pdf_artifact` — attach a generated PDF artifact to a lead.
-- `add_document` — attach a note or file reference to a lead.
-- `export_workspace` — export through the compatibility workspace shape.
 
 ## Development & Verification
 

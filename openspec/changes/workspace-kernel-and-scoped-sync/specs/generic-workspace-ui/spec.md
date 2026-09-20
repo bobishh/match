@@ -73,7 +73,7 @@ The system SHALL expose item history and the scoped Sync modal through ordinary 
 
 ### Requirement: Existing agent and responsive workflows remain usable
 
-The system SHALL retain legacy job-search WebMCP adapters while exposing generic commands through the same domain boundary. It SHALL preserve 390-by-844 portrait behavior and complete 1024px controls, with real-route browser coverage.
+The system SHALL expose one preset-independent WebMCP command surface through the generic domain boundary. Job search is seed data, not a second protocol. It SHALL preserve 390-by-844 portrait behavior and complete 1024px controls, with real-route browser coverage.
 
 #### Scenario: Agent mutation matches visible generic state
 

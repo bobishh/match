@@ -47,18 +47,7 @@ type Document = {
 
 ### 3. One command surface
 
-Visible UI and WebMCP call the same functions:
-
-- `create_lead`
-- `update_lead`
-- `move_lead`
-- `list_leads`
-- `add_document`
-- `update_document`
-- `list_documents`
-- `export_workspace`
-
-Schemas reject unknown fields. `create_lead` accepts company, role, source URL, status, priority, fit score, location, and notes. `add_document` accepts a lead id plus document fields. No nested CRDT payload crosses the boundary.
+Visible UI and WebMCP use the generic workspace command boundary. Job-search cards are ordinary items with seeded typed fields. WebMCP exposes workspace, item, entity, settings, recovery, and chat commands; it does not expose preset-specific aliases. Schemas reject unknown fields, and no nested CRDT payload crosses the boundary.
 
 ### 4. Duplicate handling
 

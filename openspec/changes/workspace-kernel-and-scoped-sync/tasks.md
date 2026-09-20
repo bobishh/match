@@ -17,7 +17,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 
 - [x] 1.1 Translate `contracts/model.ts` into runtime types and strict validators in `src/domain/model.ts` (or a focused equivalent). Add fixtures for all kinds, field types, allowed/invalid parents, legacy IDs, and unsupported versions. Verify unknown-key/type rejection.
 - [x] 1.2 Implement local identity/key bootstrap and initial device/actor signing needed for new writes. Private keys stay out of documents/exports. Use temporary test identities in tests. Verify simultaneous first-open tabs create one profile, fresh initialization, and unsupported-crypto failure; broader enrollment/chain verification follows Gate B.
-- [x] 1.3 Implement workspace creation and Job search/Blank seeds. Allocate IDs once; expose preset compatibility bindings. Verify two workspaces are independent and no Job search fields leak into Blank board.
+- [x] 1.3 Implement workspace creation and Job search/Blank seeds. Allocate IDs once; expose stable preset bindings. Verify two workspaces are independent and no Job search fields leak into Blank board.
 - [x] 1.4 Implement ancestry indexes, rational ranks, complete placement updates, and deterministic Needs placement projection. Verify exact rational ordering, equal-rank insertion, concurrent moves, missing parents, cycles, and bounded traversal without repair writes.
 - [x] 1.5 Implement field validation and field/option lifecycle. Verify select IDs survive renames, delete/restore retains values, deleted required fields stop blocking edits, and type-change rejection is non-destructive.
 - [x] 1.6 Implement the transaction wrapper and per-document publication queue in `src/domain/commands.ts` / `src/crdt.ts`. Patch actual draft properties, attach native metadata, and obtain a signed change proof. Verify overlapping same-tab submissions and independent offline title/value edits both survive; invalid commands create no change.
@@ -26,7 +26,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 - [x] 1.9 Implement migration plan/backup/application and v2 bundle validation from `contracts/commands.md`. Verify exact preservation of IDs/relationships/timestamps, archived versus deleted distinction, interrupted resume, different-workspace import, corrupt bundle rejection, and competing migration conflict.
 - [x] 1.10 Build native workspace/board selection and data-driven columns in Vue. Satisfy 0.2's workspace/rename/reorder happy paths and empty-title failure. Preserve mobile snap behavior and 1024px controls.
 - [x] 1.11 Build generic item/custom-field forms, subitem navigation, Trash, and Needs placement recovery. Satisfy 0.2/0.3, including restore-under-deleted-parent explanation and save failure without partial item publication.
-- [x] 1.12 Port job-search filters and template/artifact flows to preset bindings. Implement generic WebMCP commands and legacy aliases over the same store. Verify both valid visible mutation and invalid-input/no-mutation paths.
+- [x] 1.12 Implement generic WebMCP commands over the workspace store. Verify valid visible mutation, invalid-input/no-mutation paths, and absence of preset-specific aliases.
 - [x] 1.13 Gate A evidence: run focused unit suites, `npm run build`, and new local-workspace Playwright scenarios. Demonstrate a Reading board with Author field and nested item alongside Job search, with reload/export/import. No DSL, extra sync engine, or parallel state authority.
 
 ## 2. Gate B: Private root, authority, and verified history
@@ -58,7 +58,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 
 ## 5. Integration and handoff
 
-- [x] 5.1 Update README and public agent guidance with generic commands, legacy aliases, two connection scopes, export guarantees, browser lifetime, and explicitly unsupported revocation/recovery. Remove contradictory v0 product copy only after replacements pass.
+- [x] 5.1 Update README and public agent guidance with generic commands, two connection scopes, export guarantees, browser lifetime, and explicitly unsupported revocation/recovery. Remove contradictory v0 product copy only after replacements pass.
 - [x] 5.2 Reconcile pending `match-v0-0-1` overlapping requirements using the design precedence table when archiving. Preserve still-applicable mobile/template/artifact behavior.
 - [x] 5.3 Run `openspec validate workspace-kernel-and-scoped-sync --strict --no-interactive`, build, relevant tests, and final real-route happy/failure checks. Report exact evidence and any remaining unchecked items; never mark the whole change complete while a gate remains unverified.
 

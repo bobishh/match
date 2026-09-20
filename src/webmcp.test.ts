@@ -2,7 +2,7 @@ import { defaultStorage } from "./storage"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import { initializeAutomerge } from "./crdt"
-import { registerWebMcp, type ToolStore, type ModelContext } from "./webmcp"
+import { registerWebMcp, type ModelContext } from "./webmcp"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
 import { useMatch, hydrate, resetStateForTest } from "./state"
 import { isItem } from "./domain/model"
@@ -13,7 +13,7 @@ beforeAll(async () => {
   await initializeAutomerge()
 })
 
-describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
+describe("generic WebMCP tools", () => {
   let registeredTools: Map<string, any>
   let mockContext: ModelContext
   let match: ReturnType<typeof useMatch>
@@ -34,17 +34,9 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
     }
   })
 
-  it("registers both generic WebMCP commands and legacy aliases", async () => {
+  it("registers generic workspace commands without job-search aliases", async () => {
     const sendChatMessage = vi.fn().mockResolvedValue(undefined)
     await registerWebMcp({
-      workspace: match.workspace,
-      createLead: match.createLead,
-      createLeadAsync: match.createLeadAsync,
-      updateLead: match.updateLead,
-      moveLead: match.moveLead,
-      createDocument: match.createDocument,
-      createArtifact: match.createArtifact,
-      persist: match.persist,
       getActiveDoc: match.getActiveDoc,
       executeCommandAsync: match.executeCommandAsync,
       createWorkspaceAsync: match.createWorkspaceAsync,
@@ -53,7 +45,6 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
       sendChatMessage,
     }, mockContext)
 
-    // Verify generic commands exist
     expect(registeredTools.has("list_workspaces")).toBe(true)
     expect(registeredTools.has("create_workspace")).toBe(true)
     expect(registeredTools.has("rename_workspace")).toBe(true)
@@ -68,12 +59,10 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
     expect(registeredTools.has("get_workspace_settings")).toBe(true)
     expect(registeredTools.has("apply_workspace_settings")).toBe(true)
 
-    // Verify legacy aliases exist
-    expect(registeredTools.has("list_leads")).toBe(true)
-    expect(registeredTools.has("create_lead")).toBe(true)
-    expect(registeredTools.has("move_lead")).toBe(true)
-    expect(registeredTools.has("list_templates")).toBe(true)
-    expect(registeredTools.has("record_pdf_artifact")).toBe(true)
+    for (const alias of [
+      "list_leads", "create_lead", "move_lead", "list_templates", "get_generation_context",
+      "record_pdf_artifact", "add_document", "export_workspace",
+    ]) expect(registeredTools.has(alias)).toBe(false)
     expect(registeredTools.has("send_chat_message")).toBe(true)
 
     await expect(registeredTools.get("send_chat_message").execute({ body: "Vacancy audit complete" }))
@@ -83,14 +72,6 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
 
   it("reads and atomically applies the complete workspace settings through WebMCP", async () => {
     await registerWebMcp({
-      workspace: match.workspace,
-      createLead: match.createLead,
-      createLeadAsync: match.createLeadAsync,
-      updateLead: match.updateLead,
-      moveLead: match.moveLead,
-      createDocument: match.createDocument,
-      createArtifact: match.createArtifact,
-      persist: match.persist,
       getActiveDoc: match.getActiveDoc,
       executeCommandAsync: match.executeCommandAsync,
       createWorkspaceAsync: match.createWorkspaceAsync,
@@ -117,14 +98,6 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
 
   it("executes valid create_item and rejects invalid create_item without mutating", async () => {
     await registerWebMcp({
-      workspace: match.workspace,
-      createLead: match.createLead,
-      createLeadAsync: match.createLeadAsync,
-      updateLead: match.updateLead,
-      moveLead: match.moveLead,
-      createDocument: match.createDocument,
-      createArtifact: match.createArtifact,
-      persist: match.persist,
       getActiveDoc: match.getActiveDoc,
       executeCommandAsync: match.executeCommandAsync,
       createWorkspaceAsync: match.createWorkspaceAsync,
@@ -157,14 +130,6 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
 
   it("executes move_entity and rename_entity with proper validation", async () => {
     await registerWebMcp({
-      workspace: match.workspace,
-      createLead: match.createLead,
-      createLeadAsync: match.createLeadAsync,
-      updateLead: match.updateLead,
-      moveLead: match.moveLead,
-      createDocument: match.createDocument,
-      createArtifact: match.createArtifact,
-      persist: match.persist,
       getActiveDoc: match.getActiveDoc,
       executeCommandAsync: match.executeCommandAsync,
       createWorkspaceAsync: match.createWorkspaceAsync,
@@ -196,14 +161,6 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
 
   it("executes set_entity_deleted and reflects in list_trash", async () => {
     await registerWebMcp({
-      workspace: match.workspace,
-      createLead: match.createLead,
-      createLeadAsync: match.createLeadAsync,
-      updateLead: match.updateLead,
-      moveLead: match.moveLead,
-      createDocument: match.createDocument,
-      createArtifact: match.createArtifact,
-      persist: match.persist,
       getActiveDoc: match.getActiveDoc,
       executeCommandAsync: match.executeCommandAsync,
       createWorkspaceAsync: match.createWorkspaceAsync,
@@ -227,47 +184,4 @@ describe("WebMCP tools and legacy aliases (Requirement 1.12)", () => {
     expect(trash.some((item: any) => item.id === itemId)).toBe(true)
   })
 
-  it("preserves legacy create_lead duplicate prevention and field mapping", async () => {
-    await match.createWorkspaceAsync("Job search", "job-search")
-    await registerWebMcp({
-      workspace: match.workspace,
-      createLead: match.createLead,
-      createLeadAsync: match.createLeadAsync,
-      updateLead: match.updateLead,
-      moveLead: match.moveLead,
-      createDocument: match.createDocument,
-      createArtifact: match.createArtifact,
-      persist: match.persist,
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
-    }, mockContext)
-
-    const createLead = registeredTools.get("create_lead")
-
-    // Missing company/role -> throws
-    await expect(createLead.execute({ company: "", role: "Engineer", status: "lead" })).rejects.toThrow(/company is required/i)
-
-    // Valid create
-    const created = await createLead.execute({
-      company: "Acme",
-      role: "Lead Architect",
-      status: "lead",
-      priority: "p0",
-      workMode: "remote",
-      fitScore: 9,
-    })
-    expect(created).toHaveProperty("created", true)
-    expect(created.company).toBe("Acme")
-
-    // Duplicate detection: same company and role returns duplicate: true
-    const dup = await createLead.execute({
-      company: "Acme",
-      role: "Lead Architect",
-      status: "applied",
-    })
-    expect(dup).toHaveProperty("duplicate", true)
-  })
 })

@@ -1,7 +1,4 @@
-import { downloadWorkspaceBundle } from "./storage"
 import * as Automerge from "@automerge/automerge/slim"
-import type { Artifact, ArtifactInput, ArtifactKind, Document, DocumentInput, Lead, LeadInput, LeadPriority, LeadStatus, Workspace } from "./types"
-import { artifactKindLabels, statusLabels } from "./types"
 import type { Command } from "./domain/commands"
 import { entityKind, isItem, type WorkspaceDocumentV2, type WorkspaceEntity, type Item, type Column, type Board } from "./domain/model"
 import { isEntityVisible } from "./domain/ancestry"
@@ -25,30 +22,16 @@ type ModelContextHost = {
 }
 
 export type ToolStore = {
-  workspace: Workspace
-  createLead: (input: LeadInput) => Lead | Promise<Lead>
-  createLeadAsync?: (input: LeadInput) => Promise<Lead>
-  updateLead: (leadId: string, patch: Partial<LeadInput>) => void | Promise<void>
-  moveLead: (leadId: string, status: LeadStatus) => void | Promise<void>
-  createDocument: (input: DocumentInput) => Document | Promise<Document>
-  createArtifact: (input: ArtifactInput) => Artifact | Promise<Artifact>
-  persist: () => Promise<void>
   getActiveDoc?: () => WorkspaceDocumentV2 | null
   executeCommandAsync?: (command: Command) => Promise<any>
   createWorkspaceAsync?: (title: string, presetKey: "job-search" | "blank") => Promise<WorkspaceDocumentV2>
   availableWorkspaces?: any
   activeWorkspace?: any
-  switchWorkspace?: (id: string) => Promise<void>
   trashItems?: any
   placementIssues?: any
   sendChatMessage?: (body: string) => Promise<void>
 }
 
-const statuses = Object.keys(statusLabels) as LeadStatus[]
-const manualDocumentKinds = ["note", "attachment"] as const
-const manualFormats = ["markdown", "html", "path"] as const
-const priorities: LeadPriority[] = ["p0", "p1", "p2", "p3"]
-const artifactKinds = Object.keys(artifactKindLabels) as ArtifactKind[]
 const workspaceSettingsSchema = {
   type: "object",
   properties: {
@@ -177,18 +160,6 @@ function optionalString(input: Record<string, unknown>, key: string): string | u
   if (value === undefined || value === null || value === "") return undefined
   if (typeof value !== "string") throw new Error(`${key} must be a string`)
   return value.trim()
-}
-
-function enumValue<T extends string>(input: Record<string, unknown>, key: string, values: T[], fallback?: T): T {
-  const value = input[key] ?? fallback
-  if (!values.includes(value as T)) throw new Error(`${key} must be one of: ${values.join(", ")}`)
-  return value as T
-}
-
-function scoreValue(input: Record<string, unknown>): number | undefined {
-  if (input.fitScore === undefined || input.fitScore === null || input.fitScore === "") return undefined
-  if (typeof input.fitScore !== "number" || input.fitScore < 0 || input.fitScore > 10) throw new Error("fitScore must be a number from 0 to 10")
-  return input.fitScore
 }
 
 function noUnknown(input: Record<string, unknown>, allowed: string[]) {
@@ -704,46 +675,6 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
     },
   })
 
-  // --- LEGACY TOOLS / ALIASES ---
-
-  await register({
-    name: "list_leads",
-    title: "List lead cards",
-    description: "Read flat Match cards. Filter by status or search text.",
-    inputSchema: {
-      type: "object",
-      properties: { status: { type: "string", enum: statuses }, search: { type: "string" } },
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: true, untrustedContentHint: true },
-    execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, ["status", "search"])
-      const status = value.status === undefined ? undefined : enumValue(value, "status", statuses)
-      const search = optionalString(value, "search")?.toLowerCase()
-      return store.workspace.leads
-        .filter((lead) => (!status || lead.status === status) && (!search || `${lead.company} ${lead.role} ${lead.notes ?? ""}`.toLowerCase().includes(search)))
-        .map((lead) => ({
-          ...lead,
-          documentCount: store.workspace.documents.filter((document) => document.leadId === lead.id).length,
-          artifactCount: store.workspace.artifacts.filter((artifact) => artifact.leadId === lead.id).length,
-        }))
-    },
-  })
-
-  await register({
-    name: "list_templates",
-    title: "List writing templates",
-    description: "Read workspace-level Markdown templates.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: true, untrustedContentHint: true },
-    execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, [])
-      return store.workspace.templates
-    },
-  })
-
   await register({
     name: "send_chat_message",
     title: "Send workspace chat message",
@@ -763,131 +694,6 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
       if (!store.sendChatMessage) throw new Error("Workspace chat is not available")
       await store.sendChatMessage(body)
       return { sent: true }
-    },
-  })
-
-  await register({
-    name: "get_generation_context",
-    title: "Get PDF generation context",
-    description: "Read one lead and one matching Markdown template. Use this context to generate a local PDF artifact.",
-    inputSchema: { type: "object", properties: { leadId: { type: "string" }, templateId: { type: "string" } }, required: ["leadId", "templateId"], additionalProperties: false },
-    annotations: { readOnlyHint: true, untrustedContentHint: true },
-    execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, ["leadId", "templateId"])
-      const lead = store.workspace.leads.find((item) => item.id === requiredString(value, "leadId"))
-      const template = store.workspace.templates.find((item) => item.id === requiredString(value, "templateId"))
-      if (!lead) throw new Error("leadId not found")
-      if (!template) throw new Error("templateId not found")
-      return { lead, template }
-    },
-  })
-
-  await register({
-    name: "record_pdf_artifact",
-    title: "Record generated PDF",
-    description: "Attach a locally generated CV or cover-letter PDF to a lead. PDF generation remains local to the agent.",
-    inputSchema: {
-      type: "object",
-      properties: { leadId: { type: "string" }, templateId: { type: "string" }, kind: { type: "string", enum: artifactKinds }, title: { type: "string" }, pdfPath: { type: "string" }, sourceMarkdownPath: { type: "string" } },
-      required: ["leadId", "templateId", "kind", "title", "pdfPath"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: false },
-    async execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, ["leadId", "templateId", "kind", "title", "pdfPath", "sourceMarkdownPath"])
-      const leadId = requiredString(value, "leadId")
-      const templateId = requiredString(value, "templateId")
-      const kind = enumValue(value, "kind", artifactKinds)
-      if (!store.workspace.leads.some((lead) => lead.id === leadId)) throw new Error("leadId not found")
-      const template = store.workspace.templates.find((item) => item.id === templateId)
-      if (!template) throw new Error("templateId not found")
-      const artifact = await store.createArtifact({ leadId, templateId, kind, title: requiredString(value, "title"), pdfPath: requiredString(value, "pdfPath"), sourceMarkdownPath: optionalString(value, "sourceMarkdownPath") })
-      return { recorded: true, id: artifact.id, leadId: artifact.leadId, pdfPath: artifact.pdfPath }
-    },
-  })
-
-  await register({
-    name: "create_lead",
-    title: "Create lead card",
-    description: "Create one flat Match card. Do not send organization records or nested CRDT payloads.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        company: { type: "string" }, role: { type: "string" }, url: { type: "string" }, location: { type: "string" },
-        workMode: { type: "string", enum: ["remote", "hybrid", "onsite", "unknown"] }, status: { type: "string", enum: statuses },
-        priority: { type: "string", enum: priorities }, fitScore: { type: "number", minimum: 0, maximum: 10 }, notes: { type: "string" }, sourceText: { type: "string" }, description: { type: "string" },
-      },
-      required: ["company", "role", "status"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: false, untrustedContentHint: true },
-    async execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, ["company", "role", "url", "location", "workMode", "status", "priority", "fitScore", "notes", "sourceText", "description"])
-      const company = requiredString(value, "company")
-      const role = requiredString(value, "role")
-      const url = optionalString(value, "url")
-      const duplicate = store.workspace.leads.find((lead) => (url && lead.url === url) || (lead.company.toLowerCase() === company.toLowerCase() && lead.role.toLowerCase() === role.toLowerCase()))
-      if (duplicate) return { duplicate: true, id: duplicate.id, company: duplicate.company, role: duplicate.role }
-      const createFn = store.createLeadAsync ?? store.createLead
-      const lead = await createFn({
-        company, role, url, location: optionalString(value, "location"), workMode: value.workMode as LeadInput["workMode"],
-        status: enumValue(value, "status", statuses), priority: value.priority === undefined ? undefined : enumValue(value, "priority", priorities),
-        fitScore: scoreValue(value), notes: optionalString(value, "notes"), sourceText: optionalString(value, "sourceText"), description: optionalString(value, "description"),
-      })
-      return { created: true, id: lead.id, status: lead.status, company: lead.company, role: lead.role }
-    },
-  })
-
-  await register({
-    name: "move_lead",
-    title: "Move lead card",
-    description: "Move one Match card to Lead, Applied, Interview, Offer, or Archive.",
-    inputSchema: { type: "object", properties: { leadId: { type: "string" }, status: { type: "string", enum: statuses } }, required: ["leadId", "status"], additionalProperties: false },
-    annotations: { readOnlyHint: false },
-    async execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, ["leadId", "status"])
-      const leadId = requiredString(value, "leadId")
-      const status = enumValue(value, "status", statuses)
-      if (!store.workspace.leads.some((lead) => lead.id === leadId)) throw new Error("leadId not found")
-      await store.moveLead(leadId, status)
-      return { moved: true, id: leadId, status }
-    },
-  })
-
-  await register({
-    name: "add_document",
-    title: "Attach document",
-    description: "Attach one note or file reference to an existing lead card. CVs and cover letters are recorded as PDF artifacts.",
-    inputSchema: {
-      type: "object",
-      properties: { leadId: { type: "string" }, kind: { type: "string", enum: manualDocumentKinds }, title: { type: "string" }, format: { type: "string", enum: manualFormats }, content: { type: "string" }, localPath: { type: "string" } },
-      required: ["leadId", "kind", "title", "format"],
-      additionalProperties: false,
-    },
-    annotations: { readOnlyHint: false, untrustedContentHint: true },
-    async execute(input) {
-      const value = objectInput(input)
-      noUnknown(value, ["leadId", "kind", "title", "format", "content", "localPath"])
-      const leadId = requiredString(value, "leadId")
-      if (!store.workspace.leads.some((lead) => lead.id === leadId)) throw new Error("leadId not found")
-      const document = await store.createDocument({ leadId, kind: enumValue(value, "kind", [...manualDocumentKinds]), title: requiredString(value, "title"), format: enumValue(value, "format", [...manualFormats]), content: optionalString(value, "content"), localPath: optionalString(value, "localPath") })
-      return { attached: true, id: document.id, leadId: document.leadId, title: document.title }
-    },
-  })
-
-  await register({
-    name: "export_workspace",
-    title: "Export Match workspace",
-    description: "Download flat lead cards, Markdown templates, and local PDF artifact references as JSON.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: false },
-    execute() {
-      downloadWorkspaceBundle(store.workspace)
-      return { exported: true, leads: store.workspace.leads.length, documents: store.workspace.documents.length, templates: store.workspace.templates.length, artifacts: store.workspace.artifacts.length }
     },
   })
 

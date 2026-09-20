@@ -57,10 +57,6 @@ Structural or field-definition edits by editors are allowed. Identity, grants, s
 - `getGenerationContext(itemId, templateId)`: current item context + Markdown template; no artifact created.
 - `getWorkspaceSettings`: full editable configuration projection plus current heads; no items, identity, trust, sync state, or history payloads.
 
-## Legacy tool adapter
-
-Existing lead commands keep working only against a selected job-search board with valid preset bindings. They translate old `status` names to bound column IDs and old lead fields to bound field IDs. Preserve old create validation for company/role and exact duplicate URL/company+role behavior. Generic commands impose no job-search requirement. A missing/deleted binding yields an actionable error, never silently creates another column. Legacy list operations report only items on that board; a nested item's legacy status is its ancestor column. Keep existing template/artifact tool names as aliases where payloads still map losslessly.
-
 ## Legacy migration table
 
 | Legacy source | v2 target |

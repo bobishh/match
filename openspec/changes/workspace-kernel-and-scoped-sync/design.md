@@ -157,7 +157,7 @@ Control frames carry `protocolVersion`, `kind`, `sessionId`, `documentId` where 
 
 Document readiness and file readiness are separate: "Workspace ready; 3 files pending" is valid. "Everything synced" requires all selected document frontiers acknowledged and all locally available referenced blobs transferred; unavailable source-local paths are reported separately, never counted as transferred bytes. A moving frontier updates progress rather than producing a false permanent completion.
 
-## 9. Native UI and compatibility
+## 9. Native UI and responsive behavior
 
 Use the existing Vue stack and real application routes. Route contract: `/` selects/restores the last workspace; `/w/:workspaceId/b/:boardId` opens a board; `/pair#...` opens the typed invitation flow. Static hosting must serve the app for deep links. Keep existing mobile snap columns, 1024px controls, template/artifact workflows, and keyboard-accessible item movement.
 
@@ -168,7 +168,7 @@ Sync modal opens directly with workspace selection checkboxes, with the active w
 | Old pending `match` requirement | New source of truth |
 | --- | --- |
 | Fixed lead pipeline / status enum | `workspace-model`, job-search preset only |
-| Flat lead cards / mandatory company and role | Generic item + preset adapter; legacy tools retain their validation |
+| Flat lead cards / mandatory company and role | Generic items and typed fields seeded by the Job search preset; no preset-specific MCP surface |
 | Physical deletion / delete cascade | `workspace-model` soft deletion |
 | One default workspace / import merge into it | `workspace-portability` and private catalog |
 | Automatic QR on opening Sync / Connect to mesh | `scoped-sync` typed chooser and explicit acceptance |

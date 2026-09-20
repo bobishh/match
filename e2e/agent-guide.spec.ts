@@ -29,6 +29,11 @@ test.describe("Agent guide", () => {
     await expect(guide).toContainText("Add my device")
     await expect(guide.getByText("move_item", { exact: true })).toHaveCount(0)
     await expect(guide).not.toContainText("global CV and cover-letter")
+    await expect(guide.getByRole("heading", { name: "Job-search compatibility tools" })).toHaveCount(0)
+    for (const removedAlias of [
+      "list_leads", "create_lead", "move_lead", "list_templates", "get_generation_context",
+      "record_pdf_artifact", "add_document", "export_workspace",
+    ]) await expect(guide.getByText(removedAlias, { exact: true })).toHaveCount(0)
   })
 
   test("Given invalid or stale settings, when an agent follows recovery guidance, then validation and conflict behavior is explicit", async ({ page }) => {
