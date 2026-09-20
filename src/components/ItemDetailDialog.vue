@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
+import QuickNoteForm from "./QuickNoteForm.vue"
 import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 
@@ -13,6 +14,9 @@ const props = defineProps<{
   restoreSaving?: boolean
   restoreError?: string
   restoreNotice?: string
+  quickNote: string
+  noteSaving?: boolean
+  noteError?: string
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +25,8 @@ const emit = defineEmits<{
   (e: "startMove", item: Item): void
   (e: "deleteItem", itemId: string): void
   (e: "restoreVersion", changeHash: string): void
+  (e: "update:quickNote", value: string): void
+  (e: "saveNote"): void
 }>()
 </script>
 
@@ -40,6 +46,15 @@ const emit = defineEmits<{
           <span class="detail-label">Notes</span>
           <p class="detail-copy">{{ item.body }}</p>
         </div>
+
+        <QuickNoteForm
+          :model-value="quickNote"
+          :saving="noteSaving"
+          :error="noteError"
+          :read-only="readOnly"
+          @update:model-value="emit('update:quickNote', $event)"
+          @save="emit('saveNote')"
+        />
 
         <div v-if="fields.length" class="detail-grid">
           <template v-for="field in fields" :key="field.id">

@@ -29,6 +29,7 @@ import { isArchiveColumn } from "./domain/archive"
 import type { WorkspaceSettingsDraft } from "./domain/workspaceSettings"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
+import QuickNoteForm from "./components/QuickNoteForm.vue"
 import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
@@ -128,6 +129,9 @@ const editingItemId = ref<string | null>(null)
 const itemToMove = ref<Item | null>(null)
 const showMoveDialog = ref(false)
 const storageError = ref("")
+const quickNoteDraft = ref("")
+const quickNoteSaving = ref(false)
+const quickNoteError = ref("")
 const hasExperimentalMcp = ref(false)
 const showMobileMenu = ref(false)
 const menuButtonRef = ref<HTMLButtonElement | null>(null)
@@ -400,6 +404,7 @@ const artifactDraft = ref({
 
 const selectedLead = computed(() => workspace.leads.find((lead) => lead.id === selectedLeadId.value) ?? null)
 const selectedLeadItem = computed(() => {
+  void docVersion.value
   const entity = selectedLeadId.value ? getActiveDoc()?.entities[selectedLeadId.value] : null
   return isItem(entity) ? entity : null
 })
@@ -628,6 +633,7 @@ async function setupBoardSortables() {
 }
 
 const selectedItem = computed(() => {
+  void docVersion.value
   if (!selectedItemId.value || !getActiveDoc()) return null
   const doc = getActiveDoc()!
   const entity = doc.entities[selectedItemId.value]
@@ -635,6 +641,7 @@ const selectedItem = computed(() => {
 })
 
 const subitemsForSelectedItem = computed(() => {
+  void docVersion.value
   if (!selectedItemId.value || !getActiveDoc()) return []
   const doc = getActiveDoc()!
   return Object.values(doc.entities).filter(
@@ -696,6 +703,39 @@ watch(selectedLeadId, async (leadId) => {
   await nextTick()
   detailDialog.value?.focus()
 })
+
+watch([selectedLeadId, selectedItemId], () => {
+  quickNoteDraft.value = ""
+  quickNoteError.value = ""
+})
+
+function appendQuickNote(existing: unknown, note: string) {
+  const current = typeof existing === "string" ? existing.trimEnd() : ""
+  return current ? `${current}\n\n${note}` : note
+}
+
+async function saveQuickNote(item: Item) {
+  const note = quickNoteDraft.value.trim()
+  if (!note || quickNoteSaving.value) return
+  quickNoteSaving.value = true
+  quickNoteError.value = ""
+  const notesFieldId = activeBoard.value?.preset?.bindings["field.notes"]
+  try {
+    await executeCommandAsync({
+      kind: "patchItem",
+      entityId: item.id,
+      ...(notesFieldId
+        ? { values: { [notesFieldId]: appendQuickNote(item.values[notesFieldId], note) } }
+        : { body: appendQuickNote(item.body, note) }),
+    })
+    quickNoteDraft.value = ""
+    notice.value = "Note added"
+  } catch (error) {
+    quickNoteError.value = `Note not saved: ${error instanceof Error ? error.message : "try again"}`
+  } finally {
+    quickNoteSaving.value = false
+  }
+}
 
 onMounted(async () => {
   loadingTimer = setTimeout(() => { showLoading.value = true }, 200)
@@ -1461,11 +1501,16 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :restore-saving="historyRestoreSaving"
       :restore-error="historyRestoreError"
       :restore-notice="historyRestoreNotice"
+      :quick-note="quickNoteDraft"
+      :note-saving="quickNoteSaving"
+      :note-error="quickNoteError"
       @close="selectedItemId = null; historyRestoreError = ''; historyRestoreNotice = ''"
       @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
       @delete-item="handleDeleteItem"
       @restore-version="restoreSelectedItemVersion"
+      @update:quick-note="quickNoteDraft = $event"
+      @save-note="saveQuickNote(selectedItem)"
     />
 
     <ItemFormDialog
@@ -1566,6 +1611,14 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
         <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><p class="detail-copy">{{ selectedLead.notes }}</p></section>
+        <QuickNoteForm
+          v-if="selectedLeadItem"
+          v-model="quickNoteDraft"
+          :saving="quickNoteSaving"
+          :error="quickNoteError"
+          :read-only="!canEditItems"
+          @save="saveQuickNote(selectedLeadItem)"
+        />
         <section v-if="selectedLead.sourceText" class="detail-section"><span class="detail-label">Source snapshot</span><p class="source-snapshot">{{ selectedLead.sourceText }}</p></section>
         <section v-if="selectedLead.status === 'rejected' || selectedLead.rejectionReason" class="detail-section">
           <span class="detail-label">Rejection notes / retrospective</span>
