@@ -678,6 +678,7 @@ onMounted(async () => {
     getActiveDoc,
     executeCommandAsync,
     createWorkspaceAsync,
+    switchWorkspaceAsync: switchWorkspace,
     availableWorkspaces,
     activeWorkspace,
     trashItems,

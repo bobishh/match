@@ -37,6 +37,7 @@ When opened in an environment exposing WebMCP (`document.modelContext` or `navig
 
 ### Generic Commands
 - `list_workspaces` — list available workspaces.
+- `switch_workspace` — open an available workspace by stable ID; later commands target it.
 - `create_workspace` — create and open a Blank or Job search workspace.
 - `rename_workspace` — rename the current workspace.
 - `get_workspace` — read the current workspace and active board summary.

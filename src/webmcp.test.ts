@@ -46,6 +46,7 @@ describe("generic WebMCP tools", () => {
     }, mockContext)
 
     expect(registeredTools.has("list_workspaces")).toBe(true)
+    expect(registeredTools.has("switch_workspace")).toBe(true)
     expect(registeredTools.has("create_workspace")).toBe(true)
     expect(registeredTools.has("rename_workspace")).toBe(true)
     expect(registeredTools.has("list_items")).toBe(true)
@@ -68,6 +69,32 @@ describe("generic WebMCP tools", () => {
     await expect(registeredTools.get("send_chat_message").execute({ body: "Vacancy audit complete" }))
       .resolves.toEqual({ sent: true })
     expect(sendChatMessage).toHaveBeenCalledWith("Vacancy audit complete")
+  })
+
+  it("returns cloneable workspace records and switches the active workspace", async () => {
+    const originalId = match.activeWorkspace.id
+    const second = await match.createWorkspaceAsync("Second workspace", "blank")
+    await registerWebMcp({
+      getActiveDoc: match.getActiveDoc,
+      executeCommandAsync: match.executeCommandAsync,
+      createWorkspaceAsync: match.createWorkspaceAsync,
+      switchWorkspaceAsync: match.switchWorkspace,
+      availableWorkspaces: match.availableWorkspaces,
+      activeWorkspace: match.activeWorkspace,
+    }, mockContext)
+
+    const workspaces = await registeredTools.get("list_workspaces").execute({})
+    expect(() => structuredClone(workspaces)).not.toThrow()
+    expect(workspaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: originalId, active: false }),
+      expect.objectContaining({ id: second.id, title: "Second workspace", active: true }),
+    ]))
+
+    await expect(registeredTools.get("switch_workspace").execute({ workspaceId: originalId }))
+      .resolves.toEqual(expect.objectContaining({ switched: true, id: originalId }))
+    expect(match.activeWorkspace.id).toBe(originalId)
+    await expect(registeredTools.get("switch_workspace").execute({ workspaceId: "missing" }))
+      .rejects.toThrow("Workspace not found")
   })
 
   it("reads and atomically applies the complete workspace settings through WebMCP", async () => {

@@ -25,6 +25,7 @@ export type ToolStore = {
   getActiveDoc?: () => WorkspaceDocumentV2 | null
   executeCommandAsync?: (command: Command) => Promise<any>
   createWorkspaceAsync?: (title: string, presetKey: "job-search" | "blank") => Promise<WorkspaceDocumentV2>
+  switchWorkspaceAsync?: (workspaceId: string) => Promise<void>
   availableWorkspaces?: any
   activeWorkspace?: any
   trashItems?: any
@@ -167,6 +168,21 @@ function noUnknown(input: Record<string, unknown>, allowed: string[]) {
   if (unknown.length) throw new Error(`Unknown fields: ${unknown.join(", ")}`)
 }
 
+function workspaceRecords(store: ToolStore) {
+  const source = store.availableWorkspaces
+    ? Array.isArray(store.availableWorkspaces)
+      ? store.availableWorkspaces
+      : store.availableWorkspaces.value ?? []
+    : []
+  const activeId = store.activeWorkspace?.id
+  return Array.from(source as ArrayLike<any>, (workspace) => ({
+    id: String(workspace.id),
+    title: String(workspace.title),
+    updatedAt: typeof workspace.updatedAt === "string" ? workspace.updatedAt : undefined,
+    active: workspace.id === activeId,
+  }))
+}
+
 function modelContext(): ModelContext | undefined {
   const host = globalThis as typeof globalThis & ModelContextHost
   return host.document?.modelContext ?? host.navigator?.modelContext
@@ -200,14 +216,32 @@ export async function registerWebMcp(store: ToolStore, explicitContext?: ModelCo
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
     execute() {
-      if (store.availableWorkspaces) {
-        const list = Array.isArray(store.availableWorkspaces)
-          ? store.availableWorkspaces
-          : store.availableWorkspaces.value ?? []
-        return list
-      }
+      if (store.availableWorkspaces) return workspaceRecords(store)
       const doc = store.getActiveDoc?.()
-      return doc ? [{ id: doc.id, title: doc.title }] : []
+      return doc ? [{ id: doc.id, title: doc.title, active: true }] : []
+    },
+  })
+
+  await register({
+    name: "switch_workspace",
+    title: "Switch workspace",
+    description: "Open an available workspace by stable workspace ID so later commands target it.",
+    inputSchema: {
+      type: "object",
+      properties: { workspaceId: { type: "string" } },
+      required: ["workspaceId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false },
+    async execute(input) {
+      const value = objectInput(input)
+      noUnknown(value, ["workspaceId"])
+      const workspaceId = requiredString(value, "workspaceId")
+      const target = workspaceRecords(store).find((workspace) => workspace.id === workspaceId)
+      if (!target) throw new Error("Workspace not found")
+      if (!store.switchWorkspaceAsync) throw new Error("Workspace switching not supported by store")
+      await store.switchWorkspaceAsync(workspaceId)
+      return { switched: true, id: target.id, title: target.title }
     },
   })
 
