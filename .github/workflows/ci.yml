@@ -14,11 +14,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
         with:
-          repository: bobishh/meta-mesh
-          ref: 898593cab9a55f660e2304f5fef997e70b394a23
-          path: vendor/meta-mesh
+          submodules: recursive
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
       - uses: actions/setup-node@v7
         with:
@@ -36,11 +33,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
         with:
-          repository: bobishh/meta-mesh
-          ref: 898593cab9a55f660e2304f5fef997e70b394a23
-          path: vendor/meta-mesh
+          submodules: recursive
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
       - uses: actions/setup-node@v7
         with:
@@ -77,11 +71,8 @@ jobs:
           - succession-quorum
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
         with:
-          repository: bobishh/meta-mesh
-          ref: 898593cab9a55f660e2304f5fef997e70b394a23
-          path: vendor/meta-mesh
+          submodules: recursive
           ssh-key: ${{ secrets.META_MESH_DEPLOY_KEY }}
       - uses: actions/setup-node@v7
         with:
