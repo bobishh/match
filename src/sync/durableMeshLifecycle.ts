@@ -67,6 +67,7 @@ export abstract class DurableMeshLifecycle extends DurableMeshAuthority {
     this.gossipNeighborCounts.clear()
     this.gossipPeerKeys.clear()
     await this.dropSessions()
+    this.runtimeState?.stop()
     await Promise.allSettled(this.gossipRefreshes.values())
     for (const driver of this.gossipDrivers.values()) driver.close()
     this.gossipDrivers.clear()

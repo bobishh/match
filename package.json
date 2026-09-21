@@ -29,6 +29,7 @@
     "@meta-uber/mesh-pairing": "file:vendor/meta-mesh/packages/mesh-pairing",
     "@meta-uber/mesh-peer-store": "file:vendor/meta-mesh/packages/mesh-peer-store",
     "@meta-uber/mesh-replication": "file:vendor/meta-mesh/packages/mesh-replication",
+    "@meta-uber/mesh-runtime": "file:vendor/meta-mesh/packages/mesh-runtime",
     "@meta-uber/mesh-transport": "file:vendor/meta-mesh/packages/mesh-transport",
     "@meta-uber/mesh-workspace": "file:vendor/meta-mesh/packages/mesh-workspace",
     "fflate": "^0.8.2",

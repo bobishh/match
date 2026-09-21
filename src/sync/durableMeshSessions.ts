@@ -6,7 +6,7 @@ import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync} from "./workspaceSet"
-import { ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, revokedPersonIds, shouldReplaceMeshSession,
+import { ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, revokedPersonIds,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshDial } from "./durableMeshDial"
 
@@ -23,8 +23,11 @@ export class DurableMeshSessions extends DurableMeshDial {
     // No await between choosing the winner and registering it: concurrent
     // handshakes must observe the session installed by the previous continuation.
     const previous = this.sessions.get(key)
-    const replace = shouldReplaceMeshSession(previous, { remoteIssuedAt, remoteRouteSequence, direction }, preferred)
-    if (!replace) {
+    const admission = this.runtime().admitSession({
+      key: this.runtimeSessionKey(workspaceId, deviceId, instanceId), connectionId,
+      remoteIssuedAt, remoteRouteSequence, direction,
+    }, preferred)
+    if (admission.decision !== "accepted") {
       this.trace("session.rejected", { connectionId, peerId: deviceId.slice(0, 8), direction, reason: "duplicate direction" })
       await connection.close()
       return false
@@ -35,12 +38,16 @@ export class DurableMeshSessions extends DurableMeshDial {
     let evicted = false
     const entry: SessionEntry = {
       workspaceId, deviceId, instanceId, endpoint: remoteEndpoint, remoteIssuedAt, remoteRouteSequence, direction,
+      runtimeGeneration: admission.generation,
       connection, session, ownershipReceiptSupported,
       evict: async cause => {
         if (evicted) return
         evicted = true
         stopHeartbeat?.()
-        const wasCurrent = this.sessions.get(key) === entry
+        const removed = entry.runtimeGeneration === undefined ? connectionId : this.runtime().removeSession(
+          this.runtimeSessionKey(workspaceId, deviceId, instanceId), entry.runtimeGeneration,
+        )
+        const wasCurrent = removed === connectionId && this.sessions.get(key) === entry
         if (wasCurrent) {
           this.sessions.delete(key)
           if (incrementalEngine) incrementalEngine.reset(workspaceId, deviceId)

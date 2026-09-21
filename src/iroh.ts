@@ -7,6 +7,7 @@ import irohInit, {
   WasmBlobEngine,
   WasmDeviceRouteCatalog,
   WasmGossipEngine,
+  WasmMeshRuntimeState,
   WasmPairingCodec,
   WasmStateCore,
 } from "@meta-uber/mesh-transport/wasm"
@@ -55,6 +56,7 @@ async function initializeIrohBrowserRuntime(): Promise<void> {
       createDeviceRouteCatalog: () => new WasmDeviceRouteCatalog(),
       createAutomergeSyncEngine: (localDeviceId, maximumFrameBytes) =>
         new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
+      createMeshRuntimeState: () => new WasmMeshRuntimeState(),
     })
     rustRuntimeInstalled = true
   }

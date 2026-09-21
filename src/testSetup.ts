@@ -6,6 +6,7 @@ import {
   initSync,
   WasmAutomergeSyncEngine,
   WasmDeviceRouteCatalog,
+  WasmMeshRuntimeState,
   WasmStateCore,
 } from "@meta-uber/mesh-transport/wasm"
 
@@ -16,6 +17,7 @@ installMeshRustRuntime({
   createDeviceRouteCatalog: () => new WasmDeviceRouteCatalog(),
   createAutomergeSyncEngine: (localDeviceId, maximumFrameBytes) =>
     new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
+  createMeshRuntimeState: () => new WasmMeshRuntimeState(),
 })
 
 installPairingCodec({

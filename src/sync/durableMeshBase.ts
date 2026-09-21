@@ -4,6 +4,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy} from "@meta-uber/mesh-transport"
 import { isMeshNetworkFailure as isNetworkFailure } from "@meta-uber/mesh-transport"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
 import type { BrowserGossipDriver} from "@meta-uber/mesh-replication/gossip"
 import type { defaultProofStore } from "../domain/proofs"
 import {
@@ -80,6 +81,7 @@ export type SessionEntry = {
   connection: SyncConnection
   session: LiveWorkspaceSync
   ownershipReceiptSupported?: boolean
+  runtimeGeneration?: number
   evict: (cause: string) => Promise<void>
 }
 
@@ -91,13 +93,14 @@ export function shouldReplaceMeshSession(
   preferred: SessionDirection,
 ) {
   if (!previous) return true
-  if (candidate.remoteRouteSequence !== previous.remoteRouteSequence) {
-    if (candidate.remoteRouteSequence !== undefined && previous.remoteRouteSequence === undefined) return true
-    if (candidate.remoteRouteSequence === undefined) return false
-    return candidate.remoteRouteSequence > previous.remoteRouteSequence!
+  const runtime = createMeshRuntime()
+  try {
+    const key = { workspaceId: "comparison", deviceId: "comparison", instanceId: "comparison" }
+    runtime.admitSession({ key, connectionId: "previous", ...previous }, previous.direction)
+    return runtime.admitSession({ key, connectionId: "candidate", ...candidate }, preferred).decision === "accepted"
+  } finally {
+    runtime.free?.()
   }
-  if (candidate.direction === previous.direction) return false
-  return candidate.direction === preferred
 }
 
 export type DurableMeshOptions = {
@@ -252,6 +255,7 @@ export abstract class DurableMeshBase {
   protected failures = new Map<string, number>()
   protected failedAt = new Map<string, number>()
   protected readonly reconnectPolicy = new MeshReconnectPolicy()
+  protected runtimeState: MeshRuntimeState | undefined
   protected readonly runtimeId = crypto.randomUUID()
   protected instanceId = ""
   protected releaseInstance: (() => Promise<void>) | undefined
@@ -263,6 +267,16 @@ export abstract class DurableMeshBase {
   constructor(protected readonly options: DurableMeshOptions) {
     this.store = options.store ?? peerStore
     this.trace("instance.created")
+  }
+
+  protected runtime() {
+    this.runtimeState ??= createMeshRuntime()
+    if (!this.runtimeState.running) this.runtimeState.start()
+    return this.runtimeState
+  }
+
+  protected runtimeSessionKey(workspaceId: string, deviceId: string, instanceId: string) {
+    return { workspaceId, deviceId, instanceId }
   }
 
   protected trace(event: string, detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info") {
@@ -362,6 +376,8 @@ export abstract class DurableMeshBase {
   async dispose(): Promise<void> {
     this.disposed = true
     await this.stop()
+    this.runtimeState?.free?.()
+    this.runtimeState = undefined
   }
 
   protected abstract start(): Promise<void>
