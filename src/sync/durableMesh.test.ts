@@ -89,6 +89,8 @@ describe("DurableMesh peer catalog gossip", () => {
     }
     internal.node = {}
     internal.connectPeer = vi.fn(async () => {
+      internal.runtime().admitSession({ key: { workspaceId: "workspace", deviceId: "remote-device", instanceId: "incoming" },
+        connectionId: "incoming", remoteIssuedAt: new Date().toISOString(), direction: "incoming" }, "incoming")
       internal.sessions.set("workspace:remote-device:incoming", { workspaceId: "workspace", deviceId: "remote-device" })
       throw new Error("All promises were rejected")
     })

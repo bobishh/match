@@ -16,7 +16,7 @@ import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export abstract class DurableMeshDial extends DurableMeshHandshake {
   protected hasDeviceSession(workspaceId: string, deviceId: string) {
-    return [...this.sessions.values()].some(entry => entry.workspaceId === workspaceId && entry.deviceId === deviceId)
+    return this.runtimeState?.connectedDevices(workspaceId).includes(deviceId) ?? false
   }
 
   protected async dialLoop(signal: AbortSignal) {
