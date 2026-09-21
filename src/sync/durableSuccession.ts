@@ -1,5 +1,6 @@
 import type { DeviceCertificate } from "../domain/model"
 import type { LocalProfile } from "../domain/identity"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import {
   verifyWorkspaceSuccessionClaim,
   verifyWorkspaceSuccessionPolicy,
@@ -97,9 +98,12 @@ async function verifyAndStoreClaim(host: SuccessionHost, credential: WorkspaceMe
 async function adoptPendingClaims(host: SuccessionHost, initial: WorkspaceMeshCredential,
   claims: Map<string, WorkspaceSuccessionClaim>): Promise<WorkspaceMeshCredential> {
   let credential = initial
-  const pending = [...claims.values()].sort((a, b) => a.payload.epoch - b.payload.epoch || a.signature.localeCompare(b.signature))
-  for (const raw of pending) {
-    if (raw.payload.epoch <= credential.epoch || raw.payload.fromOwnerPersonId !== credential.ownerPersonId) continue
+  const plan = meshRustRuntime().state.planOwnershipTransitions([...claims.values()], credential.ownerPersonId, credential.epoch) as {
+    records: WorkspaceSuccessionClaim[]
+    conflicted: boolean
+  }
+  if (plan.conflicted) return credential
+  for (const raw of plan.records) {
     credential = await adoptClaim(host, credential, raw, claims)
   }
   return credential
