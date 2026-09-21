@@ -231,7 +231,7 @@ export abstract class DurableMeshBase {
   protected stopped = true
   protected stopWatch: (() => void) | undefined
   protected retryTimer: ReturnType<typeof setTimeout> | undefined
-  protected readonly reconnectPolicy = new MeshReconnectPolicy()
+  private reconnectPolicyState: MeshReconnectPolicy | undefined
   protected runtimeState: MeshRuntimeState | undefined
   protected readonly runtimeId = crypto.randomUUID()
   protected instanceId = ""
@@ -250,6 +250,11 @@ export abstract class DurableMeshBase {
     this.runtimeState ??= createMeshRuntime()
     if (!this.runtimeState.running) this.runtimeState.start()
     return this.runtimeState
+  }
+
+  protected get reconnectPolicy() {
+    this.reconnectPolicyState ??= new MeshReconnectPolicy(this.runtime())
+    return this.reconnectPolicyState
   }
 
   protected runtimeSessionKey(workspaceId: string, deviceId: string, instanceId: string) {
@@ -367,6 +372,7 @@ export abstract class DurableMeshBase {
     await this.stop()
     this.runtimeState?.free?.()
     this.runtimeState = undefined
+    this.reconnectPolicyState = undefined
   }
 
   protected abstract start(): Promise<void>
