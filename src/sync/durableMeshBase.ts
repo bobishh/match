@@ -4,6 +4,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
 import { isMeshNetworkFailure as isNetworkFailure } from "@meta-uber/mesh-transport"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
 import type { BrowserGossipDriver} from "@meta-uber/mesh-replication/gossip"
 import type { defaultProofStore } from "../domain/proofs"
@@ -184,9 +185,9 @@ export type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransf
 export const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1", "owner-workspace-v1", "iroh-gossip-v1"]
 
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
-  if (!Array.isArray(capabilities) || !capabilities.includes("iroh-gossip-v1")) {
+  if (!Array.isArray(capabilities) || !capabilities.every(capability => typeof capability === "string"))
     throw new Error("Peer does not support required iroh gossip")
-  }
+  meshRustRuntime().state.validateMeshCapabilities(capabilities)
 }
 
 export function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
