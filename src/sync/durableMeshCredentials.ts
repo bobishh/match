@@ -249,7 +249,7 @@ export abstract class DurableMeshCredentials extends DurableMeshGossip {
     for (const workspaceId of new Set(workspaceIds)) {
       for (const [key, entry] of [...this.sessions]) {
         if (entry.workspaceId !== workspaceId || entry.deviceId !== deviceId) continue
-        this.connecting.delete(key)
+        this.runtime().clearRouteAttempt(key)
         this.clearRouteReconnect(key)
         await entry.evict("device forgotten")
       }

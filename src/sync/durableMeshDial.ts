@@ -83,7 +83,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
     const first = routes[0]!
     if (signal.aborted || this.hasDeviceSession(first.workspaceId, first.deviceId)) return
     const now = Date.now()
-    if (this.connecting.has(key)) return this.setRetry(retryAtByWorkspace, first.workspaceId, now + 1_000)
+    if (this.runtime().routeAttemptActive(key)) return this.setRetry(retryAtByWorkspace, first.workspaceId, now + 1_000)
     const eligible = routes.filter(peer => this.routeReady(peer, now))
     if (eligible.length) return void this.dialDevice(eligible, signal)
     const nextAttempt = Math.min(...routes.map(peer => this.nextRouteAttempt(peer, now)))
@@ -119,8 +119,8 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
   protected async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {
     const peer = peers[0]!
     const key = this.deviceKey(peer.workspaceId, peer.deviceId)
-    if (this.connecting.has(key)) return
-    this.connecting.add(key)
+    if (this.runtime().routeAttemptActive(key)) return
+    const attempt = this.runtime().beginRouteAttempt(key, Date.now())
     try {
       if (!this.node || this.hasDeviceSession(peer.workspaceId, peer.deviceId)) return
       const routeEntries = await Promise.all(peers.map(async candidate => ({
@@ -171,7 +171,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
       this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
       await this.notify()
     } finally {
-      this.connecting.delete(key)
+      this.runtime().finishRouteAttempt(key, attempt.token)
     }
   }
 

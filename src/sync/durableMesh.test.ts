@@ -658,7 +658,7 @@ describe("DurableMesh peer catalog gossip", () => {
         closed.push("session", "connection")
       },
     })
-    internal.connecting.add("workspace-1:guest-device")
+    internal.runtime().beginRouteAttempt("workspace-1:guest-device", Date.now())
     internal.runtime().scheduleReconnect("workspace-1:guest-device", Date.now(), 5_000, 5 * 60_000)
 
     await mesh.forgetEnrolledDevice(["workspace-1", "workspace-1", "workspace-2"], "guest-device")
@@ -666,7 +666,7 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(removed).toEqual(["workspace-1:guest-device", "workspace-2:guest-device"])
     expect(closed).toEqual(["session", "connection"])
     expect(internal.sessions.has("workspace-1:guest-device")).toBe(false)
-    expect(internal.connecting.has("workspace-1:guest-device")).toBe(false)
+    expect(internal.runtime().routeAttemptActive("workspace-1:guest-device")).toBe(false)
     expect(internal.runtime().reconnectState("workspace-1:guest-device")).toBeNull()
     await mesh.dispose()
   })
