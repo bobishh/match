@@ -250,8 +250,7 @@ export abstract class DurableMeshCredentials extends DurableMeshGossip {
       for (const [key, entry] of [...this.sessions]) {
         if (entry.workspaceId !== workspaceId || entry.deviceId !== deviceId) continue
         this.connecting.delete(key)
-        this.failures.delete(key)
-        this.failedAt.delete(key)
+        this.clearRouteReconnect(key)
         await entry.evict("device forgotten")
       }
       await this.store.removePeer(workspaceId, deviceId)

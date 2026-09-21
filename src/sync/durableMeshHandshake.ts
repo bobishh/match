@@ -260,10 +260,7 @@ export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
         })
       } catch {
         await this.store.removePeer(credential.workspaceId, peer.deviceId)
-        for (const key of [...this.failures.keys()]) if (key.startsWith(`${credential.workspaceId}:${peer.deviceId}:`)) {
-          this.failures.delete(key)
-          this.failedAt.delete(key)
-        }
+        this.clearRouteReconnects(`${credential.workspaceId}:${peer.deviceId}:`)
       }
     }
   }

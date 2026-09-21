@@ -68,7 +68,7 @@ describe("DurableMesh peer catalog gossip", () => {
     ;(mesh as any).node = {}
     await expect((mesh as any).connectPeer({ workspaceId: "workspace", deviceId: "remote" }, {}, new AbortController().signal, controller.signal)).rejects.toThrow(/cancelled/)
     expect(onDiagnostic).not.toHaveBeenCalled()
-    expect((mesh as any).failures.size).toBe(0)
+    expect((mesh as any).routeFailures("workspace:remote")).toBe(0)
     ;(mesh as any).node = undefined
     await mesh.dispose()
   })
@@ -659,8 +659,7 @@ describe("DurableMesh peer catalog gossip", () => {
       },
     })
     internal.connecting.add("workspace-1:guest-device")
-    internal.failures.set("workspace-1:guest-device", 2)
-    internal.failedAt.set("workspace-1:guest-device", Date.now())
+    internal.runtime().scheduleReconnect("workspace-1:guest-device", Date.now(), 5_000, 5 * 60_000)
 
     await mesh.forgetEnrolledDevice(["workspace-1", "workspace-1", "workspace-2"], "guest-device")
 
@@ -668,8 +667,7 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(closed).toEqual(["session", "connection"])
     expect(internal.sessions.has("workspace-1:guest-device")).toBe(false)
     expect(internal.connecting.has("workspace-1:guest-device")).toBe(false)
-    expect(internal.failures.has("workspace-1:guest-device")).toBe(false)
-    expect(internal.failedAt.has("workspace-1:guest-device")).toBe(false)
+    expect(internal.runtime().reconnectState("workspace-1:guest-device")).toBeNull()
     await mesh.dispose()
   })
 

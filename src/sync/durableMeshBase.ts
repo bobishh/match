@@ -231,8 +231,6 @@ export abstract class DurableMeshBase {
   protected stopped = true
   protected stopWatch: (() => void) | undefined
   protected retryTimer: ReturnType<typeof setTimeout> | undefined
-  protected failures = new Map<string, number>()
-  protected failedAt = new Map<string, number>()
   protected readonly reconnectPolicy = new MeshReconnectPolicy()
   protected runtimeState: MeshRuntimeState | undefined
   protected readonly runtimeId = crypto.randomUUID()
@@ -269,6 +267,18 @@ export abstract class DurableMeshBase {
 
   protected peerKey(workspaceId: string, deviceId: string, instanceId = "legacy") {
     return `${workspaceId}:${deviceId}:${instanceId}`
+  }
+
+  protected routeFailures(key: string): number {
+    return this.runtimeState?.reconnectState(key)?.failures ?? 0
+  }
+
+  protected clearRouteReconnect(key: string): void {
+    this.runtimeState?.clearReconnect(key)
+  }
+
+  protected clearRouteReconnects(prefix: string): void {
+    this.runtimeState?.clearReconnectsWithPrefix(prefix)
   }
 
   protected deviceKey(workspaceId: string, deviceId: string) {

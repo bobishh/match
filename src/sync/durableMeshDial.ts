@@ -61,7 +61,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
     for (const workspaceId of new Set(candidates.map(peer => peer.workspaceId))) {
       const deviceIds = selectScopedNeighbors({ localDeviceId, candidates: candidates.filter(peer => peer.workspaceId === workspaceId)
         .map(peer => ({ deviceId: peer.deviceId,
-          health: -(this.failures.get(this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)) ?? 0) })) })
+          health: -this.routeFailures(this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)) })) })
       for (const deviceId of deviceIds) selected.add(`${workspaceId}:${deviceId}`)
     }
     return candidates.filter(peer => selected.has(`${peer.workspaceId}:${peer.deviceId}`))
@@ -96,9 +96,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
 
   protected nextRouteAttempt(peer: WorkspacePeerRecord, fallback: number): number {
     const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
-    const attempts = this.failures.get(key) ?? 0
-    const delay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
-    return (this.failedAt.get(key) ?? fallback) + delay
+    return this.runtimeState?.reconnectState(key)?.retryAtMs ?? fallback
   }
 
   protected setRetry(retries: Record<string, number>, workspaceId: string, retryAt: number): void {
@@ -135,7 +133,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
         targetDeviceId: peer.deviceId,
         routes: routeEntries.map(value => value.route),
         fallbackDelayMs: 250,
-        routeHealth: route => -(this.failures.get(this.peerKey(route.scopeId, route.deviceId, route.instanceId)) ?? 0),
+        routeHealth: route => -this.routeFailures(this.peerKey(route.scopeId, route.deviceId, route.instanceId)),
         trace: (event, fields) => this.trace(event, { ...fields }),
         signal,
         connect: async (route, routeSignal) => {
@@ -191,8 +189,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
       if (Array.isArray(handshake.response.revocations)) await this.mergeRevocations(credential, handshake.response.revocations)
       await this.putVerifiedBundle(credential, handshake.response.peer)
       this.throwIfDialCancelled(signal, routeSignal)
-      this.failures.delete(key)
-      this.failedAt.delete(key)
+      this.clearRouteReconnect(key)
       const result = this.outgoingConnectionResult(connection, connectionId, verified, handshake.response)
       connection = undefined
       return result
@@ -290,8 +287,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
       reason: error instanceof Error ? error.message : String(error) }, "warn")
     if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
     else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
-    this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 8))
-    this.failedAt.set(key, Date.now())
+    this.runtime().scheduleReconnect(key, Date.now(), 5_000, 5 * 60_000)
     await connection?.close().catch(() => {})
     if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
       const stale = this.node

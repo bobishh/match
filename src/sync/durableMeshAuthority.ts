@@ -249,8 +249,7 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
     await defaultProofStore.removeWorkspaceGrants(workspaceId)
     this.lastDiagnostic = ""
     this.options.onDiagnostic?.("")
-    this.failures.delete(workspaceId)
-    this.failedAt.delete(workspaceId)
+    this.clearRouteReconnects(`${workspaceId}:`)
     await this.notify()
   }
 
