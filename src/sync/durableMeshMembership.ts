@@ -1,4 +1,5 @@
 import { adaptVerifiedWorkspaceAdvertisement} from "@meta-uber/mesh-replication/protocol"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import type { DeviceCertificate } from "../domain/model"
 import {
   verifyWorkspaceMemberBundle, verifyWorkspaceOwnershipTransfer,
@@ -9,14 +10,13 @@ import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
-import { isMeshExport, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds } from "./durableMeshBase"
+import { meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 export abstract class DurableMeshMembership extends DurableMeshCredentials {
   protected abstract mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect?: boolean): Promise<void>
   async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
-    if (!isMeshExport(raw)) throw new Error("Invalid mesh catalog")
-    const value = raw
+    const value = meshRustRuntime().state.validateMeshCatalog(raw) as import("./durableMeshBase").MeshExport
     let credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return
     credential = await this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? [])
