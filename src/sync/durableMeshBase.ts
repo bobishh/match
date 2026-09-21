@@ -173,8 +173,6 @@ export type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransf
 export function meshCapabilities(): string[] { return meshRustRuntime().state.meshCapabilities() }
 
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
-  if (!Array.isArray(capabilities) || !capabilities.every(capability => typeof capability === "string"))
-    throw new Error("Peer does not support required iroh gossip")
   meshRustRuntime().state.validateMeshCapabilities(capabilities)
 }
 
