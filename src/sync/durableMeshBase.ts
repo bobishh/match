@@ -212,14 +212,7 @@ export function breakGlassClaims(credential: WorkspaceMeshCredential) {
 }
 
 export function hasConflictingBreakGlassClaims(records: WorkspaceBreakGlassClaim[]) {
-  const targets = new Map<string, Set<string>>()
-  for (const record of records) {
-    const key = `${record.payload.fromOwnerPersonId}:${record.payload.epoch}`
-    const values = targets.get(key) ?? new Set<string>()
-    values.add(record.payload.toOwnerPersonId)
-    targets.set(key, values)
-  }
-  return [...targets.values()].some(values => values.size > 1)
+  return meshRustRuntime().state.hasConflictingBreakGlassClaims(records)
 }
 
 export function ownerAuthorities(credential: WorkspaceMeshCredential): WorkspaceAuthority[] {
