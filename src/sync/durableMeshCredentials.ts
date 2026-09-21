@@ -3,6 +3,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
+import { activeCredentialsForProfile as selectActiveCredentials, credentialBelongsToProfile as credentialMatchesProfile } from "@meta-uber/mesh-runtime"
 import { createPeerAdvertisement, verifyDeviceChain, verifyWorkspaceGrant,
   createWorkspaceBreakGlassClaim, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
@@ -15,6 +16,19 @@ import { uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTran
 import { DurableMeshGossip } from "./durableMeshGossip"
 
 export abstract class DurableMeshCredentials extends DurableMeshGossip {
+  private readonly credentialIdentityHost = {
+    grant: (credential: WorkspaceMeshCredential) => {
+      const grant = credential.localGrant as WorkspaceGrant | undefined
+      return grant && { personId: grant.payload.personId }
+    },
+    authorities: (credential: WorkspaceMeshCredential) => ownerAuthorities(credential),
+    verifyGrant: async (grant: unknown, workspaceId: string, personId: string, authority: { personId: string; publicKey: string; certificates: unknown[] }) => {
+      await verifyWorkspaceGrant(grant as WorkspaceGrant, {
+        workspaceId, personId, ownerPersonId: authority.personId, ownerPublicKey: authority.publicKey,
+        ownerCertificates: authority.certificates as DeviceCertificate[],
+      })
+    },
+  }
   protected abstract refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
     endpoint: string, certificates: DeviceCertificate[]): Promise<WorkspaceMemberBundle | undefined>
   protected abstract mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect?: boolean): Promise<void>
@@ -84,40 +98,21 @@ export abstract class DurableMeshCredentials extends DurableMeshGossip {
   }
 
   protected async credentialBelongsToProfile(credential: WorkspaceMeshCredential, profile: LocalProfile): Promise<boolean> {
-    if (credential.ownerPersonId === profile.identity.personId) {
-      return credential.ownerPublicKey === profile.identity.publicKey
-    }
-    const grant = credential.localGrant as WorkspaceGrant | undefined
-    if (!grant || grant.payload.personId !== profile.identity.personId) return false
-    for (const authority of ownerAuthorities(credential)) {
-      try {
-        await verifyWorkspaceGrant(grant, {
-          workspaceId: credential.workspaceId,
-          personId: profile.identity.personId,
-          ownerPersonId: authority.personId,
-          ownerPublicKey: authority.publicKey,
-          ownerCertificates: authority.certificates,
-        })
-        return true
-      } catch { /* A different historical authority may have issued this grant. */ }
-    }
-    return false
+    return credentialMatchesProfile(this.credentialIdentityHost, credential, {
+      personId: profile.identity.personId, publicKey: profile.identity.publicKey,
+    })
   }
 
   protected async activeCredentialsForProfile(credentials: WorkspaceMeshCredential[], profile: LocalProfile) {
-    const active: WorkspaceMeshCredential[] = []
-    let mismatched = false
-    for (const credential of credentials) {
-      if (await this.credentialBelongsToProfile(credential, profile)) {
-        active.push(credential)
-        continue
-      }
+    const { active, mismatched } = await selectActiveCredentials(this.credentialIdentityHost, credentials, {
+      personId: profile.identity.personId, publicKey: profile.identity.publicKey,
+    })
+    for (const credential of mismatched) {
       // A transient or concurrent identity bootstrap must not erase durable mesh trust.
       // Enrollment replaces stale credentials explicitly after mutual approval.
-      mismatched = true
       this.trace("credential.identity-mismatch", { workspaceId: credential.workspaceId.slice(0, 8) }, "warn")
     }
-    if (mismatched && active.length === 0) {
+    if (mismatched.length && active.length === 0) {
       this.report("Mesh identity", new Error("Stored mesh trust belongs to another local identity. Re-enroll this device."))
     }
     return active
