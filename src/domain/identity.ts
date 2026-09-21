@@ -2,6 +2,7 @@ import {
   BrowserIdentityStore,
   canonicalizeJson,
   fromBase64Url,
+  publicKeyId,
   sha256Base64Url,
   signEnvelope,
   signatureInput,
@@ -22,6 +23,7 @@ import type {
 export {
   canonicalizeJson,
   fromBase64Url,
+  publicKeyId,
   sha256Base64Url,
   signEnvelope,
   signatureInput,

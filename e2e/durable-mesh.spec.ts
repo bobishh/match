@@ -35,6 +35,31 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
   return context
 }
 
+async function discardTransportState(page: Page) {
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("match-peer-catalog-v1")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = db.transaction(["node", "peers"], "readwrite")
+    const node = transaction.objectStore("node")
+    const records = await new Promise<Array<{ key: string }>>((resolve, reject) => {
+      const request = node.getAll()
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    for (const record of records) if (record.key.startsWith("workspace:")) node.delete(record.key)
+    transaction.objectStore("peers").clear()
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+    db.close()
+  })
+}
+
 test("Given a legacy local device without metadata, when Sync opens in a known browser, then it shows the current browser and OS", async ({ browser }) => {
   test.setTimeout(120_000)
   const hostContext = await isolatedContext(browser)
@@ -96,6 +121,50 @@ test("Given a joined workspace with local data, when an editor leaves the mesh, 
     await hostDialog.getByLabel("Participant role").selectOption("editor")
     await hostDialog.getByRole("button", { name: "Approve access" }).click()
     await expect(guestDialog.getByText(/Connected to/)).toBeVisible({ timeout: 30_000 })
+  } finally { await context.close() }
+})
+
+test("Given signed workspace authority, when transport state disappears, then owner and editor roles recover while forged authority stays read-only", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+
+    await Promise.all([discardTransportState(page), discardTransportState(guest)])
+    await Promise.all([page.reload(), guest.reload()])
+
+    await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
+    await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
+    await expect(page.getByLabel("Mesh empty")).toBeVisible()
+    await expect(guest.getByLabel("Mesh empty")).toBeVisible()
+
+    await guest.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("match-peer-catalog-v1")
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const transaction = db.transaction("authority", "readwrite")
+      const store = transaction.objectStore("authority")
+      const workspaceId = localStorage.getItem("match.active_workspace_id")!
+      const authority = await new Promise<any>((resolve, reject) => {
+        const request = store.get(workspaceId)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      store.put({ ...authority, ownerPersonId: "forged-owner", ownerPublicKey: "forged-key" })
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve()
+        transaction.onerror = () => reject(transaction.error)
+        transaction.onabort = () => reject(transaction.error)
+      })
+      db.close()
+    })
+    await guest.reload()
+    await expect(guest.getByLabel("Workspace role: visitor")).toBeVisible()
+    await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
   } finally { await context.close() }
 })
 

@@ -1112,10 +1112,11 @@ export class DurableMesh {
       const abort = () => { void this.shutdown() }
       try {
         const storedCredentials = await this.store.listWorkspaceCredentials()
-        if (signal.aborted || storedCredentials.length === 0) return
         const profile = await this.options.getProfile()
+        const ownedWorkspaceIds = await this.options.getOwnedWorkspaceIds?.() ?? []
+        if (signal.aborted || (storedCredentials.length === 0 && ownedWorkspaceIds.length === 0)) return
         let credentials = await this.activeCredentialsForProfile(storedCredentials, profile)
-        if (signal.aborted || credentials.length === 0) return
+        if (signal.aborted || (credentials.length === 0 && ownedWorkspaceIds.length === 0)) return
         // Every browser runtime owns one independently leased transport endpoint.
         // Workspace roles and grants remain attached to the approved device/person.
         const adoptedNode = this.adoptedNode
@@ -1128,7 +1129,6 @@ export class DurableMesh {
           source: nodeSource,
           endpoint: node.endpointId.slice(0, 8),
         })
-        const ownedWorkspaceIds = await this.options.getOwnedWorkspaceIds?.() ?? []
         if (ownedWorkspaceIds.length > 0) {
           await this.ensureOwnerWorkspaces(ownedWorkspaceIds, node.endpointId, profile)
           credentials = await this.activeCredentialsForProfile(

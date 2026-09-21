@@ -197,6 +197,7 @@ const sync = useDeviceSync({
   activeWorkspaceId: () => activeWorkspace?.id || "default",
   workspaceOwner: async id => {
     const doc = Automerge.load<import("./domain/model").WorkspaceDocumentV2>(await readWorkspaceBytes(id))
+    await workspaceRole(doc, await bootstrapIdentity("My Device"))
     return effectiveWorkspaceOwner(id, doc.ownerPersonId)
   },
 })

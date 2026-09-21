@@ -93,19 +93,20 @@ async function saveDisplayNamePreset(name: string): Promise<void> {
 
 async function credentials(workspaceId: string, profile: LocalProfile): Promise<ChatAuthority> {
   const credential = typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceCredential(workspaceId)
-  const owner = credential?.ownerPersonId ?? await readOwner(workspaceId)
+  const authority = credential ?? (typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceAuthority(workspaceId).catch(() => null))
+  const owner = authority?.ownerPersonId ?? await readOwner(workspaceId)
   const certificates = await defaultProofStore.listCertificates()
   if (owner === profile.identity.personId) return {
-    publicKey: credential?.ownerPublicKey ?? profile.identity.publicKey,
-    certificates: credential ? credential.ownerCertificates as any : certificates.filter(c => c.payload.personId === owner),
+    publicKey: authority?.ownerPublicKey ?? profile.identity.publicKey,
+    certificates: authority ? authority.ownerCertificates as any : certificates.filter(c => c.payload.personId === owner),
   }
   const saved = await loadChat(workspaceId)
   const source = saved.profiles.map(p => p.record as ChatRecord).find(r => r?.authority?.publicKey)
-  const grant = (credential?.localGrant as any) ??
+  const grant = (authority?.localGrant as any) ??
     (await defaultProofStore.listGrants(workspaceId)).find(g => g.payload.personId === profile.identity.personId)
   if (!grant) throw new Error("Connect to the workspace owner once to enable chat")
-  if (credential) return { publicKey: credential.ownerPublicKey,
-    certificates: credential.ownerCertificates as any, grant }
+  if (authority) return { publicKey: authority.ownerPublicKey,
+    certificates: authority.ownerCertificates as any, grant }
   if (!source) throw new Error("Connect to the workspace owner once to enable chat")
   return { ...source.authority, grant }
 }

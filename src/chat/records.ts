@@ -61,23 +61,24 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
   const key = await verifyDeviceChain({ personId: p.personId, publicKey: record.publicKey,
     deviceId: p.deviceId, certificates: record.certificates })
   if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid message signature")
-  const authority = record.authority
-  if (!authority) throw new Error("Invalid workspace authority")
+  const recordAuthority = record.authority
+  if (!recordAuthority) throw new Error("Invalid workspace authority")
   const credential = typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceCredential(grantWorkspaceId)
-  const owners: WorkspaceAuthority[] = credential ? [{ personId: credential.ownerPersonId,
-    publicKey: credential.ownerPublicKey, certificates: credential.ownerCertificates as DeviceCertificate[] },
-    ...((credential.ownerHistory ?? []) as WorkspaceAuthority[])] : [{ personId: ownerPersonId,
-      publicKey: authority.publicKey, certificates: authority.certificates }]
-  const authorityPersonId = await keyId(authority.publicKey)
-  const signingOwner = owners.find(owner => owner.personId === authorityPersonId && owner.publicKey === authority.publicKey)
+  const storedAuthority = credential ?? (typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceAuthority(grantWorkspaceId))
+  const owners: WorkspaceAuthority[] = storedAuthority ? [{ personId: storedAuthority.ownerPersonId,
+    publicKey: storedAuthority.ownerPublicKey, certificates: storedAuthority.ownerCertificates as DeviceCertificate[] },
+    ...((storedAuthority.ownerHistory ?? []) as WorkspaceAuthority[])] : [{ personId: ownerPersonId,
+    publicKey: recordAuthority.publicKey, certificates: recordAuthority.certificates }]
+  const authorityPersonId = await keyId(recordAuthority.publicKey)
+  const signingOwner = owners.find(owner => owner.personId === authorityPersonId && owner.publicKey === recordAuthority.publicKey)
   if (!signingOwner) throw new Error("Invalid workspace authority")
-  const actsAsCurrentOwner = p.personId === (credential?.ownerPersonId ?? ownerPersonId) &&
-    signingOwner.personId === (credential?.ownerPersonId ?? ownerPersonId) && !authority.grant
+  const actsAsCurrentOwner = p.personId === (storedAuthority?.ownerPersonId ?? ownerPersonId) &&
+    signingOwner.personId === (storedAuthority?.ownerPersonId ?? ownerPersonId) && !recordAuthority.grant
   if (!actsAsCurrentOwner) {
     if (typeof indexedDB !== "undefined" && (await peerStore.listPeers(grantWorkspaceId)).some(peer => peer.personId === p.personId && peer.revokedAt)) {
       throw new Error("Workspace access revoked")
     }
-    const grant = authority.grant
+    const grant = recordAuthority.grant
     // A former owner produced grant-less records while it still held authority. Chat has no owner-only mutations.
     if (!grant && owners.slice(1).some(owner => owner.personId === p.personId)) return record
     if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1 ||
@@ -85,8 +86,8 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
         !canWorkspace(grant.payload.role, p.kind === "chat-profile" ? "chat.profile" : "chat.write")) throw new Error("No permission to write to this chat")
     let validGrant = false
     for (const owner of owners) {
-      const certificates = owner.publicKey === authority.publicKey
-        ? [...new Map([...owner.certificates, ...authority.certificates].map(cert => [cert.signature, cert])).values()]
+      const certificates = owner.publicKey === recordAuthority.publicKey
+        ? [...new Map([...owner.certificates, ...recordAuthority.certificates].map(cert => [cert.signature, cert])).values()]
         : owner.certificates
       if (await grantSignedBy(grant, { ...owner, certificates })) { validGrant = true; break }
     }

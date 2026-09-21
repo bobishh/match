@@ -11,8 +11,13 @@ import { validateIncomingChanges, pendingHistoryRepair, repairPendingHistory } f
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem } from "../domain/model"
 
-const peerStoreState = vi.hoisted(() => ({ credential: null as any }))
-vi.mock("./peerStore", () => ({ peerStore: { getWorkspaceCredential: async () => peerStoreState.credential, listPeers: async () => [] } }))
+const peerStoreState = vi.hoisted(() => ({ credential: null as any, authority: null as any }))
+vi.mock("./peerStore", () => ({ peerStore: {
+  getWorkspaceCredential: async () => peerStoreState.credential,
+  getWorkspaceAuthority: async () => peerStoreState.authority,
+  putWorkspaceAuthority: async (authority: any) => { peerStoreState.authority = authority },
+  listPeers: async () => [],
+} }))
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
@@ -21,6 +26,7 @@ beforeAll(async () => {
 let owner: LocalProfile, member: LocalProfile
 beforeEach(async () => {
   peerStoreState.credential = null
+  peerStoreState.authority = null
   resetIdentityStorageForTest(); owner = await bootstrapIdentity("Owner")
   resetIdentityStorageForTest(); member = await bootstrapIdentity("Member")
 })
