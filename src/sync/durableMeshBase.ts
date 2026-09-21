@@ -152,8 +152,6 @@ export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 export type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   breakGlassClaims?: WorkspaceBreakGlassClaim[] }
-export function meshCapabilities(): string[] { return meshRustRuntime().state.meshCapabilities() }
-
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
   meshRustRuntime().state.validateMeshCapabilities(capabilities)
 }
