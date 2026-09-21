@@ -222,6 +222,7 @@ function hasAuthorityConflict(credential: StoredWorkspaceAuthority | null) {
     .filter(claim => claim?.payload?.epoch === credential?.epoch)
   const transfers = ((credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[] } | undefined)?.ownershipTransfers ?? [])
   const breakGlass = ((credential?.catalog as { breakGlassClaims?: WorkspaceBreakGlassClaim[] } | undefined)?.breakGlassClaims ?? [])
+    .filter(claim => claim?.payload?.kind === "workspace-break-glass")
   const recoveryTargets = new Map<string, Set<string>>()
   for (const claim of breakGlass) {
     const key = `${claim.payload.fromOwnerPersonId}:${claim.payload.epoch}`
@@ -329,7 +330,8 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
   const ownerSet = authorities(credential)
   const catalog = credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[]; successionClaims?: WorkspaceSuccessionClaim[]
     breakGlassClaims?: WorkspaceBreakGlassClaim[] } | undefined
-  const transfers = [...(catalog?.ownershipTransfers ?? []), ...(catalog?.successionClaims ?? []), ...(catalog?.breakGlassClaims ?? [])]
+  const transfers = [...(catalog?.ownershipTransfers ?? []), ...(catalog?.successionClaims ?? []),
+    ...(catalog?.breakGlassClaims ?? []).filter(claim => claim?.payload?.kind === "workspace-break-glass")]
   const historicalHashes = historicalOwnerHashes(remote, transfers)
   if (!Array.isArray(raw) || raw.length > 20000 || new TextEncoder().encode(JSON.stringify(raw)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const known = new Set(local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : [])

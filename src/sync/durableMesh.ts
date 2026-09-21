@@ -373,10 +373,16 @@ export class DurableMesh {
       payload.epoch !== credential.epoch) throw new Error("Invalid legacy break-glass claim")
     const previous = ownerAuthorities(credential).find(owner => owner.personId === payload.fromOwnerPersonId)
     if (!previous) throw new Error("Legacy break-glass authority is missing")
-    const role = await verifyWorkspaceGrant(legacy.grant, {
-      workspaceId: credential.workspaceId, personId: profile.identity.personId,
-      ownerPersonId: previous.personId, ownerPublicKey: previous.publicKey, ownerCertificates: previous.certificates,
-    })
+    let role: "owner" | "editor" | "visitor" | undefined
+    for (const issuer of ownerAuthorities(credential)) {
+      try {
+        role = await verifyWorkspaceGrant(legacy.grant, {
+          workspaceId: credential.workspaceId, personId: profile.identity.personId,
+          ownerPersonId: issuer.personId, ownerPublicKey: issuer.publicKey, ownerCertificates: issuer.certificates,
+        })
+        break
+      } catch {}
+    }
     if (role !== "editor") throw new Error("Legacy break-glass grant is not an editor grant")
     const deviceKey = await verifyDeviceChain({ personId: profile.identity.personId, publicKey: profile.identity.publicKey,
       deviceId: legacy.signed.signerKeyId, certificates: legacy.certificates })
@@ -833,7 +839,8 @@ export class DurableMesh {
       if (accepted.has(value.signature) || (value.payload?.epoch ?? 0) > credential.epoch) continue
       const authority = ownerAuthorities(credential).find(owner => owner.personId === value.payload?.fromOwnerPersonId)
       if (!authority) continue
-      const record = await verifyWorkspaceBreakGlassClaim(value, credential.workspaceId, authority, value.payload.epoch - 1)
+      const record = await verifyWorkspaceBreakGlassClaim(value, credential.workspaceId, authority,
+        value.payload.epoch - 1, ownerAuthorities(credential))
       accepted.set(record.signature, record)
     }
     if (hasConflictingBreakGlassClaims(ordered())) {
@@ -850,7 +857,8 @@ export class DurableMesh {
       if (!candidates.length) break
       const verified: WorkspaceBreakGlassClaim[] = []
       for (const value of candidates) {
-        const record = await verifyWorkspaceBreakGlassClaim(value, credential.workspaceId, authority, credential.epoch)
+        const record = await verifyWorkspaceBreakGlassClaim(value, credential.workspaceId, authority,
+          credential.epoch, ownerAuthorities(credential))
         if (revokedPersonIds(credential).has(record.payload.toOwnerPersonId)) throw new Error("New owner access is revoked")
         accepted.set(record.signature, record)
         verified.push(record)
