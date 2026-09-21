@@ -1,5 +1,6 @@
 import { type LocalProfile} from "../domain/identity"
-import { isMeshNetworkFailure, startMeshHeartbeat } from "@meta-uber/mesh-transport"
+import { isMeshNetworkFailure } from "@meta-uber/mesh-transport"
+import { BrowserMeshSessions } from "@meta-uber/mesh-runtime"
 import type { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { type WorkspaceMemberBundle} from "./meshRecords"
@@ -11,93 +12,45 @@ import { ownershipTransfers, successionPolicy, successionVotes, successionClaims
 import { DurableMeshDial } from "./durableMeshDial"
 
 export class DurableMeshSessions extends DurableMeshDial {
+  private readonly browserSessions = new BrowserMeshSessions<SyncConnection, LiveWorkspaceSync, LocalProfile>({
+    profile: this.options.getProfile,
+    deviceId: profile => profile.device.deviceId,
+    credential: workspaceId => this.store.getWorkspaceCredential(workspaceId),
+    create: input => {
+      const created = this.createMeshSession(input.connection, input.credential as WorkspaceMeshCredential,
+        input.workspaceId, input.deviceId, input.instanceId, input.profile, input.incrementalSupported,
+        input.connectionId, input.remotePersonId, input.ownerWorkspaceSupported, input.remoteEndpoint)
+      return { session: created.session, reset: created.incrementalEngine
+        ? () => created.incrementalEngine!.reset(input.workspaceId, input.deviceId) : undefined }
+    },
+    runtime: () => this.runtime(),
+    key: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
+    stopped: () => this.stopped,
+    trace: (event, detail, level) => this.trace(event, detail, level),
+    diagnosticCleared: () => {
+      if (!this.lastDiagnostic.startsWith("Workspace ")) {
+        this.lastDiagnostic = ""
+        this.options.onDiagnostic?.("")
+      }
+    },
+    currentRemoved: async entry => {
+      await this.refreshWorkspaceGossip(entry.workspaceId)
+      if (!this.stopped) queueMicrotask(() => { void this.publishAll() })
+      await this.notify()
+    },
+    notify: () => this.notify(),
+    publishRecovered: (key, entry) => this.publishRecoveredSession(key, entry as SessionEntry),
+    protocolFailure: (stage, error) => this.reportProtocolFailure(stage, error),
+    networkFailure: (key, error) => this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error)),
+  }, this.sessions)
+
   protected async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
     remotePersonId = "", ownerWorkspaceSupported = false, remoteEndpoint = "") {
-    const key = this.peerKey(workspaceId, deviceId, instanceId)
-    const profile = await this.options.getProfile()
-    const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential) { await connection.close(); return false }
-    // No await between choosing the winner and registering it: concurrent
-    // handshakes must observe the session installed by the previous continuation.
-    const previous = this.sessions.get(key)
-    const admission = this.runtime().admitSession({
-      key: this.runtimeSessionKey(workspaceId, deviceId, instanceId), connectionId,
-      remoteIssuedAt, remoteRouteSequence, direction,
-    }, preferred)
-    if (admission.decision !== "accepted") {
-      this.trace("session.rejected", { connectionId, peerId: deviceId.slice(0, 8), direction, reason: "duplicate direction" })
-      await connection.close()
-      return false
-    }
-    const { incrementalEngine, session } = this.createMeshSession(connection, credential, workspaceId, deviceId,
-      instanceId, profile, incrementalSupported, connectionId, remotePersonId, ownerWorkspaceSupported, remoteEndpoint)
-    let stopHeartbeat: (() => void) | undefined = undefined
-    let evicted = false
-    const entry: SessionEntry = {
-      workspaceId, deviceId, instanceId, endpoint: remoteEndpoint, remoteIssuedAt, remoteRouteSequence, direction,
-      runtimeGeneration: admission.generation,
-      connection, session, ownershipReceiptSupported,
-      evict: async cause => {
-        if (evicted) return
-        evicted = true
-        stopHeartbeat?.()
-        const removed = entry.runtimeGeneration === undefined ? connectionId : this.runtime().removeSession(
-          this.runtimeSessionKey(workspaceId, deviceId, instanceId), entry.runtimeGeneration,
-        )
-        const wasCurrent = removed === connectionId && this.sessions.get(key) === entry
-        if (wasCurrent) {
-          this.sessions.delete(key)
-          if (incrementalEngine) incrementalEngine.reset(workspaceId, deviceId)
-          await this.refreshWorkspaceGossip(workspaceId)
-        }
-        this.trace("session.closed", { connectionId, peerId: deviceId.slice(0, 8), wasCurrent, cause })
-        if (wasCurrent) {
-          if (!this.stopped) queueMicrotask(() => { void this.publishAll() })
-          await Promise.allSettled([this.notify(), session.close(), connection.close()])
-          return
-        }
-        await Promise.allSettled([session.close(), connection.close()])
-      },
-    }
-    this.sessions.set(key, entry)
-    this.trace("session.started", {
-      connectionId,
-      peerId: deviceId.slice(0, 8),
-      instanceId: instanceId.slice(0, 8),
-      workspaceId: workspaceId.slice(0, 8),
-      direction,
-      heartbeat: heartbeatSupported,
-      incremental: incrementalSupported,
-      replaced: Boolean(previous),
-    })
-    // A replacement transport session does not prove its document is valid.
-    // Keep a document rejection visible until that document later validates.
-    if (!this.lastDiagnostic.startsWith("Workspace ")) {
-      this.lastDiagnostic = ""
-      this.options.onDiagnostic?.("")
-    }
-    void previous?.evict("replaced")
-    // Local writes made while offline have no session to publish through. Replay
-    // them once this replacement is the current authenticated transport.
-    queueMicrotask(() => { void this.publishRecoveredSession(key, entry) })
-    stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
-        if (evicted) return
-        this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-        this.trace("session.heartbeat.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
-        this.reportProtocolFailure(`Heartbeat ${deviceId.slice(0, 6)}`, error)
-        void entry.evict("heartbeat failed")
-      }) : undefined
-    void session.done.catch(error => {
-      if (evicted) return
-      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-      this.trace("session.receive.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
-      this.reportProtocolFailure(`Receive ${deviceId.slice(0, 6)}`, error)
-    }).finally(() => entry.evict("receive loop ended"))
-    await this.notify()
-    return true
+    return this.browserSessions.install({ workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence,
+      direction, connection, heartbeatSupported, incrementalSupported, connectionId, ownershipReceiptSupported,
+      remotePersonId, ownerWorkspaceSupported, remoteEndpoint })
   }
 
   protected async publishRecoveredSession(key: string, entry: SessionEntry) {
@@ -142,32 +95,18 @@ export class DurableMeshSessions extends DurableMeshDial {
   }
 
   protected async publishAll() {
-    const byWorkspace = new Map<string, Array<[string, SessionEntry]>>()
-    for (const item of this.sessions.entries()) {
-      const entries = byWorkspace.get(item[1].workspaceId) ?? []
-      entries.push(item)
-      byWorkspace.set(item[1].workspaceId, entries)
-    }
-    await Promise.allSettled([...byWorkspace].map(async ([workspaceId, entries]) => {
+    await this.browserSessions.publishAll(async workspaceId => {
       try { await this.broadcastWorkspaceGossip(workspaceId) }
       catch (error) {
         this.trace("gossip.broadcast.failed", {
-          workspaceId: workspaceId.slice(0, 8),
-          reason: error instanceof Error ? error.message : String(error),
+          workspaceId: workspaceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error),
         }, "warn")
       }
-      // Gossip discovers neighbours. The authenticated mesh session delivers the
-      // document, and remains valid while gossip is rebuilding after a route swap.
-      await Promise.allSettled(entries.map(async ([key, entry]) => {
-        try {
-          await entry.session.publish()
-        } catch (error) {
-          this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-          this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
-          await entry.evict("publish failed")
-        }
-      }))
-    }))
+    }, async (key, entry, error) => {
+      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
+      this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+      await entry.evict("publish failed")
+    })
   }
 
   async views(workspaceId?: string): Promise<MeshPeerView[]> {
