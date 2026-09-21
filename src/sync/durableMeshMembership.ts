@@ -181,10 +181,10 @@ export abstract class DurableMeshMembership extends DurableMeshCredentials {
     initialCredential: WorkspaceMeshCredential,
     raw: WorkspaceBreakGlassClaim[],
   ): Promise<WorkspaceMeshCredential> {
-    return mergeBreakGlassClaims(this.breakGlassHost(), initialCredential, raw)
+    return mergeBreakGlassClaims<WorkspaceMeshCredential>(this.breakGlassHost(), initialCredential, raw)
   }
 
-  protected breakGlassHost(): BreakGlassHost {
+  protected breakGlassHost(): BreakGlassHost<WorkspaceMeshCredential> {
     return {
       getProfile: this.options.getProfile, claims: breakGlassClaims, catalog: credential => meshCatalog(credential),
       authorities: ownerAuthorities, revokedPeople: revokedPersonIds, conflict: hasConflictingBreakGlassClaims,
