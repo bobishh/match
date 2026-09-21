@@ -10,13 +10,13 @@ import {
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
-import { meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds } from "./durableMeshBase"
+import { meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, type MeshExport } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 export abstract class DurableMeshMembership extends DurableMeshCredentials {
   protected abstract mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect?: boolean): Promise<void>
   async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
-    const value = meshRustRuntime().state.validateMeshCatalog(raw) as import("./durableMeshBase").MeshExport
+    const value = meshRustRuntime().state.validateMeshCatalog(raw) as MeshExport
     let credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return
     credential = await this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? [])

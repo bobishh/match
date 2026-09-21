@@ -4,14 +4,13 @@ import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as netw
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { selectScopedNeighbors} from "@meta-uber/mesh-replication/gossip"
 import { defaultProofStore } from "../domain/proofs"
-import { decodePairingFrame, encodePairingFrame} from "@meta-uber/mesh-pairing"
 import {
   verifyWorkspaceMemberBundle, type VerifiedWorkspaceMember, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
   type WorkspaceBreakGlassClaim } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
-import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, meshCapabilities, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities } from "./durableMeshBase"
+import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export abstract class DurableMeshDial extends DurableMeshHandshake {
@@ -228,14 +227,10 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
     const request = this.validateHandshake({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
         ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
         breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: meshCapabilities() }, peer.workspaceId)
-    await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
-      new TextEncoder().encode(JSON.stringify(request))))
+        ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
+    await stream.send(this.handshakeCodec.encodeRequest(credential.transportSecret, request))
     await stream.closeSend()
-    const response = this.validateHandshake(
-      JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret))),
-      peer.workspaceId,
-    )
+    const response = this.handshakeCodec.readResponse(await stream.read(), credential.transportSecret, peer.workspaceId)
     return { response }
   }
 
@@ -259,6 +254,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
 
   protected outgoingConnectionResult(connection: SyncConnection, connectionId: string,
     verified: VerifiedWorkspaceMember, response: { ownerWorkspaceIds?: string[]; capabilities?: unknown }) {
+    const features = this.handshakeCodec.features(response.capabilities)
     return {
         connection,
         connectionId,
@@ -268,10 +264,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
         personId: verified.advertisement.payload.personId,
         endpoint: verified.advertisement.payload.endpoint,
         ownerWorkspaceIds: response.ownerWorkspaceIds,
-        ownerWorkspaceSupported: Array.isArray(response.capabilities) && response.capabilities.includes("owner-workspace-v1"),
-        ownershipReceiptSupported: Array.isArray(response.capabilities) && response.capabilities.includes("ownership-receipt-v1"),
-        heartbeatSupported: Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"),
-        incrementalSupported: Array.isArray(response.capabilities) && response.capabilities.includes("automerge-sync-v1"),
+        ...features,
     }
   }
 
