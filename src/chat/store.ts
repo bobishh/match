@@ -281,7 +281,7 @@ export class ChatStore {
       return Promise.reject(new Error("IndexedDB is not available in this environment"))
     }
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 1)
+      const request = indexedDB.open(this.dbName)
 
       request.onblocked = () => {
         reject(new Error(`IndexedDB open blocked for database ${this.dbName}`))

@@ -164,8 +164,10 @@ let dbPromise: Promise<IDBDatabase> | undefined
 const memory = new Map<string, Authorization[]>()
 function database() {
   return dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("match-write-authorizations-v1", 1)
-    request.onupgradeneeded = () => request.result.createObjectStore("records")
+    const request = indexedDB.open("match-write-authorizations-v1")
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("records")) request.result.createObjectStore("records")
+    }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })

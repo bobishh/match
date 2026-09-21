@@ -504,8 +504,10 @@ export function normalizeRecord(value: WorkspaceRecord | Workspace | undefined):
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, 1)
-    request.onupgradeneeded = () => request.result.createObjectStore(storeName)
+    const request = indexedDB.open(databaseName)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(storeName)) request.result.createObjectStore(storeName)
+    }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
