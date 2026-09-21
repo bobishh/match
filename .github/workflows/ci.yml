@@ -69,6 +69,7 @@ jobs:
           - scoped-delegated-owner
           - succession-named
           - succession-quorum
+          - succession-break-glass
     steps:
       - uses: actions/checkout@v7
         with:

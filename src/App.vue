@@ -343,6 +343,8 @@ const canClaimSuccession = computed(() => currentRole.value === "editor" && Bool
   !activeSuccession.value!.conflicted &&
   (activeSuccession.value!.successorPersonId === chat.personId.value ||
     (!activeSuccession.value!.successorPersonId && successionVotesForSelf.value >= activeSuccession.value!.quorum)))
+const canBreakGlassOwnership = computed(() => currentRole.value === "editor" && !activeSuccession.value &&
+  meshMembers.value.some(member => member.role === "owner" && !member.online))
 const transferringOwnership = ref("")
 
 async function transferWorkspaceOwnership(personId: string) {
@@ -376,6 +378,12 @@ async function claimWorkspaceSuccession() {
   peerAccessError.value = ""
   try { await sync.claimSuccession() }
   catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not claim ownership" }
+}
+
+async function breakGlassWorkspaceOwnership() {
+  peerAccessError.value = ""
+  try { await sync.breakGlassOwnership() }
+  catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not recover ownership" }
 }
 
 async function revokeWorkspacePeer(personId: string) {
@@ -1567,6 +1575,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       :current-role="currentRole"
       :succession="activeSuccession"
       :can-claim-succession="canClaimSuccession"
+      :can-break-glass-ownership="canBreakGlassOwnership"
       :can-manage-mesh="canManageAccess"
       :can-import="canImportWorkspace"
       :transferring-ownership="transferringOwnership"
@@ -1588,6 +1597,7 @@ async function handleCreateFieldOption(payload: { fieldId: string; title: string
       @set-successor="setWorkspaceSuccessor"
       @vote-successor="voteForWorkspaceSuccessor"
       @claim-succession="claimWorkspaceSuccession"
+      @break-glass-ownership="breakGlassWorkspaceOwnership"
       @request-enrollment="sync.requestEnrollment"
       :enrollment-device-name="sync.enrollmentDeviceName.value"
       @approve-device="sync.approveEnrollment"

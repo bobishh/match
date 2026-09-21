@@ -47,6 +47,7 @@ const props = defineProps<{
     conflicted: boolean
   }
   canClaimSuccession?: boolean
+  canBreakGlassOwnership?: boolean
   canManageMesh?: boolean
   canImport?: boolean
   transferringOwnership?: string
@@ -73,6 +74,7 @@ const emit = defineEmits<{
   (e: "setSuccessor", personId: string | null): void
   (e: "voteSuccessor", personId: string): void
   (e: "claimSuccession"): void
+  (e: "breakGlassOwnership"): void
   (e: "copy", url?: string): void
   (e: "requestEnrollment"): void
   (e: "approveDevice"): void
@@ -96,6 +98,7 @@ const selectedIds = computed(() => {
 const hasSelection = computed(() => selectedIds.value.length > 0)
 const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
+const confirmingRecovery = ref(false)
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
 const now = ref(Date.now())
@@ -244,6 +247,15 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <p v-if="!succession" class="dialog-copy">No recovery policy. Owner must enable editor quorum or name a successor.</p>
           <button v-if="canManageMesh && !succession" class="button" type="button" @click="emit('setSuccessor', null)">Enable editor quorum</button>
           <button v-if="canClaimSuccession && !succession?.conflicted" class="button button-danger" type="button" @click="emit('claimSuccession')">Claim ownership</button>
+          <button v-if="canBreakGlassOwnership && !confirmingRecovery" class="button button-danger" type="button" @click="confirmingRecovery = true">Recover orphaned ownership</button>
+          <section v-if="confirmingRecovery" class="mesh-member-action" role="region" aria-label="Confirm ownership recovery">
+            <strong>Recover orphaned ownership?</strong>
+            <p class="dialog-copy">This creates a new authority branch. Use only when the recorded owner identity is permanently unavailable.</p>
+            <div class="dialog-actions">
+              <button class="button button-danger" type="button" @click="emit('breakGlassOwnership'); confirmingRecovery = false">Make me owner</button>
+              <button class="button button-quiet" type="button" @click="confirmingRecovery = false">Cancel</button>
+            </div>
+          </section>
         </section>
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
         <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">

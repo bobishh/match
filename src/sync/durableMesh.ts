@@ -1,4 +1,4 @@
-import type { LocalProfile } from "../domain/identity"
+import { signEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO, startMeshHeartbeat } from "@meta-uber/mesh-transport"
@@ -152,7 +152,13 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 }
 
 type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
-  successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[] }
+  successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
+  breakGlassClaims?: Array<{
+    signed: SignedEnvelope<{ kind: "workspace-break-glass"; version: 1; workspaceId: string; fromOwnerPersonId: string
+      toOwnerPersonId: string; epoch: number; claimedAt: string }>
+    grant: WorkspaceGrant
+    certificates: DeviceCertificate[]
+  }> }
 const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1", "owner-workspace-v1"]
 
 function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
@@ -1026,6 +1032,68 @@ export class DurableMesh {
     const current = await this.store.getWorkspaceCredential(workspaceId)
     if (!current) throw new Error("Workspace mesh credential disappeared")
     await this.mergeOwnershipTransfers(current, [transfer])
+    await this.notify()
+    await this.publishAll()
+  }
+
+  async breakGlassOwnership(workspaceId: string): Promise<void> {
+    const profile = await this.options.getProfile()
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential) throw new Error("Workspace membership is unavailable")
+    if (credential.ownerPersonId === profile.identity.personId) return
+    if (successionPolicy(credential)) throw new Error("Use the configured ownership succession policy")
+    if (!profile.privateKeys.identityPrivateKey) throw new Error("This identity cannot own workspaces without its root key")
+    const ownerOnline = (await this.store.listPeers(workspaceId)).some(peer =>
+      peer.personId === credential.ownerPersonId && !peer.revokedAt && [...this.sessions.values()].some(session =>
+        session.workspaceId === workspaceId && session.deviceId === peer.deviceId))
+    if (ownerOnline) throw new Error("Workspace owner is online; use signed ownership transfer")
+    const grant = credential.localGrant as WorkspaceGrant | undefined
+    if (!grant || grant.payload.personId !== profile.identity.personId || grant.payload.role !== "editor") {
+      throw new Error("Only an editor can recover orphaned ownership")
+    }
+    let verified = false
+    for (const authority of ownerAuthorities(credential)) {
+      try {
+        await verifyWorkspaceGrant(grant, {
+          workspaceId, personId: profile.identity.personId, ownerPersonId: authority.personId,
+          ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates,
+        })
+        verified = true
+        break
+      } catch {}
+    }
+    if (!verified) throw new Error("Editor grant cannot be verified")
+    const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
+    const epoch = credential.epoch + 1
+    const claimedAt = new Date().toISOString()
+    const signed = await signEnvelope(profile.privateKeys.devicePrivateKey, {
+      kind: "workspace-break-glass" as const, version: 1 as const, workspaceId,
+      fromOwnerPersonId: credential.ownerPersonId, toOwnerPersonId: profile.identity.personId,
+      epoch, claimedAt,
+    }, profile.device.deviceId)
+    const previous: WorkspaceAuthority = { personId: credential.ownerPersonId,
+      publicKey: credential.ownerPublicKey, certificates: credential.ownerCertificates as DeviceCertificate[] }
+    const history = [...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
+    if (!history.some(owner => owner.personId === previous.personId)) history.push(previous)
+    const catalog = meshCatalog(credential)
+    const { localGrant: _editorGrant, ...withoutGrant } = credential
+    const next: WorkspaceMeshCredential = {
+      ...withoutGrant,
+      ownerPersonId: profile.identity.personId,
+      ownerPublicKey: profile.identity.publicKey,
+      ownerCertificates: certificates,
+      ownerHistory: history,
+      epoch,
+      updatedAt: claimedAt,
+      catalog: {
+        ...catalog,
+        successionPolicy: undefined,
+        successionVotes: [],
+        breakGlassClaims: [...(catalog.breakGlassClaims ?? []), { signed, grant, certificates }],
+      },
+    }
+    await this.store.transferWorkspaceCredential(credential.ownerPersonId, next)
+    if (this.node) await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, profile)
     await this.notify()
     await this.publishAll()
   }

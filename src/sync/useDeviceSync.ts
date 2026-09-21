@@ -288,6 +288,13 @@ export function useDeviceSync({
     ownershipRevision.value += 1
   }
 
+  async function breakGlassOwnership() {
+    const workspaceId = activeWorkspaceId?.()
+    if (!workspaceId || !durableMesh) throw new Error("No active workspace")
+    await durableMesh.breakGlassOwnership(workspaceId)
+    ownershipRevision.value += 1
+  }
+
   async function leaveMesh() {
     const workspaceId = activeWorkspaceId?.()
     if (!workspaceId || !durableMesh) throw new Error("No active workspace")
@@ -1101,6 +1108,7 @@ export function useDeviceSync({
     setSuccessor,
     voteForSuccessor,
     claimSuccession,
+    breakGlassOwnership,
     leaveMesh,
     copyInvite,
     close,
