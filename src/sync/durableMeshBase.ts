@@ -156,18 +156,6 @@ function optionalArray(value: unknown, maximum = Number.MAX_SAFE_INTEGER): boole
   return value === undefined || boundedArray(value, maximum)
 }
 
-function fitsMeshCatalog(value: MeshExport): boolean {
-  return Array.isArray(value.peers) && value.peers.length <= 512 && Array.isArray(value.revocations) && value.revocations.length <= 512 &&
-    optionalArray(value.ownershipTransfers, 32) && optionalArray(value.breakGlassClaims, 32) &&
-    optionalArray(value.successionVotes, MAX_SUCCESSION_EDITORS) && optionalArray(value.successionClaims, 32)
-}
-
-export function isMeshExport(value: unknown): value is MeshExport {
-  const catalog = value as MeshExport
-  return Boolean(catalog && catalog.version === 1 && fitsMeshCatalog(catalog) &&
-    new TextEncoder().encode(JSON.stringify(catalog)).byteLength <= 8 * 1024 * 1024)
-}
-
 export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
   const item = value as Partial<MeshWorkspaceEnvelope>
   const required = item.version === 1 && nonEmptyText(item.workspaceId) && nonEmptyText(item.ownerPersonId) &&
