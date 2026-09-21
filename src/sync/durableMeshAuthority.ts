@@ -1,3 +1,4 @@
+import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
@@ -14,13 +15,13 @@ import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, succe
 import { DurableMeshMembership } from "./durableMeshMembership"
 
 export abstract class DurableMeshAuthority extends DurableMeshMembership {
-  private readonly authority = new BrowserMeshAuthority<WorkspaceMeshCredential, { personId: string }, WorkspaceRevocation>({
-    profile: async () => ({ personId: (await this.options.getProfile()).identity.personId }),
-    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
-    createRevocation: async (_profile, workspaceId, personId, epoch) => {
+  private readonly authority = new BrowserMeshAuthority<WorkspaceMeshCredential, { personId: string; profile: LocalProfile }, WorkspaceRevocation>({
+    profile: async () => {
       const profile = await this.options.getProfile()
-      return createWorkspaceRevocation(profile, workspaceId, personId, epoch)
+      return { personId: profile.identity.personId, profile }
     },
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    createRevocation: (owner, workspaceId, personId, epoch) => createWorkspaceRevocation(owner.profile, workspaceId, personId, epoch),
     epoch: credential => credential.epoch,
     mergeRevocations: (credential, records, disconnect) => this.mergeRevocations(credential, records, disconnect),
     refreshSuccessionPolicy: workspaceId => this.refreshSuccessionPolicy(workspaceId),
