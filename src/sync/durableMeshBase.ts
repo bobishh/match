@@ -244,7 +244,6 @@ export abstract class DurableMeshBase {
   protected gossipDrivers = new Map<string, BrowserGossipDriver>()
   protected gossipRefreshes = new Map<string, Promise<void>>()
   protected gossipNeighborCounts = new Map<string, number>()
-  protected gossipPeerKeys = new Map<string, string>()
   protected connecting = new Set<string>()
   protected pendingIncomingConnections = 0
   protected runSequence = 0

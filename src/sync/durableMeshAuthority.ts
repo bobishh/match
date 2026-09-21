@@ -244,7 +244,7 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
     gossip?.close()
     this.gossipDrivers.delete(workspaceId)
     this.gossipNeighborCounts.delete(workspaceId)
-    this.gossipPeerKeys.delete(workspaceId)
+    this.runtimeState?.clearGossip(workspaceId)
     await this.store.removeWorkspaceMeshData(workspaceId)
     await defaultProofStore.removeWorkspaceGrants(workspaceId)
     this.lastDiagnostic = ""

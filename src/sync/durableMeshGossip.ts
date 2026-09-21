@@ -27,15 +27,14 @@ export abstract class DurableMeshGossip extends DurableMeshBase {
     const endpoints = [...new Set([...this.sessions.values()]
       .filter(entry => entry.workspaceId === workspaceId && entry.endpoint)
       .map(entry => entry.endpoint))].sort()
-    const peerKey = endpoints.join("\u0000")
+    const topology = this.runtime().setGossipEndpoints(workspaceId, endpoints)
     if (!this.stopped && node && endpoints.length &&
-      this.gossipDrivers.has(workspaceId) && this.gossipPeerKeys.get(workspaceId) === peerKey) return
+      this.gossipDrivers.has(workspaceId) && !topology.changed) return
     const previous = this.gossipDrivers.get(workspaceId)
     previous?.close()
     this.gossipDrivers.delete(workspaceId)
     this.gossipNeighborCounts.delete(workspaceId)
-    this.gossipPeerKeys.delete(workspaceId)
-    if (this.stopped || !node || !endpoints.length) return
+    if (this.stopped || !node || !topology.endpoints.length) return
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) return
     const topic = this.gossipTopic(workspaceId)
@@ -59,13 +58,11 @@ export abstract class DurableMeshGossip extends DurableMeshBase {
     })
     this.gossipDrivers.set(workspaceId, driver)
     this.gossipNeighborCounts.set(workspaceId, 0)
-    this.gossipPeerKeys.set(workspaceId, peerKey)
     try {
-      await driver.joinTopic(topic, endpoints)
-      this.trace("gossip.started", { workspaceId: workspaceId.slice(0, 8), peers: endpoints.length })
+      await driver.joinTopic(topic, topology.endpoints)
+      this.trace("gossip.started", { workspaceId: workspaceId.slice(0, 8), peers: topology.endpoints.length })
     } catch (error) {
       if (this.gossipDrivers.get(workspaceId) === driver) this.gossipDrivers.delete(workspaceId)
-      this.gossipPeerKeys.delete(workspaceId)
       driver.close()
       this.trace("gossip.start.failed", {
         workspaceId: workspaceId.slice(0, 8),
