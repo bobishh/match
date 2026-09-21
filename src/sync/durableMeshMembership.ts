@@ -1,12 +1,12 @@
 import { adaptVerifiedWorkspaceAdvertisement} from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
+import { mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import type { DeviceCertificate } from "../domain/model"
 import {
-  verifyWorkspaceMemberBundle, verifyWorkspaceOwnershipTransfer,
-  type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
+  verifyWorkspaceMemberBundle,
+  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
   type WorkspaceBreakGlassClaim } from "./meshRecords"
-import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
@@ -83,86 +83,17 @@ export abstract class DurableMeshMembership extends DurableMeshCredentials {
     initialCredential: WorkspaceMeshCredential,
     raw: WorkspaceOwnershipTransfer[],
   ): Promise<WorkspaceMeshCredential> {
-    let credential = initialCredential
-    const stored = ownershipTransfers(credential)
-    const known = new Map(stored.map(record => [record.signature, record]))
-    for (const record of raw) if (record?.signature) known.set(record.signature, record)
-    const accepted = new Map(stored.map(record => [record.signature, record]))
-    const ordered = () => [...accepted.values()].sort((a, b) =>
-      a.payload.epoch - b.payload.epoch || a.signature.localeCompare(b.signature))
-    const persistConflict = async () => {
-      const next = { ...credential, catalog: { ...meshCatalog(credential), ownershipTransfers: ordered() } }
-      await this.store.putWorkspaceCredential(next)
-      credential = next
-    }
-
-    await this.retainHistoricalTransfers(credential, known, accepted)
-    if (hasConflictingOwnershipTransfers(ordered())) {
-      await persistConflict()
-      return credential
-    }
-
-    while (true) {
-      const candidates = this.nextOwnershipTransfers(credential, known)
-      if (!candidates.length) break
-      const verified = await this.verifyOwnershipTransfers(credential, candidates, accepted)
-      const plan = meshRustRuntime().state.planOwnershipTransitions([...accepted.values()],
-        credential.ownerPersonId, credential.epoch) as { records: WorkspaceOwnershipTransfer[]; conflicted: boolean }
-      if (plan.conflicted || !plan.records.length) {
-        await persistConflict()
-        return credential
-      }
-      credential = await this.adoptOwnershipTransfer(credential, plan.records[0]!, ordered())
-    }
-    return credential
+    return mergeOwnershipTransfers<WorkspaceMeshCredential>(this.ownershipTransferHost(), initialCredential, raw)
   }
 
-  protected async retainHistoricalTransfers(credential: WorkspaceMeshCredential, known: Map<string, WorkspaceOwnershipTransfer>,
-    accepted: Map<string, WorkspaceOwnershipTransfer>): Promise<void> {
-    for (const value of known.values()) {
-      if (accepted.has(value.signature) || (value.payload?.epoch ?? 0) > credential.epoch) continue
-      const authority = ownerAuthorities(credential).find(owner => owner.personId === value.payload?.fromOwnerPersonId)
-      if (!authority) continue
-      const record = await verifyWorkspaceOwnershipTransfer(value, credential.workspaceId, authority, value.payload.epoch - 1)
-      accepted.set(record.signature, record)
+  protected ownershipTransferHost(): OwnershipTransferHost<WorkspaceMeshCredential> {
+    return {
+      getProfile: this.options.getProfile, transfers: ownershipTransfers, catalog: credential => meshCatalog(credential),
+      authorities: ownerAuthorities, revokedPeople: revokedPersonIds,
+      putCredential: credential => this.store.putWorkspaceCredential(credential),
+      transferCredential: (previousOwner, credential) => this.store.transferWorkspaceCredential(previousOwner, credential),
+      updateTransferredPeers: (credential, payload) => this.updateTransferredPeers(credential, payload),
     }
-  }
-
-  protected nextOwnershipTransfers(credential: WorkspaceMeshCredential, known: Map<string, WorkspaceOwnershipTransfer>): WorkspaceOwnershipTransfer[] {
-    return [...known.values()].filter(value => value.payload?.epoch === credential.epoch + 1 &&
-      value.payload.fromOwnerPersonId === credential.ownerPersonId).sort((a, b) => a.signature.localeCompare(b.signature))
-  }
-
-  protected async verifyOwnershipTransfers(credential: WorkspaceMeshCredential, candidates: WorkspaceOwnershipTransfer[],
-    accepted: Map<string, WorkspaceOwnershipTransfer>): Promise<WorkspaceOwnershipTransfer[]> {
-    const authority: WorkspaceAuthority = { personId: credential.ownerPersonId, publicKey: credential.ownerPublicKey,
-      certificates: credential.ownerCertificates as DeviceCertificate[] }
-    const verified: WorkspaceOwnershipTransfer[] = []
-    for (const value of candidates) {
-      const record = await verifyWorkspaceOwnershipTransfer(value, credential.workspaceId, authority, credential.epoch)
-      if (revokedPersonIds(credential).has(record.payload.toOwnerPersonId)) throw new Error("New owner access is revoked")
-      accepted.set(record.signature, record)
-      verified.push(record)
-    }
-    return verified
-  }
-
-  protected async adoptOwnershipTransfer(credential: WorkspaceMeshCredential, record: WorkspaceOwnershipTransfer,
-    transfers: WorkspaceOwnershipTransfer[]): Promise<WorkspaceMeshCredential> {
-    const p = record.payload
-    const authority = { personId: credential.ownerPersonId, publicKey: credential.ownerPublicKey,
-      certificates: credential.ownerCertificates as DeviceCertificate[] }
-    const history = [...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
-    if (!history.some(owner => owner.personId === authority.personId)) history.push(authority)
-    const profile = await this.options.getProfile()
-    const localGrant = profile.identity.personId === p.toOwnerPersonId ? p.toOwnerGrant :
-      profile.identity.personId === p.fromOwnerPersonId ? p.formerOwnerGrant : credential.localGrant
-    const next = { ...credential, ownerPersonId: p.toOwnerPersonId, ownerPublicKey: p.toOwnerPublicKey,
-      ownerCertificates: p.toOwnerCertificates, ownerHistory: history, localGrant, epoch: p.epoch, updatedAt: p.transferredAt,
-      catalog: { ...meshCatalog(credential), ownershipTransfers: transfers, successionPolicy: undefined, successionVotes: [] } }
-    await this.store.transferWorkspaceCredential(credential.ownerPersonId, next)
-    await this.updateTransferredPeers(next, p)
-    return next
   }
 
   protected async updateTransferredPeers(credential: WorkspaceMeshCredential, payload: WorkspaceOwnershipTransfer["payload"]): Promise<void> {
