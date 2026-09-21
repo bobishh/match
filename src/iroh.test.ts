@@ -137,19 +137,37 @@ describe("Iroh gossip and blobs support in match", () => {
     const engine1 = new WasmGossipEngine(peer1)
     const engine2 = new WasmGossipEngine(peer2)
 
-    const topicHash1 = engine1.joinTopic("workspace-sync", [])
-    const topicHash2 = engine2.joinTopic("workspace-sync", [])
-    expect(topicHash1).toBe(topicHash2)
+    const joined1 = engine1.joinTopic("workspace-sync", [peer2])
+    const joined2 = engine2.joinTopic("workspace-sync", [peer1])
+    expect(joined1.topicId).toBe(joined2.topicId)
+    const engines = new Map([[peer1, engine1], [peer2, engine2]])
+    const deliveries: Uint8Array[] = []
+    const drive = (initial: Array<{ sender: string; step: any }>) => {
+      const queue = [...initial]
+      let iterations = 0
+      while (queue.length) {
+        expect(++iterations).toBeLessThan(1_000)
+        const { sender, step } = queue.shift()!
+        deliveries.push(...step.deliveries.map((delivery: { content: Uint8Array }) => delivery.content))
+        for (const send of step.sends) {
+          const target = engines.get(send.peer)
+          expect(target).toBeDefined()
+          queue.push({ sender: send.peer, step: target!.handleMessage(sender, send.packet) })
+        }
+      }
+    }
+    drive([{ sender: peer1, step: joined1 }, { sender: peer2, step: joined2 }])
 
     const payload = new TextEncoder().encode("entity-change-notice")
-    const packet = engine1.broadcast("workspace-sync", payload)
-    expect(packet.byteLength).toBeGreaterThan(0)
+    const broadcast = engine1.broadcast("workspace-sync", payload)
+    expect(broadcast.sends.length).toBeGreaterThan(0)
+    const packet = broadcast.sends[0].packet
+    drive([{ sender: peer1, step: broadcast }])
 
-    const received = engine2.handleMessage(peer1, packet)
-    expect(received).toEqual(payload)
+    expect(deliveries).toContainEqual(payload)
 
-    // Duplicate message delivery returns undefined
+    // Duplicate message delivery has no application event.
     const duplicate = engine2.handleMessage(peer1, packet)
-    expect(duplicate).toBeUndefined()
+    expect(duplicate.deliveries).toEqual([])
   })
 })
