@@ -142,7 +142,6 @@ export class DurableMeshSessions extends DurableMeshDial {
   }
 
   protected async publishAll() {
-    console.info("[match.publish]", this.sessions.size)
     const byWorkspace = new Map<string, Array<[string, SessionEntry]>>()
     for (const item of this.sessions.entries()) {
       const entries = byWorkspace.get(item[1].workspaceId) ?? []
