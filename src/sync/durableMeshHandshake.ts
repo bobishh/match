@@ -1,7 +1,7 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import type { WorkspaceGrant } from "../domain/model"
-import { MeshHandshakeCodec, type MeshHandshakePayload } from "@meta-uber/mesh-runtime"
+import { BrowserMeshHandshake, MeshHandshakeCodec, type MeshHandshakePayload } from "@meta-uber/mesh-runtime"
 import { createPeerAdvertisement,
   verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
@@ -28,9 +28,40 @@ type InstallSessionArguments = [
   remoteEndpoint?: string,
 ]
 
+type IncomingPeer = {
+  deviceId: string
+  instanceId: string
+  issuedAt: string
+  routeSequence?: number
+  personId: string
+  endpoint: string
+}
+
 export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
   protected readonly handshakeCodec = new MeshHandshakeCodec()
+  private readonly browserHandshake = new BrowserMeshHandshake<WorkspaceMeshCredential, IncomingPeer>({
+    credentials: () => this.store.listWorkspaceCredentials(),
+    secret: credential => credential.transportSecret,
+    workspaceId: credential => credential.workspaceId,
+    mergeAuthority: (credential, request) => this.mergeIncomingAuthority(credential, request),
+    verifyPeer: (credential, bundle) => this.verifyIncomingPeer(credential, bundle),
+    revoked: (credential, personId) => revokedPersonIds(credential).has(personId),
+    revocations: credential => revocations(credential),
+    ownBundle: credential => this.ownBundle(credential),
+    response: (credential, remotePersonId) => this.incomingResponse(credential, remotePersonId),
+    putVerifiedBundle: (credential, bundle) => this.putVerifiedBundle(credential, bundle),
+    install: ({ credential, remote, connection, features, connectionId }) => this.installSession(
+      credential.workspaceId, remote.deviceId, remote.instanceId, remote.issuedAt, remote.routeSequence,
+      "incoming", connection as SyncConnection, features.heartbeatSupported, features.incrementalSupported,
+      connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported, remote.endpoint),
+    afterInstalled: ({ credential, remote, request, connection, features }) => this.afterIncomingInstall(
+      credential, remote, request.ownerWorkspaceIds, connection as SyncConnection, features.ownerWorkspaceSupported),
+    trace: (event, detail, level) => this.trace(event, detail, level),
+    failed: (stage, error) => this.reportProtocolFailure(stage, error),
+  }, this.handshakeCodec)
+
   protected abstract installSession(...args: InstallSessionArguments): Promise<boolean>
+
   async acceptOnInvitationNode(connection: SyncConnection, stream: DuplexStream, frame: Uint8Array) {
     await this.acceptConnection(connection, undefined, { stream, frame }, this.connectionId("incoming"))
     const entry = [...this.sessions.values()].find(item => item.connection === connection)
@@ -43,37 +74,7 @@ export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
 
   protected async acceptConnection(connection: SyncConnection, signal?: AbortSignal,
     initial?: { stream: DuplexStream; frame: Uint8Array }, connectionId = this.connectionId("incoming")) {
-    try {
-      const handshake = await this.readIncomingHandshake(connection, initial, connectionId)
-      if (await this.rejectRevokedHandshake(connection, handshake)) return
-      await this.finishIncomingHandshake(connection, signal, connectionId, handshake)
-    } catch (error) {
-      this.trace("handshake.incoming.failed", {
-        connectionId,
-        reason: error instanceof Error ? error.message : String(error),
-      }, "warn")
-      this.reportProtocolFailure("Incoming handshake", error)
-      await connection.close()
-    }
-  }
-
-  protected async readIncomingHandshake(connection: SyncConnection, initial: { stream: DuplexStream; frame: Uint8Array } | undefined,
-    connectionId: string) {
-    this.trace("handshake.incoming.started", { connectionId })
-    const stream = initial?.stream ?? await connection.acceptStream()
-    const frame = initial?.frame ?? await stream.read()
-    const header = this.handshakeCodec.inspect(frame)
-    if (header.type !== "mesh-handshake-request") throw new Error("Unsupported mesh handshake")
-    let credential = (await this.store.listWorkspaceCredentials()).find(item => item.transportSecret === header.secret)
-    if (!credential) throw new Error("Unknown mesh credential")
-    const request = this.handshakeCodec.readRequest(frame, credential.transportSecret, credential.workspaceId)
-    credential = await this.mergeIncomingAuthority(credential, request)
-    const remote = await verifyWorkspaceMemberBundle(request.peer, { workspaceId: credential.workspaceId,
-      ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
-      ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
-    this.trace("handshake.incoming.verified", { connectionId, peerId: remote.advertisement.payload.deviceId.slice(0, 8),
-      workspaceId: credential.workspaceId.slice(0, 8) })
-    return { stream, credential, request, remote }
+    await this.browserHandshake.accept(connection, initial, connectionId, signal)
   }
 
   protected async mergeIncomingAuthority(credential: WorkspaceMeshCredential, request: {
@@ -86,47 +87,29 @@ export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
     return await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
   }
 
-  protected async rejectRevokedHandshake(connection: SyncConnection, handshake: Awaited<ReturnType<DurableMeshHandshake["readIncomingHandshake"]>>): Promise<boolean> {
-    const { credential, remote, stream } = handshake
-    if (!revokedPersonIds(credential).has(remote.advertisement.payload.personId)) return false
-    await stream.send(this.handshakeCodec.encodeResponse(credential.transportSecret, this.validateHandshake({
-      workspaceId: credential.workspaceId, peer: await this.ownBundle(credential), revocations: revocations(credential),
-    }, credential.workspaceId)))
-    await stream.closeSend()
-    const timeout = setTimeout(() => { void connection.close() }, 10_000)
-    try { await connection.acceptStream() } finally { clearTimeout(timeout); await connection.close() }
-    return true
+  protected async verifyIncomingPeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle): Promise<IncomingPeer> {
+    const remote = await verifyWorkspaceMemberBundle(bundle, { workspaceId: credential.workspaceId,
+      ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
+      ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
+    const payload = remote.advertisement.payload
+    return { deviceId: payload.deviceId, instanceId: payload.instanceId ?? "legacy", issuedAt: payload.issuedAt,
+      routeSequence: payload.routeSequence, personId: payload.personId, endpoint: payload.endpoint }
   }
 
-  protected async finishIncomingHandshake(connection: SyncConnection, signal: AbortSignal | undefined, connectionId: string,
-    handshake: Awaited<ReturnType<DurableMeshHandshake["readIncomingHandshake"]>>): Promise<void> {
-    const { credential, remote, request, stream } = handshake
-    await this.putVerifiedBundle(credential, request.peer)
-    if (signal?.aborted) return void connection.close()
-    const features = this.handshakeCodec.features(request.capabilities)
-    const installed = await this.installSession(credential.workspaceId, remote.advertisement.payload.deviceId,
-      remote.advertisement.payload.instanceId ?? "legacy", remote.advertisement.payload.issuedAt,
-      remote.advertisement.payload.routeSequence, "incoming", connection, features.heartbeatSupported,
-      features.incrementalSupported, connectionId, features.ownershipReceiptSupported,
-      remote.advertisement.payload.personId, features.ownerWorkspaceSupported, remote.advertisement.payload.endpoint)
-    if (!installed) return
-    await this.sendIncomingHandshakeResponse(stream, credential, remote.advertisement.payload.personId)
-    await this.refreshWorkspaceGossip(credential.workspaceId)
-    if (features.ownerWorkspaceSupported) await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret,
-      request.ownerWorkspaceIds, remote.advertisement.payload.personId)
-  }
-
-  protected async sendIncomingHandshakeResponse(stream: DuplexStream, credential: WorkspaceMeshCredential,
-    remotePersonId: string): Promise<void> {
+  protected async incomingResponse(credential: WorkspaceMeshCredential, remotePersonId: string): Promise<MeshHandshakePayload> {
     const profile = await this.options.getProfile()
     const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId && remotePersonId === profile.identity.personId
       ? await this.ownerWorkspaceIds(profile) : undefined
-    const response = this.validateHandshake({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
-        ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
-        breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, credential.workspaceId)
-    await stream.send(this.handshakeCodec.encodeResponse(credential.transportSecret, response))
-    await stream.closeSend()
+    return this.validateHandshake({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
+      ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
+      breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, credential.workspaceId)
+  }
+
+  protected async afterIncomingInstall(credential: WorkspaceMeshCredential, remote: IncomingPeer,
+    ownerWorkspaceIds: string[] | undefined, connection: SyncConnection, ownerWorkspaceSupported: boolean): Promise<void> {
+    await this.refreshWorkspaceGossip(credential.workspaceId)
+    if (ownerWorkspaceSupported) await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret, ownerWorkspaceIds, remote.personId)
   }
 
   protected validateHandshake(raw: unknown, workspaceId: string): MeshHandshakePayload {
