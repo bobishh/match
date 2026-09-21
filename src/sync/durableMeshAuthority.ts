@@ -100,20 +100,19 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
   }
 
   protected async mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect = true) {
-    const current = new Map(revocations(credential).map(record => [record.payload.personId, record]))
+    const current = [...revocations(credential)]
     for (const value of raw) {
       const record = await this.verifyRevocation(credential, value)
       if (record.payload.personId === credential.ownerPersonId) continue
-      const previous = current.get(record.payload.personId)
-      if (!previous || record.payload.epoch > previous.payload.epoch) current.set(record.payload.personId, record)
+      current.push(record)
     }
-    const merged = [...current.values()].sort((a, b) => a.payload.personId.localeCompare(b.payload.personId))
+    const merged = meshRustRuntime().state.canonicalRevocations(current) as WorkspaceRevocation[]
     const epoch = Math.max(credential.epoch, ...merged.map(record => record.payload.epoch))
     await this.store.putWorkspaceCredential({ ...credential, epoch, updatedAt: new Date().toISOString(),
       catalog: { ...meshCatalog(credential), revocations: merged } })
-    await this.applyRevocationsToPeers(credential, current, disconnect)
+    await this.applyRevocationsToPeers(credential, new Map(merged.map(record => [record.payload.personId, record])), disconnect)
     const localPersonId = (credential.localGrant as WorkspaceGrant | undefined)?.payload.personId
-    if (localPersonId && current.has(localPersonId)) throw new Error("Workspace access revoked")
+    if (localPersonId && merged.some(record => record.payload.personId === localPersonId)) throw new Error("Workspace access revoked")
   }
 
   async revokePerson(workspaceId: string, personId: string): Promise<void> {
