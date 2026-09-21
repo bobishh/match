@@ -3,7 +3,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
-import { activeCredentialsForProfile as selectActiveCredentials, credentialBelongsToProfile as credentialMatchesProfile } from "@meta-uber/mesh-runtime"
+import { activeCredentialsForProfile as selectActiveCredentials, BrowserMeshCredentials, credentialBelongsToProfile as credentialMatchesProfile } from "@meta-uber/mesh-runtime"
 import { createPeerAdvertisement, verifyDeviceChain, verifyWorkspaceGrant,
   createWorkspaceBreakGlassClaim, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
@@ -29,6 +29,14 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       })
     },
   }
+  private readonly ownerCredentials = new BrowserMeshCredentials<WorkspaceMeshCredential, { personId: string; publicKey: string; profile: LocalProfile }, DeviceCertificate>({
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    putCredential: credential => this.store.putWorkspaceCredential(credential),
+    createCredential: (workspaceId, owner, certificates) => ({ version: 1, workspaceId, ownerPersonId: owner.personId,
+      ownerPublicKey: owner.publicKey, ownerCertificates: certificates, transportSecret: createPairingSecret(), epoch: 1, updatedAt: new Date().toISOString() }),
+    refreshOwnerCertificates: (credential, owner, certificates) => this.refreshOwnerCertificates(credential, owner.profile, certificates),
+  })
+
   protected abstract refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
     endpoint: string, certificates: DeviceCertificate[]): Promise<WorkspaceMemberBundle | undefined>
   protected abstract mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect?: boolean): Promise<void>
@@ -132,28 +140,10 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     await this.notify()
   }
 
-  private async ensureOwnerCredential(
-    workspaceId: string,
-    profile: LocalProfile,
-    certificates: DeviceCertificate[],
-  ): Promise<WorkspaceMeshCredential> {
-    const existing = await this.store.getWorkspaceCredential(workspaceId)
-    if (existing && existing.ownerPersonId !== profile.identity.personId)
-      throw new Error("Only the workspace owner can invite peers")
-    if (existing)
-      return this.refreshOwnerCertificates(existing, profile, certificates)
-    const credential: WorkspaceMeshCredential = {
-      version: 1,
-      workspaceId,
-      ownerPersonId: profile.identity.personId,
-      ownerPublicKey: profile.identity.publicKey,
-      ownerCertificates: certificates,
-      transportSecret: createPairingSecret(),
-      epoch: 1,
-      updatedAt: new Date().toISOString(),
-    }
-    await this.store.putWorkspaceCredential(credential)
-    return credential
+  private async ensureOwnerCredential(workspaceId: string, profile: LocalProfile, certificates: DeviceCertificate[]): Promise<WorkspaceMeshCredential> {
+    return this.ownerCredentials.ensureOwnerCredential(workspaceId, {
+      personId: profile.identity.personId, publicKey: profile.identity.publicKey, profile,
+    }, certificates)
   }
 
   protected async ownerWorkspaceIds(profile: LocalProfile) {
