@@ -6,7 +6,6 @@ import { isMeshNetworkFailure as isNetworkFailure } from "@meta-uber/mesh-transp
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
-import type { BrowserGossipDriver} from "@meta-uber/mesh-replication/gossip"
 import type { defaultProofStore } from "../domain/proofs"
 import {
   MAX_SUCCESSION_EDITORS,
@@ -220,9 +219,6 @@ export abstract class DurableMeshBase {
   protected acceptor: SyncAcceptor | undefined
   protected sessions = new Map<string, SessionEntry>()
   protected syncEngines = new Map<string, AutomergeAntiEntropy>()
-  protected gossipDrivers = new Map<string, BrowserGossipDriver>()
-  protected gossipRefreshes = new Map<string, Promise<void>>()
-  protected gossipNeighborCounts = new Map<string, number>()
   protected pendingIncomingConnections = 0
   protected runSequence = 0
   protected currentRunId = 0

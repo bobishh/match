@@ -225,12 +225,6 @@ describe("DurableMesh peer catalog gossip", () => {
       "2026-09-16T09:00:00.000Z", 1, "incoming", oldConnection,
       false, false, "incoming-test", false, "", false, "remote-endpoint")
     expect(internal.sessions.size).toBe(1)
-    internal.gossipDrivers.set("workspace-1", {
-      broadcast: vi.fn(async () => {}),
-      activeNeighbors: vi.fn(() => ["remote-endpoint"]),
-      close: vi.fn(),
-    })
-
     const publish = internal.publishAll()
     rejectSnapshot(new Error("publish failed"))
     await publish
@@ -262,10 +256,6 @@ describe("DurableMesh peer catalog gossip", () => {
       session: { publish, close: async () => {}, done: new Promise<never>(() => {}) },
       evict: async () => {},
     })
-    internal.gossipDrivers.set("workspace", {
-      broadcast: vi.fn(async () => {}), activeNeighbors: vi.fn(() => []), close: vi.fn(),
-    })
-
     await internal.publishAll()
 
     expect(publish).toHaveBeenCalledOnce()

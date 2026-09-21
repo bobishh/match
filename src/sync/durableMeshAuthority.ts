@@ -238,10 +238,7 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
       if (entry.workspaceId !== workspaceId) continue
       await entry.evict("workspace left")
     }
-    const gossip = this.gossipDrivers.get(workspaceId)
-    gossip?.close()
-    this.gossipDrivers.delete(workspaceId)
-    this.gossipNeighborCounts.delete(workspaceId)
+    this.gossip.close(workspaceId)
     this.runtimeState?.clearGossip(workspaceId)
     await this.store.removeWorkspaceMeshData(workspaceId)
     await defaultProofStore.removeWorkspaceGrants(workspaceId)
