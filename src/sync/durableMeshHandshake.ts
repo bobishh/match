@@ -2,13 +2,14 @@ import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import type { WorkspaceGrant } from "../domain/model"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createPeerAdvertisement,
-  verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
+  verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
   type WorkspaceBreakGlassClaim } from "./meshRecords"
 import { type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection, DuplexStream } from "./transport"
-import { DurableMeshBase, meshCapabilities, assertRequiredMeshCapabilities, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revokedPersonIds } from "./durableMeshBase"
+import { DurableMeshBase, meshCapabilities, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revokedPersonIds } from "./durableMeshBase"
 import { DurableMeshLifecycle } from "./durableMeshLifecycle"
 
 type InstallSessionArguments = [
@@ -27,6 +28,19 @@ type InstallSessionArguments = [
   ownerWorkspaceSupported?: boolean,
   remoteEndpoint?: string,
 ]
+
+export type MeshHandshakePayload = {
+  workspaceId: string
+  peer: WorkspaceMemberBundle
+  revocations: WorkspaceRevocation[]
+  ownershipTransfers: WorkspaceOwnershipTransfer[]
+  breakGlassClaims: WorkspaceBreakGlassClaim[]
+  successionPolicy?: WorkspaceSuccessionPolicy
+  successionVotes: WorkspaceSuccessionVote[]
+  successionClaims: WorkspaceSuccessionClaim[]
+  ownerWorkspaceIds?: string[]
+  capabilities: string[]
+}
 
 export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
   protected abstract installSession(...args: InstallSessionArguments): Promise<boolean>
@@ -65,9 +79,10 @@ export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
     if (header.type !== "mesh-handshake-request") throw new Error("Unsupported mesh handshake")
     let credential = (await this.store.listWorkspaceCredentials()).find(item => item.transportSecret === header.secret)
     if (!credential) throw new Error("Unknown mesh credential")
-    const request = JSON.parse(new TextDecoder().decode(decodePairingFrame(frame, "mesh-handshake-request", credential.transportSecret)))
-    if (request.workspaceId !== credential.workspaceId) throw new Error("Wrong mesh workspace")
-    assertRequiredMeshCapabilities(request.capabilities)
+    const request = this.validateHandshake(
+      JSON.parse(new TextDecoder().decode(decodePairingFrame(frame, "mesh-handshake-request", credential.transportSecret))),
+      credential.workspaceId,
+    )
     credential = await this.mergeIncomingAuthority(credential, request)
     const remote = await verifyWorkspaceMemberBundle(request.peer, { workspaceId: credential.workspaceId,
       ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
@@ -123,12 +138,17 @@ export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
     const profile = await this.options.getProfile()
     const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId && remotePersonId === profile.identity.personId
       ? await this.ownerWorkspaceIds(profile) : undefined
-    await stream.send(encodePairingFrame("mesh-handshake-response", credential.transportSecret,
-      new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
+    const response = this.validateHandshake({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
         ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
         breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: meshCapabilities() }))))
+        ownerWorkspaceIds, capabilities: meshCapabilities() }, credential.workspaceId)
+    await stream.send(encodePairingFrame("mesh-handshake-response", credential.transportSecret,
+      new TextEncoder().encode(JSON.stringify(response))))
     await stream.closeSend()
+  }
+
+  protected validateHandshake(raw: unknown, workspaceId: string): MeshHandshakePayload {
+    return meshRustRuntime().state.validateMeshHandshake(raw, workspaceId) as MeshHandshakePayload
   }
 
   protected async ownBundle(credential: WorkspaceMeshCredential) {

@@ -11,7 +11,7 @@ import {
   type WorkspaceBreakGlassClaim } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
-import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, meshCapabilities, assertRequiredMeshCapabilities, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities } from "./durableMeshBase"
+import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, meshCapabilities, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export abstract class DurableMeshDial extends DurableMeshHandshake {
@@ -228,14 +228,17 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
     const profile = await this.options.getProfile()
     const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId && peer.personId === profile.identity.personId
       ? await this.ownerWorkspaceIds(profile) : undefined
-    await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
-      new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
+    const request = this.validateHandshake({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
         ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
         breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: meshCapabilities() }))))
+        ownerWorkspaceIds, capabilities: meshCapabilities() }, peer.workspaceId)
+    await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
+      new TextEncoder().encode(JSON.stringify(request))))
     await stream.closeSend()
-    const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
-    assertRequiredMeshCapabilities(response.capabilities)
+    const response = this.validateHandshake(
+      JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret))),
+      peer.workspaceId,
+    )
     return { response }
   }
 
