@@ -1,8 +1,8 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
+import { BrowserMeshDialScheduler } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
-import { selectScopedNeighbors} from "@meta-uber/mesh-replication/gossip"
 import { defaultProofStore } from "../domain/proofs"
 import {
   verifyWorkspaceMemberBundle, type VerifiedWorkspaceMember, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
@@ -14,6 +14,18 @@ import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export abstract class DurableMeshDial extends DurableMeshHandshake {
+  private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
+    peers: () => this.peerInstances(),
+    hasSession: (workspaceId, deviceId) => this.hasDeviceSession(workspaceId, deviceId),
+    deviceKey: (workspaceId, deviceId) => this.deviceKey(workspaceId, deviceId),
+    peerKey: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
+    routeFailures: key => this.routeFailures(key),
+    retryAt: (key, fallback) => this.runtimeState?.reconnectState(key)?.retryAtMs ?? fallback,
+    routeAttemptActive: key => this.runtime().routeAttemptActive(key),
+    dial: (routes, signal) => this.dialDevice(routes, signal),
+    onRetries: retries => this.options.onRetryChange?.(retries),
+  })
+
   protected hasDeviceSession(workspaceId: string, deviceId: string) {
     return this.runtimeState?.connectedDevices(workspaceId).includes(deviceId) ?? false
   }
@@ -48,58 +60,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
   }
 
   protected async scheduleDials(localDeviceId: string, signal: AbortSignal): Promise<void> {
-    const devices = this.groupDialRoutes(await this.selectDialCandidates(localDeviceId))
-    const retryAtByWorkspace: Record<string, number> = {}
-    for (const [key, routes] of devices) this.scheduleDeviceDial(key, routes, signal, retryAtByWorkspace)
-    this.options.onRetryChange?.(retryAtByWorkspace)
-  }
-
-  protected async selectDialCandidates(localDeviceId: string): Promise<WorkspacePeerRecord[]> {
-    const candidates = (await this.peerInstances()).filter(peer => !peer.revokedAt && peer.deviceId !== localDeviceId)
-    const selected = new Set<string>()
-    for (const workspaceId of new Set(candidates.map(peer => peer.workspaceId))) {
-      const deviceIds = selectScopedNeighbors({ localDeviceId, candidates: candidates.filter(peer => peer.workspaceId === workspaceId)
-        .map(peer => ({ deviceId: peer.deviceId,
-          health: -this.routeFailures(this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)) })) })
-      for (const deviceId of deviceIds) selected.add(`${workspaceId}:${deviceId}`)
-    }
-    return candidates.filter(peer => selected.has(`${peer.workspaceId}:${peer.deviceId}`))
-  }
-
-  protected groupDialRoutes(peers: WorkspacePeerRecord[]): Map<string, WorkspacePeerRecord[]> {
-    const devices = new Map<string, WorkspacePeerRecord[]>()
-    for (const peer of peers) {
-      const key = this.deviceKey(peer.workspaceId, peer.deviceId)
-      const routes = devices.get(key) ?? []
-      routes.push(peer)
-      devices.set(key, routes)
-    }
-    return devices
-  }
-
-  protected scheduleDeviceDial(key: string, routes: WorkspacePeerRecord[], signal: AbortSignal,
-    retryAtByWorkspace: Record<string, number>): void {
-    const first = routes[0]!
-    if (signal.aborted || this.hasDeviceSession(first.workspaceId, first.deviceId)) return
-    const now = Date.now()
-    if (this.runtime().routeAttemptActive(key)) return this.setRetry(retryAtByWorkspace, first.workspaceId, now + 1_000)
-    const eligible = routes.filter(peer => this.routeReady(peer, now))
-    if (eligible.length) return void this.dialDevice(eligible, signal)
-    const nextAttempt = Math.min(...routes.map(peer => this.nextRouteAttempt(peer, now)))
-    this.setRetry(retryAtByWorkspace, first.workspaceId, nextAttempt)
-  }
-
-  protected routeReady(peer: WorkspacePeerRecord, now: number): boolean {
-    return now >= this.nextRouteAttempt(peer, now)
-  }
-
-  protected nextRouteAttempt(peer: WorkspacePeerRecord, fallback: number): number {
-    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
-    return this.runtimeState?.reconnectState(key)?.retryAtMs ?? fallback
-  }
-
-  protected setRetry(retries: Record<string, number>, workspaceId: string, retryAt: number): void {
-    retries[workspaceId] = Math.min(retries[workspaceId] ?? Infinity, retryAt)
+    await this.dialScheduler.schedule(localDeviceId, signal)
   }
 
   protected waitForDialTick(signal: AbortSignal) {
