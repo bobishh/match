@@ -1,13 +1,11 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
-import { BrowserMeshDialScheduler } from "@meta-uber/mesh-runtime"
+import { BrowserMeshDialScheduler, BrowserMeshOutgoingHandshake } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { defaultProofStore } from "../domain/proofs"
 import {
-  verifyWorkspaceMemberBundle, type VerifiedWorkspaceMember, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
-  type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
-  type WorkspaceBreakGlassClaim } from "./meshRecords"
+  verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities } from "./durableMeshBase"
@@ -25,6 +23,18 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
     dial: (routes, signal) => this.dialDevice(routes, signal),
     onRetries: retries => this.options.onRetryChange?.(retries),
   })
+
+  private readonly outgoingHandshake = new BrowserMeshOutgoingHandshake<WorkspaceMeshCredential, {
+    deviceId: string; instanceId: string; issuedAt: string; routeSequence?: number; personId: string; endpoint: string
+  }, WorkspacePeerRecord>({
+    secret: credential => credential.transportSecret,
+    workspaceId: credential => credential.workspaceId,
+    request: (credential, peer) => this.outgoingRequest(credential, peer),
+    mergeAuthority: (credential, response) => this.mergeIncomingAuthority(credential, response),
+    verifyPeer: (credential, bundle) => this.verifyOutgoingHandshakePeer(credential, bundle),
+    putVerifiedBundle: (credential, bundle) => this.putVerifiedBundle(credential, bundle),
+    trace: (event, detail, level) => this.trace(event, detail, level),
+  }, this.handshakeCodec)
 
   protected hasDeviceSession(workspaceId: string, deviceId: string) {
     return this.runtimeState?.connectedDevices(workspaceId).includes(deviceId) ?? false
@@ -135,13 +145,13 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
       let credential = await this.requireDialCredential(peer)
       connection = await this.openPeerConnection(peer, route, key, connectionId)
       const handshake = await this.exchangeOutgoingHandshake(connection, peer, credential, connectionId)
-      credential = await this.mergeOutgoingAuthority(credential, handshake.response)
-      const verified = await this.verifyOutgoingPeer(peer, credential, handshake.response, signal, routeSignal, connectionId)
+      credential = handshake.credential
       if (Array.isArray(handshake.response.revocations)) await this.mergeRevocations(credential, handshake.response.revocations)
-      await this.putVerifiedBundle(credential, handshake.response.peer)
       this.throwIfDialCancelled(signal, routeSignal)
       this.clearRouteReconnect(key)
-      const result = this.outgoingConnectionResult(connection, connectionId, verified, handshake.response)
+      const result = { connection, connectionId, instanceId: handshake.remote.instanceId, issuedAt: handshake.remote.issuedAt,
+        routeSequence: handshake.remote.routeSequence, personId: handshake.remote.personId, endpoint: handshake.remote.endpoint,
+        ownerWorkspaceIds: handshake.response.ownerWorkspaceIds, ...handshake.features }
       connection = undefined
       return result
     } catch (error) {
@@ -171,53 +181,26 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
 
   protected async exchangeOutgoingHandshake(connection: SyncConnection, peer: WorkspacePeerRecord,
     credential: WorkspaceMeshCredential, connectionId: string) {
-    const stream = await connection.openStream()
-    this.trace("handshake.outgoing.started", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+    return this.outgoingHandshake.exchange(connection, credential, connectionId, peer.deviceId, peer)
+  }
+
+  protected async outgoingRequest(credential: WorkspaceMeshCredential, peer: WorkspacePeerRecord) {
     const profile = await this.options.getProfile()
     const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId && peer.personId === profile.identity.personId
       ? await this.ownerWorkspaceIds(profile) : undefined
-    const request = this.validateHandshake({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
-        ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
-        breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
-    await stream.send(this.handshakeCodec.encodeRequest(credential.transportSecret, request))
-    await stream.closeSend()
-    const response = this.handshakeCodec.readResponse(await stream.read(), credential.transportSecret, peer.workspaceId)
-    return { response }
+    return this.validateHandshake({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
+      ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
+      breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
   }
 
-  protected async mergeOutgoingAuthority(credential: WorkspaceMeshCredential, response: {
-    ownershipTransfers?: WorkspaceOwnershipTransfer[]; breakGlassClaims?: WorkspaceBreakGlassClaim[];
-    successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
-  }): Promise<WorkspaceMeshCredential> {
-    return this.mergeIncomingAuthority(credential, response)
-  }
-
-  protected async verifyOutgoingPeer(peer: WorkspacePeerRecord, credential: WorkspaceMeshCredential, response: { peer: WorkspaceMemberBundle },
-    signal: AbortSignal, routeSignal: AbortSignal, connectionId: string) {
-    const verified = await verifyWorkspaceMemberBundle(response.peer, { workspaceId: credential.workspaceId,
+  protected async verifyOutgoingHandshakePeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle) {
+    const verified = await verifyWorkspaceMemberBundle(bundle, { workspaceId: credential.workspaceId,
       ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
-    this.throwIfDialCancelled(signal, routeSignal)
-    if (verified.advertisement.payload.deviceId !== peer.deviceId) throw new Error("Unexpected mesh peer")
-    this.trace("handshake.outgoing.verified", { connectionId, peerId: peer.deviceId.slice(0, 8) })
-    return verified
-  }
-
-  protected outgoingConnectionResult(connection: SyncConnection, connectionId: string,
-    verified: VerifiedWorkspaceMember, response: { ownerWorkspaceIds?: string[]; capabilities?: unknown }) {
-    const features = this.handshakeCodec.features(response.capabilities)
-    return {
-        connection,
-        connectionId,
-        instanceId: verified.advertisement.payload.instanceId ?? "legacy",
-        issuedAt: verified.advertisement.payload.issuedAt,
-        routeSequence: verified.advertisement.payload.routeSequence,
-        personId: verified.advertisement.payload.personId,
-        endpoint: verified.advertisement.payload.endpoint,
-        ownerWorkspaceIds: response.ownerWorkspaceIds,
-        ...features,
-    }
+    const payload = verified.advertisement.payload
+    return { deviceId: payload.deviceId, instanceId: payload.instanceId ?? "legacy", issuedAt: payload.issuedAt,
+      routeSequence: payload.routeSequence, personId: payload.personId, endpoint: payload.endpoint }
   }
 
   protected async handleDialFailure(error: unknown, connection: SyncConnection | undefined, peer: WorkspacePeerRecord, key: string,
