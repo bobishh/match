@@ -1,4 +1,5 @@
 import * as Automerge from "@automerge/automerge/slim"
+import type { WorkspaceDocumentV2 } from "./model"
 
 export interface HistoryEntry {
   hash: string
@@ -13,7 +14,7 @@ export interface HistoryEntry {
   message?: string | null
 }
 
-export function projectDocumentHistory(doc: Automerge.Doc<any>): HistoryEntry[] {
+export function projectDocumentHistory(doc: Automerge.Doc<WorkspaceDocumentV2>): HistoryEntry[] {
   const history = Automerge.getHistory(doc)
   const entries: HistoryEntry[] = []
 
@@ -28,10 +29,10 @@ export function projectDocumentHistory(doc: Automerge.Doc<any>): HistoryEntry[] 
 
     if (change.message) {
       try {
-        const meta = JSON.parse(change.message)
-        if (meta && typeof meta === "object" && meta.version === 1) {
+        const meta: unknown = JSON.parse(change.message)
+        if (isTransactionMetadata(meta)) {
           action = meta.action || "change"
-          entityIds = Array.isArray(meta.entityIds) ? meta.entityIds : []
+          entityIds = meta.entityIds
           personId = meta.personId
           deviceId = meta.deviceId
           authorLabel = personId
@@ -67,7 +68,16 @@ export function projectDocumentHistory(doc: Automerge.Doc<any>): HistoryEntry[] 
   return entries
 }
 
-export function projectEntityHistory(doc: Automerge.Doc<any>, entityId: string): HistoryEntry[] {
+function isTransactionMetadata(value: unknown): value is { version: 1; action: string; entityIds: string[]; personId?: string; deviceId?: string } {
+  if (!value || typeof value !== "object") return false
+  const candidate = value as Record<string, unknown>
+  return candidate.version === 1 && typeof candidate.action === "string"
+    && Array.isArray(candidate.entityIds) && candidate.entityIds.every(id => typeof id === "string")
+    && (candidate.personId === undefined || typeof candidate.personId === "string")
+    && (candidate.deviceId === undefined || typeof candidate.deviceId === "string")
+}
+
+export function projectEntityHistory(doc: Automerge.Doc<WorkspaceDocumentV2>, entityId: string): HistoryEntry[] {
   const allHistory = projectDocumentHistory(doc)
   return allHistory.filter((entry) => entry.entityIds.includes(entityId))
 }

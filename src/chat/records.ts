@@ -42,57 +42,124 @@ async function grantSignedBy(grant: WorkspaceGrant, authority: WorkspaceAuthorit
   }
 }
 
+function invalidRecord(message = "Invalid chat record"): never {
+  throw new Error(message)
+}
+
+function validatePayloadIdentity(record: ChatRecord, payload: ChatPayload, workspaceId: string): void {
+  if (!["chat-message", "chat-profile", "chat-typing"].includes(payload.kind)) return invalidRecord()
+  if (payload.workspaceId !== workspaceId) return invalidRecord()
+  if (typeof payload.personId !== "string" || typeof payload.deviceId !== "string") return invalidRecord()
+  if (typeof payload.id !== "string" || !payload.id.startsWith(`${payload.deviceId}:`) || payload.id.length > 160) return invalidRecord()
+  if (typeof payload.text !== "string" || typeof payload.createdAt !== "string") return invalidRecord()
+  if (record.signed.signerKeyId !== payload.deviceId) return invalidRecord()
+}
+
+function validatePayloadTimestamp(payload: ChatPayload): void {
+  if (!Number.isFinite(Date.parse(payload.createdAt))) return invalidRecord()
+  if (new Date(payload.createdAt).toISOString() !== payload.createdAt) return invalidRecord()
+  if (Date.parse(payload.createdAt) > Date.now() + 300_000) return invalidRecord()
+  if (!Number.isSafeInteger(payload.revision) || payload.revision < 0) return invalidRecord()
+}
+
+function validateRecordShape(record: ChatRecord, workspaceId: string): ChatPayload {
+  const payload = record?.signed?.payload
+  if (!payload || payload.version !== 1) return invalidRecord()
+  validatePayloadIdentity(record, payload, workspaceId)
+  validatePayloadTimestamp(payload)
+  return payload
+}
+
+function validatePayloadText(payload: ChatPayload): void {
+  if (payload.kind === "chat-profile") {
+    if (validateDisplayName(payload.text) || normalizeDisplayName(payload.text) !== payload.text) {
+      invalidRecord("Invalid display name")
+    }
+    return
+  }
+  if (payload.kind === "chat-typing") {
+    if (!["typing", "idle"].includes(payload.text)) invalidRecord("Invalid typing presence")
+    return
+  }
+  if (!payload.text.trim() || [...payload.text].length > 8000) {
+    invalidRecord("Message must contain 1–8,000 characters")
+  }
+}
+
+function workspaceOwners(
+  storedAuthority: Awaited<ReturnType<typeof peerStore.getWorkspaceAuthority>>,
+  ownerPersonId: string,
+  recordAuthority: ChatAuthority,
+): WorkspaceAuthority[] {
+  if (!storedAuthority) return [{ personId: ownerPersonId, publicKey: recordAuthority.publicKey, certificates: recordAuthority.certificates }]
+  return [{
+    personId: storedAuthority.ownerPersonId,
+    publicKey: storedAuthority.ownerPublicKey,
+    certificates: storedAuthority.ownerCertificates as DeviceCertificate[],
+  }, ...((storedAuthority.ownerHistory ?? []) as WorkspaceAuthority[])]
+}
+
+async function storedWorkspaceAuthority(grantWorkspaceId: string) {
+  if (typeof indexedDB === "undefined") return null
+  return await peerStore.getWorkspaceCredential(grantWorkspaceId) ?? peerStore.getWorkspaceAuthority(grantWorkspaceId)
+}
+
+function isCurrentOwner(
+  payload: ChatPayload,
+  signingOwner: WorkspaceAuthority,
+  storedAuthority: Awaited<ReturnType<typeof storedWorkspaceAuthority>>,
+  ownerPersonId: string,
+  recordAuthority: ChatAuthority,
+): boolean {
+  const currentOwnerId = storedAuthority?.ownerPersonId ?? ownerPersonId
+  return payload.personId === currentOwnerId && signingOwner.personId === currentOwnerId && !recordAuthority.grant
+}
+
+async function assertGrantPermission(
+  payload: ChatPayload,
+  grantWorkspaceId: string,
+  grant: WorkspaceGrant | undefined,
+  owners: WorkspaceAuthority[],
+  recordAuthority: ChatAuthority,
+): Promise<void> {
+  const revoked = typeof indexedDB !== "undefined" &&
+    (await peerStore.listPeers(grantWorkspaceId)).some(peer => peer.personId === payload.personId && peer.revokedAt)
+  if (revoked) invalidRecord("Workspace access revoked")
+  if (!grant && owners.slice(1).some(owner => owner.personId === payload.personId)) return
+  if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1) {
+    invalidRecord("No permission to write to this chat")
+  }
+  if (grant.payload.personId !== payload.personId || grant.payload.workspaceId !== grantWorkspaceId) {
+    invalidRecord("No permission to write to this chat")
+  }
+  const capability = payload.kind === "chat-profile" ? "chat.profile" : "chat.write"
+  if (!canWorkspace(grant.payload.role, capability)) invalidRecord("No permission to write to this chat")
+  for (const owner of owners) {
+    const certificates = owner.publicKey === recordAuthority.publicKey
+      ? [...new Map([...owner.certificates, ...recordAuthority.certificates].map(cert => [cert.signature, cert])).values()]
+      : owner.certificates
+    if (await grantSignedBy(grant, { ...owner, certificates })) return
+  }
+  invalidRecord("Invalid workspace grant")
+}
+
 export async function verifyChatRecord(value: unknown, workspaceId: string, ownerPersonId: string, grantWorkspaceId = workspaceId): Promise<ChatRecord> {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 32768) throw new Error("Chat record too large")
   const record = value as ChatRecord
-  const p = record?.signed?.payload
-  if (!p || p.version !== 1 || !["chat-message", "chat-profile", "chat-typing"].includes(p.kind) ||
-      p.workspaceId !== workspaceId || typeof p.personId !== "string" || typeof p.deviceId !== "string" ||
-      typeof p.id !== "string" || !p.id.startsWith(`${p.deviceId}:`) || p.id.length > 160 ||
-      typeof p.text !== "string" || typeof p.createdAt !== "string" ||
-      !Number.isFinite(Date.parse(p.createdAt)) || new Date(p.createdAt).toISOString() !== p.createdAt ||
-      Date.parse(p.createdAt) > Date.now() + 300_000 || !Number.isSafeInteger(p.revision) || p.revision < 0 ||
-      record.signed.signerKeyId !== p.deviceId) throw new Error("Invalid chat record")
-  if (p.kind === "chat-profile") {
-    if (validateDisplayName(p.text) || normalizeDisplayName(p.text) !== p.text) throw new Error("Invalid display name")
-  } else if (p.kind === "chat-typing") {
-    if (!["typing", "idle"].includes(p.text)) throw new Error("Invalid typing presence")
-  } else if (!p.text.trim() || [...p.text].length > 8000) throw new Error("Message must contain 1–8,000 characters")
-  const key = await verifyDeviceChain({ personId: p.personId, publicKey: record.publicKey,
-    deviceId: p.deviceId, certificates: record.certificates })
+  const payload = validateRecordShape(record, workspaceId)
+  validatePayloadText(payload)
+  const key = await verifyDeviceChain({ personId: payload.personId, publicKey: record.publicKey,
+    deviceId: payload.deviceId, certificates: record.certificates })
   if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid message signature")
   const recordAuthority = record.authority
   if (!recordAuthority) throw new Error("Invalid workspace authority")
-  const credential = typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceCredential(grantWorkspaceId)
-  const storedAuthority = credential ?? (typeof indexedDB === "undefined" ? null : await peerStore.getWorkspaceAuthority(grantWorkspaceId))
-  const owners: WorkspaceAuthority[] = storedAuthority ? [{ personId: storedAuthority.ownerPersonId,
-    publicKey: storedAuthority.ownerPublicKey, certificates: storedAuthority.ownerCertificates as DeviceCertificate[] },
-    ...((storedAuthority.ownerHistory ?? []) as WorkspaceAuthority[])] : [{ personId: ownerPersonId,
-    publicKey: recordAuthority.publicKey, certificates: recordAuthority.certificates }]
+  const storedAuthority = await storedWorkspaceAuthority(grantWorkspaceId)
+  const owners = workspaceOwners(storedAuthority, ownerPersonId, recordAuthority)
   const authorityPersonId = await keyId(recordAuthority.publicKey)
   const signingOwner = owners.find(owner => owner.personId === authorityPersonId && owner.publicKey === recordAuthority.publicKey)
   if (!signingOwner) throw new Error("Invalid workspace authority")
-  const actsAsCurrentOwner = p.personId === (storedAuthority?.ownerPersonId ?? ownerPersonId) &&
-    signingOwner.personId === (storedAuthority?.ownerPersonId ?? ownerPersonId) && !recordAuthority.grant
-  if (!actsAsCurrentOwner) {
-    if (typeof indexedDB !== "undefined" && (await peerStore.listPeers(grantWorkspaceId)).some(peer => peer.personId === p.personId && peer.revokedAt)) {
-      throw new Error("Workspace access revoked")
-    }
-    const grant = recordAuthority.grant
-    // A former owner produced grant-less records while it still held authority. Chat has no owner-only mutations.
-    if (!grant && owners.slice(1).some(owner => owner.personId === p.personId)) return record
-    if (!grant || grant.payload.kind !== "workspace-grant" || grant.payload.version !== 1 ||
-        grant.payload.personId !== p.personId || grant.payload.workspaceId !== grantWorkspaceId ||
-        !canWorkspace(grant.payload.role, p.kind === "chat-profile" ? "chat.profile" : "chat.write")) throw new Error("No permission to write to this chat")
-    let validGrant = false
-    for (const owner of owners) {
-      const certificates = owner.publicKey === recordAuthority.publicKey
-        ? [...new Map([...owner.certificates, ...recordAuthority.certificates].map(cert => [cert.signature, cert])).values()]
-        : owner.certificates
-      if (await grantSignedBy(grant, { ...owner, certificates })) { validGrant = true; break }
-    }
-    if (!validGrant) throw new Error("Invalid workspace grant")
-  }
+  const actsAsCurrentOwner = isCurrentOwner(payload, signingOwner, storedAuthority, ownerPersonId, recordAuthority)
+  if (!actsAsCurrentOwner) await assertGrantPermission(payload, grantWorkspaceId, recordAuthority.grant, owners, recordAuthority)
   return record
 }
 

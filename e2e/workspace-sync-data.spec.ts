@@ -3,6 +3,10 @@ import { createJobSearchWorkspace, ensureJobSearchWorkspace } from "./support/wo
 
 async function addLead(page: Page, company: string) {
   await ensureJobSearchWorkspace(page)
+  await addLeadToActiveWorkspace(page, company)
+}
+
+async function addLeadToActiveWorkspace(page: Page, company: string) {
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
   await page.getByLabel("Company *").fill(company)
   await page.getByLabel("Role *").fill("Engineer")
@@ -108,7 +112,7 @@ test("Given both devices have independent populated workspaces, when joining, th
     const guest = await context.newPage()
     await guest.goto("/")
     await createJobSearchWorkspace(guest, "Guest jobs")
-    await addLead(guest, "Guest local card")
+    await addLeadToActiveWorkspace(guest, "Guest local card")
     await guest.goto(invite)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Accept and join" }).click()
@@ -120,10 +124,10 @@ test("Given both devices have independent populated workspaces, when joining, th
     await expect(guest.getByRole("button", { name: "Open Guest local card — Engineer" })).toHaveCount(0)
     await guest.getByRole("button", { name: "Open workspaces" }).click()
     const workspaces = guest.getByRole("dialog", { name: "Workspaces" })
-    await expect(workspaces.getByRole("button", { name: /^jobs/ })).toBeVisible()
-    await expect(workspaces.getByRole("button", { name: /^Guest jobs/ })).toBeVisible()
+    await expect(workspaces.getByRole("button", { name: /^jobs(?: Active)?$/ })).toHaveCount(1)
+    await expect(workspaces.getByRole("button", { name: "Guest jobs", exact: true })).toBeVisible()
     await expect(workspaces.getByText(/\(local\)/)).toHaveCount(0)
-    await workspaces.getByRole("button", { name: /^Guest jobs/ }).click()
+    await workspaces.getByRole("button", { name: "Guest jobs", exact: true }).click()
     await expect(guest.getByRole("button", { name: "Open Guest local card — Engineer" })).toBeVisible()
     await expect(guest.getByRole("button", { name: "Open Host workspace card — Engineer" })).toHaveCount(0)
   } finally {
@@ -145,10 +149,10 @@ test("Given a storage failure on the receiving device, when joining, then it sho
     await guest.goto(invite)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await expect(dialog.getByRole("button", { name: "Accept and join" })).toBeVisible()
-    await guest.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
     await dialog.getByRole("button", { name: "Accept and join" }).click()
-    await page.getByLabel("Participant role").selectOption("editor")
     await expect(dialog.getByRole("status")).toHaveText("Waiting for owner approval, then receiving workspaces… Keep both devices open.")
+    await guest.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await page.getByLabel("Participant role").selectOption("editor")
     await page.getByRole("button", { name: "Approve access" }).click()
     await expect(dialog.getByRole("alert")).toContainText(/Storage failure/i, { timeout: 25_000 })
     await expect(dialog.getByText(/Connected to/)).toHaveCount(0)
@@ -211,10 +215,13 @@ test("Given three workspaces, when sharing A and B while viewing Private, then o
 
 test("Given a sender without mesh support, when joining, then request an update before importing its items", async ({ browser, page }) => {
   test.setTimeout(45_000)
-  await page.route("**/src/sync/useDeviceSync.ts", async route => {
+  await page.route("**/src/sync/deviceSyncHostController.ts", async route => {
     const response = await route.fetch()
     const source = await response.text()
-    const legacy = source.replace(/meshWorkspaces: await durableMesh\?\.invitationPayload\([^\n]+/, "meshWorkspaces: undefined,")
+    const legacy = source.replace(
+      /meshWorkspaces: await runtime\.context\.durableMesh\?\.invitationPayload\([^\n]+/,
+      "meshWorkspaces: undefined,",
+    )
     expect(legacy).not.toBe(source)
     await route.fulfill({ response, body: legacy })
   })

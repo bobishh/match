@@ -1,272 +1,68 @@
-import type {
-  Board,
-  Column,
-  FieldDefinition,
-  WorkspaceDocumentV2,
-  WorkspaceEntity,
-} from "./model"
+import type { Board, Column, FieldDefinition, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
 
-export function createWorkspaceDoc(
-  id: string,
-  title: string,
-  ownerPersonId: string,
-  presetKey: "job-search" | "blank",
-  nowIso = new Date().toISOString()
-): WorkspaceDocumentV2 {
+type Preset = "job-search" | "blank"
+type SeedContext = { boardId: string; nowIso: string; entities: Record<string, WorkspaceEntity>; bindings: Record<string, string> }
+type ColumnSeed = { key: string; title: string; archive?: true }
+type FieldSeed = { key: string; title: string; valueType: FieldDefinition["valueType"]; required?: boolean; min?: number; max?: number; options?: Array<[string, string]> }
+
+export function createWorkspaceDoc(id: string, title: string, ownerPersonId: string, presetKey: Preset, nowIso = new Date().toISOString()): WorkspaceDocumentV2 {
   const boardId = crypto.randomUUID()
-  const entities: Record<string, WorkspaceEntity> = {}
-  const bindings: Record<string, string> = {}
-
-  if (presetKey === "blank") {
-    const columns = [
-      { key: "column.todo", title: "To do", rank: "0/1" },
-      { key: "column.doing", title: "Doing", rank: "1/1" },
-      { key: "column.done", title: "Done", rank: "2/1" },
-    ]
-
-    for (const col of columns) {
-      const colId = crypto.randomUUID()
-      bindings[col.key] = colId
-      const colEntity: Column = {
-        id: colId,
-        kind: "column",
-        title: col.title,
-        placement: { parentId: boardId, rank: col.rank },
-        displayHint: "normal",
-        deleted: false,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      }
-      entities[colId] = colEntity
-    }
-  } else if (presetKey === "job-search") {
-    const columns = [
-      { key: "status.lead", title: "Lead", rank: "0/1", displayHint: "normal" as const },
-      { key: "status.applied", title: "Applied", rank: "1/1", displayHint: "normal" as const },
-      { key: "status.interview", title: "Interview", rank: "2/1", displayHint: "normal" as const },
-      { key: "status.rejected", title: "Rejected", rank: "3/1", displayHint: "normal" as const },
-      { key: "status.offer", title: "Offer", rank: "4/1", displayHint: "normal" as const },
-      { key: "status.archived", title: "Archive", rank: "5/1", displayHint: "collapsed" as const },
-    ]
-
-    for (const col of columns) {
-      const colId = crypto.randomUUID()
-      bindings[col.key] = colId
-      const colEntity: Column = {
-        id: colId,
-        kind: "column",
-        title: col.title,
-        placement: { parentId: boardId, rank: col.rank },
-        displayHint: col.displayHint,
-        deleted: false,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      }
-      if (col.key === "status.archived") colEntity.archive = true
-      entities[colId] = colEntity
-    }
-
-    // Seed fields
-    const companyId = crypto.randomUUID()
-    bindings["field.company"] = companyId
-    entities[companyId] = {
-      id: companyId,
-      kind: "field",
-      title: "Company",
-      placement: { parentId: boardId, rank: "0/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: true,
-      valueType: "text",
-    }
-
-    const roleId = crypto.randomUUID()
-    bindings["field.role"] = roleId
-    entities[roleId] = {
-      id: roleId,
-      kind: "field",
-      title: "Role",
-      placement: { parentId: boardId, rank: "1/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: true,
-      valueType: "text",
-    }
-
-    const urlId = crypto.randomUUID()
-    bindings["field.url"] = urlId
-    entities[urlId] = {
-      id: urlId,
-      kind: "field",
-      title: "URL",
-      placement: { parentId: boardId, rank: "2/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "url",
-    }
-
-    const locId = crypto.randomUUID()
-    bindings["field.location"] = locId
-    entities[locId] = {
-      id: locId,
-      kind: "field",
-      title: "Location",
-      placement: { parentId: boardId, rank: "3/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "text",
-    }
-
-    // Work mode select
-    const wmId = crypto.randomUUID()
-    bindings["field.workMode"] = wmId
-    const wmOptions: Record<string, { id: string; title: string; rank: string; deleted: boolean }> = {}
-    const wmList = [
-      { key: "option.workMode.remote", title: "Remote", rank: "0/1" },
-      { key: "option.workMode.hybrid", title: "Hybrid", rank: "1/1" },
-      { key: "option.workMode.onsite", title: "Onsite", rank: "2/1" },
-      { key: "option.workMode.unknown", title: "Unknown", rank: "3/1" },
-    ]
-    for (const opt of wmList) {
-      const optId = crypto.randomUUID()
-      bindings[opt.key] = optId
-      wmOptions[optId] = { id: optId, title: opt.title, rank: opt.rank, deleted: false }
-    }
-    entities[wmId] = {
-      id: wmId,
-      kind: "field",
-      title: "Work mode",
-      placement: { parentId: boardId, rank: "4/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "select",
-      options: wmOptions,
-    }
-
-    // Priority select
-    const prioId = crypto.randomUUID()
-    bindings["field.priority"] = prioId
-    const prioOptions: Record<string, { id: string; title: string; rank: string; deleted: boolean }> = {}
-    const prioList = [
-      { key: "option.priority.p0", title: "P0", rank: "0/1" },
-      { key: "option.priority.p1", title: "P1", rank: "1/1" },
-      { key: "option.priority.p2", title: "P2", rank: "2/1" },
-      { key: "option.priority.p3", title: "P3", rank: "3/1" },
-    ]
-    for (const opt of prioList) {
-      const optId = crypto.randomUUID()
-      bindings[opt.key] = optId
-      prioOptions[optId] = { id: optId, title: opt.title, rank: opt.rank, deleted: false }
-    }
-    entities[prioId] = {
-      id: prioId,
-      kind: "field",
-      title: "Priority",
-      placement: { parentId: boardId, rank: "5/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "select",
-      options: prioOptions,
-    }
-
-    // Fit score
-    const fitId = crypto.randomUUID()
-    bindings["field.fitScore"] = fitId
-    entities[fitId] = {
-      id: fitId,
-      kind: "field",
-      title: "Fit score",
-      placement: { parentId: boardId, rank: "6/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "number",
-      min: 0,
-      max: 10,
-    }
-
-    // Notes
-    const notesId = crypto.randomUUID()
-    bindings["field.notes"] = notesId
-    entities[notesId] = {
-      id: notesId,
-      kind: "field",
-      title: "Notes",
-      placement: { parentId: boardId, rank: "7/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "text",
-    }
-
-    // Source text
-    const srcId = crypto.randomUUID()
-    bindings["field.sourceText"] = srcId
-    entities[srcId] = {
-      id: srcId,
-      kind: "field",
-      title: "Source text",
-      placement: { parentId: boardId, rank: "8/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "text",
-    }
-
-    // Rejection reason
-    const rejId = crypto.randomUUID()
-    bindings["field.rejectionReason"] = rejId
-    entities[rejId] = {
-      id: rejId,
-      kind: "field",
-      title: "Rejection notes / retrospective",
-      placement: { parentId: boardId, rank: "9/1" },
-      deleted: false,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      required: false,
-      valueType: "text",
-    }
-  }
-
-  const boardEntity: Board = {
-    id: boardId,
-    kind: "board",
-    title,
-    entityName: presetKey === "job-search" ? "lead" : "item",
-    placement: { parentId: null, rank: "0/1" },
-    deleted: false,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-    preset: {
-      key: presetKey,
-      version: 1,
-      bindings,
-    },
-  }
-  entities[boardId] = boardEntity
-
-  return {
-    kind: "workspace",
-    formatVersion: 2,
-    id,
-    title,
-    deleted: false,
-    ownerPersonId,
-    entities,
-    migration: null,
-  }
+  const context: SeedContext = { boardId, nowIso, entities: {}, bindings: {} }
+  seedColumns(context, presetKey === "blank" ? blankColumns : jobColumns)
+  if (presetKey === "job-search") seedFields(context, jobFields)
+  context.entities[boardId] = createBoard(boardId, title, presetKey, nowIso, context.bindings)
+  return { kind: "workspace", formatVersion: 2, id, title, deleted: false, ownerPersonId, entities: context.entities, migration: null }
 }
+
+export function seedBoard(entities: Record<string, WorkspaceEntity>, title: string, presetKey: Preset, nowIso = new Date().toISOString()): Board {
+  const boardId = crypto.randomUUID()
+  const context: SeedContext = { boardId, nowIso, entities, bindings: {} }
+  seedColumns(context, presetKey === "blank" ? blankColumns : jobColumns)
+  if (presetKey === "job-search") seedFields(context, jobFields)
+  const board = createBoard(boardId, title, presetKey, nowIso, context.bindings)
+  entities[boardId] = board
+  return board
+}
+
+function createBoard(id: string, title: string, preset: Preset, nowIso: string, bindings: Record<string, string>): Board {
+  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, deleted: false, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings } }
+}
+
+function seedColumns(context: SeedContext, columns: ColumnSeed[]): void {
+  columns.forEach((seed, index) => {
+    const id = crypto.randomUUID()
+    context.bindings[seed.key] = id
+    const column: Column = { id, kind: "column", title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, displayHint: seed.archive ? "collapsed" : "normal", deleted: false, createdAt: context.nowIso, updatedAt: context.nowIso }
+    if (seed.archive) column.archive = true
+    context.entities[id] = column
+  })
+}
+
+function seedFields(context: SeedContext, fields: FieldSeed[]): void {
+  fields.forEach((seed, index) => {
+    const id = crypto.randomUUID()
+    context.bindings[seed.key] = id
+    const base = { id, kind: "field" as const, title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, deleted: false, createdAt: context.nowIso, updatedAt: context.nowIso, required: seed.required ?? false }
+    const field = seed.valueType === "number" ? { ...base, valueType: "number" as const, min: seed.min ?? null, max: seed.max ?? null }
+      : seed.valueType === "select" ? { ...base, valueType: "select" as const, options: seedOptions(context, seed.options ?? []) }
+        : { ...base, valueType: seed.valueType }
+    context.entities[id] = field as FieldDefinition
+  })
+}
+
+function seedOptions(context: SeedContext, options: Array<[string, string]>): Record<string, { id: string; title: string; rank: string; deleted: boolean }> {
+  return Object.fromEntries(options.map(([key, title], index) => {
+    const id = crypto.randomUUID()
+    context.bindings[key] = id
+    return [id, { id, title, rank: `${index}/1`, deleted: false }]
+  }))
+}
+
+const blankColumns: ColumnSeed[] = [["column.todo", "To do"], ["column.doing", "Doing"], ["column.done", "Done"]].map(([key, title]) => ({ key, title }))
+const jobColumns: ColumnSeed[] = [["status.lead", "Lead"], ["status.applied", "Applied"], ["status.interview", "Interview"], ["status.rejected", "Rejected"], ["status.offer", "Offer"], ["status.archived", "Archive"]].map(([key, title], index) => ({ key, title, ...(index === 5 ? { archive: true as const } : {}) }))
+const jobFields: FieldSeed[] = [
+  { key: "field.company", title: "Company", valueType: "text", required: true }, { key: "field.role", title: "Role", valueType: "text", required: true }, { key: "field.url", title: "URL", valueType: "url" }, { key: "field.location", title: "Location", valueType: "text" },
+  { key: "field.workMode", title: "Work mode", valueType: "select", options: [["option.workMode.remote", "Remote"], ["option.workMode.hybrid", "Hybrid"], ["option.workMode.onsite", "Onsite"], ["option.workMode.unknown", "Unknown"]] },
+  { key: "field.priority", title: "Priority", valueType: "select", options: [["option.priority.p0", "P0"], ["option.priority.p1", "P1"], ["option.priority.p2", "P2"], ["option.priority.p3", "P3"]] },
+  { key: "field.fitScore", title: "Fit score", valueType: "number", min: 0, max: 10 }, { key: "field.notes", title: "Notes", valueType: "text" }, { key: "field.sourceText", title: "Source text", valueType: "text" }, { key: "field.rejectionReason", title: "Rejection notes / retrospective", valueType: "text" },
+]

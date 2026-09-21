@@ -65,6 +65,19 @@ export async function enrollmentPayload(invite: DeviceEnrollmentInvitation, prof
   return encode(await signEnvelope(profile.privateKeys.devicePrivateKey, JSON.parse(JSON.stringify(payload)), profile.device.deviceId))
 }
 
+function hasMatchingEnrollmentContents(payload: z.infer<typeof approvalSchema>["payload"],
+  invite: DeviceEnrollmentInvitation, profile: LocalProfile): boolean {
+  const workspaceIds = new Set(payload.workspaces.map(item => item.id))
+  const meshWorkspaceIds = new Set(payload.meshWorkspaces.map(item => item.workspaceId))
+  const matchesInvite = payload.invitationId === invite.invitationId && payload.recipientDeviceId === profile.device.deviceId &&
+    payload.personalRoot.identity.personId === invite.issuerPersonId && payload.certificate.payload.deviceId === profile.device.deviceId &&
+    payload.certificate.payload.devicePublicKey === profile.device.publicKey && payload.certificate.payload.personId === invite.issuerPersonId
+  const workspaceSetIsValid = workspaceIds.size === payload.workspaces.length && workspaceIds.has(payload.activeWorkspaceId) &&
+    payload.meshWorkspaces.length === payload.workspaces.length && meshWorkspaceIds.size === payload.workspaces.length
+  return matchesInvite && workspaceSetIsValid && payload.meshWorkspaces.every(item =>
+    item.ownerPersonId === invite.issuerPersonId && item.ownerPublicKey === payload.personalRoot.identity.publicKey && workspaceIds.has(item.workspaceId))
+}
+
 export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
   const raw = JSON.parse(new TextDecoder().decode(bytes))
   if (typeof raw?.error === "string") throw new Error(raw.error)
@@ -76,17 +89,7 @@ export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollm
   if (approval.signerKeyId !== invite.issuerDeviceId || !await verifyEnvelope(raw, invite.issuerPublicKey)) {
     throw new Error("Invalid device enrollment approval signature.")
   }
-  if (payload.invitationId !== invite.invitationId || payload.recipientDeviceId !== profile.device.deviceId ||
-    payload.personalRoot.identity.personId !== invite.issuerPersonId ||
-    payload.certificate.payload.deviceId !== profile.device.deviceId ||
-    payload.certificate.payload.devicePublicKey !== profile.device.publicKey ||
-    payload.certificate.payload.personId !== invite.issuerPersonId ||
-    new Set(payload.workspaces.map(item => item.id)).size !== payload.workspaces.length ||
-    !payload.workspaces.some(item => item.id === payload.activeWorkspaceId) ||
-    payload.meshWorkspaces.length !== payload.workspaces.length ||
-    new Set(payload.meshWorkspaces.map(item => item.workspaceId)).size !== payload.workspaces.length ||
-    payload.meshWorkspaces.some(item => item.ownerPersonId !== invite.issuerPersonId ||
-      item.ownerPublicKey !== payload.personalRoot.identity.publicKey || !payload.workspaces.some(ws => ws.id === item.workspaceId))) {
+  if (!hasMatchingEnrollmentContents(payload, invite, profile)) {
     throw new Error("Invalid device enrollment approval.")
   }
   const certificates = [...payload.certificates, payload.certificate]

@@ -2,7 +2,7 @@
 import { ref } from "vue"
 import { hideLeavingElement, showEnteringElement, useModal } from "../ui/modal"
 
-const props = defineProps<{
+defineProps<{
   canEditBoard?: boolean
   isOpen: boolean
   activeWorkspaceTitle: string

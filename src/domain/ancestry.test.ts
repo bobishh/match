@@ -3,7 +3,6 @@ import {
   compareRanks,
   calculateRankBetween,
   sortEntitiesByRank,
-  getAncestryPath,
   derivePlacementIssues,
   isEntityVisible,
   getVisibleChildren,

@@ -3,12 +3,10 @@ import {
   bootstrapIdentity,
   createActorBinding,
   createChangeProof,
-  signEnvelope,
   verifyEnvelope,
   canonicalizeJson,
   resetIdentityStorageForTest,
   clearInMemoryProfileForReloadTest,
-  type LocalProfile,
 } from "./identity"
 
 describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {

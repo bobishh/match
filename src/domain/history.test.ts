@@ -118,7 +118,7 @@ describe("Native history projection and attribution (Requirement 2.4)", () => {
     })
 
     // Peer K receives and merges docA
-    const profileK = await bootstrapIdentity("Kevin")
+    await bootstrapIdentity("Kevin")
     let docK = Automerge.init<WorkspaceDocumentV2>()
     docK = Automerge.merge(docK, docA)
 

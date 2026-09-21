@@ -1,7 +1,6 @@
 import type {
   PersonalRootDocumentV1,
   RegisteredDevice,
-  WorkspaceReference,
   WorkspaceId,
   Hash,
 } from "./model"
@@ -61,15 +60,6 @@ export function forgetWorkspaceInRoot(
 ): void {
   if (root.workspaces[workspaceId]) {
     root.workspaces[workspaceId].forgotten = true
-  }
-}
-
-export function unforgetWorkspaceInRoot(
-  root: PersonalRootDocumentV1,
-  workspaceId: WorkspaceId
-): void {
-  if (root.workspaces[workspaceId]) {
-    root.workspaces[workspaceId].forgotten = false
   }
 }
 

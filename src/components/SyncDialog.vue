@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
-import type { SyncStep } from "../sync/useDeviceSync"
+import type { SyncStep } from "../app/syncTypes"
 
 const props = defineProps<{
   pendingJoins?: { id: string; name: string; personId: string; role: "visitor" | "editor" }[]
@@ -96,11 +96,24 @@ const selectedIds = computed(() => {
 })
 
 const hasSelection = computed(() => selectedIds.value.length > 0)
+const isEnrollmentHost = computed(
+  () => props.step === "enroll-host" || props.step === "enroll-host-pending",
+)
 const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
 const confirmingRecovery = ref(false)
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
+const canVoteForSelectedMember = computed(() => {
+  const succession = props.succession
+  const member = selectedMember.value
+  if (!succession || !member || props.currentRole !== "editor" || currentVote.value) return false
+  return !succession.conflicted
+    && !succession.successorPersonId
+    && succession.eligibleEditorPersonIds.includes(props.currentPersonId || "")
+    && succession.eligibleEditorPersonIds.includes(member.personId)
+    && member.role === "editor"
+})
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
 onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 500) })
@@ -229,7 +242,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             class="button" type="button" @click="emit('setSuccessor', null)"
           >Remove named successor</button>
           <button
-            v-if="currentRole === 'editor' && succession && !succession.conflicted && !succession.successorPersonId && succession.eligibleEditorPersonIds.includes(currentPersonId || '') && succession.eligibleEditorPersonIds.includes(selectedMember.personId) && selectedMember.role === 'editor' && !currentVote"
+            v-if="canVoteForSelectedMember"
             class="button" type="button" @click="emit('voteSuccessor', selectedMember.personId)"
           >Vote for {{ selectedMember.self ? 'yourself' : selectedMember.name }}</button>
           <p v-if="currentRole === 'editor' && currentVote" class="dialog-copy">Vote recorded for {{ (meshMembers || []).find(member => member.personId === currentVote?.candidatePersonId)?.name || 'an editor' }}.</p>
@@ -328,14 +341,14 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </section>
       </template>
 
-      <!-- Step 1: Enroll host (Add my device) -->
-      <template v-else-if="step === 'enroll-host' || step === 'enroll-host-pending'">
-        <p class="dialog-copy sync-step-title">Add your second device</p>
+      <!-- Enrollment and workspace invitation display -->
+      <template v-else-if="isEnrollmentHost || step === 'workspace-host'">
+        <p class="dialog-copy sync-step-title">{{ isEnrollmentHost ? "Add your second device" : "Invite someone" }}</p>
         <img v-if="qrCode" :src="qrCode" alt="Pairing QR code" aria-label="Pairing QR code" class="pairing-qr" />
-        <p class="dialog-copy">Scan this with your other device or copy the enrollment link below:</p>
-        <div class="dialog-actions sync-wrap-actions">
-          <button class="button button-primary" type="button" @click="emit('copy')">Copy enrollment link</button>
-          <button class="button button-quiet" type="button" @click="emit('copy')">Copy pairing link</button>
+        <p v-if="isEnrollmentHost" class="dialog-copy">Scan this with your other device or copy the enrollment link below:</p>
+        <div class="dialog-actions" :class="{ 'sync-wrap-actions': isEnrollmentHost }">
+          <button class="button button-primary" type="button" @click="emit('copy')">{{ isEnrollmentHost ? "Copy enrollment link" : "Copy invite link" }}</button>
+          <button v-if="isEnrollmentHost" class="button button-quiet" type="button" @click="emit('copy')">Copy pairing link</button>
         </div>
         <p v-if="copyNotice" class="sync-success" role="status">{{ copyNotice }}</p>
         <label class="pairing-paste">
@@ -360,23 +373,12 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <p class="dialog-copy">Your device has received your workspaces. Changes sync automatically.</p>
       </template>
 
-      <!-- Step 4: Workspace host invite display -->
-      <template v-else-if="step === 'workspace-host'">
-        <p class="dialog-copy sync-step-title">Invite someone</p>
-        <img v-if="qrCode" :src="qrCode" alt="Pairing QR code" class="pairing-qr" />
-        <div class="dialog-actions">
-          <button class="button button-primary" type="button" @click="emit('copy')">Copy invite link</button>
-        </div>
-        <p v-if="copyNotice" class="sync-success" role="status">{{ copyNotice }}</p>
-        <label class="pairing-paste">
-          <span>Pairing link</span>
-          <textarea aria-label="Pairing link" rows="2" readonly :value="inviteUrl" @focus="selectPairingLink" @click="selectPairingLink"></textarea>
-        </label>
-      </template>
-
       <!-- Step 5: Enroll guest request -->
       <template v-else-if="step === 'enroll-guest'">
-        <p class="dialog-copy">Add this device to the identity of your other device. You receive Owner access to the workspaces it owns. Existing boards stay saved on this device. The identity changes only after approval on your other device.</p>
+        <p class="dialog-copy">
+          Add this device to the identity of your other device. You receive Owner access to the workspaces it owns.
+          Existing boards stay saved on this device. The identity changes only after approval on your other device.
+        </p>
         <div class="dialog-actions sync-step-actions">
           <button class="button button-primary" type="button" @click="emit('requestEnrollment')">Add this device</button>
         </div>

@@ -1,0 +1,6 @@
+id: no-fire-and-forget-persist
+language: TypeScript
+severity: error
+message: Await or serialize persistence; fire-and-forget commits can finish out of order.
+rule:
+  pattern: void commitAndPersist($$$ARGS)

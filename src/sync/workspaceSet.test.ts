@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
+import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishOwnerWorkspaceOffer } from "./workspaceSet"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
@@ -116,6 +116,57 @@ describe("live mesh heartbeat", () => {
 })
 
 describe("incremental workspace control plane", () => {
+  it("Given an authorization-only update, when a control frame arrives, then it merges the proof without a document change", async () => {
+    const merge = vi.fn(async () => {})
+    const authorization = [{ hash: "cleanup", signature: "signed" }]
+    let accepted = false
+    const stream = {
+      send: vi.fn(), closeSend: vi.fn(async () => {}),
+      read: vi.fn(async () => encodePairingFrame("mesh-control-sync", "mesh-secret",
+        new TextEncoder().encode(JSON.stringify({ version: 1, workspaceId: "workspace", authorization })))),
+    }
+    const connection: SyncConnection = {
+      openStream: vi.fn(),
+      acceptStream: vi.fn(async () => {
+        if (!accepted) { accepted = true; return stream }
+        return new Promise<never>(() => {})
+      }),
+      close: vi.fn(async () => {}),
+    }
+    const bytes = new Uint8Array([1, 2, 3])
+    const engine = { generate: vi.fn(async () => null), reset: vi.fn() }
+    const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
+      read: async () => bytes, merge, activate: vi.fn(),
+    }, "workspace", "local", "remote", engine as never)
+
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledWith("workspace", bytes, authorization))
+    expect(engine.reset).toHaveBeenCalledWith("workspace", "remote")
+    await session.close()
+  })
+
+  it("Given an authorization-only update, when the session publishes, then it sends the proof in a control frame", async () => {
+    const sent: Uint8Array[] = []
+    const bytes = new Uint8Array([1, 2, 3])
+    const authorization = [{ hash: "cleanup", signature: "signed" }]
+    const connection: SyncConnection = {
+      openStream: vi.fn(async () => ({ send: async (frame: Uint8Array) => { sent.push(frame) }, closeSend: async () => {}, read: async () => new Uint8Array() })),
+      acceptStream: () => new Promise(() => {}), close: vi.fn(async () => {}),
+    }
+    const engine = { generate: vi.fn(async () => null) }
+    const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
+      read: async () => bytes, merge: vi.fn(), activate: vi.fn(), readAuthorization: async () => authorization,
+    }, "workspace", "local", "remote", engine as never)
+
+    await session.publish()
+
+    const control = sent.find(frame => inspectPairingFrame(frame).type === "mesh-control-sync")!
+    const payload = JSON.parse(new TextDecoder().decode(
+      decodePairingFrame(control, "mesh-control-sync", "mesh-secret"),
+    ))
+    expect(payload.authorization).toEqual(authorization)
+    await session.close()
+  })
+
   it("Given ownership state changes, when a control frame arrives, then it merges without a full workspace document", async () => {
     const mergeMesh = vi.fn(async () => {})
     let accepted = false
@@ -180,7 +231,7 @@ describe("rejected document isolation", () => {
   it("keeps heartbeat and control alive after a rejected document and can accept a later corrected frame", async () => {
     const error = new WorkspaceChangeRejected("Unsigned workspace change rejected")
     const receive = vi.fn().mockRejectedValueOnce(error).mockResolvedValue({ response: null, acceptedChanges: 1 })
-    const engine = { receive, generate: vi.fn(async () => null) }
+    const engine = { receive, generate: vi.fn(async () => null), reset: vi.fn() }
     const reject = vi.fn()
     const mergeMesh = vi.fn()
     const sync = () => encodePairingFrame("mesh-automerge-sync", "secret", new TextEncoder().encode(JSON.stringify({message:"AA"})))
@@ -195,6 +246,7 @@ describe("rejected document isolation", () => {
     void session.done.then(() => { ended = true }, () => { ended = true })
     await vi.waitFor(() => expect(receive).toHaveBeenCalledTimes(2))
     expect(reject).toHaveBeenCalledWith(error)
+    expect(engine.reset).toHaveBeenCalledWith("workspace", "remote")
     expect(ended).toBe(false)
     expect(connection.close).not.toHaveBeenCalled()
     expect(inspectPairingFrame(streams[1]!.send.mock.calls[0]![0]).type).toBe("sync-heartbeat-ack")

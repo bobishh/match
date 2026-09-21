@@ -3,6 +3,8 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate"
 import type { CommandResult, WorkspaceDocumentV2, ChangeProof } from "./model"
 import { canonicalizeJson } from "./identity"
 
+type BundleManifest = { format: "match"; version: 2; workspaceId: string }
+
 export async function exportWorkspaceBundleV2(
   doc: WorkspaceDocumentV2,
   proofs: ChangeProof[] = []
@@ -31,11 +33,11 @@ export async function exportWorkspaceBundleV2(
 
 export async function readWorkspaceBundleV2(
   bundleBytes: Uint8Array
-): Promise<CommandResult<{ doc: WorkspaceDocumentV2; manifest: any; proofs: ChangeProof[] }>> {
+): Promise<CommandResult<{ doc: WorkspaceDocumentV2; manifest: BundleManifest; proofs: ChangeProof[] }>> {
   let archive: Record<string, Uint8Array>
   try {
     archive = unzipSync(bundleBytes)
-  } catch (e) {
+  } catch {
     return { ok: false, error: { code: "unsupported_format", message: "Failed to unzip bundle" } }
   }
 
@@ -46,17 +48,17 @@ export async function readWorkspaceBundleV2(
     return { ok: false, error: { code: "unsupported_format", message: "Invalid bundle structure" } }
   }
 
-  let manifest: any
+  let manifest: unknown
   try {
     manifest = JSON.parse(strFromU8(manifestFile))
   } catch {
     return { ok: false, error: { code: "unsupported_format", message: "Corrupt manifest.json" } }
   }
 
-  if (manifest.format !== "match" || manifest.version !== 2) {
+  if (!isBundleManifest(manifest)) {
     return {
       ok: false,
-      error: { code: "unsupported_format", message: `Unsupported bundle format ${manifest.format} v${manifest.version}` },
+      error: { code: "unsupported_format", message: "Unsupported bundle format" },
     }
   }
 
@@ -77,7 +79,8 @@ export async function readWorkspaceBundleV2(
   let proofs: ChangeProof[] = []
   if (archive["proofs.json"]) {
     try {
-      proofs = JSON.parse(strFromU8(archive["proofs.json"]))
+      const parsed: unknown = JSON.parse(strFromU8(archive["proofs.json"]))
+      proofs = Array.isArray(parsed) ? parsed as ChangeProof[] : []
     } catch {
       proofs = []
     }
@@ -87,4 +90,10 @@ export async function readWorkspaceBundleV2(
     ok: true,
     value: { doc, manifest, proofs },
   }
+}
+
+function isBundleManifest(value: unknown): value is BundleManifest {
+  if (!value || typeof value !== "object") return false
+  const manifest = value as Record<string, unknown>
+  return manifest.format === "match" && manifest.version === 2 && typeof manifest.workspaceId === "string"
 }

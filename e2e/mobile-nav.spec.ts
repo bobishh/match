@@ -92,4 +92,33 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
     await expect(desktopActions.getByRole("button", { name: "Workspace chat", exact: true })).toBeVisible()
     await expect(desktopActions.getByRole("button")).toHaveCount(5)
   })
+
+  test("Given an open drawer, when a background branch appears, then it stays inaccessible and scroll lock survives an interrupted handoff", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto("/")
+    await page.getByRole("button", { name: "Menu", exact: true }).click()
+
+    await page.evaluate(() => {
+      const node = document.createElement("button")
+      node.id = "modal-runtime-background-node"
+      node.textContent = "Background action"
+      document.body.append(node)
+    })
+    await expect.poll(() => page.locator("#modal-runtime-background-node").evaluate(node => ({
+      inert: (node as HTMLElement).inert,
+      ariaHidden: node.getAttribute("aria-hidden"),
+    }))).toEqual({ inert: true, ariaHidden: "true" })
+
+    await page.getByRole("button", { name: "Workspace settings", exact: true }).click()
+    const settings = page.getByRole("dialog", { name: "Workspace settings", exact: true })
+    await expect(settings).toBeVisible()
+    await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe("fixed")
+    await settings.getByRole("button", { name: "Dismiss", exact: true }).click()
+    await expect(settings).toBeHidden()
+    await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe("")
+    await expect.poll(() => page.locator("#modal-runtime-background-node").evaluate(node => ({
+      inert: (node as HTMLElement).inert,
+      ariaHidden: node.getAttribute("aria-hidden"),
+    }))).toEqual({ inert: false, ariaHidden: null })
+  })
 })

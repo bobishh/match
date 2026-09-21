@@ -1,5 +1,5 @@
-import { z } from "zod"
-import { placementSchema, entitySchema, workspaceSchema } from "./entitySchemas"
+import type { z } from "zod"
+import { entitySchema, workspaceSchema } from "./entitySchemas"
 import type { CommandResult, EntityKind } from "./model"
 
 function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
@@ -12,7 +12,6 @@ function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
     field: issue.path.join(".") || undefined,
   } }
 }
-export const validatePlacement = (input: unknown) => validate(placementSchema, input)
 export const validateEntity = (input: unknown) => validate(entitySchema, input)
 export const validateWorkspaceDoc = (input: unknown) => validate(workspaceSchema, input)
 

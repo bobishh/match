@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function blankBoard(page: Page) {
   await page.goto("/")
@@ -41,6 +42,28 @@ test("Given an empty form, when Escape is pressed, then it closes; a dirty draft
   await expect(form.getByLabel("Title *", { exact: true })).toHaveValue("Keep this draft")
   await form.getByRole("button", { name: "Save item", exact: true }).click()
   await expect(page.getByRole("button", { name: "Open Keep this draft", exact: true })).toBeVisible()
+})
+
+test("Given nested schema dialogs, when the preview closes, then focus returns to its parent before the parent closes", async ({ page }) => {
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  const editBoard = page.getByRole("button", { name: "Edit board", exact: true })
+  await editBoard.click()
+  const editEntity = page.getByRole("button", { name: "Edit lead", exact: true })
+  await editEntity.click()
+  const editor = page.getByRole("dialog", { name: "Edit lead", exact: true })
+  await expect(editor).toBeVisible()
+  await editor.getByRole("button", { name: "Review changes", exact: true }).click()
+  const preview = page.getByRole("dialog", { name: "Preview schema changes", exact: true })
+  await expect(preview).toBeVisible()
+  await expect.poll(() => preview.evaluate(node => node.contains(document.activeElement))).toBe(true)
+
+  await page.keyboard.press("Escape")
+  await expect(preview).toBeHidden()
+  await expect.poll(() => editor.evaluate(node => node.contains(document.activeElement))).toBe(true)
+  await page.keyboard.press("Escape")
+  await expect(editor).toBeHidden()
+  await expect(editEntity).toBeFocused()
 })
 
 test("Given mobile save failure, when retry succeeds, then draft persists exactly once and save status recovers", async ({ page }) => {

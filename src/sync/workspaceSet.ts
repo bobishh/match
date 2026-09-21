@@ -17,7 +17,7 @@ export type LiveWorkspaceSync = {
   done: Promise<void>
 }
 
-export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
+const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
 const MAX_CONTROL_FRAME_BYTES = 256 * 1024
 const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
 const MAX_GOSSIP_PACKET_BYTES = 256 * 1024
@@ -112,6 +112,38 @@ async function receiveConfirmedWorkspace(stream: DuplexStream, frame: Uint8Array
   await stream.closeSend()
 }
 
+async function confirmHeartbeat(connection: SyncConnection, secret: string): Promise<void> {
+  const stream = await connection.openStream()
+  await stream.send(encodePairingFrame("sync-heartbeat", secret, new Uint8Array()))
+  await stream.closeSend()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const frame = await Promise.race([
+      stream.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new SyncNetworkError("Mesh heartbeat timed out")),
+          MESH_HEARTBEAT_TIMEOUT_MS,
+        )
+      }),
+    ])
+    decodePairingFrame(frame, "sync-heartbeat-ack", secret)
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function enqueueHeartbeat(
+  queue: Promise<void>,
+  isStopped: () => boolean,
+  connection: SyncConnection,
+  secret: string,
+): Promise<void> {
+  return queue.then(async () => {
+    if (!isStopped()) await confirmHeartbeat(connection, secret)
+  })
+}
+
 export function liveWorkspaceSetSync(
   connection: SyncConnection,
   secret: string,
@@ -174,30 +206,58 @@ export function liveWorkspaceSetSync(
       return queue
     },
     heartbeat() {
-      heartbeatQueue = heartbeatQueue.then(async () => {
-        if (stopped) return
-        const stream = await connection.openStream()
-        await stream.send(encodePairingFrame("sync-heartbeat", secret, new Uint8Array()))
-        await stream.closeSend()
-        let timer: ReturnType<typeof setTimeout> | undefined
-        try {
-          const frame = await Promise.race([
-            stream.read(),
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(new SyncNetworkError("Mesh heartbeat timed out")), MESH_HEARTBEAT_TIMEOUT_MS)
-            }),
-          ])
-          decodePairingFrame(frame, "sync-heartbeat-ack", secret)
-        } finally {
-          clearTimeout(timer)
-        }
-      })
+      heartbeatQueue = enqueueHeartbeat(heartbeatQueue, () => stopped, connection, secret)
       return heartbeatQueue
     },
     async close() {
       stopped = true
       await connection.close()
     },
+  }
+}
+
+type AutomergeIncomingOptions = {
+  connection: SyncConnection
+  secret: string
+  replica: ReturnType<typeof workspaceSet>
+  workspaceId: string
+  store: WorkspaceSetStore
+  options: { onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>; onGossipPacket?: (packet: Uint8Array) => Promise<void> }
+  isStopped: () => boolean
+  receiveControl: (bytes: Uint8Array) => Promise<void>
+  receiveSync: (frame: Uint8Array) => Promise<void>
+}
+
+async function receiveAutomergeFrame(stream: DuplexStream, frame: Uint8Array, input: AutomergeIncomingOptions): Promise<void> {
+  const type = inspectPairingFrame(frame).type
+  if (type === "mesh-durable-batch") return receiveConfirmedWorkspace(stream, frame, input.secret, input.replica)
+  if (type === "sync-heartbeat") {
+    decodePairingFrame(frame, "sync-heartbeat", input.secret)
+    await stream.send(encodePairingFrame("sync-heartbeat-ack", input.secret, new Uint8Array()))
+  } else if (type === "mesh-control-sync") {
+    await input.receiveControl(decodePairingFrame(frame, "mesh-control-sync", input.secret))
+  } else if (type === "mesh-gossip" && input.options.onOwnerWorkspaceOffer) {
+    const bytes = decodePairingFrame(frame, "mesh-gossip", input.secret)
+    if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
+    await input.options.onOwnerWorkspaceOffer(bytes)
+    await stream.send(encodePairingFrame("mesh-durable-ack", input.secret, new TextEncoder().encode(await sha256Base64Url(bytes))))
+  } else if (type === "mesh-iroh-gossip" && input.options.onGossipPacket) {
+    const packet = decodePairingFrame(frame, "mesh-iroh-gossip", input.secret)
+    if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
+    await input.options.onGossipPacket(packet)
+  } else if (type === "mesh-automerge-sync") {
+    await input.receiveSync(frame)
+  } else {
+    throw new Error(`Unsupported live workspace frame: ${type}`)
+  }
+  await stream.closeSend()
+}
+
+async function runAutomergeReceiver(input: AutomergeIncomingOptions): Promise<void> {
+  while (!input.isStopped()) {
+    const stream = await input.connection.acceptStream()
+    if (input.isStopped()) return
+    await receiveAutomergeFrame(stream, await stream.read(), input)
   }
 }
 
@@ -249,15 +309,24 @@ export function liveAutomergeWorkspaceSync(
   const controlSnapshot = async () => new TextEncoder().encode(JSON.stringify({
     version: 1,
     workspaceId,
+    ...(store.readAuthorization ? { authorization: await store.readAuthorization(await store.read(workspaceId)) } : {}),
     ...(store.readChat ? { chat: await store.readChat(workspaceId, knownChat) } : {}),
     ...(store.readMesh ? { mesh: await store.readMesh(workspaceId) } : {}),
   }))
   const receiveControl = async (bytes: Uint8Array) => {
     if (bytes.byteLength > MAX_CONTROL_FRAME_BYTES) throw new Error("Mesh control frame exceeds size limit")
     const value = JSON.parse(new TextDecoder().decode(bytes)) as {
-      version?: unknown; workspaceId?: unknown; chat?: unknown; mesh?: unknown
+      version?: unknown; workspaceId?: unknown; authorization?: unknown; chat?: unknown; mesh?: unknown
     }
     if (value.version !== 1 || value.workspaceId !== workspaceId) throw new Error("Invalid mesh control frame")
+    if (value.authorization !== undefined) {
+      console.info("[match.control] receive", workspaceId, Array.isArray(value.authorization) ? value.authorization.length : -1)
+      await store.merge(workspaceId, await store.read(workspaceId), value.authorization)
+      // Authorization changes the admission result for already exchanged
+      // Automerge heads. Re-negotiate instead of retaining a state that only
+      // remembers the pre-proof rejection.
+      engine.reset(workspaceId, remoteDeviceId)
+    }
     if (value.chat !== undefined && store.mergeChat) await store.mergeChat(workspaceId, value.chat, false)
     if (value.mesh !== undefined && store.mergeMesh) await store.mergeMesh(workspaceId, value.mesh)
   }
@@ -265,67 +334,29 @@ export function liveAutomergeWorkspaceSync(
     syncQueue = syncQueue.then(run, run)
     return syncQueue
   }
-  const done = (async () => {
-    while (!stopped) {
-      const stream = await connection.acceptStream()
-      if (stopped) return
-      const frame = await stream.read()
-      const type = inspectPairingFrame(frame).type
-      if (type === "mesh-durable-batch") {
-        await receiveConfirmedWorkspace(stream, frame, secret, workspaceSet(store, [workspaceId]))
-        continue
-      }
-      if (type === "sync-heartbeat") {
-        decodePairingFrame(frame, "sync-heartbeat", secret)
-        await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))
-        await stream.closeSend()
-        continue
-      }
-      if (type === "mesh-control-sync") {
-        await receiveControl(decodePairingFrame(frame, "mesh-control-sync", secret))
-        await stream.closeSend()
-        continue
-      }
-      if (type === "mesh-gossip" && options.onOwnerWorkspaceOffer) {
-        const bytes = decodePairingFrame(frame, "mesh-gossip", secret)
-        if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
-        await options.onOwnerWorkspaceOffer(bytes)
-        await stream.send(encodePairingFrame("mesh-durable-ack", secret,
-          new TextEncoder().encode(await sha256Base64Url(bytes))))
-        await stream.closeSend()
-        continue
-      }
-      if (type === "mesh-iroh-gossip" && options.onGossipPacket) {
-        const packet = decodePairingFrame(frame, "mesh-iroh-gossip", secret)
-        if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
-        await options.onGossipPacket(packet)
-        await stream.closeSend()
-        continue
-      }
-      if (type !== "mesh-automerge-sync") throw new Error(`Unsupported live workspace frame: ${type}`)
-      try {
-        await enqueue(async () => {
-          const decoded = decodeFrame(frame)
-          const result = await engine.receive(adapter, remoteDeviceId, decoded)
-          if (result.acceptedChanges === 0 && store.readAuthorization && decoded.proof !== undefined) {
-            await store.merge(workspaceId, await store.read(workspaceId), decoded.proof)
-          }
-          if (result.response) await sendFrame(result.response)
-          if (lastRejection && result.acceptedChanges > 0) {
-            lastRejection = undefined
-            onDocumentRejected?.(null)
-          }
-        })
-      } catch (error) {
-        if (!(error instanceof WorkspaceChangeRejected)) throw error
-        // Reject the document, not its authenticated transport. No response or
-        // receipt acknowledges the rejected changes; heartbeat/control stay live.
-        if (lastRejection !== error.message) onDocumentRejected?.(error)
-        lastRejection = error.message
-      }
-      await stream.closeSend()
+  const receiveSync = async (frame: Uint8Array) => {
+    try {
+      await enqueue(async () => {
+        const decoded = decodeFrame(frame)
+        const result = await engine.receive(adapter, remoteDeviceId, decoded)
+        if (result.acceptedChanges === 0 && store.readAuthorization && decoded.proof !== undefined) {
+          await store.merge(workspaceId, await store.read(workspaceId), decoded.proof)
+        }
+        if (result.response) await sendFrame(result.response)
+        if (lastRejection && result.acceptedChanges > 0) { lastRejection = undefined; onDocumentRejected?.(null) }
+      })
+    } catch (error) {
+      if (!(error instanceof WorkspaceChangeRejected)) throw error
+      // Rust sync state advances before our admission policy validates and
+      // commits the candidate. Forget that optimistic state: a later proof
+      // control frame must make the remote peer offer this change again.
+      engine.reset(workspaceId, remoteDeviceId)
+      if (lastRejection !== error.message) onDocumentRejected?.(error)
+      lastRejection = error.message
     }
-  })().catch(error => { if (!stopped) throw error })
+  }
+  const done = runAutomergeReceiver({ connection, secret, replica: workspaceSet(store, [workspaceId]), workspaceId, store,
+    options, isStopped: () => stopped, receiveControl, receiveSync }).catch(error => { if (!stopped) throw error })
   return {
     done,
     publish() {
@@ -335,6 +366,7 @@ export function liveAutomergeWorkspaceSync(
         const control = await controlSnapshot()
         const content = toBase64Url(control)
         if (content !== lastControlSent) {
+          console.info("[match.control] send", workspaceId, JSON.parse(new TextDecoder().decode(control)).authorization?.length ?? 0)
           if (control.byteLength > MAX_CONTROL_FRAME_BYTES) throw new Error("Mesh control frame exceeds size limit")
           const stream = await connection.openStream()
           await stream.send(encodePairingFrame("mesh-control-sync", secret, control))
@@ -344,20 +376,7 @@ export function liveAutomergeWorkspaceSync(
       })
     },
     heartbeat() {
-      heartbeatQueue = heartbeatQueue.then(async () => {
-        if (stopped) return
-        const stream = await connection.openStream()
-        await stream.send(encodePairingFrame("sync-heartbeat", secret, new Uint8Array()))
-        await stream.closeSend()
-        let timer: ReturnType<typeof setTimeout> | undefined
-        try {
-          const frame = await Promise.race([
-            stream.read(),
-            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new SyncNetworkError("Mesh heartbeat timed out")), MESH_HEARTBEAT_TIMEOUT_MS) }),
-          ])
-          decodePairingFrame(frame, "sync-heartbeat-ack", secret)
-        } finally { clearTimeout(timer) }
-      })
+      heartbeatQueue = enqueueHeartbeat(heartbeatQueue, () => stopped, connection, secret)
       return heartbeatQueue
     },
     async close() { stopped = true; await connection.close() },

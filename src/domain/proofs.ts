@@ -62,15 +62,8 @@ export async function validateCertificateChain(
     }
     visited.add(currentHash)
 
-    // Check if this certificate is root-issued
     if (current.payload.issuerCertificateHash === null) {
-      if (!options.skipSigVerify) {
-        const valid = await verifyEnvelope(current, identityPublicKey)
-        if (!valid) {
-          return { ok: false, error: "Root certificate signature invalid" }
-        }
-      }
-      return { ok: true }
+      return verifyRootCertificate(current, identityPublicKey, options.skipSigVerify)
     }
 
     // Delegated certificate: find issuer by hash
@@ -79,39 +72,36 @@ export async function validateCertificateChain(
       return { ok: false, error: "Cycle detected in certificate chain" }
     }
 
-    let issuer: DeviceCertificate | undefined
-    for (const candidate of certPool) {
-      const candidateHash = await getHash(candidate)
-      if (candidateHash === issuerHash) {
-        issuer = candidate
-        break
-      }
-    }
+    const issuer = await findCertificate(certPool, issuerHash, getHash)
 
     if (!issuer) {
       return { ok: false, error: `Missing issuer certificate for hash ${issuerHash}` }
     }
 
-    // Invariants
-    if (issuer.payload.personId !== current.payload.personId) {
-      return { ok: false, error: "Issuer personId does not match subject personId" }
-    }
-    if (!issuer.payload.canEnrollDevices) {
-      return { ok: false, error: "Issuer certificate lacks canEnrollDevices capability" }
-    }
-
-    // Verify current cert's signature with issuer's device key
-    if (!options.skipSigVerify) {
-      const valid = await verifyEnvelope(current, issuer.payload.devicePublicKey)
-      if (!valid) {
-        return { ok: false, error: "Certificate signature invalid under issuer key" }
-      }
-    }
+    const delegation = await validateDelegation(current, issuer, options.skipSigVerify)
+    if (!delegation.ok) return delegation
 
     current = issuer
   }
 
   return { ok: true }
+}
+
+async function verifyRootCertificate(cert: DeviceCertificate, publicKey: string, skipVerify?: boolean): Promise<ChainValidationResult> {
+  if (skipVerify || await verifyEnvelope(cert, publicKey)) return { ok: true }
+  return { ok: false, error: "Root certificate signature invalid" }
+}
+
+async function findCertificate(pool: DeviceCertificate[], hash: string, getHash: NonNullable<ChainValidationOptions["hashFn"]>): Promise<DeviceCertificate | undefined> {
+  for (const certificate of pool) if (await getHash(certificate) === hash) return certificate
+  return undefined
+}
+
+async function validateDelegation(current: DeviceCertificate, issuer: DeviceCertificate, skipVerify?: boolean): Promise<ChainValidationResult> {
+  if (issuer.payload.personId !== current.payload.personId) return { ok: false, error: "Issuer personId does not match subject personId" }
+  if (!issuer.payload.canEnrollDevices) return { ok: false, error: "Issuer certificate lacks canEnrollDevices capability" }
+  if (skipVerify || await verifyEnvelope(current, issuer.payload.devicePublicKey)) return { ok: true }
+  return { ok: false, error: "Certificate signature invalid under issuer key" }
 }
 
 export async function createDelegatedCertificate(
@@ -196,25 +186,18 @@ export async function verifyWorkspaceGrant(
   return verifyEnvelope(grant, publicKey)
 }
 
-export async function verifyActorBinding(
-  binding: ActorBinding,
-  devicePublicKey: string
-): Promise<boolean> {
-  return verifyEnvelope(binding, devicePublicKey)
-}
-
 const PROOF_STORE_BACKING = new Map<string, string>()
 
 function getProofStoreRaw(key: string): string | null {
   if (typeof localStorage !== "undefined") {
-    try { return localStorage.getItem(key) } catch {}
+    try { return localStorage.getItem(key) } catch { return null }
   }
   return PROOF_STORE_BACKING.get(key) ?? null
 }
 
 function setProofStoreRaw(key: string, val: string): void {
   if (typeof localStorage !== "undefined") {
-    try { localStorage.setItem(key, val) } catch {}
+    try { localStorage.setItem(key, val) } catch { return }
   }
   PROOF_STORE_BACKING.set(key, val)
 }
@@ -242,7 +225,7 @@ export class ProofStore {
         if (data.certificates) this.certificates = new Map(Object.entries(data.certificates))
         if (data.genesis) this.genesis = new Map(Object.entries(data.genesis))
         if (data.grants) this.grants = new Map(Object.entries(data.grants))
-      } catch {}
+      } catch { return }
     }
   }
 
@@ -256,7 +239,7 @@ export class ProofStore {
         grants: Object.fromEntries(this.grants),
       }
       setProofStoreRaw("match.v1.proof_store", JSON.stringify(data))
-    } catch {}
+    } catch { return }
   }
 
   async putActorBinding(hash: string, binding: ActorBinding): Promise<void> {

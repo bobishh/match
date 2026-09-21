@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim"
 import automergeWasmUrl from "@automerge/automerge/automerge.wasm?url"
-import { normalizeWorkspace, type Artifact, type Document, type Lead, type Template, type Workspace } from "./types"
+import type { Artifact, Document, Lead, Template, Workspace } from "./types"
 
 let automergeReady: Promise<void> | undefined
 
@@ -8,7 +8,7 @@ export function initializeAutomerge(): Promise<void> {
   return (automergeReady ??= Automerge.initializeWasm(automergeWasmUrl))
 }
 
-export type WorkspaceDocument = {
+type WorkspaceDocument = {
   leads: Lead[]
   documents: Document[]
   templates: Template[]
@@ -47,15 +47,6 @@ export function saveWorkspaceDoc(doc: WorkspaceDoc): Uint8Array {
 
 export function workspaceHeads(doc: WorkspaceDoc): string[] {
   return Automerge.getHeads(doc).sort()
-}
-
-export function workspaceFromDoc(doc: WorkspaceDoc): Workspace {
-  return normalizeWorkspace({
-    leads: clone(doc.leads),
-    documents: clone(doc.documents),
-    templates: clone(doc.templates ?? []),
-    artifacts: clone(doc.artifacts ?? []),
-  })
 }
 
 export function mergeWorkspaceDocs(local: WorkspaceDoc, remote: WorkspaceDoc): WorkspaceDoc {

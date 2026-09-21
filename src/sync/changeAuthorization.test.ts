@@ -7,7 +7,7 @@ import { createWorkspaceDoc } from "../domain/seeds"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
-import { validateIncomingChanges, pendingHistoryRepair, repairPendingHistory } from "./changeAuthorization"
+import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, pendingHistoryRepair, repairPendingHistory, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem } from "../domain/model"
 
@@ -55,6 +55,20 @@ it("accepts signed editor item changes, including when forwarded by another peer
   await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
   expect(() => assertWorkspaceTransition("editor", local, remote)).not.toThrow()
 })
+it("reports a proof change only once when the same authorization is replayed", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Idempotent" }), "editor")
+  await expect(validateIncomingChangesWithProofStatus(local, remote, [record])).resolves.toBe(true)
+  await expect(validateIncomingChangesWithProofStatus(remote, remote, [record])).resolves.toBe(false)
+})
+it("reports a proof change once when a replay enriches certificates around the same change signature", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Enriched" }), "editor")
+  await expect(validateIncomingChangesWithProofStatus(local, remote, [record])).resolves.toBe(true)
+  const enriched = { ...record, ownerCertificates: [...record.ownerCertificates, member.certificate] }
+  await expect(validateIncomingChangesWithProofStatus(remote, remote, [enriched])).resolves.toBe(true)
+  await expect(validateIncomingChangesWithProofStatus(remote, remote, [record])).resolves.toBe(false)
+  const [stored] = await exportAuthorizations(Automerge.save(remote))
+  expect(stored.ownerCertificates).toHaveLength(2)
+})
 it("accepts a historical editor grant when its signed authorization carries a missing owner device certificate", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forwarded" }), "editor")
   peerStoreState.credential = {
@@ -92,17 +106,57 @@ it("rejects tampering with an owner-issued role", async () => {
   await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/signature/)
 })
 
-it("Given two manual transfers from one owner at one epoch, when authorization checks the workspace, then writes stay frozen", async () => {
+it("Given a forged durable authority and a valid active credential, when role is recovered, then the forged authority cannot grant editor access", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Forged authority", owner.identity.personId, "blank"))
+  const localGrant = await createWorkspaceGrant(owner, doc.id, member.identity.personId, "editor")
   peerStoreState.credential = {
-    epoch: 1,
+    workspaceId: doc.id, ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [owner.certificate], localGrant, ownerHistory: [], catalog: {}, epoch: 1,
+  }
+  peerStoreState.authority = {
+    ...peerStoreState.credential, ownerPersonId: "forged-owner", ownerPublicKey: "forged-key",
+    ownerHistory: [{ personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate] }],
+  }
+
+  await expect(workspaceRole(doc, member)).resolves.toBe("visitor")
+})
+
+it("Given a current owner authority with a historical owner grant, when role is recovered, then the legitimate historical grant remains editor access", async () => {
+  resetIdentityStorageForTest(); const successor = await bootstrapIdentity("Successor")
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Historical authority", owner.identity.personId, "blank"))
+  const localGrant = await createWorkspaceGrant(owner, doc.id, member.identity.personId, "editor")
+  peerStoreState.authority = {
+    workspaceId: doc.id, ownerPersonId: successor.identity.personId, ownerPublicKey: successor.identity.publicKey,
+    ownerCertificates: [successor.certificate], localGrant, epoch: 2, catalog: {},
+    ownerHistory: [{ personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate] }],
+  }
+
+  await expect(workspaceRole(doc, member)).resolves.toBe("editor")
+})
+
+it("Given two manual transfers from one owner at one epoch, when authorization checks the workspace, then writes stay frozen", async () => {
+  const remote = Automerge.from(createWorkspaceDoc("workspace", "Frozen", owner.identity.personId, "blank"))
+  peerStoreState.credential = {
+    workspaceId: remote.id, ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [owner.certificate], ownerHistory: [], localGrant: undefined, epoch: 1,
     catalog: { ownershipTransfers: [
       { payload: { epoch: 2, fromOwnerPersonId: "owner", toOwnerPersonId: "alice" } },
       { payload: { epoch: 2, fromOwnerPersonId: "owner", toOwnerPersonId: "bob" } },
     ] },
   }
 
-  const remote = Automerge.from(createWorkspaceDoc("workspace", "Frozen", owner.identity.personId, "blank"))
   await expect(validateIncomingChanges(undefined, remote, [])).rejects.toThrow(/conflicting ownership records/i)
+})
+
+it("Given one local ownership transfer before mesh startup, when write access is checked, then Rust runtime is not required", async () => {
+  peerStoreState.credential = {
+    epoch: 1,
+    catalog: { ownershipTransfers: [
+      { payload: { epoch: 2, fromOwnerPersonId: "owner", toOwnerPersonId: "alice" } },
+    ] },
+  }
+
+  await expect(workspaceWritesBlocked("workspace")).resolves.toBe(false)
 })
 
 it("Given split owners wrote on separate partitions, when the branches meet, then neither branch is admitted under ambiguous authority", async () => {

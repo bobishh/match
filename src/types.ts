@@ -1,7 +1,7 @@
 export type LeadStatus = "lead" | "applied" | "interview" | "rejected" | "offer" | "archived"
 export type LeadPriority = "p0" | "p1" | "p2" | "p3"
 export type DocumentKind = "cv" | "cover_letter" | "note" | "attachment"
-export type DocumentFormat = "markdown" | "html" | "pdf" | "path"
+type DocumentFormat = "markdown" | "html" | "pdf" | "path"
 export type ArtifactKind = "cv" | "cover_letter"
 
 export type Lead = {

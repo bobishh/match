@@ -1,6 +1,4 @@
 import {
-  type EntityId,
-  type Rank,
   type WorkspaceEntity,
   type ProjectionIssue,
   entityKind,
@@ -18,7 +16,7 @@ function gcdBigInt(a: bigint, b: bigint): bigint {
   return x
 }
 
-export function parseRank(rank: string): [bigint, bigint] {
+function parseRank(rank: string): [bigint, bigint] {
   const parts = rank.split("/")
   if (parts.length !== 2) throw new Error(`Invalid rank: ${rank}`)
   const num = BigInt(parts[0])
@@ -27,7 +25,7 @@ export function parseRank(rank: string): [bigint, bigint] {
   return [num, den]
 }
 
-export function reduceRational(num: bigint, den: bigint): string {
+function reduceRational(num: bigint, den: bigint): string {
   if (den < 0n) {
     num = -num
     den = -den

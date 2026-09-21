@@ -5,11 +5,17 @@ import { MeshNetworkError } from "@meta-uber/mesh-transport"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEnvelope, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceBreakGlassClaim, createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
-import { assertRequiredMeshCapabilities, DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
+import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure, shouldReplaceMeshSession } from "./durableMesh"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given Iroh has no route metadata, when Promise.any rejects, then it remains a network failure", () => {
+    const unavailable = new AggregateError([new Error("No addressing information available")], "All promises were rejected")
+    expect(isMeshDialNetworkFailure(unavailable)).toBe(true)
+    expect(isMeshDialNetworkFailure(new AggregateError([new Error("Invalid write signature")], "All promises were rejected"))).toBe(false)
+  })
+
   it("Given a peer without iroh gossip, when capabilities are checked, then the handshake fails closed", () => {
     expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "automerge-sync-v1"]))
       .toThrow("Peer does not support required iroh gossip")
@@ -134,6 +140,26 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given chat changed while its mesh session was offline, when a replacement session becomes current, then it replays the local chat", async () => {
+    const credential = { workspaceId: "workspace", transportSecret: "secret" }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ device: { deviceId: "local" } } as never),
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+    const internal = mesh as any
+    const publish = vi.fn(async () => {})
+    internal.stopped = false
+    internal.createMeshSession = vi.fn(() => ({ incrementalEngine: undefined,
+      session: { publish, close: async () => {}, done: new Promise<never>(() => {}) } }))
+    const connection = { close: vi.fn(async () => {}), acceptStream: vi.fn(), openStream: vi.fn() }
+
+    await internal.installSession("workspace", "remote", "slot-0", "2026-09-21", 1, "incoming", connection)
+    await new Promise<void>(resolve => queueMicrotask(resolve))
+
+    expect(publish).toHaveBeenCalledOnce()
+    internal.stopped = true
+    await mesh.dispose()
+  })
+
   it("accepts independent sibling instances without replacing their connections or sharing Automerge state", async () => {
     const credential = { workspaceId: "workspace", transportSecret: "secret" }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
@@ -221,6 +247,26 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(internal.sessions.get("workspace-1:remote-device:instance-1").session).toBe(replacement)
     await expect(mesh.views("workspace-1")).resolves.toMatchObject([{ online: true }])
     expect(changes.length).toBeGreaterThan(0)
+    await mesh.dispose()
+  })
+
+  it("Given a live session while Iroh gossip has no neighbour yet, when the workspace changes, then direct sync still publishes", async () => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never), store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never })
+    const internal = mesh as any
+    const publish = vi.fn(async () => {})
+    internal.sessions.set("workspace:remote:slot", {
+      workspaceId: "workspace", deviceId: "remote", instanceId: "slot", endpoint: "remote-endpoint",
+      session: { publish, close: async () => {}, done: new Promise<never>(() => {}) },
+      evict: async () => {},
+    })
+    internal.gossipDrivers.set("workspace", {
+      broadcast: vi.fn(async () => {}), activeNeighbors: vi.fn(() => []), close: vi.fn(),
+    })
+
+    await internal.publishAll()
+
+    expect(publish).toHaveBeenCalledOnce()
     await mesh.dispose()
   })
 

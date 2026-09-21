@@ -89,68 +89,62 @@ export function validatePriorityPolicy(
   if (!policy.rules.length) errors.push({ path: "/priorityPolicy/rules", message: "Add at least one priority rule" })
   if (!policy.bands.length) errors.push({ path: "/priorityPolicy/bands", message: "Add at least one priority band" })
   const ids = new Set<string>()
-  policy.rules.forEach((rule, index) => {
-    if (ids.has(rule.id)) errors.push({ path: `/priorityPolicy/rules/${index}/id`, message: "Rule id is duplicated" })
-    ids.add(rule.id)
-    if (!Number.isFinite(rule.weight) || rule.weight < -10 || rule.weight > 10) {
-      errors.push({ path: `/priorityPolicy/rules/${index}/weight`, message: "Rule weight must be between -10 and 10" })
-    }
-    if (!doc) return
-    if (rule.fieldId === policy.priorityFieldId || rule.fieldId === policy.fitFieldId) {
-      errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "A rule cannot read its own output field" })
-      return
-    }
-    const field = doc.entities[rule.fieldId]
-    if (!field || field.kind !== "field" || field.deleted || field.placement.parentId !== boardId) {
-      errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "Rule field must be active on this board" })
-      return
-    }
-    if ((rule.operator === "at_least" || rule.operator === "at_most") && field.valueType !== "number") {
-      errors.push({ path: `/priorityPolicy/rules/${index}/operator`, message: "Numeric comparison requires a number field" })
-    }
-    if (rule.operator === "contains" && !["text", "url"].includes(field.valueType)) {
-      errors.push({ path: `/priorityPolicy/rules/${index}/operator`, message: "Contains requires a text or URL field" })
-    }
-    if (field.valueType === "select" && rule.operator === "equals") {
-      const option = field.options[String(rule.value)]
-      if (!option || option.deleted) errors.push({ path: `/priorityPolicy/rules/${index}/value`, message: "Rule value must be an active option" })
-    }
-    if (rule.operator === "equals") {
-      const validType = field.valueType === "number" ? typeof rule.value === "number"
-        : field.valueType === "boolean" ? typeof rule.value === "boolean"
-          : typeof rule.value === "string"
-      if (!validType) errors.push({ path: `/priorityPolicy/rules/${index}/value`, message: "Rule value must match the field type" })
-    }
-  })
-  if (doc) {
-    const priority = doc.entities[policy.priorityFieldId]
-    if (!priority || priority.kind !== "field" || priority.deleted || priority.valueType !== "select" || priority.placement.parentId !== boardId) {
-      errors.push({ path: "/priorityPolicy/priorityFieldId", message: "Priority output must be an active select field" })
-    } else {
-      policy.bands.forEach((band, index) => {
-        const option = priority.options[band.optionId]
-        if (!option || option.deleted) errors.push({ path: `/priorityPolicy/bands/${index}/optionId`, message: "Priority band must target an active option" })
-      })
-    }
-    if (policy.fitFieldId) {
-      const fit = doc.entities[policy.fitFieldId]
-      if (!fit || fit.kind !== "field" || fit.deleted || fit.valueType !== "number" || fit.placement.parentId !== boardId) {
-        errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output must be an active number field" })
-      }
-    }
-  }
-  policy.bands.forEach((band, index) => {
-    if (!Number.isFinite(band.minScore) || band.minScore < 0 || band.minScore > 10) {
-      errors.push({ path: `/priorityPolicy/bands/${index}/minScore`, message: "Priority threshold must be between 0 and 10" })
-    }
-  })
-  const bandOptions = new Set<string>()
-  policy.bands.forEach((band, index) => {
-    if (bandOptions.has(band.optionId)) errors.push({ path: `/priorityPolicy/bands/${index}/optionId`, message: "Priority band option is duplicated" })
-    bandOptions.add(band.optionId)
-  })
-  if (policy.bands.length && !policy.bands.some(band => band.minScore === 0)) {
-    errors.push({ path: "/priorityPolicy/bands", message: "Priority bands need a fallback at score 0" })
-  }
+  policy.rules.forEach((rule, index) => validatePriorityRule(rule, index, ids, policy, doc, boardId, errors))
+  validatePriorityOutputs(policy, doc, boardId, errors)
+  validatePriorityBands(policy, errors)
   return errors
+}
+
+function validatePriorityOutputs(policy: PriorityPolicy, doc: WorkspaceDocumentV2 | undefined, boardId: string, errors: Array<{ path: string; message: string }>): void {
+  if (!doc) return
+  const priority = doc.entities[policy.priorityFieldId]
+  if (!priority || priority.kind !== "field" || priority.deleted || priority.valueType !== "select" || priority.placement.parentId !== boardId) {
+    errors.push({ path: "/priorityPolicy/priorityFieldId", message: "Priority output must be an active select field" })
+  } else policy.bands.forEach((band, index) => {
+    const option = priority.options[band.optionId]
+    if (!option || option.deleted) errors.push({ path: `/priorityPolicy/bands/${index}/optionId`, message: "Priority band must target an active option" })
+  })
+  if (!policy.fitFieldId) return
+  const fit = doc.entities[policy.fitFieldId]
+  if (!fit || fit.kind !== "field" || fit.deleted || fit.valueType !== "number" || fit.placement.parentId !== boardId) errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output must be an active number field" })
+}
+
+function validatePriorityBands(policy: PriorityPolicy, errors: Array<{ path: string; message: string }>): void {
+  const options = new Set<string>()
+  policy.bands.forEach((band, index) => {
+    const path = `/priorityPolicy/bands/${index}`
+    if (!Number.isFinite(band.minScore) || band.minScore < 0 || band.minScore > 10) errors.push({ path: `${path}/minScore`, message: "Priority threshold must be between 0 and 10" })
+    if (options.has(band.optionId)) errors.push({ path: `${path}/optionId`, message: "Priority band option is duplicated" })
+    options.add(band.optionId)
+  })
+  if (policy.bands.length && !policy.bands.some(band => band.minScore === 0)) errors.push({ path: "/priorityPolicy/bands", message: "Priority bands need a fallback at score 0" })
+}
+
+function validatePriorityRule(rule: PriorityRule, index: number, ids: Set<string>, policy: PriorityPolicy, doc: WorkspaceDocumentV2 | undefined, boardId: string, errors: Array<{ path: string; message: string }>): void {
+  if (ids.has(rule.id)) errors.push({ path: `/priorityPolicy/rules/${index}/id`, message: "Rule id is duplicated" })
+  ids.add(rule.id)
+  if (!Number.isFinite(rule.weight) || rule.weight < -10 || rule.weight > 10) errors.push({ path: `/priorityPolicy/rules/${index}/weight`, message: "Rule weight must be between -10 and 10" })
+  if (!doc) return
+  if (rule.fieldId === policy.priorityFieldId || rule.fieldId === policy.fitFieldId) {
+    errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "A rule cannot read its own output field" })
+    return
+  }
+  const field = doc.entities[rule.fieldId]
+  if (!field || field.kind !== "field" || field.deleted || field.placement.parentId !== boardId) {
+    errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "Rule field must be active on this board" })
+    return
+  }
+  validateRuleOperator(rule, field, index, errors)
+}
+
+function validateRuleOperator(rule: PriorityRule, field: FieldDefinition, index: number, errors: Array<{ path: string; message: string }>): void {
+  const base = `/priorityPolicy/rules/${index}`
+  if ((rule.operator === "at_least" || rule.operator === "at_most") && field.valueType !== "number") errors.push({ path: `${base}/operator`, message: "Numeric comparison requires a number field" })
+  if (rule.operator === "contains" && field.valueType !== "text" && field.valueType !== "url") errors.push({ path: `${base}/operator`, message: "Contains requires a text or URL field" })
+  if (field.valueType === "select" && rule.operator === "equals" && (!field.options[String(rule.value)] || field.options[String(rule.value)].deleted)) errors.push({ path: `${base}/value`, message: "Rule value must be an active option" })
+  if (rule.operator === "equals" && !matchesFieldValue(field.valueType, rule.value)) errors.push({ path: `${base}/value`, message: "Rule value must match the field type" })
+}
+
+function matchesFieldValue(type: FieldDefinition["valueType"], value: FieldValue): boolean {
+  return type === "number" ? typeof value === "number" : type === "boolean" ? typeof value === "boolean" : typeof value === "string"
 }

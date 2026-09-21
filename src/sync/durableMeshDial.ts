@@ -1,0 +1,299 @@
+import { type LocalProfile} from "../domain/identity"
+import type { DeviceCertificate } from "../domain/model"
+import { meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
+import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
+import { selectScopedNeighbors} from "@meta-uber/mesh-replication/gossip"
+import { defaultProofStore } from "../domain/proofs"
+import { decodePairingFrame, encodePairingFrame} from "@meta-uber/mesh-pairing"
+import {
+  verifyWorkspaceMemberBundle, type VerifiedWorkspaceMember, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
+  type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
+  type WorkspaceBreakGlassClaim } from "./meshRecords"
+import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
+import type { SyncConnection} from "./transport"
+import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, meshCapabilities, assertRequiredMeshCapabilities, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities } from "./durableMeshBase"
+import { DurableMeshHandshake } from "./durableMeshHandshake"
+
+export abstract class DurableMeshDial extends DurableMeshHandshake {
+  protected hasDeviceSession(workspaceId: string, deviceId: string) {
+    return [...this.sessions.values()].some(entry => entry.workspaceId === workspaceId && entry.deviceId === deviceId)
+  }
+
+  protected async dialLoop(signal: AbortSignal) {
+    let nextRouteRefreshAt = Date.now() + DurableMeshBase.ROUTE_RENEW_MS
+    while (!signal.aborted) {
+      if (!this.node) throw new MeshNodeRestart("runtime node unavailable")
+      if (await this.pauseDialingWhenOffline(signal)) continue
+      const profile = await this.options.getProfile()
+      nextRouteRefreshAt = await this.refreshRoutesWhenDue(profile, nextRouteRefreshAt)
+      await this.scheduleDials(profile.device.deviceId, signal)
+      await this.waitForDialTick(signal)
+    }
+  }
+
+  protected async pauseDialingWhenOffline(signal: AbortSignal): Promise<boolean> {
+    if (this.options.networkOnline?.() !== false) return false
+    this.options.onRetryChange?.({})
+    await this.waitForDialTick(signal)
+    return true
+  }
+
+  protected async refreshRoutesWhenDue(profile: LocalProfile, nextAt: number): Promise<number> {
+    if (Date.now() < nextAt) return nextAt
+    const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
+    for (const credential of await this.store.listWorkspaceCredentials()) {
+      await this.refreshOwnBundle(credential, profile, this.node!.endpointId, certificates)
+    }
+    await this.publishAll()
+    return Date.now() + DurableMeshBase.ROUTE_RENEW_MS
+  }
+
+  protected async scheduleDials(localDeviceId: string, signal: AbortSignal): Promise<void> {
+    const devices = this.groupDialRoutes(await this.selectDialCandidates(localDeviceId))
+    const retryAtByWorkspace: Record<string, number> = {}
+    for (const [key, routes] of devices) this.scheduleDeviceDial(key, routes, signal, retryAtByWorkspace)
+    this.options.onRetryChange?.(retryAtByWorkspace)
+  }
+
+  protected async selectDialCandidates(localDeviceId: string): Promise<WorkspacePeerRecord[]> {
+    const candidates = (await this.peerInstances()).filter(peer => !peer.revokedAt && peer.deviceId !== localDeviceId)
+    const selected = new Set<string>()
+    for (const workspaceId of new Set(candidates.map(peer => peer.workspaceId))) {
+      const deviceIds = selectScopedNeighbors({ localDeviceId, candidates: candidates.filter(peer => peer.workspaceId === workspaceId)
+        .map(peer => ({ deviceId: peer.deviceId,
+          health: -(this.failures.get(this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)) ?? 0) })) })
+      for (const deviceId of deviceIds) selected.add(`${workspaceId}:${deviceId}`)
+    }
+    return candidates.filter(peer => selected.has(`${peer.workspaceId}:${peer.deviceId}`))
+  }
+
+  protected groupDialRoutes(peers: WorkspacePeerRecord[]): Map<string, WorkspacePeerRecord[]> {
+    const devices = new Map<string, WorkspacePeerRecord[]>()
+    for (const peer of peers) {
+      const key = this.deviceKey(peer.workspaceId, peer.deviceId)
+      const routes = devices.get(key) ?? []
+      routes.push(peer)
+      devices.set(key, routes)
+    }
+    return devices
+  }
+
+  protected scheduleDeviceDial(key: string, routes: WorkspacePeerRecord[], signal: AbortSignal,
+    retryAtByWorkspace: Record<string, number>): void {
+    const first = routes[0]!
+    if (signal.aborted || this.hasDeviceSession(first.workspaceId, first.deviceId)) return
+    const now = Date.now()
+    if (this.connecting.has(key)) return this.setRetry(retryAtByWorkspace, first.workspaceId, now + 1_000)
+    const eligible = routes.filter(peer => this.routeReady(peer, now))
+    if (eligible.length) return void this.dialDevice(eligible, signal)
+    const nextAttempt = Math.min(...routes.map(peer => this.nextRouteAttempt(peer, now)))
+    this.setRetry(retryAtByWorkspace, first.workspaceId, nextAttempt)
+  }
+
+  protected routeReady(peer: WorkspacePeerRecord, now: number): boolean {
+    return now >= this.nextRouteAttempt(peer, now)
+  }
+
+  protected nextRouteAttempt(peer: WorkspacePeerRecord, fallback: number): number {
+    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
+    const attempts = this.failures.get(key) ?? 0
+    const delay = attempts > 0 ? Math.min(5_000 * 3 ** (attempts - 1), 5 * 60_000) : 0
+    return (this.failedAt.get(key) ?? fallback) + delay
+  }
+
+  protected setRetry(retries: Record<string, number>, workspaceId: string, retryAt: number): void {
+    retries[workspaceId] = Math.min(retries[workspaceId] ?? Infinity, retryAt)
+  }
+
+  protected waitForDialTick(signal: AbortSignal) {
+    return new Promise<void>(resolve => {
+      const finish = () => {
+        clearTimeout(this.retryTimer)
+        this.retryTimer = undefined
+        signal.removeEventListener("abort", finish)
+        resolve()
+      }
+      this.retryTimer = setTimeout(finish, 1_000)
+      signal.addEventListener("abort", finish, { once: true })
+    })
+  }
+
+  protected async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {
+    const peer = peers[0]!
+    const key = this.deviceKey(peer.workspaceId, peer.deviceId)
+    if (this.connecting.has(key)) return
+    this.connecting.add(key)
+    try {
+      if (!this.node || this.hasDeviceSession(peer.workspaceId, peer.deviceId)) return
+      const routeEntries = await Promise.all(peers.map(async candidate => ({
+        peer: candidate,
+        route: await adaptVerifiedWorkspaceAdvertisement(
+          (candidate.advertisement as WorkspaceMemberBundle).advertisement,
+        ),
+      })))
+      const connected = await connectToDevice({
+        targetDeviceId: peer.deviceId,
+        routes: routeEntries.map(value => value.route),
+        fallbackDelayMs: 250,
+        routeHealth: route => -(this.failures.get(this.peerKey(route.scopeId, route.deviceId, route.instanceId)) ?? 0),
+        trace: (event, fields) => this.trace(event, { ...fields }),
+        signal,
+        connect: async (route, routeSignal) => {
+          const entry = routeEntries.find(value => value.route.instanceId === route.instanceId)!
+          return this.connectPeer(entry.peer, route, signal, routeSignal)
+        },
+      })
+      const value = connected.value
+      const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
+        value.issuedAt, value.routeSequence, "outgoing", value.connection,
+        value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported,
+        value.personId, value.ownerWorkspaceSupported, value.endpoint)
+      if (installed) await this.refreshWorkspaceGossip(peer.workspaceId)
+      if (installed && value.ownerWorkspaceSupported) {
+        const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
+        if (credential) await this.offerMissingOwnerWorkspaces(value.connection, credential.transportSecret,
+          value.ownerWorkspaceIds, value.personId)
+      }
+    } catch (error) {
+      if (this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
+        this.trace("dial.device.superseded", {
+          peerId: peer.deviceId.slice(0, 8),
+          workspaceId: peer.workspaceId.slice(0, 8),
+          routes: peers.length,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+        return
+      }
+      this.trace("dial.device.failed", {
+        peerId: peer.deviceId.slice(0, 8),
+        workspaceId: peer.workspaceId.slice(0, 8),
+        routes: peers.length,
+        reason: error instanceof Error ? error.message : String(error),
+      }, "warn")
+      this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+      await this.notify()
+    } finally {
+      this.connecting.delete(key)
+    }
+  }
+
+  protected async connectPeer(peer: WorkspacePeerRecord, route: DeviceRoute, signal: AbortSignal, routeSignal: AbortSignal) {
+    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
+    const connectionId = this.connectionId("outgoing")
+    let connection: SyncConnection | undefined
+    try {
+      this.throwIfDialCancelled(signal, routeSignal)
+      let credential = await this.requireDialCredential(peer)
+      connection = await this.openPeerConnection(peer, route, key, connectionId)
+      const handshake = await this.exchangeOutgoingHandshake(connection, peer, credential, connectionId)
+      credential = await this.mergeOutgoingAuthority(credential, handshake.response)
+      const verified = await this.verifyOutgoingPeer(peer, credential, handshake.response, signal, routeSignal, connectionId)
+      if (Array.isArray(handshake.response.revocations)) await this.mergeRevocations(credential, handshake.response.revocations)
+      await this.putVerifiedBundle(credential, handshake.response.peer)
+      this.throwIfDialCancelled(signal, routeSignal)
+      this.failures.delete(key)
+      this.failedAt.delete(key)
+      const result = this.outgoingConnectionResult(connection, connectionId, verified, handshake.response)
+      connection = undefined
+      return result
+    } catch (error) {
+      await this.handleDialFailure(error, connection, peer, key, connectionId, signal, routeSignal)
+      throw error
+    }
+  }
+
+  protected throwIfDialCancelled(signal: AbortSignal, routeSignal: AbortSignal): void {
+    if (!this.node || signal.aborted || routeSignal.aborted) throw new MeshDialCancelled()
+  }
+
+  protected async requireDialCredential(peer: WorkspacePeerRecord): Promise<WorkspaceMeshCredential> {
+    const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
+    if (!credential || credential.transportSecret !== peer.transportSecret) throw new Error("Mesh credential unavailable")
+    return credential
+  }
+
+  protected async openPeerConnection(peer: WorkspacePeerRecord, route: DeviceRoute, key: string, connectionId: string): Promise<SyncConnection> {
+    const mode = this.reconnectPolicy.mode(this.node!, key)
+    this.trace("dial.started", { connectionId, peerId: peer.deviceId.slice(0, 8), workspaceId: peer.workspaceId.slice(0, 8),
+      endpoint: peer.endpoint.slice(0, 8), mode })
+    const connection = networkConnection(await networkIO(this.reconnectPolicy.dial(this.node!, key, route.endpoint)))
+    this.trace("dial.connected", { connectionId, peerId: peer.deviceId.slice(0, 8), mode })
+    return connection
+  }
+
+  protected async exchangeOutgoingHandshake(connection: SyncConnection, peer: WorkspacePeerRecord,
+    credential: WorkspaceMeshCredential, connectionId: string) {
+    const stream = await connection.openStream()
+    this.trace("handshake.outgoing.started", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+    const profile = await this.options.getProfile()
+    const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId && peer.personId === profile.identity.personId
+      ? await this.ownerWorkspaceIds(profile) : undefined
+    await stream.send(encodePairingFrame("mesh-handshake-request", credential.transportSecret,
+      new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
+        ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
+        breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+        ownerWorkspaceIds, capabilities: meshCapabilities }))))
+    await stream.closeSend()
+    const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
+    assertRequiredMeshCapabilities(response.capabilities)
+    return { response }
+  }
+
+  protected async mergeOutgoingAuthority(credential: WorkspaceMeshCredential, response: {
+    ownershipTransfers?: WorkspaceOwnershipTransfer[]; breakGlassClaims?: WorkspaceBreakGlassClaim[];
+    successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
+  }): Promise<WorkspaceMeshCredential> {
+    return this.mergeIncomingAuthority(credential, response)
+  }
+
+  protected async verifyOutgoingPeer(peer: WorkspacePeerRecord, credential: WorkspaceMeshCredential, response: { peer: WorkspaceMemberBundle },
+    signal: AbortSignal, routeSignal: AbortSignal, connectionId: string) {
+    const verified = await verifyWorkspaceMemberBundle(response.peer, { workspaceId: credential.workspaceId,
+      ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
+      ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
+    this.throwIfDialCancelled(signal, routeSignal)
+    if (verified.advertisement.payload.deviceId !== peer.deviceId) throw new Error("Unexpected mesh peer")
+    this.trace("handshake.outgoing.verified", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+    return verified
+  }
+
+  protected outgoingConnectionResult(connection: SyncConnection, connectionId: string,
+    verified: VerifiedWorkspaceMember, response: { ownerWorkspaceIds?: string[]; capabilities?: unknown }) {
+    return {
+        connection,
+        connectionId,
+        instanceId: verified.advertisement.payload.instanceId ?? "legacy",
+        issuedAt: verified.advertisement.payload.issuedAt,
+        routeSequence: verified.advertisement.payload.routeSequence,
+        personId: verified.advertisement.payload.personId,
+        endpoint: verified.advertisement.payload.endpoint,
+        ownerWorkspaceIds: response.ownerWorkspaceIds,
+        ownerWorkspaceSupported: Array.isArray(response.capabilities) && response.capabilities.includes("owner-workspace-v1"),
+        ownershipReceiptSupported: Array.isArray(response.capabilities) && response.capabilities.includes("ownership-receipt-v1"),
+        heartbeatSupported: Array.isArray(response.capabilities) && response.capabilities.includes("heartbeat-v1"),
+        incrementalSupported: Array.isArray(response.capabilities) && response.capabilities.includes("automerge-sync-v1"),
+    }
+  }
+
+  protected async handleDialFailure(error: unknown, connection: SyncConnection | undefined, peer: WorkspacePeerRecord, key: string,
+    connectionId: string, signal: AbortSignal, routeSignal: AbortSignal): Promise<void> {
+    if (error instanceof MeshDialCancelled || signal.aborted || routeSignal.aborted) {
+      await connection?.close().catch(() => {})
+      this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+      throw new MeshDialCancelled()
+    }
+    this.reconnectPolicy.recordFailure(key, error)
+    this.trace("dial.failed", { connectionId, peerId: peer.deviceId.slice(0, 8),
+      reason: error instanceof Error ? error.message : String(error) }, "warn")
+    if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+    else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+    this.failures.set(key, Math.min((this.failures.get(key) ?? 0) + 1, 8))
+    this.failedAt.set(key, Date.now())
+    await connection?.close().catch(() => {})
+    if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
+      const stale = this.node
+      this.node = undefined
+      await stale?.close("Mesh runtime closed").catch(() => {})
+    }
+  }
+}

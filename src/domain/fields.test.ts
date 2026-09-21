@@ -5,7 +5,7 @@ import {
   resolveSelectDisplay,
   patchFieldDefinition,
 } from "./fields"
-import type { FieldDefinition, Item } from "./model"
+import type { FieldDefinition } from "./model"
 
 describe("Field validation and lifecycle (Requirement 1.5)", () => {
   const baseField = {

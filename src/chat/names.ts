@@ -168,6 +168,64 @@ interface DistinctPerson {
   encodedId: string
 }
 
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function collectDistinctPeople(people: readonly { personId: string; name: string }[]): DistinctPerson[] {
+  const byPersonId = new Map<string, string[]>()
+  for (const person of people) {
+    const names = byPersonId.get(person.personId) ?? []
+    names.push(person.name)
+    byPersonId.set(person.personId, names)
+  }
+  return [...byPersonId]
+    .sort(([left], [right]) => compareText(left, right))
+    .map(([personId, names]) => {
+      const chosenName = names.map(normalizeDisplayName).sort(compareText)[0]
+      return { personId, chosenName, key: nameKey(chosenName), encodedId: encodeIdToAlphanumeric(personId) }
+    })
+}
+
+function groupByName(people: DistinctPerson[]): DistinctPerson[][] {
+  const groups = new Map<string, DistinctPerson[]>()
+  for (const person of people) {
+    const group = groups.get(person.key) ?? []
+    group.push(person)
+    groups.set(person.key, group)
+  }
+  return [...groups.values()]
+}
+
+function uniqueSuffixLengths(group: DistinctPerson[]): number[] {
+  const lengths = group.map(() => 1)
+  let extended = true
+  while (extended) {
+    const suffixes = group.map((person, index) => person.encodedId.slice(0, lengths[index]))
+    const counts = new Map<string, number>()
+    for (const suffix of suffixes) counts.set(suffix, (counts.get(suffix) ?? 0) + 1)
+    extended = false
+    suffixes.forEach((suffix, index) => {
+      if ((counts.get(suffix) ?? 0) <= 1 || lengths[index] >= group[index].encodedId.length) return
+      lengths[index] += 1
+      extended = true
+    })
+  }
+  return lengths
+}
+
+function assignGroupNames(group: DistinctPerson[], result: Record<string, string>): void {
+  if (group.length === 1) {
+    result[group[0].personId] = group[0].chosenName
+    return
+  }
+  group.sort((left, right) => compareText(left.personId, right.personId))
+  const lengths = uniqueSuffixLengths(group)
+  group.forEach((person, index) => {
+    result[person.personId] = `${person.chosenName} · ${person.encodedId.slice(0, lengths[index])}`
+  })
+}
+
 /**
  * Resolves display names for a list of people:
  * - Group equal normalized keys.
@@ -181,99 +239,6 @@ export function resolveDisplayNames(
   people: readonly { personId: string; name: string }[]
 ): Record<string, string> {
   const result: Record<string, string> = {}
-  if (!people || people.length === 0) {
-    return result
-  }
-
-  // Deduplicate by personId to ensure same-person duplicates don't collide with self
-  const byPersonId = new Map<string, string[]>()
-  for (const p of people) {
-    const list = byPersonId.get(p.personId)
-    if (list) {
-      list.push(p.name)
-    } else {
-      byPersonId.set(p.personId, [p.name])
-    }
-  }
-
-  // Stable regardless of input order: sort person IDs deterministically
-  const sortedPersonIds = Array.from(byPersonId.keys()).sort((a, b) =>
-    a < b ? -1 : a > b ? 1 : 0
-  )
-
-  const distinctPeople: DistinctPerson[] = []
-  for (const personId of sortedPersonIds) {
-    const rawNames = byPersonId.get(personId)!
-    const normalizedNames = rawNames
-      .map((n) => normalizeDisplayName(n))
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
-    const chosenName = normalizedNames[0]
-    const key = nameKey(chosenName)
-    const encodedId = encodeIdToAlphanumeric(personId)
-    distinctPeople.push({ personId, chosenName, key, encodedId })
-  }
-
-  // Group equal normalized keys
-  const groups = new Map<string, DistinctPerson[]>()
-  for (const person of distinctPeople) {
-    const group = groups.get(person.key)
-    if (group) {
-      group.push(person)
-    } else {
-      groups.set(person.key, [person])
-    }
-  }
-
-  // For each group, resolve display names
-  for (const [, group] of groups) {
-    if (group.length === 1) {
-      // Unique name displayed as normalized name
-      result[group[0].personId] = group[0].chosenName
-    } else {
-      // For collisions, all distinct persons receive name · X
-      group.sort((a, b) =>
-        a.personId < b.personId ? -1 : a.personId > b.personId ? 1 : 0
-      )
-
-      const personSuffixData = group.map((p) => ({
-        person: p,
-        len: 1,
-      }))
-
-      while (true) {
-        const suffixes = personSuffixData.map(
-          (d) => d.person.encodedId.slice(0, d.len) || d.person.encodedId
-        )
-        const counts = new Map<string, number>()
-        for (const s of suffixes) {
-          counts.set(s, (counts.get(s) ?? 0) + 1)
-        }
-
-        let anyExtended = false
-        for (let i = 0; i < personSuffixData.length; i++) {
-          const s = suffixes[i]
-          if ((counts.get(s) ?? 0) > 1) {
-            if (
-              personSuffixData[i].len <
-              personSuffixData[i].person.encodedId.length
-            ) {
-              personSuffixData[i].len++
-              anyExtended = true
-            }
-          }
-        }
-
-        if (!anyExtended) {
-          break
-        }
-      }
-
-      for (const d of personSuffixData) {
-        const suffix = d.person.encodedId.slice(0, d.len) || d.person.encodedId
-        result[d.person.personId] = `${d.person.chosenName} · ${suffix}`
-      }
-    }
-  }
-
+  for (const group of groupByName(collectDistinctPeople(people))) assignGroupNames(group, result)
   return result
 }

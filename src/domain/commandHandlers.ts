@@ -1,0 +1,38 @@
+import type * as Automerge from "@automerge/automerge/slim"
+import type { Heads, WorkspaceDocumentV2 } from "./model"
+import type { Command } from "./commandTypes"
+import type { CommandContext, CommandHandler, PreparedCommand } from "./commandHandlerTypes"
+import * as basic from "./commandBasicHandlers"
+import * as content from "./commandContentHandlers"
+import * as schema from "./commandSchemaHandlers"
+
+const handlers = {
+  createWorkspace: basic.createWorkspace,
+  setWorkspaceDeleted: basic.setWorkspaceDeleted,
+  renameWorkspace: basic.renameWorkspace,
+  createBoard: basic.createBoard,
+  createItem: basic.createItem,
+  patchItem: basic.patchItem,
+  restoreItemVersion: basic.restoreItemVersion,
+  moveEntity: basic.moveEntity,
+  restoreAndMove: basic.restoreAndMove,
+  renameEntity: basic.renameEntity,
+  setEntityDeleted: basic.setEntityDeleted,
+  createColumn: content.createColumn,
+  createField: content.createField,
+  patchField: content.patchField,
+  createTemplate: content.createTemplate,
+  patchTemplate: content.patchTemplate,
+  addDocument: content.addDocument,
+  patchDocument: content.patchDocument,
+  recordArtifact: content.recordArtifact,
+  createFieldOption: content.createFieldOption,
+  patchFieldOption: content.patchFieldOption,
+  updateBoardSchema: schema.updateBoardSchema,
+  updateWorkspaceSettings: schema.updateWorkspaceSettings,
+} satisfies { [K in Command["kind"]]: CommandHandler<K> }
+
+export function prepareCommand(doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command, nowIso: string, beforeHeads: Heads): PreparedCommand {
+  const handler = handlers[command.kind] as CommandHandler<Command["kind"]>
+  return handler(doc, command, { nowIso, beforeHeads } as CommandContext)
+}

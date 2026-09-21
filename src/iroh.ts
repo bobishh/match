@@ -10,12 +10,10 @@ import irohInit, {
   WasmPairingCodec,
   WasmStateCore,
 } from "@meta-uber/mesh-transport/wasm"
-export { BrowserNode, WasmBlobEngine, WasmGossipEngine, WasmPairingCodec }
+export { WasmBlobEngine, WasmGossipEngine, WasmPairingCodec }
 
 let pairingCodecInstalled = false
 let rustRuntimeInstalled = false
-
-export type IrohStatus = "unavailable" | "starting" | "ready" | "error"
 
 export type IrohNode = {
   endpointId: string
@@ -26,34 +24,29 @@ export type IrohNode = {
   close: (reason?: string) => Promise<void>
 }
 
-export type IrohConnection = {
+type IrohConnection = {
   remoteEndpointId: string
   openStream: () => Promise<IrohStream>
   acceptStream: () => Promise<IrohStream>
   close: () => Promise<void>
 }
 
-export type IrohAcceptor = {
+type IrohAcceptor = {
   accept: () => Promise<IrohConnection | undefined>
   close: () => Promise<void>
 }
 
-export type IrohStream = {
+type IrohStream = {
   send: (bytes: Uint8Array) => Promise<void>
   read: () => Promise<Uint8Array>
   closeSend: () => Promise<void>
 }
 
-type IrohModule = {
-  default: () => Promise<void>
-  BrowserNode: { start: (secret?: Uint8Array) => Promise<IrohNode> }
-}
-
-export function irohArtifactAvailable(): boolean {
+function irohArtifactAvailable(): boolean {
   return typeof WebAssembly !== "undefined"
 }
 
-export async function initializeIrohBrowserRuntime(): Promise<void> {
+async function initializeIrohBrowserRuntime(): Promise<void> {
   if (!irohArtifactAvailable()) throw new Error("WebAssembly unavailable in this browser")
   await irohInit()
   if (!rustRuntimeInstalled) {

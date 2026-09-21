@@ -5,6 +5,7 @@ import { createChatRecord, verifyChatRecord, type ChatRecord, type ChatAuthority
 import { normalizeDisplayName, randomDisplayName, validateDisplayName } from "./names"
 import { peerStore } from "../sync/peerStore"
 import { defaultStorage } from "../storage"
+import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 
 export type ChatChange = { workspaceId: string; added: StoredChatMessage[]; remote: boolean; history: boolean; typing?: ChatRecord[] }
 export type ChatTyping = { personId: string; deviceId: string }
@@ -98,15 +99,15 @@ async function credentials(workspaceId: string, profile: LocalProfile): Promise<
   const certificates = await defaultProofStore.listCertificates()
   if (owner === profile.identity.personId) return {
     publicKey: authority?.ownerPublicKey ?? profile.identity.publicKey,
-    certificates: authority ? authority.ownerCertificates as any : certificates.filter(c => c.payload.personId === owner),
+    certificates: authority ? authority.ownerCertificates as DeviceCertificate[] : certificates.filter(c => c.payload.personId === owner),
   }
   const saved = await loadChat(workspaceId)
   const source = saved.profiles.map(p => p.record as ChatRecord).find(r => r?.authority?.publicKey)
-  const grant = (authority?.localGrant as any) ??
+  const grant = (authority?.localGrant as WorkspaceGrant | undefined) ??
     (await defaultProofStore.listGrants(workspaceId)).find(g => g.payload.personId === profile.identity.personId)
   if (!grant) throw new Error("Connect to the workspace owner once to enable chat")
   if (authority) return { publicKey: authority.ownerPublicKey,
-    certificates: authority.ownerCertificates as any, grant }
+    certificates: authority.ownerCertificates as DeviceCertificate[], grant }
   if (!source) throw new Error("Connect to the workspace owner once to enable chat")
   return { ...source.authority, grant }
 }
@@ -184,42 +185,63 @@ export async function exportChat(workspaceId: string, known?: Set<string>): Prom
     profiles: snapshot.profiles.map(p => p.record).filter(unseen), typing: activeTyping.filter(unseen) }
 }
 
-export async function receiveChat(workspaceId: string, value: unknown, history: boolean) {
-  const wire = value as { version: number; messages: unknown[]; profiles: unknown[]; typing?: unknown[] }
-  if (!wire || wire.version !== 1 || !Array.isArray(wire.messages) || !Array.isArray(wire.profiles) ||
-      (wire.typing !== undefined && !Array.isArray(wire.typing)) || wire.messages.length > 2000 ||
-      wire.profiles.length > 512 || (wire.typing?.length ?? 0) > 512 ||
-      new TextEncoder().encode(JSON.stringify(wire)).byteLength > 8 * 1024 * 1024) throw new Error("Invalid chat batch")
-  const owner = await readOwner(workspaceId)
-  const scope = await readScope(workspaceId)
-  const messages: StoredChatMessage[] = []
-  const profiles: StoredChatProfile[] = []
-  const typing: ChatRecord[] = []
-  const rejectRecord = (section: string, error: unknown) => console.warn("[match.chat]", JSON.stringify({
+type ChatWire = { version: 1; messages: unknown[]; profiles: unknown[]; typing: unknown[] }
+
+function parseChatWire(value: unknown): ChatWire {
+  const wire = value as Partial<ChatWire>
+  if (wire.version !== 1 || !Array.isArray(wire.messages) || !Array.isArray(wire.profiles)) {
+    throw new Error("Invalid chat batch")
+  }
+  if (wire.typing !== undefined && !Array.isArray(wire.typing)) throw new Error("Invalid chat batch")
+  const messages = wire.messages
+  const profiles = wire.profiles
+  const typing = wire.typing ?? []
+  if (messages.length > 2000 || profiles.length > 512 || typing.length > 512) {
+    throw new Error("Invalid chat batch")
+  }
+  if (new TextEncoder().encode(JSON.stringify(wire)).byteLength > 8 * 1024 * 1024) {
+    throw new Error("Invalid chat batch")
+  }
+  return { version: 1, messages, profiles, typing }
+}
+
+function rejectRecord(workspaceId: string, section: string, error: unknown): void {
+  console.warn("[match.chat]", JSON.stringify({
     event: "record.rejected", workspaceId, section,
     reason: error instanceof Error ? error.message : String(error),
   }))
-  for (const item of wire.profiles) {
+}
+
+async function verifiedRecords(
+  items: unknown[],
+  kind: ChatRecord["signed"]["payload"]["kind"],
+  scope: string,
+  owner: string,
+  workspaceId: string,
+): Promise<ChatRecord[]> {
+  const records: ChatRecord[] = []
+  for (const item of items) {
     try {
       const record = await verifyChatRecord(item, scope, owner, workspaceId)
-      if (record.signed.payload.kind !== "chat-profile") throw new Error("Invalid chat profile")
-      profiles.push(member(record))
-    } catch (error) { rejectRecord("profiles", error) }
+      if (record.signed.payload.kind !== kind) throw new Error(`Invalid ${kind}`)
+      records.push(record)
+    } catch (error) {
+      rejectRecord(workspaceId, kind, error)
+    }
   }
-  for (const item of wire.messages) {
-    try {
-      const record = await verifyChatRecord(item, scope, owner, workspaceId)
-      if (record.signed.payload.kind !== "chat-message") throw new Error("Invalid chat message")
-      messages.push(message(record))
-    } catch (error) { rejectRecord("messages", error) }
-  }
-  for (const item of wire.typing ?? []) {
-    try {
-      const record = await verifyChatRecord(item, scope, owner, workspaceId)
-      if (record.signed.payload.kind !== "chat-typing") throw new Error("Invalid typing presence")
-      if (rememberTyping(workspaceId, record)) typing.push(record)
-    } catch (error) { rejectRecord("typing", error) }
-  }
+  return records
+}
+
+export async function receiveChat(workspaceId: string, value: unknown, history: boolean) {
+  const wire = parseChatWire(value)
+  const owner = await readOwner(workspaceId)
+  const scope = await readScope(workspaceId)
+  const profileRecords = await verifiedRecords(wire.profiles, "chat-profile", scope, owner, workspaceId)
+  const messageRecords = await verifiedRecords(wire.messages, "chat-message", scope, owner, workspaceId)
+  const typingRecords = await verifiedRecords(wire.typing, "chat-typing", scope, owner, workspaceId)
+  const profiles = profileRecords.map(member)
+  const messages = messageRecords.map(message)
+  const typing = typingRecords.filter(record => rememberTyping(workspaceId, record))
   const result = await chatStore.merge(scope, messages, profiles)
   if (result.changed || typing.length) publish({ workspaceId, added: result.added, remote: true, history, typing })
 }

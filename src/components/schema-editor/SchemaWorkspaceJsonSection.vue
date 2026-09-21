@@ -1,0 +1,56 @@
+<script setup lang="ts">
+import type { SchemaValidationError } from "../../domain/schema";
+
+defineProps<{
+  errors: SchemaValidationError[];
+  readOnly?: boolean;
+  value: string;
+}>();
+
+const emit = defineEmits<{
+  (event: "apply"): void;
+  (event: "update:value", value: string): void;
+}>();
+</script>
+
+<template>
+  <div class="schema-tab-content workspace-json-editor">
+    <p>
+      Advanced workspace configuration. One apply updates workspace title,
+      board, columns, fields, and document templates.
+    </p>
+    <div v-if="errors.length" class="schema-error-banner" role="alert">
+      <strong>Validation errors:</strong>
+      <ul>
+        <li v-for="(error, index) in errors" :key="index">
+          <code v-if="error.path">{{ error.path }}</code
+          >: {{ error.message }}
+        </li>
+      </ul>
+    </div>
+    <label class="workspace-json-label">
+      <span>Workspace settings JSON</span>
+      <textarea
+        :readonly="readOnly"
+        :value="value"
+        class="schema-json-textarea"
+        rows="22"
+        aria-label="Workspace settings JSON"
+        spellcheck="false"
+        @input="
+          emit('update:value', ($event.target as HTMLTextAreaElement).value)
+        "
+      ></textarea>
+    </label>
+    <div class="dialog-actions">
+      <button
+        class="button button-primary"
+        type="button"
+        :disabled="readOnly || errors.length > 0"
+        @click="emit('apply')"
+      >
+        Apply JSON
+      </button>
+    </div>
+  </div>
+</template>

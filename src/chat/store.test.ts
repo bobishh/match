@@ -4,8 +4,6 @@ import {
   chatStore,
   messageOrderKey,
   canonicalJson,
-  getSerializedBytes,
-  getMessageRecordSerializedBytes,
   validateMessage,
   validateProfile,
   areMessagesIdentical,

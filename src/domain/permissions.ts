@@ -51,17 +51,26 @@ export function assertWorkspaceTransition(role: WorkspaceRole, before: Workspace
   if (role === "visitor") assertWorkspaceCapability(role, "content.write")
   const { entities: beforeEntities, title: beforeTitle, ...beforeRoot } = before
   const { entities: afterEntities, title: afterTitle, ...afterRoot } = after
-  if (beforeTitle !== afterTitle) assertWorkspaceCapability(role, "workspace.rename")
-  if (canonicalizeJson(beforeRoot) !== canonicalizeJson(afterRoot)) assertWorkspaceCapability(role, "board.configure")
+  assertRootChanges(role, beforeTitle, afterTitle, beforeRoot, afterRoot)
   for (const id of new Set([...Object.keys(beforeEntities), ...Object.keys(afterEntities)])) {
     const a = beforeEntities[id], b = afterEntities[id]
     if (canonicalizeJson(a ?? null) === canonicalizeJson(b ?? null)) continue
-    if (!b || !(isItem(b) || b.kind === "document" || b.kind === "artifact") || (a && entityKind(a) !== entityKind(b))) {
-      assertWorkspaceCapability(role, "board.configure")
-      continue
-    }
-    assertWorkspaceCapability(role, "content.write")
-    const parent = afterEntities[b.placement.parentId ?? ""]
-    if (isItem(b) && !(parent && (isItem(parent) || parent.kind === "column"))) throw new Error("Invalid item parent")
+    assertEntityTransition(role, a, b, afterEntities)
   }
+}
+
+function assertRootChanges(role: WorkspaceRole, beforeTitle: string, afterTitle: string, beforeRoot: object, afterRoot: object): void {
+  if (beforeTitle !== afterTitle) assertWorkspaceCapability(role, "workspace.rename")
+  if (canonicalizeJson(beforeRoot) !== canonicalizeJson(afterRoot)) assertWorkspaceCapability(role, "board.configure")
+}
+
+function assertEntityTransition(role: WorkspaceRole, before: WorkspaceDocumentV2["entities"][string] | undefined, after: WorkspaceDocumentV2["entities"][string] | undefined, entities: WorkspaceDocumentV2["entities"]): void {
+  if (!isContentChange(before, after)) return assertWorkspaceCapability(role, "board.configure")
+  assertWorkspaceCapability(role, "content.write")
+  const parent = entities[after.placement.parentId ?? ""]
+  if (isItem(after) && !(parent && (isItem(parent) || parent.kind === "column"))) throw new Error("Invalid item parent")
+}
+
+function isContentChange(before: WorkspaceDocumentV2["entities"][string] | undefined, after: WorkspaceDocumentV2["entities"][string] | undefined): after is WorkspaceDocumentV2["entities"][string] {
+  return Boolean(after && (isItem(after) || after.kind === "document" || after.kind === "artifact") && (!before || entityKind(before) === entityKind(after)))
 }

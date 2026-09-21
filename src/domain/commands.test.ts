@@ -5,7 +5,6 @@ import { initializeAutomerge } from "../crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } from "./identity"
 import { createWorkspaceDoc } from "./seeds"
 import {
-  executeCommand,
   createCommandQueue,
   type Command,
 } from "./commands"
@@ -30,7 +29,6 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
 
   it("executes createItem and patchItem, produces native metadata, and signs a change proof", async () => {
     const queue = createCommandQueue(initialDoc, profile)
-    const board = Object.values(initialDoc.entities).find((e) => e.kind === "board")!
     const leadCol = Object.values(initialDoc.entities).find((e) => e.kind === "column" && e.title === "Lead")!
 
     const companyField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Company")!
@@ -341,5 +339,50 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(patchValid.ok).toBe(true)
     const updatedItem = queue.getDocument().entities[itemId] as any
     expect(updatedItem.values[fieldId]).toBe("2026-09-12T03:30:00Z")
+  })
+
+  it("handles setWorkspaceDeleted to soft-delete and restore workspace", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    expect(queue.getDocument().deleted).toBe(false)
+
+    const deleteRes = await queue.transact({
+      kind: "setWorkspaceDeleted",
+      deleted: true,
+    })
+    expect(deleteRes.ok).toBe(true)
+    expect(queue.getDocument().deleted).toBe(true)
+
+    const restoreRes = await queue.transact({
+      kind: "setWorkspaceDeleted",
+      deleted: false,
+    })
+    expect(restoreRes.ok).toBe(true)
+    expect(queue.getDocument().deleted).toBe(false)
+  })
+
+  it("handles createBoard by adding a new board entity", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const boardRes = await queue.transact({
+      kind: "createBoard",
+      title: "Secondary Board",
+      preset: "blank",
+    })
+    expect(boardRes.ok).toBe(true)
+    if (!boardRes.ok) return
+    const boardId = boardRes.value.receipt.changedEntityIds[0]
+    const createdBoard = queue.getDocument().entities[boardId] as any
+    expect(createdBoard.kind).toBe("board")
+    expect(createdBoard.title).toBe("Secondary Board")
+    expect(createdBoard.deleted).toBe(false)
+  })
+
+  it("rejects createWorkspace on existing workspace document", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const res = await queue.transact({
+      kind: "createWorkspace",
+      title: "New Workspace",
+      preset: "blank",
+    })
+    expect(res.ok).toBe(false)
   })
 })

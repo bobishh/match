@@ -9,82 +9,41 @@ export function validateFieldValue(
   value: FieldValue | undefined,
   allowDeprecatedOptions = false
 ): { valid: boolean; issue?: string } {
-  const isPresent = value !== undefined && value !== null && value !== ""
-
-  if (!isPresent) {
+  if (value === undefined || value === null || value === "") {
     if (field.required && !field.deleted) {
       return { valid: false, issue: `${field.title} is required` }
     }
     return { valid: true }
   }
 
-  switch (field.valueType) {
-    case "text":
-      if (typeof value !== "string") {
-        return { valid: false, issue: `${field.title} must be text` }
-      }
-      return { valid: true }
+  return field.valueType === "number" ? validateNumber(field, value)
+    : field.valueType === "select" ? validateSelect(field, value, allowDeprecatedOptions)
+      : validateScalar(field.valueType, field.title, value)
+}
 
-    case "url":
-      if (
-        typeof value !== "string" ||
-        (!value.startsWith("http://") && !value.startsWith("https://"))
-      ) {
-        return { valid: false, issue: `${field.title} must be a valid URL starting with http:// or https://` }
-      }
-      return { valid: true }
+type FieldValidation = { valid: boolean; issue?: string }
+const valid = (): FieldValidation => ({ valid: true })
+const invalid = (issue: string): FieldValidation => ({ valid: false, issue })
 
-    case "date":
-      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return { valid: false, issue: `${field.title} must be a date formatted as YYYY-MM-DD` }
-      }
-      return { valid: true }
+function validateScalar(type: Exclude<FieldDefinition["valueType"], "number" | "select">, title: string, value: FieldValue): FieldValidation {
+  if (type === "text") return typeof value === "string" ? valid() : invalid(`${title} must be text`)
+  if (type === "boolean") return typeof value === "boolean" ? valid() : invalid(`${title} must be true or false`)
+  if (type === "url") return typeof value === "string" && /https?:\/\//.test(value) ? valid() : invalid(`${title} must be a valid URL starting with http:// or https://`)
+  if (type === "date") return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? valid() : invalid(`${title} must be a date formatted as YYYY-MM-DD`)
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/.test(value) && !Number.isNaN(Date.parse(value)) ? valid() : invalid(`${title} must be a valid datetime`)
+}
 
-    case "datetime":
-      if (
-        typeof value !== "string" ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/.test(value) ||
-        Number.isNaN(Date.parse(value))
-      ) {
-        return { valid: false, issue: `${field.title} must be a valid datetime` }
-      }
-      return { valid: true }
+function validateNumber(field: Extract<FieldDefinition, { valueType: "number" }>, value: FieldValue): FieldValidation {
+  if (typeof value !== "number" || !Number.isFinite(value)) return invalid(`${field.title} must be a valid finite number`)
+  if (field.min !== null && value < field.min) return invalid(`${field.title} must be at least ${field.min}`)
+  return field.max !== null && value > field.max ? invalid(`${field.title} must be at most ${field.max}`) : valid()
+}
 
-    case "boolean":
-      if (typeof value !== "boolean") {
-        return { valid: false, issue: `${field.title} must be true or false` }
-      }
-      return { valid: true }
-
-    case "number":
-      if (typeof value !== "number" || !Number.isFinite(value)) {
-        return { valid: false, issue: `${field.title} must be a valid finite number` }
-      }
-      if (field.min !== null && field.min !== undefined && value < field.min) {
-        return { valid: false, issue: `${field.title} must be at least ${field.min}` }
-      }
-      if (field.max !== null && field.max !== undefined && value > field.max) {
-        return { valid: false, issue: `${field.title} must be at most ${field.max}` }
-      }
-      return { valid: true }
-
-    case "select": {
-      if (typeof value !== "string") {
-        return { valid: false, issue: `${field.title} must be an option ID` }
-      }
-      const option = field.options[value]
-      if (!option) {
-        return { valid: false, issue: `${field.title} has an invalid option selected` }
-      }
-      if (option.deleted && !allowDeprecatedOptions) {
-        return { valid: false, issue: `${field.title} option "${option.title}" is no longer available` }
-      }
-      return { valid: true }
-    }
-
-    default:
-      return { valid: false, issue: `Unknown field value type` }
-  }
+function validateSelect(field: Extract<FieldDefinition, { valueType: "select" }>, value: FieldValue, allowDeprecated: boolean): FieldValidation {
+  if (typeof value !== "string") return invalid(`${field.title} must be an option ID`)
+  const option = field.options[value]
+  if (!option) return invalid(`${field.title} has an invalid option selected`)
+  return option.deleted && !allowDeprecated ? invalid(`${field.title} option "${option.title}" is no longer available`) : valid()
 }
 
 export function validateItemValues(

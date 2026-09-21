@@ -13,7 +13,6 @@ import {
   createDelegatedCertificate,
   createWorkspaceGenesis,
   createWorkspaceGrant,
-  verifyActorBinding,
   verifyWorkspaceGrant,
   verifyWorkspaceGenesis,
   ProofStore,

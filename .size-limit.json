@@ -1,0 +1,22 @@
+[
+  {
+    "name": "initial JavaScript",
+    "path": "dist/assets/index-*.js",
+    "limit": "225 kB"
+  },
+  {
+    "name": "application CSS",
+    "path": "dist/assets/index-*.css",
+    "limit": "10 kB"
+  },
+  {
+    "name": "Automerge WebAssembly",
+    "path": "dist/assets/automerge-*.wasm",
+    "limit": "1.1 MB"
+  },
+  {
+    "name": "mesh WebAssembly",
+    "path": "dist/assets/meta_mesh_bg-*.wasm",
+    "limit": "2.1 MB"
+  }
+]

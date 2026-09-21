@@ -1,0 +1,7 @@
+id: no-fire-and-forget-persist
+valid:
+  - await commitAndPersist(command)
+  - return commitAndPersist(command)
+invalid:
+  - void commitAndPersist(command)
+  - void commitAndPersist(command, storage)

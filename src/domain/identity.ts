@@ -5,7 +5,6 @@ import {
   publicKeyId,
   sha256Base64Url,
   signEnvelope,
-  signatureInput,
   toBase64Url,
   verifyEnvelope,
   type LocalProfile as MeshLocalProfile,
@@ -26,7 +25,6 @@ export {
   publicKeyId,
   sha256Base64Url,
   signEnvelope,
-  signatureInput,
   toBase64Url,
   verifyEnvelope,
 }

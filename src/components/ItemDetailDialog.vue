@@ -4,7 +4,7 @@ import QuickNoteForm from "./QuickNoteForm.vue"
 import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 
-const props = defineProps<{
+defineProps<{
   readOnly?: boolean
   item: Item
   subitems: Item[]

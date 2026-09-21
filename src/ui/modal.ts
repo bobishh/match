@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, watch, type Ref } from "vue"
 type Modal = { root: HTMLElement; trigger: HTMLElement | null; close: () => void }
 const stack: Modal[] = []
 const inertElements = new Map<HTMLElement, { inert: boolean; ariaHidden: string | null }>()
-const MODAL_HANDOFF_DELAY_MS = 250
+const leavingRoots = new Set<HTMLElement>()
 let previousOverflow = ""
 let previousDocumentOverflow = ""
 let previousPosition = ""
@@ -12,8 +12,9 @@ let previousLeft = ""
 let previousWidth = ""
 let lockedScrollX = 0
 let lockedScrollY = 0
-let pendingUnlock: ReturnType<typeof setTimeout> | undefined
 let pendingReturnTarget: HTMLElement | null = null
+let scrollLocked = false
+let backgroundObserver: MutationObserver | undefined
 const focusableSelector = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
 
 function focusable(root: HTMLElement) {
@@ -54,6 +55,65 @@ function updateInert() {
   }
 }
 
+function lockScroll() {
+  if (scrollLocked) return
+  scrollLocked = true
+  lockedScrollX = window.scrollX
+  lockedScrollY = window.scrollY
+  previousOverflow = document.body.style.overflow
+  previousDocumentOverflow = document.documentElement.style.overflow
+  previousPosition = document.body.style.position
+  previousTop = document.body.style.top
+  previousLeft = document.body.style.left
+  previousWidth = document.body.style.width
+  document.documentElement.style.overflow = "hidden"
+  document.body.style.overflow = "hidden"
+  document.body.style.position = "fixed"
+  document.body.style.top = `-${lockedScrollY}px`
+  document.body.style.left = `-${lockedScrollX}px`
+  document.body.style.width = "100%"
+  document.addEventListener("keydown", onKeydown, true)
+  document.addEventListener("focusin", onFocus)
+  backgroundObserver = new MutationObserver(onBackgroundMutation)
+  backgroundObserver.observe(document.body, { childList: true, subtree: true })
+}
+
+function unlockScroll() {
+  if (!scrollLocked) return
+  scrollLocked = false
+  backgroundObserver?.disconnect()
+  backgroundObserver = undefined
+  document.body.style.overflow = previousOverflow
+  document.documentElement.style.overflow = previousDocumentOverflow
+  document.body.style.position = previousPosition
+  document.body.style.top = previousTop
+  document.body.style.left = previousLeft
+  document.body.style.width = previousWidth
+  window.scrollTo(lockedScrollX, lockedScrollY)
+  document.removeEventListener("keydown", onKeydown, true)
+  document.removeEventListener("focusin", onFocus)
+}
+
+function rootsAreLeaving() {
+  for (const root of leavingRoots) {
+    if (root.isConnected) return true
+  }
+  return false
+}
+
+function releaseScrollWhenSettled() {
+  void nextTick(() => {
+    if (stack.length || rootsAreLeaving()) return
+    leavingRoots.clear()
+    unlockScroll()
+  })
+}
+
+function onBackgroundMutation() {
+  if (stack.length) updateInert()
+  else releaseScrollWhenSettled()
+}
+
 function onKeydown(event: KeyboardEvent) {
   const top = stack.at(-1)
   if (!top) return
@@ -91,29 +151,7 @@ function register(root: HTMLElement, close: () => void) {
   const trigger = pendingReturnTarget ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   pendingReturnTarget = null
   const modal: Modal = { root, trigger, close }
-  const continuesExistingLock = pendingUnlock !== undefined
-  if (pendingUnlock !== undefined) {
-    clearTimeout(pendingUnlock)
-    pendingUnlock = undefined
-  }
-  if (!stack.length && !continuesExistingLock) {
-    lockedScrollX = window.scrollX
-    lockedScrollY = window.scrollY
-    previousOverflow = document.body.style.overflow
-    previousDocumentOverflow = document.documentElement.style.overflow
-    previousPosition = document.body.style.position
-    previousTop = document.body.style.top
-    previousLeft = document.body.style.left
-    previousWidth = document.body.style.width
-    document.documentElement.style.overflow = "hidden"
-    document.body.style.overflow = "hidden"
-    document.body.style.position = "fixed"
-    document.body.style.top = `-${lockedScrollY}px`
-    document.body.style.left = `-${lockedScrollX}px`
-    document.body.style.width = "100%"
-    document.addEventListener("keydown", onKeydown, true)
-    document.addEventListener("focusin", onFocus)
-  }
+  lockScroll()
   stack.push(modal)
   focusModal(modal)
   updateInert()
@@ -128,19 +166,8 @@ function register(root: HTMLElement, close: () => void) {
     stack.splice(stack.indexOf(modal), 1)
     updateInert()
     if (!stack.length) {
-      pendingUnlock = setTimeout(() => {
-        pendingUnlock = undefined
-        if (stack.length) return
-        document.body.style.overflow = previousOverflow
-        document.documentElement.style.overflow = previousDocumentOverflow
-        document.body.style.position = previousPosition
-        document.body.style.top = previousTop
-        document.body.style.left = previousLeft
-        document.body.style.width = previousWidth
-        window.scrollTo(lockedScrollX, lockedScrollY)
-        document.removeEventListener("keydown", onKeydown, true)
-        document.removeEventListener("focusin", onFocus)
-      }, MODAL_HANDOFF_DELAY_MS)
+      leavingRoots.add(root)
+      releaseScrollWhenSettled()
     }
     if (!wasTop) return
     pendingReturnTarget = trigger

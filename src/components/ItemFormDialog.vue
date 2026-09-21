@@ -2,13 +2,13 @@
 import ModalLayer from "./ModalLayer.vue"
 import { reactive, ref } from "vue"
 import { useDelayedFlag } from "../ui/useDelayedFlag"
-import type { FieldDefinition, FieldValue, Item } from "../domain/model"
+import type { Column, FieldDefinition, FieldValue, Item } from "../domain/model"
 import { validateFieldValue } from "../domain/fields"
 
 const props = defineProps<{
   parentId: string
   fields: FieldDefinition[]
-  columns?: any[]
+  columns?: Array<Column & { formValue?: string }>
   item?: Item | null
   showCoreFields?: boolean
   hiddenFieldIds?: string[]
@@ -29,48 +29,51 @@ const emit = defineEmits<{
 const selectedParentId = ref(props.parentId)
 const title = ref(props.item?.title ?? props.initialTitle ?? "")
 const body = ref(props.item?.body ?? props.initialBody ?? "")
-const values = reactive<Record<string, any>>({ ...(props.initialValues ?? props.item?.values ?? {}) })
+const values = reactive<Record<string, FieldValue>>({ ...(props.initialValues ?? props.item?.values ?? {}) })
 for (const field of props.fields) {
-  if (field.valueType === "select" && typeof values[field.id] === "string") {
-    values[field.id] = props.optionValues?.[values[field.id]] ?? values[field.id]
+  const fieldValue = values[field.id]
+  if (field.valueType === "select" && typeof fieldValue === "string") {
+    values[field.id] = props.optionValues?.[fieldValue] ?? fieldValue
   }
 }
 const localError = ref("")
 const showSaving = useDelayedFlag(() => Boolean(props.saving))
 
-function handleSave() {
-  if (props.saving) return
-  localError.value = ""
-  if (props.showCoreFields !== false && !title.value.trim()) {
-    localError.value = "Title is required"
-    return
-  }
-
-  // Validate custom fields
+function invalidFieldMessage(): string | undefined {
   for (const field of props.fields) {
     if (field.deleted || props.hiddenFieldIds?.includes(field.id)) continue
-    const selected = field.valueType === "select"
-      ? Object.values(field.options).find(option => props.optionValues?.[option.id] === values[field.id])
+    const value = values[field.id]
+    const selected = field.valueType === "select" && typeof value === "string"
+      ? Object.values(field.options).find(option => props.optionValues?.[option.id] === value)
       : undefined
     const res = validateFieldValue(field, selected?.id ?? values[field.id])
-    if (!res.valid) {
-      localError.value = res.issue || `${field.title} is required`
-      return
-    }
+    if (!res.valid) return res.issue || `${field.title} is required`
   }
+}
 
+function savedFieldValues() {
   const savedValues: Record<string, FieldValue> = { ...(props.item?.values ?? {}), ...values }
   for (const field of props.fields) {
     if (field.valueType !== "select") continue
-    const selected = Object.values(field.options).find(option => props.optionValues?.[option.id] === savedValues[field.id])
+    const value = savedValues[field.id]
+    const selected = typeof value === "string" ? Object.values(field.options).find(option => props.optionValues?.[option.id] === value) : undefined
     if (selected) savedValues[field.id] = selected.id
   }
+  return savedValues
+}
+
+function handleSave() {
+  if (props.saving) return
+  localError.value = ""
+  if (props.showCoreFields !== false && !title.value.trim()) { localError.value = "Title is required"; return }
+  const invalidMessage = invalidFieldMessage()
+  if (invalidMessage) { localError.value = invalidMessage; return }
 
   emit("save", {
     title: title.value.trim(),
     body: body.value,
     parentId: selectedParentId.value,
-    values: savedValues,
+    values: savedFieldValues(),
   })
 }
 </script>

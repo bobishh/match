@@ -12,7 +12,6 @@ import {
   setStorageFailureHookForTest,
   createWorkspaceBundleV2,
   readWorkspaceBundleV2,
-  type StoredChange,
 } from "./storage"
 import type { WorkspaceDocumentV2 } from "./domain/model"
 

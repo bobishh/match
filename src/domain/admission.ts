@@ -1,9 +1,10 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type {
   TransactionMetadataV1,
+  ActorBinding,
 } from "./model"
 import { verifyEnvelope } from "./identity"
-import { ProofStore, validateCertificateChain } from "./proofs"
+import { type ProofStore, validateCertificateChain } from "./proofs"
 
 export type AdmissionResult =
   | { admitted: true; changeHash: string }
@@ -34,7 +35,7 @@ export class AdmissionController {
     changeBytes: Uint8Array,
     ownerPublicKey: string
   ): Promise<AdmissionResult> {
-    let decoded: any
+    let decoded: ReturnType<typeof Automerge.decodeChange>
     try {
       decoded = Automerge.decodeChange(changeBytes)
     } catch (err: unknown) {
@@ -42,14 +43,7 @@ export class AdmissionController {
     }
 
     const changeHash = decoded.hash
-    let metadata: TransactionMetadataV1 | null = null
-    try {
-      if (decoded.message) {
-        metadata = JSON.parse(decoded.message) as TransactionMetadataV1
-      }
-    } catch {
-      metadata = null
-    }
+    const metadata = parseTransactionMetadata(decoded.message)
 
     if (!metadata || metadata.version !== 1) {
       // Unsigned/legacy or missing metadata
@@ -71,12 +65,7 @@ export class AdmissionController {
     }
 
     // Invariants on ActorBinding
-    if (
-      actorBinding.payload.documentId !== workspaceId ||
-      actorBinding.payload.actorId !== decoded.actor ||
-      actorBinding.payload.personId !== metadata.personId ||
-      actorBinding.payload.deviceId !== metadata.deviceId
-    ) {
+    if (!matchesActorBinding(actorBinding, workspaceId, decoded.actor, metadata)) {
       return { admitted: false, status: "rejected", reason: "Actor binding mismatched with change metadata" }
     }
 
@@ -154,4 +143,30 @@ export class AdmissionController {
       receivedAt: Date.now(),
     })
   }
+}
+
+function parseTransactionMetadata(message: string | null | undefined): TransactionMetadataV1 | null {
+  if (!message) return null
+  try {
+    const value: unknown = JSON.parse(message)
+    if (!value || typeof value !== "object") return null
+    const meta = value as Record<string, unknown>
+    return meta.version === 1 && typeof meta.transactionId === "string" && typeof meta.action === "string"
+      && Array.isArray(meta.entityIds) && meta.entityIds.every(id => typeof id === "string")
+      && typeof meta.personId === "string" && typeof meta.deviceId === "string"
+      ? meta as TransactionMetadataV1
+      : null
+  } catch {
+    return null
+  }
+}
+
+function matchesActorBinding(
+  binding: ActorBinding,
+  workspaceId: string,
+  actorId: string,
+  metadata: TransactionMetadataV1,
+): boolean {
+  return binding.payload.documentId === workspaceId && binding.payload.actorId === actorId
+    && binding.payload.personId === metadata.personId && binding.payload.deviceId === metadata.deviceId
 }

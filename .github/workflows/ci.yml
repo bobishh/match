@@ -29,8 +29,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
-      - run: npm run build
+      - run: npm run quality
       - run: npm test
+      - run: npm run quality:size
+      - run: npm audit --audit-level=moderate
 
   browser-core:
     name: Browser (core)

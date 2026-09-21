@@ -3,16 +3,14 @@ export type WorkspaceId = string
 export type PersonId = string // base64url SHA-256(raw identity public key)
 export type DeviceId = string // base64url SHA-256(raw device public key)
 export type ActorId = string // Automerge writer ID, never reused by parallel writers
-export type IsoTime = string
-export type Rank = string // canonical reduced rational: signed numerator/positive denominator
+type IsoTime = string
 export type Hash = string
 export type Heads = Hash[]
 
-export type { Placement, EntityBase, Board, Column, FieldValue, PriorityRule, PriorityBand, PriorityPolicy, Item, FieldOption, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2, EntityKind } from "./entitySchemas"
+export type { Board, Column, FieldValue, PriorityRule, PriorityPolicy, Item, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2, EntityKind } from "./entitySchemas"
 export { isItem, entityKind } from "./entitySchemas"
-import type { WorkspaceEntity } from "./entitySchemas"
 export { isValidRank } from "./rank"
-export { validatePlacement, validatePlacementParent, validateEntity, validateWorkspaceDoc } from "./validation"
+export { validatePlacementParent, validateEntity, validateWorkspaceDoc } from "./validation"
 
 export type PublicIdentity = {
   personId: PersonId
@@ -28,7 +26,7 @@ export type RegisteredDevice = {
   addedAt: IsoTime
 }
 
-export type WorkspaceReference = {
+type WorkspaceReference = {
   workspaceId: WorkspaceId
   documentId: string
   grantHash: Hash
@@ -54,7 +52,7 @@ export type TransactionMetadataV1 = {
   deviceId: DeviceId
 }
 
-export type SignedEnvelope<T> = {
+type SignedEnvelope<T> = {
   payload: T
   signerKeyId: PersonId | DeviceId
   signature: string // base64url signature of the canonical, domain-separated payload
@@ -104,27 +102,6 @@ export type WorkspaceGenesis = SignedEnvelope<{
   initialHeads: Heads
   legacyCheckpoint: boolean
 }>
-
-export type InvitationBase = {
-  protocolVersion: 1
-  invitationId: string
-  issuerPersonId: PersonId
-  issuerDeviceId: DeviceId
-  endpoint: string
-  expiresAt: IsoTime
-  secret: string // 32 random bytes, base64url; never stored in replicated content
-}
-
-export type Invitation = SignedEnvelope<InvitationBase & (
-  | { kind: "device-enrollment"; rootId: string }
-  | { kind: "workspace-join"; workspaceId: WorkspaceId; role: "editor" }
-)>
-
-export type LocalFileLocation = {
-  fileId: EntityId
-  deviceId: DeviceId
-  path: string
-}
 
 export type ProjectionIssue =
   | { type: "missing-parent"; entityId: EntityId; parentId: EntityId }

@@ -7,7 +7,7 @@ import {
   type LocalProfile,
 } from "../domain/identity"
 
-export type InvitationStatus = "pending" | "redeeming" | "consumed" | "cancelled" | "expired"
+type InvitationStatus = "pending" | "redeeming" | "consumed" | "cancelled" | "expired"
 
 export type StoredInvitation = ScopedInvitation & {
   status: InvitationStatus

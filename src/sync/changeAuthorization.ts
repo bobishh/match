@@ -6,9 +6,10 @@ import { defaultProofStore } from "../domain/proofs"
 import { peerStore, type WorkspaceAuthorityRecord, type WorkspaceMeshCredential } from "./peerStore"
 import { loadChat } from "../chat/service"
 import type { ChatRecord } from "../chat/records"
-import { hasConflictingOwnershipTransfers, verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
+import { verifyDeviceChain, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim } from "./meshRecords"
 import type { WorkspaceBreakGlassClaim } from "./meshRecords"
+import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
 
 import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
@@ -17,20 +18,94 @@ export class WorkspaceChangeRejected extends Error {
 
 type StoredWorkspaceAuthority = WorkspaceMeshCredential | WorkspaceAuthorityRecord
 
+async function verifyWorkspaceGrant(grant: WorkspaceGrant | undefined, scope: {
+  workspaceId: string
+  personId: string
+  ownerPersonId: string
+  ownerPublicKey: string
+  ownerCertificates: DeviceCertificate[]
+}): Promise<WorkspaceRole> {
+  if (!grant) throw new Error("Missing workspace grant for non-owner member")
+  const payload = grant.payload
+  if (payload.kind !== "workspace-grant" || payload.version !== 1 || !payload.grantId ||
+    payload.workspaceId !== scope.workspaceId || payload.personId !== scope.personId ||
+    !["owner", "editor", "visitor"].includes(payload.role)) throw new Error("Invalid workspace grant")
+  if (await publicKeyId(scope.ownerPublicKey) !== scope.ownerPersonId) throw new Error("Invalid workspace owner")
+  if (await verifyEnvelope(grant, scope.ownerPublicKey)) return payload.role
+  try {
+    const signerKey = await verifyDeviceChain({ personId: scope.ownerPersonId, publicKey: scope.ownerPublicKey,
+      deviceId: grant.signerKeyId, certificates: scope.ownerCertificates })
+    if (await verifyEnvelope(grant, signerKey)) return payload.role
+  } catch { /* Normalize certificate and signature failures to the public grant error. */ }
+  throw new Error("Invalid workspace grant signature")
+}
+
 async function storedWorkspaceAuthority(workspaceId: string): Promise<{ authority: StoredWorkspaceAuthority | null; invalid: boolean }> {
   try {
-    const credential = await peerStore.getWorkspaceCredential(workspaceId)
-    if (credential) return { authority: credential, invalid: false }
-    return { authority: await peerStore.getWorkspaceAuthority(workspaceId), invalid: false }
+    // Active transport credentials are replaceable connection state. Durable
+    // authority records are the authorization source of truth, including
+    // historical owner keys needed to validate an older legitimate grant.
+    const authority = await peerStore.getWorkspaceAuthority(workspaceId)
+    if (authority) return validateStoredAuthority(authority)
+    return validateStoredAuthority(await peerStore.getWorkspaceCredential(workspaceId))
   } catch {
     return { authority: null, invalid: typeof indexedDB !== "undefined" }
   }
+}
+
+async function validateStoredAuthority(authority: StoredWorkspaceAuthority | null): Promise<{ authority: StoredWorkspaceAuthority | null; invalid: boolean }> {
+  if (!authority) return { authority: null, invalid: false }
+  // Never treat historical keys as a repair path for a malformed current
+  // authority. That would let a locally forged owner record retain editor
+  // privileges through an older, valid owner grant.
+  try {
+    if (await publicKeyId(authority.ownerPublicKey) !== authority.ownerPersonId)
+      return { authority: null, invalid: true }
+  } catch {
+    return { authority: null, invalid: true }
+  }
+  return { authority, invalid: false }
 }
 
 function uniqueCertificates(profile: LocalProfile, certificates: DeviceCertificate[]) {
   const values = [profile.certificate, ...certificates].filter(certificate =>
     certificate?.payload?.personId === profile.identity.personId)
   return [...new Map(values.map(certificate => [certificate.signature, certificate])).values()]
+}
+
+async function rememberWorkspaceAuthority(candidates: Map<string, WorkspaceAuthority>, publicKey: string | undefined,
+  certificates: DeviceCertificate[] | undefined): Promise<void> {
+  if (!publicKey || !Array.isArray(certificates)) return
+  try {
+    const personId = await publicKeyId(publicKey)
+    candidates.set(personId, { personId, publicKey, certificates })
+  } catch { /* Ignore malformed authority records during recovery. */ }
+}
+
+async function recoveredAuthorityCandidates(workspaceId: string): Promise<WorkspaceAuthority[]> {
+  const profiles = await loadChat(workspaceId).then(snapshot => snapshot.profiles).catch(() => [])
+  const candidates = new Map<string, WorkspaceAuthority>()
+  for (const profileRecord of profiles) {
+    const authority = (profileRecord.record as ChatRecord | undefined)?.authority
+    await rememberWorkspaceAuthority(candidates, authority?.publicKey, authority?.certificates)
+  }
+  for (const authorization of await records(workspaceId).catch(() => [])) {
+    await rememberWorkspaceAuthority(candidates, authorization.ownerPublicKey, authorization.ownerCertificates)
+  }
+  return [...candidates.values()]
+}
+
+async function verifiedRecoveryAuthorities(grants: WorkspaceGrant[], candidates: WorkspaceAuthority[], workspaceId: string,
+  personId: string): Promise<Array<{ authority: WorkspaceAuthority; grant: WorkspaceGrant }>> {
+  const verified: Array<{ authority: WorkspaceAuthority; grant: WorkspaceGrant }> = []
+  for (const grant of grants) for (const authority of candidates) {
+    try {
+      await verifyWorkspaceGrant(grant, { workspaceId, personId, ownerPersonId: authority.personId,
+        ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates })
+      verified.push({ authority, grant })
+    } catch { /* Another candidate may validate this grant. */ }
+  }
+  return verified
 }
 
 async function recoverWorkspaceAuthority(doc: WorkspaceDocumentV2, profile: LocalProfile): Promise<StoredWorkspaceAuthority | null> {
@@ -40,36 +115,8 @@ async function recoverWorkspaceAuthority(doc: WorkspaceDocumentV2, profile: Loca
 
   const grants = (await defaultProofStore.listGrants(doc.id))
     .filter(grant => grant.payload.personId === profile.identity.personId)
-  const profiles = await loadChat(doc.id).then(snapshot => snapshot.profiles).catch(() => [])
-  const candidates = new Map<string, WorkspaceAuthority>()
-  const rememberAuthority = async (publicKey: string | undefined, certificates: DeviceCertificate[] | undefined) => {
-    if (!publicKey || !Array.isArray(certificates)) return
-    try {
-      const personId = await publicKeyId(publicKey)
-      candidates.set(personId, { personId, publicKey, certificates })
-    } catch {}
-  }
-  for (const profileRecord of profiles) {
-    const authority = (profileRecord.record as ChatRecord | undefined)?.authority
-    await rememberAuthority(authority?.publicKey, authority?.certificates)
-  }
-  for (const authorization of await records(doc.id).catch(() => [])) {
-    await rememberAuthority(authorization.ownerPublicKey, authorization.ownerCertificates)
-  }
-
-  const verified: Array<{ authority: WorkspaceAuthority; grant: WorkspaceGrant }> = []
-  for (const grant of grants) for (const authority of candidates.values()) {
-    try {
-      await verifyWorkspaceGrant(grant, {
-        workspaceId: doc.id,
-        personId: profile.identity.personId,
-        ownerPersonId: authority.personId,
-        ownerPublicKey: authority.publicKey,
-        ownerCertificates: authority.certificates,
-      })
-      verified.push({ authority, grant })
-    } catch {}
-  }
+  const candidates = await recoveredAuthorityCandidates(doc.id)
+  const verified = await verifiedRecoveryAuthorities(grants, candidates, doc.id, profile.identity.personId)
 
   // A grant signed by another verified identity proves that genesis ownership moved.
   // Multiple foreign owners are ambiguous without the missing transfer chain: remain read-only.
@@ -128,6 +175,8 @@ type Authorization = {
 type PendingHistoryRepair = { bytes: Uint8Array; hashes: string[]; authorization: Authorization[] }
 const historyRepairs = new Map<string, PendingHistoryRepair>()
 
+type LegacyEntity = { kind?: unknown }
+
 function isDiscriminatorCleanup(doc: Automerge.Doc<WorkspaceDocumentV2>, change: Automerge.DecodedChange) {
   if (!change.deps.length || !change.ops.length) return false
   const before = Automerge.view(doc, change.deps)
@@ -136,8 +185,8 @@ function isDiscriminatorCleanup(doc: Automerge.Doc<WorkspaceDocumentV2>, change:
   for (const op of change.ops) {
     if (op.action !== "del" || op.key !== "kind" || !itemObjects.has(op.obj)) return false
     const id = itemObjects.get(op.obj)!
-    if (!["task", "item"].includes((before.entities[id] as any).kind)) return false
-    delete (expected.entities[id] as any).kind
+    if (!["task", "item"].includes((before.entities[id] as LegacyEntity).kind as string)) return false
+    delete (expected.entities[id] as LegacyEntity).kind
   }
   return canonicalizeJson(expected) === canonicalizeJson(Automerge.view(doc, [change.hash]))
 }
@@ -181,16 +230,65 @@ async function records(id: string): Promise<Authorization[]> {
     request.onerror = () => reject(request.error)
   })
 }
-async function putRecords(id: string, incoming: Authorization[]) {
-  const merge = (existing: Authorization[]) => [...new Map([...existing, ...incoming].map(record => [record.signed.signature, record])).values()]
-  if (typeof indexedDB === "undefined") { memory.set(id, merge(memory.get(id) ?? [])); return }
+function canonicalChoice<T>(left: T, right: T): T {
+  return canonicalizeJson(left) <= canonicalizeJson(right) ? left : right
+}
+
+function mergeCertificates(left: DeviceCertificate[], right: DeviceCertificate[]): DeviceCertificate[] {
+  const merged = new Map<string, DeviceCertificate>()
+  for (const certificate of [...left, ...right]) {
+    const current = merged.get(certificate.signature)
+    merged.set(certificate.signature, current ? canonicalChoice(current, certificate) : certificate)
+  }
+  return [...merged.values()].sort((a, b) => a.signature.localeCompare(b.signature))
+}
+
+function mergeAuthorization(current: Authorization, incoming: Authorization): Authorization {
+  return {
+    signed: canonicalChoice(current.signed, incoming.signed),
+    publicKey: canonicalChoice(current.publicKey, incoming.publicKey),
+    certificates: mergeCertificates(current.certificates, incoming.certificates),
+    ...(current.grant || incoming.grant ? { grant: current.grant && incoming.grant
+      ? canonicalChoice(current.grant, incoming.grant) : current.grant ?? incoming.grant } : {}),
+    ownerPublicKey: canonicalChoice(current.ownerPublicKey, incoming.ownerPublicKey),
+    ownerCertificates: mergeCertificates(current.ownerCertificates, incoming.ownerCertificates),
+  }
+}
+
+function mergeAuthorizationRecords(existing: Authorization[], incoming: Authorization[]): Authorization[] {
+  const merged = new Map<string, Authorization>()
+  for (const record of [...existing, ...incoming]) {
+    const current = merged.get(record.signed.signature)
+    merged.set(record.signed.signature, current ? mergeAuthorization(current, record) : record)
+  }
+  return [...merged.values()].sort((left, right) => left.signed.signature.localeCompare(right.signed.signature))
+}
+
+function sameAuthorizationRecords(left: Authorization[], right: Authorization[]): boolean {
+  return canonicalizeJson(mergeAuthorizationRecords(left, [])) === canonicalizeJson(mergeAuthorizationRecords(right, []))
+}
+
+async function putRecords(id: string, incoming: Authorization[]): Promise<boolean> {
+  if (typeof indexedDB === "undefined") {
+    const existing = memory.get(id) ?? []
+    const next = mergeAuthorizationRecords(existing, incoming)
+    const changed = !sameAuthorizationRecords(existing, next)
+    if (changed) memory.set(id, next)
+    return changed
+  }
   const db = await database()
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<boolean>((resolve, reject) => {
+    let changed = false
     const tx = db.transaction("records", "readwrite")
     const store = tx.objectStore("records")
     const get = store.get(id)
-    get.onsuccess = () => store.put(merge(get.result ?? []), id)
-    tx.oncomplete = () => resolve()
+    get.onsuccess = () => {
+      const existing = get.result ?? [] as Authorization[]
+      const next = mergeAuthorizationRecords(existing, incoming)
+      changed = !sameAuthorizationRecords(existing, next)
+      if (changed) store.put(next, id)
+    }
+    tx.oncomplete = () => resolve(changed)
     tx.onerror = () => reject(tx.error)
     tx.onabort = () => reject(tx.error)
   })
@@ -205,13 +303,7 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
   const revoked = ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string } }> } | undefined)?.revocations ?? [])
     .some(record => record?.payload?.personId === profile.identity.personId)
   if (revoked || (await peerStore.listPeers(doc.id)).some(peer => peer.personId === profile.identity.personId && peer.revokedAt)) return "visitor"
-  for (const owner of authorities(authority)) {
-    try {
-      const role = await verifiedGrantRole(grant, doc.id, profile.identity.personId, [owner])
-      if (role) return role === "editor" ? "editor" : "visitor"
-    } catch {}
-  }
-  return "visitor"
+  return roleFromAuthorities(grant, doc.id, profile.identity.personId, authorities(authority))
 }
 
 export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerPersonId: string) {
@@ -255,9 +347,20 @@ async function verifiedGrantRole(grant: WorkspaceGrant | undefined, workspaceId:
     try {
       return await verifyWorkspaceGrant(grant, { workspaceId, personId, ownerPersonId: owner.personId,
         ownerPublicKey: owner.publicKey, ownerCertificates: owner.certificates })
-    } catch {}
+    } catch { /* This owner did not issue the grant. */ }
   }
   if (grant) throw new Error("Invalid workspace grant signature")
+}
+
+async function roleFromAuthorities(grant: WorkspaceGrant, workspaceId: string, personId: string,
+  owners: WorkspaceAuthority[]): Promise<WorkspaceRole> {
+  for (const owner of owners) {
+    try {
+      const role = await verifiedGrantRole(grant, workspaceId, personId, [owner])
+      if (role) return role === "editor" ? "editor" : "visitor"
+    } catch { /* Try the next authority key. */ }
+  }
+  return "visitor"
 }
 
 function authoritiesWithEmbeddedCertificates(owners: WorkspaceAuthority[], record: Authorization): WorkspaceAuthority[] {
@@ -318,79 +421,131 @@ export async function exportAuthorizations(bytes: Uint8Array) {
   }
   return records(doc.id)
 }
-export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown) {
-  let credential: StoredWorkspaceAuthority | null = null
+
+type IncomingAuthorizationContext = {
+  workspaceId: string
+  expectedOwner: string
+  ownerSet: WorkspaceAuthority[]
+  historicalHashes: Map<string, Set<string>>
+  needed: Set<string>
+}
+
+async function incomingAuthorizationRole(record: Authorization, personId: string, context: IncomingAuthorizationContext): Promise<WorkspaceRole> {
+  if (personId === context.expectedOwner) return "owner"
+  const storedOwners = context.ownerSet.length ? context.ownerSet : [{ personId: context.expectedOwner,
+    publicKey: record.ownerPublicKey, certificates: record.ownerCertificates }]
+  const grantRole = await verifiedGrantRole(record.grant, context.workspaceId, personId,
+    authoritiesWithEmbeddedCertificates(storedOwners, record))
+  const historical = context.historicalHashes.get(personId)
+  if (grantRole !== "editor" && !historical) throw new Error("Visitors cannot write workspace changes")
   try {
-    credential = (await storedWorkspaceAuthority(remote.id)).authority
+    if ((await peerStore.listPeers(context.workspaceId)).some(peer => peer.personId === personId && peer.revokedAt)) {
+      throw new Error("Workspace access revoked")
+    }
   } catch (error) {
+    if (error instanceof Error && error.message === "Workspace access revoked") throw error
     if (typeof indexedDB !== "undefined" || !/IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) throw error
   }
-  if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
-  const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
-  if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
-  const expectedOwner = credential?.ownerPersonId ?? genesisOwner
-  const ownerSet = authorities(credential)
+  return grantRole === "editor" ? "editor" : "owner"
+}
+
+async function verifyIncomingAuthorization(value: unknown, context: IncomingAuthorizationContext): Promise<{
+  record: Authorization; hashes: Array<[string, WorkspaceRole]>
+} | undefined> {
+  const record = value as Authorization | undefined
+  const payload = record?.signed?.payload
+  if (!payload || !Array.isArray(payload.hashes) || payload.hashes.length > 256 || !payload.hashes.some(hash => context.needed.has(hash))) return undefined
+  if (payload.kind !== "workspace-changes" || payload.version !== 1 || payload.workspaceId !== context.workspaceId ||
+    record.signed.signerKeyId !== payload.deviceId) throw new Error("Invalid write authorization")
+  const key = await verifyDeviceChain({ personId: payload.personId, publicKey: record.publicKey,
+    deviceId: payload.deviceId, certificates: record.certificates })
+  if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid write signature")
+  const role = await incomingAuthorizationRole(record, payload.personId, context)
+  return { record, hashes: payload.hashes.flatMap(hash => {
+    const historicalOwnerWrite = role === "owner" && payload.personId !== context.expectedOwner &&
+      !context.historicalHashes.get(payload.personId)?.has(hash)
+    return historicalOwnerWrite ? [] : [[hash, role] as [string, WorkspaceRole]]
+  }) }
+}
+
+function recordAllowedHashes(allowed: Map<string, WorkspaceRole>, hashes: Array<[string, WorkspaceRole]>): void {
+  for (const [hash, role] of hashes) if (allowed.get(hash) !== "owner") allowed.set(hash, role)
+}
+
+async function incomingCredential(workspaceId: string): Promise<StoredWorkspaceAuthority | null> {
+  try { return (await storedWorkspaceAuthority(workspaceId)).authority } catch (error) {
+    if (typeof indexedDB === "undefined" && /IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) return null
+    throw error
+  }
+}
+
+function authorizationContextFor(remote: Automerge.Doc<WorkspaceDocumentV2>, credential: StoredWorkspaceAuthority | null,
+  expectedOwner: string, needed: Set<string>): IncomingAuthorizationContext {
   const catalog = credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[]; successionClaims?: WorkspaceSuccessionClaim[]
     breakGlassClaims?: WorkspaceBreakGlassClaim[] } | undefined
   const transfers = [...(catalog?.ownershipTransfers ?? []), ...(catalog?.successionClaims ?? []),
     ...(catalog?.breakGlassClaims ?? []).filter(claim => claim?.payload?.kind === "workspace-break-glass")]
-  const historicalHashes = historicalOwnerHashes(remote, transfers)
+  return { workspaceId: remote.id, expectedOwner, ownerSet: authorities(credential),
+    historicalHashes: historicalOwnerHashes(remote, transfers), needed }
+}
+
+async function collectIncomingAuthorizations(raw: unknown[], context: IncomingAuthorizationContext): Promise<{
+  allowed: Map<string, WorkspaceRole>; verified: Authorization[]
+}> {
+  const allowed = new Map<string, WorkspaceRole>()
+  const verified: Authorization[] = []
+  for (const value of raw) {
+    const authorization = await verifyIncomingAuthorization(value, context)
+    if (!authorization) continue
+    recordAllowedHashes(allowed, authorization.hashes)
+    verified.push(authorization.record)
+  }
+  return { allowed, verified }
+}
+
+function assertEditorChanges(remote: Automerge.Doc<WorkspaceDocumentV2>, changes: Uint8Array[], allowed: Map<string, WorkspaceRole>): void {
+  for (const change of changes) {
+    const decoded = Automerge.decodeChange(change)
+    if (allowed.get(decoded.hash) !== "editor") continue
+    if (!decoded.deps.length) throw new Error("Only the owner can create a workspace")
+    assertWorkspaceTransition("editor", Automerge.view(remote, decoded.deps), Automerge.view(remote, [decoded.hash]))
+  }
+}
+
+function rejectUnsignedChanges(remote: Automerge.Doc<WorkspaceDocumentV2>, unsigned: Automerge.DecodedChange[],
+  verified: Authorization[]): void {
+  if (!unsigned.length) return
+  historyRepairs.delete(remote.id)
+  if (unsigned.every(change => isDiscriminatorCleanup(remote, change))) {
+    if (historyRepairs.size >= 64) historyRepairs.delete(historyRepairs.keys().next().value!)
+    historyRepairs.set(remote.id, { bytes: Automerge.save(remote), hashes: unsigned.map(change => change.hash), authorization: verified })
+  }
+  const decoded = unsigned[0]!
+  throw new WorkspaceChangeRejected(`Unsigned workspace change rejected: ${decoded.hash} (actor ${decoded.actor}, ${decoded.message || "no change message"})`)
+}
+
+export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown): Promise<void> {
+  await validateIncomingChangesWithProofStatus(local, remote, raw)
+}
+
+export async function validateIncomingChangesWithProofStatus(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown): Promise<boolean> {
+  const credential = await incomingCredential(remote.id)
+  if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
+  const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
+  if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
+  const expectedOwner = credential?.ownerPersonId ?? genesisOwner
   if (!Array.isArray(raw) || raw.length > 20000 || new TextEncoder().encode(JSON.stringify(raw)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const known = new Set(local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : [])
   const changes = Automerge.getAllChanges(remote).filter(change => !known.has(Automerge.decodeChange(change).hash))
   // Proofs must propagate even when this replica already has the corresponding changes.
   const needed = new Set(Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change).hash))
-  const allowed = new Map<string, WorkspaceRole>()
-  const verified: Authorization[] = []
-  for (const record of raw as Authorization[]) {
-    const p = record?.signed?.payload
-    if (!p || !Array.isArray(p.hashes) || p.hashes.length > 256 || !p.hashes.some(hash => needed.has(hash))) continue
-    if (p.kind !== "workspace-changes" || p.version !== 1 || p.workspaceId !== remote.id || record.signed.signerKeyId !== p.deviceId) throw new Error("Invalid write authorization")
-    const key = await verifyDeviceChain({ personId: p.personId, publicKey: record.publicKey, deviceId: p.deviceId, certificates: record.certificates })
-    if (!await verifyEnvelope(record.signed, key)) throw new Error("Invalid write signature")
-    let role: WorkspaceRole = "owner"
-    if (p.personId !== expectedOwner) {
-      const storedOwners = ownerSet.length ? ownerSet : [{ personId: expectedOwner,
-        publicKey: record.ownerPublicKey, certificates: record.ownerCertificates }]
-      const grantOwners = authoritiesWithEmbeddedCertificates(storedOwners, record)
-      const grantRole = await verifiedGrantRole(record.grant, remote.id, p.personId, grantOwners)
-      const historical = historicalHashes.get(p.personId)
-      if (grantRole !== "editor" && !historical) throw new Error("Visitors cannot write workspace changes")
-      let revoked = false
-      try {
-        revoked = (await peerStore.listPeers(remote.id)).some(peer => peer.personId === p.personId && peer.revokedAt)
-      } catch (error) {
-        if (typeof indexedDB !== "undefined" || !/IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) throw error
-      }
-      if (revoked) throw new Error("Workspace access revoked")
-      role = grantRole === "editor" ? "editor" : "owner"
-    }
-    for (const hash of p.hashes) {
-      const hashRole = role === "owner" && p.personId !== expectedOwner && !historicalHashes.get(p.personId)?.has(hash)
-        ? undefined : role
-      if (hashRole && allowed.get(hash) !== "owner") allowed.set(hash, hashRole)
-    }
-    verified.push(record)
-  }
+  const authorizationContext = authorizationContextFor(remote, credential, expectedOwner, needed)
+  const { allowed, verified } = await collectIncomingAuthorizations(raw, authorizationContext)
   const unsigned = changes.map(change => Automerge.decodeChange(change)).filter(change => !allowed.has(change.hash))
-  for (const change of changes) {
-    const decoded = Automerge.decodeChange(change)
-    const role = allowed.get(decoded.hash)
-    if (role === "editor") {
-      if (!decoded.deps.length) throw new Error("Only the owner can create a workspace")
-      assertWorkspaceTransition("editor", Automerge.view(remote, decoded.deps), Automerge.view(remote, [decoded.hash]))
-    }
-  }
-  if (unsigned.length) {
-    historyRepairs.delete(remote.id)
-    if (unsigned.every(change => isDiscriminatorCleanup(remote, change))) {
-      if (historyRepairs.size >= 64) historyRepairs.delete(historyRepairs.keys().next().value!)
-      historyRepairs.set(remote.id, { bytes: Automerge.save(remote), hashes: unsigned.map(change => change.hash), authorization: verified })
-    }
-    const decoded = unsigned[0]!
-    throw new WorkspaceChangeRejected(`Unsigned workspace change rejected: ${decoded.hash} (actor ${decoded.actor}, ${decoded.message || "no change message"})`)
-  }
-  await putRecords(remote.id, verified)
+  assertEditorChanges(remote, changes, allowed)
+  rejectUnsignedChanges(remote, unsigned, verified)
+  const proofChanged = await putRecords(remote.id, verified)
   const pending = historyRepairs.get(remote.id)
   if (pending?.hashes.every(hash => needed.has(hash) && allowed.has(hash))) historyRepairs.delete(remote.id)
+  return proofChanged
 }
