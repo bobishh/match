@@ -106,11 +106,13 @@ export abstract class DurableMeshMembership extends DurableMeshCredentials {
       const candidates = this.nextOwnershipTransfers(credential, known)
       if (!candidates.length) break
       const verified = await this.verifyOwnershipTransfers(credential, candidates, accepted)
-      if (new Set(verified.map(record => record.payload.toOwnerPersonId)).size > 1) {
+      const plan = meshRustRuntime().state.planOwnershipTransitions([...accepted.values()],
+        credential.ownerPersonId, credential.epoch) as { records: WorkspaceOwnershipTransfer[]; conflicted: boolean }
+      if (plan.conflicted || !plan.records.length) {
         await persistConflict()
         return credential
       }
-      credential = await this.adoptOwnershipTransfer(credential, verified[0]!, ordered())
+      credential = await this.adoptOwnershipTransfer(credential, plan.records[0]!, ordered())
     }
     return credential
   }
