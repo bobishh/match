@@ -232,7 +232,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
       new TextEncoder().encode(JSON.stringify({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
         ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
         breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: meshCapabilities }))))
+        ownerWorkspaceIds, capabilities: meshCapabilities() }))))
     await stream.closeSend()
     const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
     assertRequiredMeshCapabilities(response.capabilities)

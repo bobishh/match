@@ -127,7 +127,7 @@ export abstract class DurableMeshHandshake extends DurableMeshLifecycle {
       new TextEncoder().encode(JSON.stringify({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
         ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
         breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-        ownerWorkspaceIds, capabilities: meshCapabilities }))))
+        ownerWorkspaceIds, capabilities: meshCapabilities() }))))
     await stream.closeSend()
   }
 

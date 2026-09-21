@@ -182,7 +182,7 @@ export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 export type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   breakGlassClaims?: WorkspaceBreakGlassClaim[] }
-export const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1", "owner-workspace-v1", "iroh-gossip-v1"]
+export function meshCapabilities(): string[] { return meshRustRuntime().state.meshCapabilities() }
 
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
   if (!Array.isArray(capabilities) || !capabilities.every(capability => typeof capability === "string"))
