@@ -1,12 +1,12 @@
 import { type LocalProfile} from "../domain/identity"
 import { isMeshNetworkFailure, startMeshHeartbeat } from "@meta-uber/mesh-transport"
 import type { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { type WorkspaceMemberBundle} from "./meshRecords"
-import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync} from "./workspaceSet"
-import { ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, revokedPersonIds,
+import { ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, revocations, revokedPersonIds,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshDial } from "./durableMeshDial"
 
@@ -197,27 +197,19 @@ export class DurableMeshSessions extends DurableMeshDial {
   async successionViews(): Promise<MeshSuccessionView[]> {
     const result: MeshSuccessionView[] = []
     for (const credential of await this.store.listWorkspaceCredentials()) {
-      const claims = successionClaims(credential).filter(claim => claim.payload.epoch === credential.epoch)
-      const conflicted = new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 ||
-        hasConflictingOwnershipTransfers(ownershipTransfers(credential)) ||
-        hasConflictingBreakGlassClaims(breakGlassClaims(credential))
-      const policy = successionPolicy(credential) ?? claims[0]?.payload.policy
-      if (!policy) {
-        if (conflicted) result.push({ workspaceId: credential.workspaceId, successorPersonId: null,
-          eligibleEditorPersonIds: [], votes: [], quorum: 0, conflicted: true })
-        continue
-      }
-      const revoked = revokedPersonIds(credential)
-      const eligible = policy.payload.eligibleEditorPersonIds.filter(id => !revoked.has(id))
+      const summary = meshRustRuntime().state.summarizeSuccession(
+        successionPolicy(credential), successionClaims(credential), successionVotes(credential), ownershipTransfers(credential),
+        breakGlassClaims(credential), revocations(credential), credential.epoch,
+      ) as { successorPersonId: string | null; eligibleEditorPersonIds: string[];
+        votes: Array<{ voterPersonId: string; candidatePersonId: string }>; quorum: number; conflicted: boolean } | null
+      if (!summary) continue
       result.push({
         workspaceId: credential.workspaceId,
-        successorPersonId: policy.payload.successorPersonId && !revoked.has(policy.payload.successorPersonId)
-          ? policy.payload.successorPersonId : null,
-        eligibleEditorPersonIds: eligible,
-        votes: successionVotes(credential).map(vote => ({ voterPersonId: vote.signed.payload.voterPersonId,
-          candidatePersonId: vote.signed.payload.candidatePersonId })),
-        quorum: Math.floor(eligible.length / 2) + 1,
-        conflicted,
+        successorPersonId: summary.successorPersonId,
+        eligibleEditorPersonIds: summary.eligibleEditorPersonIds,
+        votes: summary.votes,
+        quorum: summary.quorum,
+        conflicted: summary.conflicted,
       })
     }
     return result
