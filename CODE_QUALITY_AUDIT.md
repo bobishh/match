@@ -18,7 +18,7 @@ rule suppression, threshold weakening, generated baselines, or compressed code.
 | Vitest | 531 tests | 543/543 tests, 51 files |
 | Playwright core | not run as one gate | 100/100 tests |
 | npm audit | 2 moderate development findings | 0 vulnerabilities |
-| initial JavaScript | 220.58 / 225 kB Brotli | 206.25 / 225 kB Brotli |
+| initial JavaScript | 220.58 / 225 kB Brotli | 206.74 / 225 kB Brotli |
 | application CSS | 9.38 / 10 kB Brotli | 9.17 / 10 kB Brotli |
 | Automerge WASM | 781.44 kB / 1.1 MB Brotli | 781.44 kB / 1.1 MB Brotli |
 | mesh WASM | 2.02 / 2.1 MB Brotli | 2.02 / 2.1 MB Brotli |
@@ -122,7 +122,7 @@ a hard sync-integrity failure.
 `state.ts` no longer statically imports Iroh or durable mesh. Local IndexedDB state
 hydrates first. Durable mesh and Iroh load through dynamic imports only when sync
 starts. This removed the static/dynamic import conflict and reduced initial JS from
-220.58 to 206.25 kB Brotli.
+220.58 to 206.74 kB Brotli.
 
 Local authority checks no longer call the Rust runtime before mesh startup.
 Ownership-transfer conflict detection is pure TypeScript with the same key:
@@ -165,5 +165,5 @@ only after real dependency/runtime work:
 - mesh WASM: 2.02 of 2.1 MB Brotli.
 
 Vite still warns that the raw initial JavaScript chunk exceeds 500 kB. The formal
-initial-transfer gate uses Brotli and has 18.75 kB headroom. Further reduction should
+initial-transfer gate uses Brotli and has 18.26 kB headroom. Further reduction should
 split application features, not raise the limit.
