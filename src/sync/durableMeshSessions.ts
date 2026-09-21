@@ -174,10 +174,11 @@ export class DurableMeshSessions extends DurableMeshDial {
   async views(workspaceId?: string): Promise<MeshPeerView[]> {
     return (await this.store.listPeers(workspaceId)).map(peer => {
       const payload = (peer.advertisement as WorkspaceMemberBundle | undefined)?.advertisement?.payload
+      const online = this.runtimeState?.connectedDevices(peer.workspaceId).includes(peer.deviceId) ?? false
       return {
         workspaceId: peer.workspaceId, personId: peer.personId, deviceId: peer.deviceId, role: peer.role,
         endpoint: peer.endpoint, lastSeen: peer.lastSeen, revokedAt: peer.revokedAt,
-        online: [...this.sessions.values()].some(session => session.workspaceId === peer.workspaceId && session.deviceId === peer.deviceId),
+        online,
         instances: Math.max(1, peer.instances?.length ?? 0),
         ...(payload?.deviceName ? { deviceName: payload.deviceName } : {}),
         ...(payload?.userAgent ? { userAgent: payload.userAgent } : {}),
