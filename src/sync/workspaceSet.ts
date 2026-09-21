@@ -1,3 +1,4 @@
+import { controlFrames, ControlFrameReceiver } from "./controlFrames"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url, sha256Base64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
@@ -18,7 +19,6 @@ export type LiveWorkspaceSync = {
 }
 
 const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
-const MAX_CONTROL_FRAME_BYTES = 256 * 1024
 const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
 const MAX_GOSSIP_PACKET_BYTES = 256 * 1024
 
@@ -313,14 +313,15 @@ export function liveAutomergeWorkspaceSync(
     ...(store.readChat ? { chat: await store.readChat(workspaceId, knownChat) } : {}),
     ...(store.readMesh ? { mesh: await store.readMesh(workspaceId) } : {}),
   }))
-  const receiveControl = async (bytes: Uint8Array) => {
-    if (bytes.byteLength > MAX_CONTROL_FRAME_BYTES) throw new Error("Mesh control frame exceeds size limit")
+  const controlReceiver = new ControlFrameReceiver(workspaceId)
+  const receiveControl = async (frame: Uint8Array) => {
+    const bytes = controlReceiver.receive(frame)
+    if (!bytes) return
     const value = JSON.parse(new TextDecoder().decode(bytes)) as {
       version?: unknown; workspaceId?: unknown; authorization?: unknown; chat?: unknown; mesh?: unknown
     }
     if (value.version !== 1 || value.workspaceId !== workspaceId) throw new Error("Invalid mesh control frame")
     if (value.authorization !== undefined) {
-      console.info("[match.control] receive", workspaceId, Array.isArray(value.authorization) ? value.authorization.length : -1)
       await store.merge(workspaceId, await store.read(workspaceId), value.authorization)
       // Authorization changes the admission result for already exchanged
       // Automerge heads. Re-negotiate instead of retaining a state that only
@@ -366,11 +367,11 @@ export function liveAutomergeWorkspaceSync(
         const control = await controlSnapshot()
         const content = toBase64Url(control)
         if (content !== lastControlSent) {
-          console.info("[match.control] send", workspaceId, JSON.parse(new TextDecoder().decode(control)).authorization?.length ?? 0)
-          if (control.byteLength > MAX_CONTROL_FRAME_BYTES) throw new Error("Mesh control frame exceeds size limit")
-          const stream = await connection.openStream()
-          await stream.send(encodePairingFrame("mesh-control-sync", secret, control))
-          await stream.closeSend()
+          for (const part of controlFrames(workspaceId, control)) {
+            const stream = await connection.openStream()
+            await stream.send(encodePairingFrame("mesh-control-sync", secret, part))
+            await stream.closeSend()
+          }
           lastControlSent = content
         }
       })

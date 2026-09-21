@@ -614,3 +614,37 @@ test("Given unsigned cleanup history, when the owner signs verified cleanup, the
     await expect(page.getByRole("button",{name:"Open After signature repair — Engineer"})).toBeVisible({timeout:20_000})
   } finally { await context.close() }
 })
+
+test("Given chat history exceeds one control frame, when paired peers reconnect, then history and subsequent edits sync", async ({ browser, page }) => {
+  test.setTimeout(90_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  const failures: string[] = []
+  for (const peer of [page, guest]) peer.on("console", message => {
+    if (message.text().includes("Mesh control frame exceeds")) failures.push(message.text())
+  })
+  try {
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    const size = await page.evaluate(async () => {
+      const { useMatch } = await import("/src/state.ts")
+      const { sendChatMessage, exportChat } = await import("/src/chat/service.ts")
+      const id = useMatch().getActiveDoc()!.id
+      for (let i = 0; i < 40; i++) await sendChatMessage(id, `${i}: ${"x".repeat(7500)}`)
+      return new TextEncoder().encode(JSON.stringify(await exportChat(id))).length
+    })
+    expect(size).toBeGreaterThan(256 * 1024)
+    await guest.goto("/")
+    await pairWorkspace(page, guest)
+    await guest.reload()
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect.poll(() => guest.evaluate(async () => {
+      const { useMatch } = await import("/src/state.ts")
+      const { loadChat } = await import("/src/chat/service.ts")
+      return (await loadChat(useMatch().getActiveDoc()!.id)).messages.length
+    })).toBe(40)
+    await addLead(guest, "After large control")
+    await expect(page.getByRole("button", { name: "Open After large control — Engineer" })).toBeVisible({ timeout: 20_000 })
+    expect(failures).toEqual([])
+  } finally { await context.close() }
+})

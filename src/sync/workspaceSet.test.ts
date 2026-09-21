@@ -116,6 +116,35 @@ describe("live mesh heartbeat", () => {
 })
 
 describe("incremental workspace control plane", () => {
+  it("Given control history exceeds 256 KiB, when published, then bounded frames deliver the complete state once", async () => {
+    const sent: Uint8Array[] = []
+    const authorization = [{ hash: "history", signature: "s".repeat(300_000) }]
+    const bytes = new Uint8Array([1])
+    const sender = liveAutomergeWorkspaceSync({
+      openStream: async () => ({ send: async frame => { sent.push(frame) }, closeSend: async () => {}, read: vi.fn() }),
+      acceptStream: () => new Promise(() => {}), close: vi.fn(),
+    }, "secret", { read: async () => bytes, merge: vi.fn(), activate: vi.fn(), readAuthorization: async () => authorization },
+    "workspace", "a", "b", { generate: async () => null } as never)
+    await expect(sender.publish()).resolves.toBeUndefined()
+    expect(sent.length).toBeGreaterThan(1)
+    for (const frame of sent) expect(decodePairingFrame(frame, "mesh-control-sync", "secret").length).toBeLessThanOrEqual(256 * 1024)
+    const count = sent.length
+    await sender.publish()
+    expect(sent).toHaveLength(count)
+    const merge = vi.fn()
+    let index = 0
+    const receiver = liveAutomergeWorkspaceSync({
+      openStream: vi.fn(), close: vi.fn(),
+      acceptStream: async () => index < sent.length
+        ? { read: async () => sent[index++]!, send: vi.fn(), closeSend: vi.fn() }
+        : new Promise(() => {}),
+    }, "secret", { read: async () => bytes, merge, activate: vi.fn() },
+    "workspace", "b", "a", { reset: vi.fn() } as never)
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledExactlyOnceWith("workspace", bytes, authorization))
+    await sender.close()
+    await receiver.close()
+  })
+
   it("Given an authorization-only update, when a control frame arrives, then it merges the proof without a document change", async () => {
     const merge = vi.fn(async () => {})
     const authorization = [{ hash: "cleanup", signature: "signed" }]
