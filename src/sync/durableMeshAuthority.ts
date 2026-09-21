@@ -1,6 +1,7 @@
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
   verifyWorkspaceMemberBundle, verifyWorkspaceRevocation, verifyWorkspaceGrant,
   createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
@@ -16,8 +17,7 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
     const profile = await this.options.getProfile()
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential || credential.ownerPersonId !== profile.identity.personId) throw new Error("Only the workspace owner can set succession")
-    const eligible = [...new Set((await this.store.listPeers(workspaceId))
-      .filter(peer => peer.role === "editor" && !peer.revokedAt).map(peer => peer.personId))].sort()
+    const eligible = meshRustRuntime().state.eligibleEditorPersonIds(await this.store.listPeers(workspaceId))
     if (personId && !eligible.includes(personId)) throw new Error("Successor must be an editor")
     const policy = await createWorkspaceSuccessionPolicy(profile, workspaceId, personId, eligible, credential.epoch)
     await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
@@ -31,8 +31,7 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     const current = credential && successionPolicy(credential)
     if (!credential || !current || credential.ownerPersonId !== profile.identity.personId) return
-    const eligible = [...new Set((await this.store.listPeers(workspaceId))
-      .filter(peer => peer.role === "editor" && !peer.revokedAt).map(peer => peer.personId))].sort()
+    const eligible = meshRustRuntime().state.eligibleEditorPersonIds(await this.store.listPeers(workspaceId))
     const successor = current.payload.successorPersonId && eligible.includes(current.payload.successorPersonId)
       ? current.payload.successorPersonId : null
     if (eligible.join("\0") === current.payload.eligibleEditorPersonIds.join("\0") && successor === current.payload.successorPersonId &&
