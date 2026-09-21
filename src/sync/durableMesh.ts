@@ -827,12 +827,14 @@ export class DurableMesh {
     const known = new Map(stored.map(record => [record.signature, record]))
     for (const record of raw) if (record?.signature) known.set(record.signature, record)
     const accepted = new Map(stored.map(record => [record.signature, record]))
+    let catalogDirty = false
     const ordered = () => [...accepted.values()].sort((a, b) =>
       a.payload.epoch - b.payload.epoch || a.signature.localeCompare(b.signature))
     const persist = async () => {
       const next = { ...credential, catalog: { ...meshCatalog(credential), breakGlassClaims: ordered() } }
       await this.store.putWorkspaceCredential(next)
       credential = next
+      catalogDirty = false
     }
 
     for (const value of known.values()) {
@@ -842,6 +844,7 @@ export class DurableMesh {
       const record = await verifyWorkspaceBreakGlassClaim(value, credential.workspaceId, authority,
         value.payload.epoch - 1, ownerAuthorities(credential))
       accepted.set(record.signature, record)
+      catalogDirty = true
     }
     if (hasConflictingBreakGlassClaims(ordered())) {
       await persist()
@@ -887,7 +890,12 @@ export class DurableMesh {
       }
       await this.store.transferWorkspaceCredential(previousOwner, next)
       credential = next
+      catalogDirty = false
     }
+    // A replica may already have adopted this epoch from an older client that
+    // persisted the authority without its proof. Retain a later valid claim so
+    // change authorization can recognize the former owner's historical writes.
+    if (catalogDirty) await persist()
     return credential
   }
 

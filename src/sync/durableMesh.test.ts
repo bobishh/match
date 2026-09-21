@@ -376,6 +376,41 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given an older client adopted the recovery epoch without its proof, when the signed claim arrives, then it retains the claim for historical writes", async () => {
+    resetIdentityStorageForTest()
+    const returningOwner = await bootstrapIdentity("Returning owner")
+    resetIdentityStorageForTest()
+    const previousOwner = await bootstrapIdentity("Previous owner")
+    const editorGrant = await createWorkspaceGrant(returningOwner, "workspace-1", returningOwner.identity.personId, "editor")
+    const claim = await createWorkspaceBreakGlassClaim(returningOwner, "workspace-1", previousOwner.identity.personId,
+      editorGrant, ["head"], 3)
+    let credential: any = {
+      version: 1, workspaceId: "workspace-1", ownerPersonId: returningOwner.identity.personId,
+      ownerPublicKey: returningOwner.identity.publicKey, ownerCertificates: [returningOwner.certificate],
+      ownerHistory: [
+        { personId: returningOwner.identity.personId, publicKey: returningOwner.identity.publicKey,
+          certificates: [returningOwner.certificate] },
+        { personId: previousOwner.identity.personId, publicKey: previousOwner.identity.publicKey,
+          certificates: [previousOwner.certificate] },
+      ],
+      transportSecret: "secret", epoch: 3, updatedAt: new Date(0).toISOString(), catalog: {},
+    }
+    const store = {
+      putWorkspaceCredential: async (next: any) => { credential = structuredClone(next) },
+      transferWorkspaceCredential: async (_previous: string, next: any) => { credential = structuredClone(next) },
+      listPeers: async () => [], listWorkspaceCredentials: async () => [credential],
+    }
+    const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => previousOwner, store: store as never })
+
+    await (mesh as any).mergeBreakGlassClaims(credential, [claim])
+
+    expect(credential.ownerPersonId).toBe(returningOwner.identity.personId)
+    expect(credential.epoch).toBe(3)
+    expect(credential.catalog.breakGlassClaims).toEqual([claim])
+    await mesh.dispose()
+  })
+
   it("Given production stored the first local-only recovery record, when the new protocol starts, then it upgrades that record for peer verification", async () => {
     resetIdentityStorageForTest()
     const owner = await bootstrapIdentity("Offline owner")
