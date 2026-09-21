@@ -64,16 +64,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
   }
 
   protected waitForDialTick(signal: AbortSignal) {
-    return new Promise<void>(resolve => {
-      const finish = () => {
-        clearTimeout(this.retryTimer)
-        this.retryTimer = undefined
-        signal.removeEventListener("abort", finish)
-        resolve()
-      }
-      this.retryTimer = setTimeout(finish, 1_000)
-      signal.addEventListener("abort", finish, { once: true })
-    })
+    return this.lifecycle!.wait(1_000, signal)
   }
 
   protected async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {

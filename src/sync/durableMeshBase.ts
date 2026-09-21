@@ -2,6 +2,7 @@ import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy, MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
+import type { BrowserMeshLifecycle } from "@meta-uber/mesh-runtime"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
@@ -195,8 +196,6 @@ export abstract class DurableMeshBase {
   static readonly ROUTE_LEASE_MS = 2 * 60_000
   static readonly ROUTE_RENEW_MS = 60_000
   protected readonly store: PeerStore
-  protected task: Promise<void> | undefined
-  protected abortController: AbortController | undefined
   protected node: SyncNode | undefined
   protected acceptor: SyncAcceptor | undefined
   protected sessions = new Map<string, SessionEntry>()
@@ -205,18 +204,19 @@ export abstract class DurableMeshBase {
   protected runSequence = 0
   protected currentRunId = 0
   protected connectionSequence = 0
-  protected stopped = true
+  protected lifecycle: BrowserMeshLifecycle | undefined
   protected stopWatch: (() => void) | undefined
-  protected retryTimer: ReturnType<typeof setTimeout> | undefined
   private reconnectPolicyState: MeshReconnectPolicy | undefined
   protected runtimeState: MeshRuntimeState | undefined
   protected readonly runtimeId = crypto.randomUUID()
   protected instanceId = ""
   protected releaseInstance: (() => Promise<void>) | undefined
-  protected externallyPaused = false
-  protected disposed = false
   protected adoptedNode: SyncNode | undefined
   protected lastDiagnostic = ""
+
+  protected get stopped() { return this.lifecycle?.stopped ?? true }
+  protected get externallyPaused() { return this.lifecycle?.externallyPaused ?? false }
+  protected get disposed() { return this.lifecycle?.disposed ?? false }
 
   constructor(protected readonly options: DurableMeshOptions) {
     this.store = options.store ?? peerStore
@@ -319,8 +319,7 @@ export abstract class DurableMeshBase {
   }
 
   async pauseAll(): Promise<void> {
-    this.externallyPaused = true
-    await this.stop(false)
+    await this.lifecycle?.pause()
   }
 
   async resumeAll(node?: SyncNode): Promise<void> {
@@ -329,8 +328,7 @@ export abstract class DurableMeshBase {
       await this.adoptedNode?.close("Mesh node replaced").catch(() => {})
       this.adoptedNode = node
     }
-    this.externallyPaused = false
-    await this.start()
+    await this.lifecycle?.resume(() => this.start())
   }
 
   async waitUntilListening(timeoutMs = 30_000): Promise<void> {
@@ -345,8 +343,7 @@ export abstract class DurableMeshBase {
   }
 
   async dispose(): Promise<void> {
-    this.disposed = true
-    await this.stop()
+    await this.lifecycle?.dispose(() => this.stop())
     this.runtimeState?.free?.()
     this.runtimeState = undefined
     this.reconnectPolicyState = undefined

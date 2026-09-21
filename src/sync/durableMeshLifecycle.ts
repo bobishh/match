@@ -4,55 +4,57 @@ import { defaultProofStore } from "../domain/proofs"
 import { type WorkspaceMemberBundle} from "./meshRecords"
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection, SyncNode, DuplexStream } from "./transport"
-import { MeshNodeRestart, uniqueCertificates } from "./durableMeshBase"
+import { BrowserMeshLifecycle } from "@meta-uber/mesh-runtime"
 import { startPersistentNode } from "./persistentNode"
 import { meshNetworkConnection as networkConnection } from "@meta-uber/mesh-transport"
 import { isMeshNetworkFailure as isNetworkFailure } from "@meta-uber/mesh-transport"
 import { DurableMeshAuthority } from "./durableMeshAuthority"
+import { MeshNodeRestart, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
 
 export abstract class DurableMeshLifecycle extends DurableMeshAuthority {
+  private offlineHandler: (() => void) | undefined
+
+  constructor(options: DurableMeshOptions) {
+    super(options)
+    this.lifecycle = new BrowserMeshLifecycle({
+      canStart: () => this.canStartRuntime(),
+      acquireInstance: () => this.acquireInstance(),
+      runOnce: signal => this.runMeshOnce(signal),
+      shutdown: () => this.shutdown(),
+      trace: (event, detail, level) => this.trace(event, detail, level),
+      reportRestart: error => this.reportRestart(error),
+      notify: () => this.notify(),
+      retryChanged: () => this.options.onRetryChange?.({}),
+    })
+  }
+
   protected abstract refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile, endpoint: string, certificates: DeviceCertificate[]): Promise<WorkspaceMemberBundle | undefined>
   protected abstract pruneInvalidStoredPeers(credential: WorkspaceMeshCredential, localDeviceId: string): Promise<void>
   protected abstract acceptConnection(connection: SyncConnection, signal?: AbortSignal, initial?: { stream: DuplexStream; frame: Uint8Array }, connectionId?: string): Promise<void>
   protected abstract dialLoop(signal: AbortSignal): Promise<void>
-  async start(): Promise<void> {
-    if (!this.stopped || this.externallyPaused || this.disposed) return
-    if ((await this.store.listWorkspaceCredentials()).length === 0) {
-      await this.adoptedNode?.close("No mesh credentials").catch(() => {})
-      this.adoptedNode = undefined
-      return
-    }
-    if (!this.stopped || this.externallyPaused || this.disposed) return
-    await this.acquireInstance()
-    if (!this.stopped || this.externallyPaused || this.disposed) return
-    this.stopped = false
-    this.trace("mesh.start")
-    await this.notify()
-    this.abortController = new AbortController()
-    this.task = this.run(this.abortController.signal)
-  }
+
+  async start(): Promise<void> { await this.lifecycle!.start() }
 
   async stop(releaseInstance = true): Promise<void> {
-    if (this.stopped) {
-      if (releaseInstance) {
-        await this.releaseInstance?.()
-        this.releaseInstance = undefined
-      }
-      return
-    }
-    this.stopped = true
-    this.trace("mesh.stop")
-    clearTimeout(this.retryTimer)
-    this.retryTimer = undefined
-    this.abortController?.abort()
-    this.abortController = undefined
-    this.options.onRetryChange?.({})
-    await this.task?.catch(() => {})
-    this.task = undefined
-    await this.shutdown()
-    if (releaseInstance) {
+    await this.lifecycle!.stop(releaseInstance, async () => {
       await this.releaseInstance?.()
       this.releaseInstance = undefined
+    })
+  }
+
+  protected async canStartRuntime(): Promise<boolean> {
+    if ((await this.store.listWorkspaceCredentials()).length > 0) return true
+    await this.adoptedNode?.close("No mesh credentials").catch(() => {})
+    this.adoptedNode = undefined
+    return false
+  }
+
+  protected reportRestart(error: unknown): void {
+    if (error instanceof MeshNodeRestart) {
+      this.trace("node.restart", { reason: error.reason })
+    } else {
+      this.report("Mesh restart", error)
+      console.warn("Durable mesh restarting", error)
     }
   }
 
@@ -60,6 +62,9 @@ export abstract class DurableMeshLifecycle extends DurableMeshAuthority {
     this.trace("node.shutdown", { sessions: this.sessions.size, pendingIncoming: this.pendingIncomingConnections })
     this.stopWatch?.()
     this.stopWatch = undefined
+    const offline = this.offlineHandler
+    this.offlineHandler = undefined
+    if (offline && typeof window !== "undefined") window.removeEventListener("offline", offline)
     const node = this.node
     this.node = undefined
     this.gossip.closeAll()
@@ -76,43 +81,9 @@ export abstract class DurableMeshLifecycle extends DurableMeshAuthority {
     await this.notify()
   }
 
-  protected async run(signal: AbortSignal) {
-    while (!signal.aborted) {
-      this.currentRunId = ++this.runSequence
-      this.trace("run.start")
-      const offline = () => { void this.dropSessions() }
-      const abort = () => { void this.shutdown() }
-      try {
-        await this.runMeshOnce(signal, offline, abort)
-      } catch (error) {
-        if (!signal.aborted) {
-          if (error instanceof MeshNodeRestart) {
-            this.trace("node.restart", { reason: error.reason })
-          } else {
-            this.report("Mesh restart", error)
-            console.warn("Durable mesh restarting", error)
-          }
-        }
-      } finally {
-        signal.removeEventListener("abort", abort)
-        if (typeof window !== "undefined") window.removeEventListener("offline", offline)
-        await this.shutdown()
-      }
-      if (!signal.aborted) {
-        await new Promise<void>(resolve => {
-          const timer = setTimeout(finish, 1_000)
-          function finish() {
-            clearTimeout(timer)
-            signal.removeEventListener("abort", finish)
-            resolve()
-          }
-          signal.addEventListener("abort", finish, { once: true })
-        })
-      }
-    }
-  }
-
-  protected async runMeshOnce(signal: AbortSignal, offline: () => void, abort: () => void): Promise<void> {
+  protected async runMeshOnce(signal: AbortSignal): Promise<void> {
+    this.currentRunId = ++this.runSequence
+    this.trace("run.start")
     const storedCredentials = await this.store.listWorkspaceCredentials()
     const profile = await this.options.getProfile()
     const ownedWorkspaceIds = await this.options.getOwnedWorkspaceIds?.() ?? []
@@ -128,7 +99,8 @@ export abstract class DurableMeshLifecycle extends DurableMeshAuthority {
     if (ownedWorkspaceIds.length > 0) credentials = await this.prepareOwnedWorkspaces(ownedWorkspaceIds, node, profile)
     await this.prepareCredentials(credentials, profile, node.endpointId)
     this.acceptor = await node.accept()
-    signal.addEventListener("abort", abort, { once: true })
+    const offline = () => { void this.dropSessions() }
+    this.offlineHandler = offline
     if (typeof window !== "undefined") window.addEventListener("offline", offline)
     this.stopWatch = this.options.workspace.subscribe?.(() => { void this.publishAll() })
     void this.acceptLoop(signal)
@@ -179,5 +151,4 @@ export abstract class DurableMeshLifecycle extends DurableMeshAuthority {
       }
     }
   }
-
 }

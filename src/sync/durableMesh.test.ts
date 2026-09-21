@@ -149,7 +149,7 @@ describe("DurableMesh peer catalog gossip", () => {
       store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
     const internal = mesh as any
     const publish = vi.fn(async () => {})
-    internal.stopped = false
+    internal.lifecycle = { stopped: false }
     internal.createMeshSession = vi.fn(() => ({ incrementalEngine: undefined,
       session: { publish, close: async () => {}, done: new Promise<never>(() => {}) } }))
     const connection = { close: vi.fn(async () => {}), acceptStream: vi.fn(), openStream: vi.fn() }
@@ -158,7 +158,7 @@ describe("DurableMesh peer catalog gossip", () => {
     await new Promise<void>(resolve => queueMicrotask(resolve))
 
     expect(publish).toHaveBeenCalledOnce()
-    internal.stopped = true
+    internal.lifecycle = undefined
     await mesh.dispose()
   })
 
