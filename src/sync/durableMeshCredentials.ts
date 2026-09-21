@@ -13,9 +13,9 @@ import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
 import { uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revokedPersonIds,
   type MeshCatalog, type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
-import { DurableMeshGossip } from "./durableMeshGossip"
+import { DurableMeshBase } from "./durableMeshBase"
 
-export abstract class DurableMeshCredentials extends DurableMeshGossip {
+export abstract class DurableMeshCredentials extends DurableMeshBase {
   private readonly credentialIdentityHost = {
     grant: (credential: WorkspaceMeshCredential) => {
       const grant = credential.localGrant as WorkspaceGrant | undefined

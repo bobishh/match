@@ -1,7 +1,7 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
-import { MeshReconnectPolicy, MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
+import { BrowserMeshGossip, MeshReconnectPolicy, MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
 import type { BrowserMeshLifecycle } from "@meta-uber/mesh-runtime"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
@@ -17,7 +17,7 @@ import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential} from "./peerStore"
 import { startPersistentNode } from "./persistentNode"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport} from "./transport"
-import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { publishGossipPacket, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 export type MeshWorkspaceEnvelope = {
   version: 1
   workspaceId: string
@@ -213,6 +213,27 @@ export abstract class DurableMeshBase {
   protected releaseInstance: (() => Promise<void>) | undefined
   protected adoptedNode: SyncNode | undefined
   protected lastDiagnostic = ""
+  /** Match binds workspace documents to the shared browser gossip lifecycle. */
+  protected readonly gossip = new BrowserMeshGossip({
+    isStopped: () => this.stopped,
+    createEngine: () => this.node?.createGossipEngine(),
+    endpoints: workspaceId => [...new Set([...this.sessions.values()]
+      .filter(entry => entry.workspaceId === workspaceId && entry.endpoint)
+      .map(entry => entry.endpoint))].sort(),
+    setEndpoints: (workspaceId, endpoints) => this.runtime().setGossipEndpoints(workspaceId, endpoints),
+    transportSecret: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId))?.transportSecret,
+    session: (workspaceId, endpoint) => {
+      const entry = [...this.sessions.values()].find(candidate => candidate.workspaceId === workspaceId && candidate.endpoint === endpoint)
+      return entry && { endpoint: entry.endpoint, deviceId: entry.deviceId, publish: () => entry.session.publish() }
+    },
+    send: async (workspaceId, endpoint, secret, packet) => {
+      const entry = [...this.sessions.values()].find(candidate => candidate.workspaceId === workspaceId && candidate.endpoint === endpoint)
+      if (!entry) throw new Error("Gossip peer session is unavailable")
+      await publishGossipPacket(entry.connection, secret, packet)
+    },
+    publishAll: () => this.publishAll(),
+    trace: (event, detail, level) => this.trace(event, detail, level),
+  }, "match-workspace-")
 
   protected get stopped() { return this.lifecycle?.stopped ?? true }
   protected get externallyPaused() { return this.lifecycle?.externallyPaused ?? false }
@@ -293,6 +314,15 @@ export abstract class DurableMeshBase {
   async startInstanceNode(): Promise<SyncNode> {
     await this.acquireInstance()
     return startPersistentNode(this.options.transport, this.store, this.instanceId)
+  }
+
+  protected refreshWorkspaceGossip(workspaceId: string): Promise<void> { return this.gossip.refresh(workspaceId) }
+  protected async rebuildWorkspaceGossip(workspaceId: string): Promise<void> { await this.gossip.rebuild(workspaceId) }
+  protected async receiveWorkspaceGossipPacket(workspaceId: string, endpoint: string, packet: Uint8Array): Promise<void> {
+    await this.gossip.receivePacket(workspaceId, endpoint, packet)
+  }
+  protected async broadcastWorkspaceGossip(workspaceId: string): Promise<Set<string> | undefined> {
+    return this.gossip.broadcast(workspaceId)
   }
 
   protected async peerInstances(workspaceId?: string) {
