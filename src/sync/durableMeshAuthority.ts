@@ -1,6 +1,7 @@
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
+import { BrowserMeshAuthority } from "@meta-uber/mesh-runtime"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
   verifyWorkspaceMemberBundle, verifyWorkspaceRevocation, verifyWorkspaceGrant,
@@ -13,6 +14,20 @@ import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, succe
 import { DurableMeshMembership } from "./durableMeshMembership"
 
 export abstract class DurableMeshAuthority extends DurableMeshMembership {
+  private readonly authority = new BrowserMeshAuthority<WorkspaceMeshCredential, { personId: string }, WorkspaceRevocation>({
+    profile: async () => ({ personId: (await this.options.getProfile()).identity.personId }),
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    createRevocation: async (_profile, workspaceId, personId, epoch) => {
+      const profile = await this.options.getProfile()
+      return createWorkspaceRevocation(profile, workspaceId, personId, epoch)
+    },
+    epoch: credential => credential.epoch,
+    mergeRevocations: (credential, records, disconnect) => this.mergeRevocations(credential, records, disconnect),
+    refreshSuccessionPolicy: workspaceId => this.refreshSuccessionPolicy(workspaceId),
+    publishAll: () => this.publishAll(),
+    notify: () => this.notify(),
+    leave: workspaceId => this.leaveWorkspaceHost(workspaceId),
+  })
   async setSuccessor(workspaceId: string, personId: string | null): Promise<void> {
     const profile = await this.options.getProfile()
     const credential = await this.store.getWorkspaceCredential(workspaceId)
@@ -116,16 +131,7 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
   }
 
   async revokePerson(workspaceId: string, personId: string): Promise<void> {
-    const profile = await this.options.getProfile()
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential || credential.ownerPersonId !== profile.identity.personId) throw new Error("Only the workspace owner can revoke access")
-    const record = await createWorkspaceRevocation(profile, workspaceId, personId, credential.epoch + 1)
-    await this.mergeRevocations(credential, [record], false)
-    await this.refreshSuccessionPolicy(workspaceId)
-    // Gossip tombstone before severing the revoked session. Other members converge on the owner's epoch.
-    await this.publishAll()
-    await this.mergeRevocations(await this.store.getWorkspaceCredential(workspaceId) ?? credential, [record])
-    await this.notify()
+    await this.authority.revokePerson(workspaceId, personId)
   }
 
   protected ownershipQueue: Promise<void> = Promise.resolve()
@@ -233,7 +239,10 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
   }
 
   async leaveWorkspace(workspaceId: string): Promise<void> {
-    if (!workspaceId) throw new Error("No active workspace")
+    await this.authority.leaveWorkspace(workspaceId)
+  }
+
+  private async leaveWorkspaceHost(workspaceId: string): Promise<void> {
     for (const [, entry] of [...this.sessions]) {
       if (entry.workspaceId !== workspaceId) continue
       await entry.evict("workspace left")
@@ -245,7 +254,6 @@ export abstract class DurableMeshAuthority extends DurableMeshMembership {
     this.lastDiagnostic = ""
     this.options.onDiagnostic?.("")
     this.clearRouteReconnects(`${workspaceId}:`)
-    await this.notify()
   }
 
 }
