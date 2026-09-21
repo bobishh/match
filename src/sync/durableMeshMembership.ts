@@ -195,10 +195,10 @@ export abstract class DurableMeshMembership extends DurableMeshCredentials {
 
   protected async mergeSuccessionState(initialCredential: WorkspaceMeshCredential, rawPolicy: WorkspaceSuccessionPolicy | undefined,
     rawVotes: WorkspaceSuccessionVote[], rawClaims: WorkspaceSuccessionClaim[]): Promise<WorkspaceMeshCredential> {
-    return mergeSuccessionState(this.successionHost(), initialCredential, rawPolicy, rawVotes, rawClaims)
+    return mergeSuccessionState<WorkspaceMeshCredential>(this.successionHost(), initialCredential, rawPolicy, rawVotes, rawClaims)
   }
 
-  protected successionHost(): SuccessionHost {
+  protected successionHost(): SuccessionHost<WorkspaceMeshCredential> {
     return {
       getProfile: this.options.getProfile, getPolicy: successionPolicy, getVotes: successionVotes, getClaims: successionClaims,
       getCatalog: credential => meshCatalog(credential), getAuthorities: ownerAuthorities, revokedPeople: revokedPersonIds,
