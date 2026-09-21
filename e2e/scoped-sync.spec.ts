@@ -226,6 +226,50 @@ test.describe("Scoped Sync Outer Scenarios", () => {
     }
   })
 
+  test("Given enrolled devices share several workspaces, when one device reloads, then the other stays connected and receives its next edit", async ({ browser, page }) => {
+    test.setTimeout(150_000)
+    const secondContext = await browser.newContext()
+    const secondPage = await secondContext.newPage()
+
+    try {
+      await page.goto("/")
+      for (const title of ["Alpha", "Bravo", "Charlie", "Delta"]) {
+        await page.getByRole("button", { name: "Open workspaces" }).click()
+        await page.getByRole("button", { name: "New workspace" }).click()
+        const create = page.getByRole("dialog", { name: "Create workspace" })
+        await create.getByLabel("Title").fill(title)
+        await create.getByRole("radio", { name: "Blank board" }).check()
+        await create.getByRole("button", { name: "Create" }).click()
+      }
+
+      await page.getByRole("button", { name: "Sync", exact: true }).click()
+      const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
+      await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
+      await secondPage.goto(await hostDialog.getByLabel("Pairing link").inputValue())
+      const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
+      await secondDialog.getByRole("button", { name: "Add this device" }).click()
+      await hostDialog.getByRole("button", { name: "Approve device" }).click()
+      await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
+      await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
+      await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await secondDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+
+      await page.reload()
+      await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+      await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+      await page.getByRole("button", { name: /Add item to/ }).first().click()
+      const item = page.getByRole("dialog", { name: "Item details" })
+      await item.getByLabel("Title *").fill("After one-sided reload")
+      await item.getByRole("button", { name: "Save item" }).click()
+      await expect(secondPage.getByRole("button", { name: "Open After one-sided reload" })).toBeVisible({ timeout: 30_000 })
+    } finally {
+      await secondContext.close()
+    }
+  })
+
   test("Given an enrolled owner device is offline, when another device creates a workspace, then it receives the workspace after reconnecting without another invite", async ({ browser, page }) => {
     test.setTimeout(120_000)
     const secondContext = await browser.newContext()

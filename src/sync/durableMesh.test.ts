@@ -6,6 +6,23 @@ import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRe
 import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given stored mesh trust belongs to another transient identity, when startup filters credentials, then it preserves trust for recovery", async () => {
+    const removeWorkspaceMeshData = vi.fn()
+    const credential = {
+      version: 1 as const, workspaceId: "workspace-1", ownerPersonId: "previous-person",
+      ownerPublicKey: "previous-key", ownerCertificates: [], transportSecret: "mesh-secret",
+      epoch: 1, updatedAt: new Date().toISOString(),
+    }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" } } as never),
+      store: { removeWorkspaceMeshData, listWorkspaceCredentials: async () => [credential], listPeers: async () => [] } as never })
+
+    await expect((mesh as any).activeCredentialsForProfile([credential],
+      { identity: { personId: "current-person", publicKey: "current-key" } })).resolves.toEqual([])
+    expect(removeWorkspaceMeshData).not.toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
   it("explains a missing recovery policy separately from editor eligibility", async () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "editor" } } as never),

@@ -359,17 +359,21 @@ export class DurableMesh {
     return false
   }
 
-  private async detachCredentialsFromPreviousIdentity(credentials: WorkspaceMeshCredential[], profile: LocalProfile) {
+  private async activeCredentialsForProfile(credentials: WorkspaceMeshCredential[], profile: LocalProfile) {
     const active: WorkspaceMeshCredential[] = []
+    let mismatched = false
     for (const credential of credentials) {
       if (await this.credentialBelongsToProfile(credential, profile)) {
         active.push(credential)
         continue
       }
-      // Enrollment replaces the person identity but intentionally keeps local workspace data.
-      // A credential issued to the previous identity cannot authenticate the new profile.
-      await this.store.removeWorkspaceMeshData(credential.workspaceId)
-      await defaultProofStore.removeWorkspaceGrants(credential.workspaceId)
+      // A transient or concurrent identity bootstrap must not erase durable mesh trust.
+      // Enrollment replaces stale credentials explicitly after mutual approval.
+      mismatched = true
+      this.trace("credential.identity-mismatch", { workspaceId: credential.workspaceId.slice(0, 8) }, "warn")
+    }
+    if (mismatched && active.length === 0) {
+      this.report("Mesh identity", new Error("Stored mesh trust belongs to another local identity. Re-enroll this device."))
     }
     return active
   }
@@ -1110,7 +1114,7 @@ export class DurableMesh {
         const storedCredentials = await this.store.listWorkspaceCredentials()
         if (signal.aborted || storedCredentials.length === 0) return
         const profile = await this.options.getProfile()
-        let credentials = await this.detachCredentialsFromPreviousIdentity(storedCredentials, profile)
+        let credentials = await this.activeCredentialsForProfile(storedCredentials, profile)
         if (signal.aborted || credentials.length === 0) return
         // Every browser runtime owns one independently leased transport endpoint.
         // Workspace roles and grants remain attached to the approved device/person.
@@ -1127,7 +1131,7 @@ export class DurableMesh {
         const ownedWorkspaceIds = await this.options.getOwnedWorkspaceIds?.() ?? []
         if (ownedWorkspaceIds.length > 0) {
           await this.ensureOwnerWorkspaces(ownedWorkspaceIds, node.endpointId, profile)
-          credentials = await this.detachCredentialsFromPreviousIdentity(
+          credentials = await this.activeCredentialsForProfile(
             await this.store.listWorkspaceCredentials(), profile)
         }
         const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
