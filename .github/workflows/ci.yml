@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Direct pushes often arrive in bursts while an agent is iterating. Keep only
+# the newest run for a branch instead of billing every obsolete commit.
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -47,11 +53,15 @@ jobs:
 
   browser-network:
     name: Browser (${{ matrix.project }})
-    needs: verify
+    # Core browser coverage is faster and broader. Do not spend a full network
+    # matrix when that prerequisite already failed.
+    needs: [verify, browser-core]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
-      fail-fast: false
+      # Projects run serially. Stop scheduling the remaining matrix after the
+      # first failure; the next push supersedes this run through concurrency.
+      fail-fast: true
       # Iroh relay sessions can linger after Chromium exits. Serial projects keep
       # remote relay traffic isolated; each project still gets a fresh runner.
       max-parallel: 1
