@@ -100,7 +100,7 @@ export async function mergeBreakGlassClaims(host: BreakGlassHost, initial: Works
     const candidates = nextClaims(credential, known)
     if (!candidates.length) break
     const verified = await verifyCandidates(host, credential, candidates, accepted)
-    if (new Set(verified.map(record => record.payload.toOwnerPersonId)).size > 1) return persistClaims(host, credential, accepted)
+    if (host.conflict(verified)) return persistClaims(host, credential, accepted)
     credential = await adoptClaim(host, credential, verified[0]!, accepted)
     dirty = false
   }
