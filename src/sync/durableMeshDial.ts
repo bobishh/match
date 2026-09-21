@@ -1,6 +1,6 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
-import { meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
+import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { selectScopedNeighbors} from "@meta-uber/mesh-replication/gossip"
 import { defaultProofStore } from "../domain/proofs"
@@ -216,7 +216,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
     const mode = this.reconnectPolicy.mode(this.node!, key)
     this.trace("dial.started", { connectionId, peerId: peer.deviceId.slice(0, 8), workspaceId: peer.workspaceId.slice(0, 8),
       endpoint: peer.endpoint.slice(0, 8), mode })
-    const connection = networkConnection(await networkIO(this.reconnectPolicy.dial(this.node!, key, route.endpoint)))
+    const connection = networkConnection(await networkIO(this.reconnectPolicy.dial<SyncConnection>(this.node!, key, route.endpoint)))
     this.trace("dial.connected", { connectionId, peerId: peer.deviceId.slice(0, 8), mode })
     return connection
   }
@@ -282,7 +282,7 @@ export abstract class DurableMeshDial extends DurableMeshHandshake {
       this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       throw new MeshDialCancelled()
     }
-    this.reconnectPolicy.recordFailure(key, error)
+    this.reconnectPolicy.recordFailure(key, isNetworkFailure(error))
     this.trace("dial.failed", { connectionId, peerId: peer.deviceId.slice(0, 8),
       reason: error instanceof Error ? error.message : String(error) }, "warn")
     if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)

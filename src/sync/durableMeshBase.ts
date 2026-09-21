@@ -1,7 +1,7 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
-import { MeshReconnectPolicy} from "@meta-uber/mesh-transport"
+import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
 import { isMeshNetworkFailure as isNetworkFailure } from "@meta-uber/mesh-transport"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"

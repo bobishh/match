@@ -1,5 +1,5 @@
 import { type LocalProfile} from "../domain/identity"
-import { startMeshHeartbeat } from "@meta-uber/mesh-transport"
+import { isMeshNetworkFailure, startMeshHeartbeat } from "@meta-uber/mesh-transport"
 import type { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { type WorkspaceMemberBundle} from "./meshRecords"
 import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
@@ -85,14 +85,14 @@ export class DurableMeshSessions extends DurableMeshDial {
     queueMicrotask(() => { void this.publishRecoveredSession(key, entry) })
     stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
         if (evicted) return
-        this.reconnectPolicy.recordFailure(key, error)
+        this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
         this.trace("session.heartbeat.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
         this.reportProtocolFailure(`Heartbeat ${deviceId.slice(0, 6)}`, error)
         void entry.evict("heartbeat failed")
       }) : undefined
     void session.done.catch(error => {
       if (evicted) return
-      this.reconnectPolicy.recordFailure(key, error)
+      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
       this.trace("session.receive.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
       this.reportProtocolFailure(`Receive ${deviceId.slice(0, 6)}`, error)
     }).finally(() => entry.evict("receive loop ended"))
@@ -105,7 +105,7 @@ export class DurableMeshSessions extends DurableMeshDial {
     try {
       await entry.session.publish()
     } catch (error) {
-      this.reconnectPolicy.recordFailure(key, error)
+      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
       this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("recovery publish failed")
     }
@@ -163,7 +163,7 @@ export class DurableMeshSessions extends DurableMeshDial {
         try {
           await entry.session.publish()
         } catch (error) {
-          this.reconnectPolicy.recordFailure(key, error)
+          this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
           this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
           await entry.evict("publish failed")
         }
