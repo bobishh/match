@@ -8,6 +8,7 @@ import { loadChat } from "../chat/service"
 import type { ChatRecord } from "../chat/records"
 import { hasConflictingOwnershipTransfers, verifyDeviceChain, verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim } from "./meshRecords"
+import type { WorkspaceBreakGlassClaim } from "./meshRecords"
 
 import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
@@ -220,7 +221,16 @@ function hasAuthorityConflict(credential: StoredWorkspaceAuthority | null) {
   const claims = ((credential?.catalog as { successionClaims?: WorkspaceSuccessionClaim[] } | undefined)?.successionClaims ?? [])
     .filter(claim => claim?.payload?.epoch === credential?.epoch)
   const transfers = ((credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[] } | undefined)?.ownershipTransfers ?? [])
-  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 || hasConflictingOwnershipTransfers(transfers)
+  const breakGlass = ((credential?.catalog as { breakGlassClaims?: WorkspaceBreakGlassClaim[] } | undefined)?.breakGlassClaims ?? [])
+  const recoveryTargets = new Map<string, Set<string>>()
+  for (const claim of breakGlass) {
+    const key = `${claim.payload.fromOwnerPersonId}:${claim.payload.epoch}`
+    const targets = recoveryTargets.get(key) ?? new Set<string>()
+    targets.add(claim.payload.toOwnerPersonId)
+    recoveryTargets.set(key, targets)
+  }
+  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 ||
+    [...recoveryTargets.values()].some(targets => targets.size > 1) || hasConflictingOwnershipTransfers(transfers)
 }
 
 export async function workspaceWritesBlocked(workspaceId: string) {
@@ -257,7 +267,7 @@ function authoritiesWithEmbeddedCertificates(owners: WorkspaceAuthority[], recor
   })
 }
 
-function historicalOwnerHashes(remote: Automerge.Doc<WorkspaceDocumentV2>, transfers: Array<WorkspaceOwnershipTransfer | WorkspaceSuccessionClaim>) {
+function historicalOwnerHashes(remote: Automerge.Doc<WorkspaceDocumentV2>, transfers: Array<WorkspaceOwnershipTransfer | WorkspaceSuccessionClaim | WorkspaceBreakGlassClaim>) {
   const changes = Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change))
   const byHash = new Map(changes.map(change => [change.hash, change]))
   const result = new Map<string, Set<string>>()
@@ -317,8 +327,9 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
   if (!genesisOwner || remote.ownerPersonId !== genesisOwner) throw new Error("Untrusted workspace owner")
   const expectedOwner = credential?.ownerPersonId ?? genesisOwner
   const ownerSet = authorities(credential)
-  const catalog = credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[]; successionClaims?: WorkspaceSuccessionClaim[] } | undefined
-  const transfers = [...(catalog?.ownershipTransfers ?? []), ...(catalog?.successionClaims ?? [])]
+  const catalog = credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[]; successionClaims?: WorkspaceSuccessionClaim[]
+    breakGlassClaims?: WorkspaceBreakGlassClaim[] } | undefined
+  const transfers = [...(catalog?.ownershipTransfers ?? []), ...(catalog?.successionClaims ?? []), ...(catalog?.breakGlassClaims ?? [])]
   const historicalHashes = historicalOwnerHashes(remote, transfers)
   if (!Array.isArray(raw) || raw.length > 20000 || new TextEncoder().encode(JSON.stringify(raw)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const known = new Set(local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : [])

@@ -1,9 +1,13 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
+import { readFile } from "node:fs/promises"
+import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError } from "@meta-uber/mesh-transport"
-import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
+import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEnvelope, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
-import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
+import { createWorkspaceBreakGlassClaim, createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
 import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
+
+beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
 
 describe("DurableMesh peer catalog gossip", () => {
   it("Given stored mesh trust belongs to another transient identity, when startup filters credentials, then it preserves trust for recovery", async () => {
@@ -336,6 +340,73 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(result.epoch).toBe(1)
     expect((result.catalog as any).ownershipTransfers).toHaveLength(2)
     await expect(mesh.successionViews()).resolves.toMatchObject([{ workspaceId: "workspace-1", conflicted: true }])
+    await mesh.dispose()
+  })
+
+  it("Given an existing editor peer, when it receives a valid break-glass claim, then it adopts the new owner and keeps its own grant", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Offline owner")
+    resetIdentityStorageForTest()
+    const recovering = await bootstrapIdentity("Recovering editor")
+    resetIdentityStorageForTest()
+    const receiver = await bootstrapIdentity("Existing editor")
+    const recoveringGrant = await createWorkspaceGrant(owner, "workspace-1", recovering.identity.personId, "editor")
+    const receiverGrant = await createWorkspaceGrant(owner, "workspace-1", receiver.identity.personId, "editor")
+    const claim = await createWorkspaceBreakGlassClaim(recovering, "workspace-1", owner.identity.personId,
+      recoveringGrant, ["head"], 2)
+    let credential: any = {
+      version: 1, workspaceId: "workspace-1", ownerPersonId: owner.identity.personId,
+      ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret",
+      localGrant: receiverGrant, epoch: 1, updatedAt: new Date(0).toISOString(), catalog: {},
+    }
+    const store = {
+      putWorkspaceCredential: async (next: any) => { credential = structuredClone(next) },
+      transferWorkspaceCredential: async (_previous: string, next: any) => { credential = structuredClone(next) },
+      listPeers: async () => [], listWorkspaceCredentials: async () => [credential],
+    }
+    const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => receiver, store: store as never })
+
+    await (mesh as any).mergeBreakGlassClaims(credential, [claim])
+
+    expect(credential.ownerPersonId).toBe(recovering.identity.personId)
+    expect(credential.epoch).toBe(2)
+    expect(credential.localGrant.signature).toBe(receiverGrant.signature)
+    expect(credential.catalog.breakGlassClaims).toEqual([claim])
+    await mesh.dispose()
+  })
+
+  it("Given production stored the first local-only recovery record, when the new protocol starts, then it upgrades that record for peer verification", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Offline owner")
+    resetIdentityStorageForTest()
+    const recovering = await bootstrapIdentity("Recovering editor")
+    const grant = await createWorkspaceGrant(owner, "workspace-1", recovering.identity.personId, "editor")
+    const claimedAt = new Date().toISOString()
+    const signed = await signEnvelope(recovering.privateKeys.devicePrivateKey, {
+      kind: "workspace-break-glass" as const, version: 1 as const, workspaceId: "workspace-1",
+      fromOwnerPersonId: owner.identity.personId, toOwnerPersonId: recovering.identity.personId,
+      epoch: 2, claimedAt,
+    }, recovering.device.deviceId)
+    let credential: any = {
+      version: 1, workspaceId: "workspace-1", ownerPersonId: recovering.identity.personId,
+      ownerPublicKey: recovering.identity.publicKey, ownerCertificates: [recovering.certificate],
+      ownerHistory: [{ personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate] }],
+      transportSecret: "secret", epoch: 2, updatedAt: claimedAt,
+      catalog: { breakGlassClaims: [{ signed, grant, certificates: [recovering.certificate] }] },
+    }
+    const doc = Automerge.from({ id: "workspace-1", ownerPersonId: owner.identity.personId })
+    const store = { putWorkspaceCredential: async (next: any) => { credential = structuredClone(next) } }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: { read: async () => Automerge.save(doc) } as never,
+      getProfile: async () => recovering, store: store as never })
+
+    await (mesh as any).migrateLegacyBreakGlassClaim(credential, recovering)
+
+    expect(credential.catalog.breakGlassClaims).toHaveLength(1)
+    expect(credential.catalog.breakGlassClaims[0].payload.toOwnerPublicKey).toBe(recovering.identity.publicKey)
+    expect(credential.catalog.breakGlassClaims[0].payload.editorGrant.signature).toBe(grant.signature)
+    Automerge.free(doc)
     await mesh.dispose()
   })
 
