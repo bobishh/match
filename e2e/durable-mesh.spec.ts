@@ -60,6 +60,34 @@ async function discardTransportState(page: Page) {
   })
 }
 
+test("Given paired browsers, when a lead changes, then production iroh gossip drives durable sync", async ({ browser, page }) => {
+  test.setTimeout(90_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+    await expect.poll(async () => (await Promise.all([page, guest].map(target => target.evaluate(async () => {
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return meshTraceSnapshot().some(event => event.event === "gossip.neighbor.up")
+    })))).every(Boolean), { timeout: 30_000 }).toBe(true)
+    await Promise.all([page, guest].map(target => target.evaluate(async () => {
+      const { clearMeshTrace } = await import("/src/sync/meshTrace.ts")
+      clearMeshTrace()
+    })))
+
+    await addLead(page, "Gossip production path")
+
+    await expect(guest.getByRole("button", { name: "Open Gossip production path — Engineer" })).toBeVisible({ timeout: 30_000 })
+    const traces = (await Promise.all([page, guest].map(target => target.evaluate(async () => {
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return meshTraceSnapshot()
+    })))).flat()
+    expect(traces.some(event => event.event === "gossip.broadcast"), JSON.stringify(traces)).toBe(true)
+    expect(traces.some(event => event.event === "gossip.delivered"), JSON.stringify(traces)).toBe(true)
+  } finally { await context.close() }
+})
+
 test("Given a legacy local device without metadata, when Sync opens in a known browser, then it shows the current browser and OS", async ({ browser }) => {
   test.setTimeout(120_000)
   const hostContext = await isolatedContext(browser)

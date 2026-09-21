@@ -4,7 +4,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { MeshReconnectPolicy, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO, startMeshHeartbeat } from "@meta-uber/mesh-transport"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
-import { selectScopedNeighbors } from "@meta-uber/mesh-replication/gossip"
+import { BrowserGossipDriver, selectScopedNeighbors, type GossipDelivery } from "@meta-uber/mesh-replication/gossip"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret, decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { createPeerAdvertisement, createWorkspaceOwnershipTransfer, createWorkspaceRevocation, verifyDeviceChain,
@@ -21,7 +21,7 @@ import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport, DuplexStream } from "./transport"
-import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishOwnerWorkspaceOffer, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishGossipPacket, publishOwnerWorkspaceOffer, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 
 export type MeshWorkspaceEnvelope = {
   version: 1
@@ -79,6 +79,7 @@ type SessionEntry = {
   workspaceId: string
   deviceId: string
   instanceId: string
+  endpoint: string
   remoteIssuedAt: string
   remoteRouteSequence?: number
   direction: "incoming" | "outgoing"
@@ -159,7 +160,13 @@ function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   breakGlassClaims?: WorkspaceBreakGlassClaim[] }
-const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1", "owner-workspace-v1"]
+const meshCapabilities = ["heartbeat-v1", "automerge-sync-v1", "ownership-receipt-v1", "owner-workspace-v1", "iroh-gossip-v1"]
+
+export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
+  if (!Array.isArray(capabilities) || !capabilities.includes("iroh-gossip-v1")) {
+    throw new Error("Peer does not support required iroh gossip")
+  }
+}
 
 function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
   return (credential.catalog as MeshCatalog | undefined) ?? {}
@@ -218,6 +225,10 @@ export class DurableMesh {
   private acceptor: SyncAcceptor | undefined
   private sessions = new Map<string, SessionEntry>()
   private syncEngines = new Map<string, AutomergeAntiEntropy>()
+  private gossipDrivers = new Map<string, BrowserGossipDriver>()
+  private gossipRefreshes = new Map<string, Promise<void>>()
+  private gossipNeighborCounts = new Map<string, number>()
+  private gossipPeerKeys = new Map<string, string>()
   private connecting = new Set<string>()
   private pendingIncomingConnections = 0
   private runSequence = 0
@@ -271,6 +282,133 @@ export class DurableMesh {
       this.syncEngines.set(key, engine)
     }
     return engine
+  }
+
+  private gossipTopic(workspaceId: string) {
+    return `match-workspace-${workspaceId}`
+  }
+
+  private gossipSession(workspaceId: string, endpoint: string) {
+    return [...this.sessions.values()].find(entry =>
+      entry.workspaceId === workspaceId && entry.endpoint === endpoint)
+  }
+
+  private refreshWorkspaceGossip(workspaceId: string): Promise<void> {
+    const previous = this.gossipRefreshes.get(workspaceId) ?? Promise.resolve()
+    const current = previous.catch(() => undefined).then(() => this.rebuildWorkspaceGossip(workspaceId))
+    this.gossipRefreshes.set(workspaceId, current)
+    void current.finally(() => {
+      if (this.gossipRefreshes.get(workspaceId) === current) this.gossipRefreshes.delete(workspaceId)
+    })
+    return current
+  }
+
+  private async rebuildWorkspaceGossip(workspaceId: string) {
+    const node = this.node
+    const endpoints = [...new Set([...this.sessions.values()]
+      .filter(entry => entry.workspaceId === workspaceId && entry.endpoint)
+      .map(entry => entry.endpoint))].sort()
+    const peerKey = endpoints.join("\u0000")
+    if (!this.stopped && node && endpoints.length &&
+      this.gossipDrivers.has(workspaceId) && this.gossipPeerKeys.get(workspaceId) === peerKey) return
+    const previous = this.gossipDrivers.get(workspaceId)
+    previous?.close()
+    this.gossipDrivers.delete(workspaceId)
+    this.gossipNeighborCounts.delete(workspaceId)
+    this.gossipPeerKeys.delete(workspaceId)
+    if (this.stopped || !node || !endpoints.length) return
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential) return
+    const topic = this.gossipTopic(workspaceId)
+    const driver = new BrowserGossipDriver(node.createGossipEngine(), {
+      send: async (endpoint, packet) => {
+        const entry = this.gossipSession(workspaceId, endpoint)
+        if (!entry) throw new Error("Gossip peer session is unavailable")
+        try {
+          await publishGossipPacket(entry.connection, credential.transportSecret, packet)
+          this.trace("gossip.sent", { workspaceId: workspaceId.slice(0, 8), endpoint: endpoint.slice(0, 8) })
+        } catch (error) {
+          this.trace("gossip.send.failed", {
+            workspaceId: workspaceId.slice(0, 8),
+            endpoint: endpoint.slice(0, 8),
+            reason: error instanceof Error ? error.message : String(error),
+          }, "warn")
+          throw error
+        }
+      },
+      deliver: delivery => this.receiveWorkspaceGossip(workspaceId, delivery),
+    })
+    this.gossipDrivers.set(workspaceId, driver)
+    this.gossipNeighborCounts.set(workspaceId, 0)
+    this.gossipPeerKeys.set(workspaceId, peerKey)
+    try {
+      await driver.joinTopic(topic, endpoints)
+      this.trace("gossip.started", { workspaceId: workspaceId.slice(0, 8), peers: endpoints.length })
+    } catch (error) {
+      if (this.gossipDrivers.get(workspaceId) === driver) this.gossipDrivers.delete(workspaceId)
+      this.gossipPeerKeys.delete(workspaceId)
+      driver.close()
+      this.trace("gossip.start.failed", {
+        workspaceId: workspaceId.slice(0, 8),
+        reason: error instanceof Error ? error.message : String(error),
+      }, "warn")
+    }
+  }
+
+  private async receiveWorkspaceGossip(workspaceId: string, delivery: GossipDelivery) {
+    if (delivery.topic !== this.gossipTopic(workspaceId)) return
+    const entry = this.gossipSession(workspaceId, delivery.deliveredFrom)
+    if (!entry) {
+      this.trace("gossip.rejected", {
+        workspaceId: workspaceId.slice(0, 8),
+        endpoint: delivery.deliveredFrom.slice(0, 8),
+      }, "warn")
+      return
+    }
+    let value: { version?: unknown; kind?: unknown; workspaceId?: unknown }
+    try { value = JSON.parse(new TextDecoder().decode(delivery.content)) }
+    catch { return }
+    if (value.version !== 1 || value.kind !== "workspace-update" || value.workspaceId !== workspaceId) return
+    this.trace("gossip.delivered", {
+      workspaceId: workspaceId.slice(0, 8),
+      peerId: entry.deviceId.slice(0, 8),
+    })
+    await entry.session.publish()
+  }
+
+  private async receiveWorkspaceGossipPacket(workspaceId: string, endpoint: string, packet: Uint8Array) {
+    let driver = this.gossipDrivers.get(workspaceId)
+    if (!driver) {
+      await this.refreshWorkspaceGossip(workspaceId)
+      driver = this.gossipDrivers.get(workspaceId)
+    }
+    if (!driver || !this.gossipSession(workspaceId, endpoint)) return
+    await driver.handleMessage(endpoint, packet)
+    const neighbors = driver.activeNeighbors(this.gossipTopic(workspaceId)).length
+    const previous = this.gossipNeighborCounts.get(workspaceId) ?? 0
+    this.gossipNeighborCounts.set(workspaceId, neighbors)
+    this.trace("gossip.packet", { workspaceId: workspaceId.slice(0, 8), neighbors })
+    if (neighbors > previous) {
+      this.trace("gossip.neighbor.up", { workspaceId: workspaceId.slice(0, 8), neighbors })
+      queueMicrotask(() => { void this.publishAll() })
+    } else if (neighbors < previous) {
+      this.trace("gossip.neighbor.down", { workspaceId: workspaceId.slice(0, 8), neighbors })
+    }
+  }
+
+  private async broadcastWorkspaceGossip(workspaceId: string): Promise<Set<string> | undefined> {
+    const driver = this.gossipDrivers.get(workspaceId)
+    if (!driver) return undefined
+    const topic = this.gossipTopic(workspaceId)
+    await driver.broadcast(topic, new TextEncoder().encode(JSON.stringify({
+      version: 1,
+      kind: "workspace-update",
+      workspaceId,
+      nonce: crypto.randomUUID(),
+    })))
+    const neighbors = new Set(driver.activeNeighbors(topic))
+    this.trace("gossip.broadcast", { workspaceId: workspaceId.slice(0, 8), neighbors: neighbors.size })
+    return neighbors
   }
 
   private async acquireInstance() {
@@ -538,12 +676,10 @@ export class DurableMesh {
     for (const workspaceId of new Set(workspaceIds)) {
       for (const [key, entry] of [...this.sessions]) {
         if (entry.workspaceId !== workspaceId || entry.deviceId !== deviceId) continue
-        this.sessions.delete(key)
         this.connecting.delete(key)
         this.failures.delete(key)
         this.failedAt.delete(key)
-        await entry.session.close().catch(() => {})
-        await entry.connection.close().catch(() => {})
+        await entry.evict("device forgotten")
       }
       await this.store.removePeer(workspaceId, deviceId)
     }
@@ -1098,10 +1234,7 @@ export class DurableMesh {
       if (!peer.revokedAt) await this.store.upsertPeer({ ...peer, lastSeen: new Date().toISOString(), revokedAt: record.payload.revokedAt })
       const sessions = [...this.sessions.entries()].filter(([, session]) =>
         session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId)
-      if (disconnect) for (const [key, session] of sessions) {
-        this.sessions.delete(key)
-        await session.session.close()
-      }
+      if (disconnect) for (const [, session] of sessions) await session.evict("peer revoked")
     }
     const localPersonId = (credential.localGrant as WorkspaceGrant | undefined)?.payload.personId
     if (localPersonId && current.has(localPersonId)) throw new Error("Workspace access revoked")
@@ -1226,12 +1359,15 @@ export class DurableMesh {
 
   async leaveWorkspace(workspaceId: string): Promise<void> {
     if (!workspaceId) throw new Error("No active workspace")
-    for (const [key, entry] of [...this.sessions]) {
+    for (const [, entry] of [...this.sessions]) {
       if (entry.workspaceId !== workspaceId) continue
-      this.sessions.delete(key)
-      await entry.session.close().catch(() => {})
-      await entry.connection.close().catch(() => {})
+      await entry.evict("workspace left")
     }
+    const gossip = this.gossipDrivers.get(workspaceId)
+    gossip?.close()
+    this.gossipDrivers.delete(workspaceId)
+    this.gossipNeighborCounts.delete(workspaceId)
+    this.gossipPeerKeys.delete(workspaceId)
     await this.store.removeWorkspaceMeshData(workspaceId)
     await defaultProofStore.removeWorkspaceGrants(workspaceId)
     this.lastDiagnostic = ""
@@ -1286,11 +1422,20 @@ export class DurableMesh {
     this.trace("node.shutdown", { sessions: this.sessions.size, pendingIncoming: this.pendingIncomingConnections })
     this.stopWatch?.()
     this.stopWatch = undefined
-    await this.dropSessions()
-    await this.acceptor?.close().catch(() => {})
-    this.acceptor = undefined
     const node = this.node
     this.node = undefined
+    for (const driver of this.gossipDrivers.values()) driver.close()
+    this.gossipDrivers.clear()
+    this.gossipNeighborCounts.clear()
+    this.gossipPeerKeys.clear()
+    await this.dropSessions()
+    await Promise.allSettled(this.gossipRefreshes.values())
+    for (const driver of this.gossipDrivers.values()) driver.close()
+    this.gossipDrivers.clear()
+    this.gossipNeighborCounts.clear()
+    this.gossipPeerKeys.clear()
+    await this.acceptor?.close().catch(() => {})
+    this.acceptor = undefined
     const adopted = this.adoptedNode
     this.adoptedNode = undefined
     await node?.close("Mesh stopped").catch(() => {})
@@ -1404,7 +1549,7 @@ export class DurableMesh {
     const entry = [...this.sessions.values()].find(item => item.connection === connection)
     if (!entry) return
     const unsubscribe = this.options.workspace.subscribe?.(() => {
-      void entry.session.publish().catch(() => { void entry.evict("publish failed") })
+      void this.publishAll()
     })
     try { await entry.session.done } finally { unsubscribe?.() }
   }
@@ -1422,6 +1567,7 @@ export class DurableMesh {
       if (!credential) throw new Error("Unknown mesh credential")
       const request = JSON.parse(new TextDecoder().decode(decodePairingFrame(frame, "mesh-handshake-request", credential.transportSecret)))
       if (request.workspaceId !== credential.workspaceId) throw new Error("Wrong mesh workspace")
+      assertRequiredMeshCapabilities(request.capabilities)
       if (Array.isArray(request.ownershipTransfers)) {
         credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers)
       }
@@ -1460,7 +1606,8 @@ export class DurableMesh {
         Array.isArray(request.capabilities) && request.capabilities.includes("heartbeat-v1"),
         Array.isArray(request.capabilities) && request.capabilities.includes("automerge-sync-v1"), connectionId,
         Array.isArray(request.capabilities) && request.capabilities.includes("ownership-receipt-v1"),
-        remote.advertisement.payload.personId, ownerWorkspaceSupported)
+        remote.advertisement.payload.personId, ownerWorkspaceSupported,
+        remote.advertisement.payload.endpoint)
       if (!installed) return
       const own = await this.ownBundle(credential)
       const profile = await this.options.getProfile()
@@ -1474,6 +1621,7 @@ export class DurableMesh {
           successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
           ownerWorkspaceIds, capabilities: meshCapabilities }))))
       await stream.closeSend()
+      await this.refreshWorkspaceGossip(credential.workspaceId)
       if (ownerWorkspaceSupported) await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret,
         request.ownerWorkspaceIds, remote.advertisement.payload.personId)
     } catch (error) {
@@ -1699,7 +1847,8 @@ export class DurableMesh {
       const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
         value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported,
-        value.personId, value.ownerWorkspaceSupported)
+        value.personId, value.ownerWorkspaceSupported, value.endpoint)
+      if (installed) await this.refreshWorkspaceGossip(peer.workspaceId)
       if (installed && value.ownerWorkspaceSupported) {
         const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
         if (credential) await this.offerMissingOwnerWorkspaces(value.connection, credential.transportSecret,
@@ -1761,6 +1910,7 @@ export class DurableMesh {
           ownerWorkspaceIds, capabilities: meshCapabilities }))))
       await stream.closeSend()
       const response = JSON.parse(new TextDecoder().decode(decodePairingFrame(await stream.read(), "mesh-handshake-response", credential.transportSecret)))
+      assertRequiredMeshCapabilities(response.capabilities)
       if (Array.isArray(response.ownershipTransfers)) {
         credential = await this.mergeOwnershipTransfers(credential, response.ownershipTransfers)
       }
@@ -1790,6 +1940,7 @@ export class DurableMesh {
         issuedAt: verified.advertisement.payload.issuedAt,
         routeSequence: verified.advertisement.payload.routeSequence,
         personId: verified.advertisement.payload.personId,
+        endpoint: verified.advertisement.payload.endpoint,
         ownerWorkspaceIds: response.ownerWorkspaceIds,
         ownerWorkspaceSupported: Array.isArray(response.capabilities) && response.capabilities.includes("owner-workspace-v1"),
         ownershipReceiptSupported: Array.isArray(response.capabilities) && response.capabilities.includes("ownership-receipt-v1"),
@@ -1830,7 +1981,7 @@ export class DurableMesh {
   private async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
-    remotePersonId = "", ownerWorkspaceSupported = false) {
+    remotePersonId = "", ownerWorkspaceSupported = false, remoteEndpoint = "") {
     const key = this.peerKey(workspaceId, deviceId, instanceId)
     const profile = await this.options.getProfile()
     const preferred = profile.device.deviceId < deviceId ? "outgoing" : "incoming"
@@ -1863,12 +2014,20 @@ export class DurableMesh {
           onOwnerWorkspaceOffer: ownerWorkspaceSupported && remotePersonId === profile.identity.personId
             ? bytes => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId)
             : undefined,
+          onGossipPacket: remoteEndpoint
+            ? packet => this.receiveWorkspaceGossipPacket(workspaceId, remoteEndpoint, packet)
+            : undefined,
         })
-      : liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]))
+      : liveWorkspaceSetSync(connection, credential.transportSecret, workspaceSet(this.options.workspaceStore, [workspaceId]), {
+        onGossipPacket: remoteEndpoint
+          ? packet => this.receiveWorkspaceGossipPacket(workspaceId, remoteEndpoint, packet)
+          : undefined,
+      })
     let stopHeartbeat: (() => void) | undefined
     let evicted = false
     const entry: SessionEntry = {
-      workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence, direction, connection, session, ownershipReceiptSupported,
+      workspaceId, deviceId, instanceId, endpoint: remoteEndpoint, remoteIssuedAt, remoteRouteSequence, direction,
+      connection, session, ownershipReceiptSupported,
       evict: async cause => {
         if (evicted) return
         evicted = true
@@ -1877,6 +2036,7 @@ export class DurableMesh {
         if (wasCurrent) {
           this.sessions.delete(key)
           if (incrementalEngine) incrementalEngine.reset(workspaceId, deviceId)
+          await this.refreshWorkspaceGossip(workspaceId)
         }
         this.trace("session.closed", { connectionId, peerId: deviceId.slice(0, 8), wasCurrent, cause })
         if (wasCurrent) {
@@ -1901,13 +2061,6 @@ export class DurableMesh {
     this.lastDiagnostic = ""
     this.options.onDiagnostic?.("")
     void previous?.evict("replaced")
-    void session.publish().catch(error => {
-      if (evicted) return
-      this.reconnectPolicy.recordFailure(key, error)
-      this.trace("session.publish.failed", { connectionId, peerId: deviceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error) }, "warn")
-      this.reportProtocolFailure(`Publish ${deviceId.slice(0, 6)}`, error)
-      void entry.evict("publish failed")
-    })
     stopHeartbeat = heartbeatSupported ? startMeshHeartbeat(session, error => {
         if (evicted) return
         this.reconnectPolicy.recordFailure(key, error)
@@ -1926,14 +2079,33 @@ export class DurableMesh {
   }
 
   private async publishAll() {
-    await Promise.allSettled([...this.sessions.entries()].map(async ([key, entry]) => {
-      try {
-        await entry.session.publish()
-      } catch (error) {
-        this.reconnectPolicy.recordFailure(key, error)
-        this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
-        await entry.evict("publish failed")
+    const byWorkspace = new Map<string, Array<[string, SessionEntry]>>()
+    for (const item of this.sessions.entries()) {
+      const entries = byWorkspace.get(item[1].workspaceId) ?? []
+      entries.push(item)
+      byWorkspace.set(item[1].workspaceId, entries)
+    }
+    await Promise.allSettled([...byWorkspace].map(async ([workspaceId, entries]) => {
+      let neighbors: Set<string> | undefined
+      try { neighbors = await this.broadcastWorkspaceGossip(workspaceId) }
+      catch (error) {
+        this.trace("gossip.broadcast.failed", {
+          workspaceId: workspaceId.slice(0, 8),
+          reason: error instanceof Error ? error.message : String(error),
+        }, "warn")
       }
+      const targets = neighbors?.size
+        ? entries.filter(([, entry]) => neighbors!.has(entry.endpoint))
+        : []
+      await Promise.allSettled(targets.map(async ([key, entry]) => {
+        try {
+          await entry.session.publish()
+        } catch (error) {
+          this.reconnectPolicy.recordFailure(key, error)
+          this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+          await entry.evict("publish failed")
+        }
+      }))
     }))
   }
 

@@ -1,5 +1,6 @@
 import { installPairingCodec } from "@meta-uber/mesh-pairing"
 import { installMeshRustRuntime } from "@meta-uber/mesh-replication/runtime"
+import type { GossipStateMachine } from "@meta-uber/mesh-replication"
 import irohInit, {
   BrowserNode,
   WasmAutomergeSyncEngine,
@@ -18,6 +19,7 @@ export type IrohStatus = "unavailable" | "starting" | "ready" | "error"
 
 export type IrohNode = {
   endpointId: string
+  createGossipEngine: () => GossipStateMachine
   dial: (remoteEndpoint: string) => Promise<IrohConnection>
   dialRelay: (remoteEndpoint: string) => Promise<IrohConnection>
   accept: () => Promise<IrohAcceptor>
@@ -74,5 +76,13 @@ export async function startIrohBrowserNode(secret?: Uint8Array): Promise<IrohNod
     throw new Error("Iroh node secret must be exactly 32 bytes")
   }
   await initializeIrohBrowserRuntime()
-  return BrowserNode.start(secret)
+  const node = await BrowserNode.start(secret)
+  return {
+    endpointId: node.endpointId,
+    createGossipEngine: () => new WasmGossipEngine(node.endpointId) as GossipStateMachine,
+    dial: endpoint => node.dial(endpoint),
+    dialRelay: endpoint => node.dialRelay(endpoint),
+    accept: () => node.accept(),
+    close: reason => node.close(reason),
+  }
 }

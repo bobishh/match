@@ -1,3 +1,5 @@
+import type { GossipStateMachine } from "@meta-uber/mesh-replication"
+
 export type DuplexStream = {
   send: (bytes: Uint8Array) => Promise<void>
   read: () => Promise<Uint8Array>
@@ -17,6 +19,7 @@ export type SyncAcceptor = {
 
 export type SyncNode = {
   endpointId: string
+  createGossipEngine: () => GossipStateMachine
   dial: (remoteEndpoint: string) => Promise<SyncConnection>
   dialRelay?: (remoteEndpoint: string) => Promise<SyncConnection>
   accept: () => Promise<SyncAcceptor>

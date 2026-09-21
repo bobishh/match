@@ -5,11 +5,18 @@ import { MeshNetworkError } from "@meta-uber/mesh-transport"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEnvelope, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceBreakGlassClaim, createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
-import { DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
+import { assertRequiredMeshCapabilities, DurableMesh, shouldReplaceMeshSession } from "./durableMesh"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given a peer without iroh gossip, when capabilities are checked, then the handshake fails closed", () => {
+    expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "automerge-sync-v1"]))
+      .toThrow("Peer does not support required iroh gossip")
+    expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "iroh-gossip-v1"]))
+      .not.toThrow()
+  })
+
   it("Given stored mesh trust belongs to another transient identity, when startup filters credentials, then it preserves trust for recovery", async () => {
     const removeWorkspaceMeshData = vi.fn()
     const credential = {
@@ -185,23 +192,33 @@ describe("DurableMesh peer catalog gossip", () => {
       close: vi.fn(async () => {}),
     }
 
-    await (mesh as any).installSession("workspace-1", "remote-device", "instance-1",
-      "2026-09-16T09:00:00.000Z", 1, "incoming", oldConnection)
-    expect((mesh as any).sessions.size).toBe(1)
+    const internal = mesh as any
+    await internal.installSession("workspace-1", "remote-device", "instance-1",
+      "2026-09-16T09:00:00.000Z", 1, "incoming", oldConnection,
+      false, false, "incoming-test", false, "", false, "remote-endpoint")
+    expect(internal.sessions.size).toBe(1)
+    internal.gossipDrivers.set("workspace-1", {
+      broadcast: vi.fn(async () => {}),
+      activeNeighbors: vi.fn(() => ["remote-endpoint"]),
+      close: vi.fn(),
+    })
 
+    const publish = internal.publishAll()
     rejectSnapshot(new Error("publish failed"))
-    await vi.waitFor(() => expect((mesh as any).sessions.size).toBe(0))
+    await publish
+    await vi.waitFor(() => expect(internal.sessions.size).toBe(0))
     await expect(mesh.views("workspace-1")).resolves.toMatchObject([{ online: false }])
 
     snapshot = Promise.resolve(new Uint8Array([1]))
-    await (mesh as any).installSession("workspace-1", "remote-device", "instance-1",
-      "2026-09-16T09:00:00.000Z", 1, "incoming", replacementConnection)
-    const replacement = (mesh as any).sessions.get("workspace-1:remote-device:instance-1").session
+    await internal.installSession("workspace-1", "remote-device", "instance-1",
+      "2026-09-16T09:00:00.000Z", 1, "incoming", replacementConnection,
+      false, false, "incoming-replacement", false, "", false, "remote-endpoint")
+    const replacement = internal.sessions.get("workspace-1:remote-device:instance-1").session
     resolveOldAccept(undefined as never)
     await Promise.resolve()
     await Promise.resolve()
 
-    expect((mesh as any).sessions.get("workspace-1:remote-device:instance-1").session).toBe(replacement)
+    expect(internal.sessions.get("workspace-1:remote-device:instance-1").session).toBe(replacement)
     await expect(mesh.views("workspace-1")).resolves.toMatchObject([{ online: true }])
     expect(changes.length).toBeGreaterThan(0)
     await mesh.dispose()
@@ -582,11 +599,16 @@ describe("DurableMesh peer catalog gossip", () => {
       } as never,
     })
     const internal = mesh as any
-    internal.sessions.set("workspace-1:guest-device", {
+    const sessionKey = "workspace-1:guest-device"
+    internal.sessions.set(sessionKey, {
       workspaceId: "workspace-1",
       deviceId: "guest-device",
       session: { close: async () => { closed.push("session") } },
       connection: { close: async () => { closed.push("connection") } },
+      evict: async () => {
+        internal.sessions.delete(sessionKey)
+        closed.push("session", "connection")
+      },
     })
     internal.connecting.add("workspace-1:guest-device")
     internal.failures.set("workspace-1:guest-device", 2)

@@ -20,6 +20,7 @@ export type LiveWorkspaceSync = {
 export const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
 const MAX_CONTROL_FRAME_BYTES = 256 * 1024
 const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
+const MAX_GOSSIP_PACKET_BYTES = 256 * 1024
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
@@ -97,6 +98,13 @@ export async function publishOwnerWorkspaceOffer(connection: SyncConnection, sec
   if (new TextDecoder().decode(receipt) !== await sha256Base64Url(bytes)) throw new Error("Owner workspace receipt does not match")
 }
 
+export async function publishGossipPacket(connection: SyncConnection, secret: string, packet: Uint8Array): Promise<void> {
+  if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
+  const stream = await connection.openStream()
+  await stream.send(encodePairingFrame("mesh-iroh-gossip", secret, packet))
+  await stream.closeSend()
+}
+
 async function receiveConfirmedWorkspace(stream: DuplexStream, frame: Uint8Array, secret: string, replica: ReturnType<typeof workspaceSet>) {
   const bytes = decodePairingFrame(frame, "mesh-durable-batch", secret)
   await replica.receive(bytes, false)
@@ -108,7 +116,10 @@ export function liveWorkspaceSetSync(
   connection: SyncConnection,
   secret: string,
   replica: ReturnType<typeof workspaceSet>,
-  options: { onHandoffRequest?: (stream: DuplexStream) => Promise<void> } = {},
+  options: {
+    onHandoffRequest?: (stream: DuplexStream) => Promise<void>
+    onGossipPacket?: (packet: Uint8Array) => Promise<void>
+  } = {},
 ): LiveWorkspaceSync {
   let stopped = false
   let lastSent = ""
@@ -134,6 +145,13 @@ export function liveWorkspaceSetSync(
       if (type === "mesh-handoff-request" && options.onHandoffRequest) {
         decodePairingFrame(frame, "mesh-handoff-request", secret)
         await options.onHandoffRequest(stream)
+        continue
+      }
+      if (type === "mesh-iroh-gossip" && options.onGossipPacket) {
+        const packet = decodePairingFrame(frame, "mesh-iroh-gossip", secret)
+        if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
+        await options.onGossipPacket(packet)
+        await stream.closeSend()
         continue
       }
       await replica.receive(decodePairingFrame(frame, "sync-update", secret), false)
@@ -192,7 +210,10 @@ export function liveAutomergeWorkspaceSync(
   remoteDeviceId: string,
   sharedEngine?: AutomergeAntiEntropy,
   onDocumentRejected?: (error: WorkspaceChangeRejected | null) => void,
-  options: { onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void> } = {},
+  options: {
+    onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
+    onGossipPacket?: (packet: Uint8Array) => Promise<void>
+  } = {},
 ): LiveWorkspaceSync {
   let stopped = false
   let lastRejection: string | undefined
@@ -271,6 +292,13 @@ export function liveAutomergeWorkspaceSync(
         await options.onOwnerWorkspaceOffer(bytes)
         await stream.send(encodePairingFrame("mesh-durable-ack", secret,
           new TextEncoder().encode(await sha256Base64Url(bytes))))
+        await stream.closeSend()
+        continue
+      }
+      if (type === "mesh-iroh-gossip" && options.onGossipPacket) {
+        const packet = decodePairingFrame(frame, "mesh-iroh-gossip", secret)
+        if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
+        await options.onGossipPacket(packet)
         await stream.closeSend()
         continue
       }

@@ -88,6 +88,19 @@ describe("Iroh persistent node secret support", () => {
 })
 
 describe("Iroh gossip and blobs support in match", () => {
+  it("Given the production browser node, when Match starts gossip, then it creates the Rust gossip engine", async () => {
+    const secret = new Uint8Array(32)
+    secret.fill(9)
+    const node = await startIrohBrowserNode(secret)
+    try {
+      const engine = node.createGossipEngine()
+      const joined = engine.joinTopic("production-workspace", [])
+      expect(joined.topicId).toMatch(/^[0-9a-f]{64}$/)
+    } finally {
+      await node.close()
+    }
+  })
+
   it("Given the shared Rust core, when a pairing frame is decoded, then binary payload survives", () => {
     const codec = new WasmPairingCodec()
     const payload = new Uint8Array([0, 1, 255])
