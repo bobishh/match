@@ -1,4 +1,5 @@
 import type { DeviceCertificate } from "../domain/model"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import {
   verifyWorkspaceBreakGlassClaim,
   type WorkspaceAuthority,
@@ -100,8 +101,10 @@ export async function mergeBreakGlassClaims(host: BreakGlassHost, initial: Works
     const candidates = nextClaims(credential, known)
     if (!candidates.length) break
     const verified = await verifyCandidates(host, credential, candidates, accepted)
-    if (host.conflict(verified)) return persistClaims(host, credential, accepted)
-    credential = await adoptClaim(host, credential, verified[0]!, accepted)
+    const plan = meshRustRuntime().state.planOwnershipTransitions([...accepted.values()],
+      credential.ownerPersonId, credential.epoch) as { records: WorkspaceBreakGlassClaim[]; conflicted: boolean }
+    if (plan.conflicted || !plan.records.length) return persistClaims(host, credential, accepted)
+    credential = await adoptClaim(host, credential, plan.records[0]!, accepted)
     dirty = false
   }
   return dirty ? persistClaims(host, credential, accepted) : credential
