@@ -92,6 +92,150 @@ const workspaceMetaPrefix = "match.workspace-meta."
 const workspaceDeletedPrefix = "match.workspace-deleted."
 type WorkspaceMeta = { id: string; title: string; updatedAt: string }
 
+const journalDatabaseName = "match-workspace-journal-v1"
+const journalStores = ["changes", "proofs", "receipts", "metadata"] as const
+type JournalStoreName = typeof journalStores[number]
+type JournalIndexedStoreName = Exclude<JournalStoreName, "metadata">
+type StoredProofRecord = { id: string; workspaceId: string; changeHash: string; proof: ChangeProof }
+type StoredReceiptRecord = { id: string; workspaceId: string; transactionId: string; receipt: TransactionReceipt }
+type LocalJournal = {
+  changes: Array<{ workspaceId: string; changeHash: string; bytesBase64: string; addedAt: string }>
+  proofs: Record<string, ChangeProof>
+  receipts: Record<string, TransactionReceipt>
+}
+
+let journalDatabasePromise: Promise<IDBDatabase> | undefined
+const localJournalQueues = new Map<string, Promise<unknown>>()
+const migratedJournalWorkspaces = new Set<string>()
+
+function requestResult<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"))
+  })
+}
+
+function transactionDone(transaction: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve()
+    transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB transaction aborted"))
+    transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB transaction failed"))
+  })
+}
+
+function openJournalDatabase(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined") return Promise.reject(new Error("IndexedDB is not available"))
+  return journalDatabasePromise ??= new Promise((resolve, reject) => {
+    const request = indexedDB.open(journalDatabaseName, 1)
+    request.onupgradeneeded = () => {
+      const database = request.result
+      for (const name of journalStores) {
+        if (database.objectStoreNames.contains(name)) continue
+        const store = database.createObjectStore(name, { keyPath: name === "metadata" ? "workspaceId" : "id" })
+        if (name !== "metadata") store.createIndex("workspaceId", "workspaceId", { unique: false })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"))
+    request.onblocked = () => reject(new Error("IndexedDB upgrade blocked"))
+  })
+}
+
+function readLocalJournal(workspaceId: string): LocalJournal {
+  const current = getStorageRaw(`match.v2.journal.${workspaceId}`)
+  if (current) {
+    try { return JSON.parse(current) as LocalJournal } catch { /* Read legacy records below. */ }
+  }
+  let changes: LocalJournal["changes"] = []
+  let proofs: LocalJournal["proofs"] = {}
+  let receipts: LocalJournal["receipts"] = {}
+  try { changes = JSON.parse(getStorageRaw(`match.v1.changes.${workspaceId}`) ?? "[]") } catch {}
+  try { proofs = JSON.parse(getStorageRaw(`match.v1.proofs.${workspaceId}`) ?? "{}") } catch {}
+  try { receipts = JSON.parse(getStorageRaw(`match.v1.receipts.${workspaceId}`) ?? "{}") } catch {}
+  return { changes, proofs, receipts }
+}
+
+function writeLocalJournal(workspaceId: string, journal: LocalJournal) {
+  setStorageRaw(`match.v2.journal.${workspaceId}`, JSON.stringify(journal))
+}
+
+function withLocalJournalLock<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
+  const previous = localJournalQueues.get(workspaceId) ?? Promise.resolve()
+  const current = previous.catch(() => undefined).then(operation)
+  localJournalQueues.set(workspaceId, current)
+  void current.then(() => {
+    if (localJournalQueues.get(workspaceId) === current) localJournalQueues.delete(workspaceId)
+  }, () => {
+    if (localJournalQueues.get(workspaceId) === current) localJournalQueues.delete(workspaceId)
+  })
+  return current
+}
+
+async function ensureJournalMigrated(workspaceId: string): Promise<IDBDatabase> {
+  const database = await openJournalDatabase()
+  if (migratedJournalWorkspaces.has(workspaceId)) return database
+  const transaction = database.transaction([...journalStores], "readwrite")
+  const completion = transactionDone(transaction)
+  try {
+    const migrated = await requestResult(transaction.objectStore("metadata").get(workspaceId))
+    if (!migrated) {
+      const legacy = readLocalJournal(workspaceId)
+      const changes = transaction.objectStore("changes")
+      const proofs = transaction.objectStore("proofs")
+      const receipts = transaction.objectStore("receipts")
+      for (const change of legacy.changes) changes.put({
+        id: `${workspaceId}:${change.changeHash}`,
+        workspaceId: change.workspaceId,
+        changeHash: change.changeHash,
+        bytes: fromBase64Url(change.bytesBase64),
+        addedAt: change.addedAt,
+      })
+      for (const [changeHash, proof] of Object.entries(legacy.proofs)) {
+        proofs.put({ id: `${workspaceId}:${changeHash}`, workspaceId, changeHash, proof } satisfies StoredProofRecord)
+      }
+      for (const [transactionId, receipt] of Object.entries(legacy.receipts)) {
+        receipts.put({ id: `${workspaceId}:${transactionId}`, workspaceId, transactionId, receipt } satisfies StoredReceiptRecord)
+      }
+      transaction.objectStore("metadata").put({ workspaceId, migratedAt: new Date().toISOString() })
+    }
+  } catch (error) {
+    transaction.abort()
+    await completion.catch(() => undefined)
+    throw error
+  }
+  await completion
+  migratedJournalWorkspaces.add(workspaceId)
+  return database
+}
+
+async function recordsForWorkspace<T>(database: IDBDatabase, storeName: JournalIndexedStoreName, workspaceId: string): Promise<T[]> {
+  const transaction = database.transaction(storeName, "readonly")
+  const completion = transactionDone(transaction)
+  const store = transaction.objectStore(storeName)
+  const records = await requestResult(store.index("workspaceId").getAll(workspaceId)) as T[]
+  await completion
+  return records
+}
+
+async function deleteWorkspaceJournal(workspaceId: string): Promise<void> {
+  migratedJournalWorkspaces.delete(workspaceId)
+  if (typeof indexedDB === "undefined") {
+    removeStorageRaw(`match.v2.journal.${workspaceId}`)
+    return
+  }
+  const database = await openJournalDatabase()
+  const transaction = database.transaction([...journalStores], "readwrite")
+  const completion = transactionDone(transaction)
+  for (const name of ["changes", "proofs", "receipts"] as const) {
+    const store = transaction.objectStore(name)
+    const keys = await requestResult(store.index("workspaceId").getAllKeys(workspaceId))
+    for (const key of keys) store.delete(key)
+  }
+  transaction.objectStore("metadata").delete(workspaceId)
+  await completion
+  removeStorageRaw(`match.v2.journal.${workspaceId}`)
+}
+
 export class WorkspaceStorage {
   private inMemory: InMemoryStore
 
@@ -161,6 +305,7 @@ export class WorkspaceStorage {
         if (key.startsWith(`${oldId}:`)) map.delete(key)
       }
     }
+    await deleteWorkspaceJournal(oldId)
     for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
       removeStorageRaw(`${prefix}${oldId}`)
     }
@@ -178,6 +323,7 @@ export class WorkspaceStorage {
         if (key.startsWith(`${workspaceId}:`)) map.delete(key)
       }
     }
+    await deleteWorkspaceJournal(workspaceId)
     for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
       removeStorageRaw(`${prefix}${workspaceId}`)
     }
@@ -190,46 +336,54 @@ export class WorkspaceStorage {
     proof: ChangeProof
   ): Promise<TransactionReceipt> {
     checkStorageFailureHook()
-
-    // Idempotent retry: check if receipt already stored
-    const existing = await this.getReceipt(workspaceId, receipt.transactionId)
-    if (existing) {
-      return existing
-    }
-
     const receiptKey = `${workspaceId}:${receipt.transactionId}`
     const changeKey = `${workspaceId}:${receipt.changeHash}`
-    const nowIso = new Date().toISOString()
-
     const storedChange: StoredChange = {
       workspaceId,
       changeHash: receipt.changeHash,
       bytes: new Uint8Array(changeBytes),
-      addedAt: nowIso,
+      addedAt: new Date().toISOString(),
     }
 
-    // Persist before exposing a successful receipt to this tab or retries.
-    const changes = (await this.listChanges(workspaceId)).filter(change => change.changeHash !== receipt.changeHash)
-    changes.push(storedChange)
-    const serializedChanges = changes.map((c) => ({
-      workspaceId: c.workspaceId,
-      changeHash: c.changeHash,
-      bytesBase64: toBase64Url(c.bytes),
-      addedAt: c.addedAt,
-    }))
-    setStorageRaw(`match.v1.changes.${workspaceId}`, JSON.stringify(serializedChanges))
-
-    // Persist proofs
-    const proofsRaw = getStorageRaw(`match.v1.proofs.${workspaceId}`)
-    const proofsMap: Record<string, ChangeProof> = proofsRaw ? JSON.parse(proofsRaw) : {}
-    proofsMap[receipt.changeHash] = proof
-    setStorageRaw(`match.v1.proofs.${workspaceId}`, JSON.stringify(proofsMap))
-
-    // Persist receipts
-    const receiptsRaw = getStorageRaw(`match.v1.receipts.${workspaceId}`)
-    const receiptsMap: Record<string, TransactionReceipt> = receiptsRaw ? JSON.parse(receiptsRaw) : {}
-    receiptsMap[receipt.transactionId] = receipt
-    setStorageRaw(`match.v1.receipts.${workspaceId}`, JSON.stringify(receiptsMap))
+    if (typeof indexedDB !== "undefined") {
+      const database = await ensureJournalMigrated(workspaceId)
+      const transaction = database.transaction(["changes", "proofs", "receipts"], "readwrite")
+      const completion = transactionDone(transaction)
+      try {
+        const existing = await requestResult(transaction.objectStore("receipts").get(receiptKey)) as StoredReceiptRecord | undefined
+        if (existing) {
+          await completion
+          return existing.receipt
+        }
+        transaction.objectStore("changes").put({ id: changeKey, ...storedChange })
+        transaction.objectStore("proofs").put({
+          id: changeKey, workspaceId, changeHash: receipt.changeHash, proof,
+        } satisfies StoredProofRecord)
+        transaction.objectStore("receipts").put({
+          id: receiptKey, workspaceId, transactionId: receipt.transactionId, receipt,
+        } satisfies StoredReceiptRecord)
+      } catch (error) {
+        transaction.abort()
+        await completion.catch(() => undefined)
+        throw error
+      }
+      await completion
+    } else {
+      const existing = await withLocalJournalLock(workspaceId, async () => {
+        const journal = readLocalJournal(workspaceId)
+        const saved = journal.receipts[receipt.transactionId]
+        if (saved) return saved
+        journal.changes = journal.changes.filter(change => change.changeHash !== receipt.changeHash)
+        journal.changes.push({
+          workspaceId, changeHash: receipt.changeHash, bytesBase64: toBase64Url(changeBytes), addedAt: storedChange.addedAt,
+        })
+        journal.proofs[receipt.changeHash] = proof
+        journal.receipts[receipt.transactionId] = receipt
+        writeLocalJournal(workspaceId, journal)
+        return null
+      })
+      if (existing) return existing
+    }
 
     this.inMemory.changes.set(changeKey, storedChange)
     this.inMemory.proofs.set(changeKey, proof)
@@ -336,115 +490,104 @@ export class WorkspaceStorage {
       includedHashes.add(decoded.hash)
     }
 
-    // Delete ONLY changes that are included in doc
-    const prefix = `${workspaceId}:`
-    for (const [key, change] of this.inMemory.changes.entries()) {
-      if (key.startsWith(prefix)) {
-        if (includedHashes.has(change.changeHash)) {
-          this.inMemory.changes.delete(key)
-        }
-      }
+    if (typeof indexedDB !== "undefined") {
+      const database = await ensureJournalMigrated(workspaceId)
+      const transaction = database.transaction("changes", "readwrite")
+      const completion = transactionDone(transaction)
+      const store = transaction.objectStore("changes")
+      const records = await requestResult(store.index("workspaceId").getAll(workspaceId)) as Array<StoredChange & { id: string }>
+      for (const record of records) if (includedHashes.has(record.changeHash)) store.delete(record.id)
+      await completion
+    } else {
+      await withLocalJournalLock(workspaceId, async () => {
+        const journal = readLocalJournal(workspaceId)
+        journal.changes = journal.changes.filter(change => !includedHashes.has(change.changeHash))
+        writeLocalJournal(workspaceId, journal)
+      })
     }
 
-    const remaining = await this.listChanges(workspaceId)
-    const serializedRemaining = remaining
-      .filter((c) => !includedHashes.has(c.changeHash))
-      .map((c) => ({
-        workspaceId: c.workspaceId,
-        changeHash: c.changeHash,
-        bytesBase64: toBase64Url(c.bytes),
-        addedAt: c.addedAt,
-      }))
-    setStorageRaw(`match.v1.changes.${workspaceId}`, JSON.stringify(serializedRemaining))
+    const prefix = `${workspaceId}:`
+    for (const [key, change] of this.inMemory.changes.entries()) {
+      if (key.startsWith(prefix) && includedHashes.has(change.changeHash)) this.inMemory.changes.delete(key)
+    }
   }
 
   async listChanges(workspaceId: string): Promise<StoredChange[]> {
-    const raw = getStorageRaw(`match.v1.changes.${workspaceId}`)
-    if (raw) {
-      try {
-        const list = JSON.parse(raw) as { workspaceId: string; changeHash: string; bytesBase64: string; addedAt: string }[]
-        for (const item of list) {
-          const key = `${workspaceId}:${item.changeHash}`
-          if (!this.inMemory.changes.has(key)) {
-            this.inMemory.changes.set(key, {
-              workspaceId: item.workspaceId,
-              changeHash: item.changeHash,
-              bytes: fromBase64Url(item.bytesBase64),
-              addedAt: item.addedAt,
-            })
-          }
-        }
-      } catch {}
-    }
-
     const prefix = `${workspaceId}:`
-    const results: StoredChange[] = []
-    for (const [key, val] of this.inMemory.changes.entries()) {
-      if (key.startsWith(prefix)) {
-        results.push(val)
-      }
+    let results: StoredChange[]
+    if (typeof indexedDB !== "undefined") {
+      const database = await ensureJournalMigrated(workspaceId)
+      const records = await recordsForWorkspace<StoredChange & { id: string }>(database, "changes", workspaceId)
+      results = records.map(record => ({
+        workspaceId: record.workspaceId,
+        changeHash: record.changeHash,
+        bytes: new Uint8Array(record.bytes),
+        addedAt: record.addedAt,
+      }))
+    } else {
+      results = readLocalJournal(workspaceId).changes.map(item => ({
+        workspaceId: item.workspaceId,
+        changeHash: item.changeHash,
+        bytes: fromBase64Url(item.bytesBase64),
+        addedAt: item.addedAt,
+      }))
     }
+    for (const key of [...this.inMemory.changes.keys()]) if (key.startsWith(prefix)) this.inMemory.changes.delete(key)
+    for (const change of results) this.inMemory.changes.set(`${workspaceId}:${change.changeHash}`, change)
     return results
   }
 
   async getReceipt(workspaceId: string, transactionId: string): Promise<TransactionReceipt | null> {
     const key = `${workspaceId}:${transactionId}`
-    if (this.inMemory.receipts.has(key)) {
-      return this.inMemory.receipts.get(key) || null
-    }
-    const raw = getStorageRaw(`match.v1.receipts.${workspaceId}`)
-    if (raw) {
-      try {
-        const map = JSON.parse(raw)
-        if (map[transactionId]) {
-          this.inMemory.receipts.set(key, map[transactionId])
-          return map[transactionId]
-        }
-      } catch {}
-    }
-    return null
+    let receipt: TransactionReceipt | null = null
+    if (typeof indexedDB !== "undefined") {
+      const database = await ensureJournalMigrated(workspaceId)
+      const transaction = database.transaction("receipts", "readonly")
+      const completion = transactionDone(transaction)
+      const record = await requestResult(transaction.objectStore("receipts").get(key)) as StoredReceiptRecord | undefined
+      await completion
+      receipt = record?.receipt ?? null
+    } else receipt = readLocalJournal(workspaceId).receipts[transactionId] ?? null
+    if (receipt) this.inMemory.receipts.set(key, receipt)
+    else this.inMemory.receipts.delete(key)
+    return receipt
   }
 
   async getProof(workspaceId: string, changeHash: string): Promise<ChangeProof | null> {
     const key = `${workspaceId}:${changeHash}`
-    if (this.inMemory.proofs.has(key)) {
-      return this.inMemory.proofs.get(key) || null
-    }
-    const raw = getStorageRaw(`match.v1.proofs.${workspaceId}`)
-    if (raw) {
-      try {
-        const map = JSON.parse(raw)
-        if (map[changeHash]) {
-          this.inMemory.proofs.set(key, map[changeHash])
-          return map[changeHash]
-        }
-      } catch {}
-    }
-    return null
+    let proof: ChangeProof | null = null
+    if (typeof indexedDB !== "undefined") {
+      const database = await ensureJournalMigrated(workspaceId)
+      const transaction = database.transaction("proofs", "readonly")
+      const completion = transactionDone(transaction)
+      const record = await requestResult(transaction.objectStore("proofs").get(key)) as StoredProofRecord | undefined
+      await completion
+      proof = record?.proof ?? null
+    } else proof = readLocalJournal(workspaceId).proofs[changeHash] ?? null
+    if (proof) this.inMemory.proofs.set(key, proof)
+    else this.inMemory.proofs.delete(key)
+    return proof
   }
 
   async getProofs(workspaceId: string): Promise<StoredProofsV1> {
-    // Ensure all proofs for workspaceId are loaded
-    await this.listChanges(workspaceId)
-    const raw = getStorageRaw(`match.v1.proofs.${workspaceId}`)
-    if (raw) {
-      try {
-        const map = JSON.parse(raw)
-        for (const [hash, proof] of Object.entries(map)) {
-          this.inMemory.proofs.set(`${workspaceId}:${hash}`, proof as ChangeProof)
-        }
-      } catch {}
+    let records: StoredProofRecord[]
+    if (typeof indexedDB !== "undefined") {
+      const database = await ensureJournalMigrated(workspaceId)
+      records = await recordsForWorkspace<StoredProofRecord>(database, "proofs", workspaceId)
+    } else {
+      records = Object.entries(readLocalJournal(workspaceId).proofs).map(([changeHash, proof]) => ({
+        id: `${workspaceId}:${changeHash}`, workspaceId, changeHash, proof,
+      }))
     }
-
-    const changeProofs = Array.from(this.inMemory.proofs.entries())
-      .filter(([k]) => k.startsWith(`${workspaceId}:`))
-      .map(([_, v]) => v)
+    const prefix = `${workspaceId}:`
+    for (const key of [...this.inMemory.proofs.keys()]) if (key.startsWith(prefix)) this.inMemory.proofs.delete(key)
+    for (const record of records) this.inMemory.proofs.set(record.id, record.proof)
 
     return {
       grants: [],
       certificates: [],
       actorBindings: [],
-      changeProofs,
+      changeProofs: records.map(record => record.proof),
     }
   }
 

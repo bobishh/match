@@ -7,6 +7,7 @@ import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identit
 import { useMatch, hydrate, resetStateForTest } from "./state"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
+import { isItem } from "./domain/model"
 import { exportAuthorizations } from "./sync/changeAuthorization"
 
 beforeAll(async () => {
@@ -47,6 +48,24 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(match.workspace.leads.some((l) => l.company === "Stripe")).toBe(true)
 
     unsubscribe()
+  })
+
+  it("Given two commands start together, when they commit to one workspace, then UI and reopened storage retain both", async () => {
+    const match = useMatch()
+    const workspaceId = match.activeWorkspace.id
+
+    await Promise.all([
+      match.createLeadAsync({ company: "Concurrent A", role: "Engineer", status: "lead" }),
+      match.createLeadAsync({ company: "Concurrent B", role: "Engineer", status: "lead" }),
+    ])
+
+    expect(match.workspace.leads.map(lead => lead.company)).toEqual(expect.arrayContaining(["Concurrent A", "Concurrent B"]))
+    const reopened = await new WorkspaceStorage({ changes: new Map(), proofs: new Map(), receipts: new Map(),
+      snapshots: new Map(), workspaces: new Map(), personalRoots: new Map() }).loadWorkspaceDoc(workspaceId)
+    const titles = Object.values(reopened!.doc.entities)
+      .filter(isItem)
+      .map(entity => entity.title)
+    expect(titles).toEqual(expect.arrayContaining(["Concurrent A — Engineer", "Concurrent B — Engineer"]))
   })
 
   it("does not notify replication or adopt change when save fails", async () => {

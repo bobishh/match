@@ -46,6 +46,7 @@ const ready = reactive({ value: false })
 const saveState = ref<"idle" | "saving" | "saved" | "error">("idle")
 let pendingWrites = 0
 let batchSaveFailed = false
+const workspaceCommandQueues = new Map<string, Promise<void>>()
 
 let activeDoc: Automerge.Doc<WorkspaceDocumentV2> | null = null
 const docVersion = ref(0)
@@ -89,6 +90,7 @@ export function resetStateForTest(): void {
   saveState.value = "idle"
   pendingWrites = 0
   batchSaveFailed = false
+  workspaceCommandQueues.clear()
   workspace.leads.splice(0, workspace.leads.length)
   workspace.documents.splice(0, workspace.documents.length)
   workspace.templates.splice(0, workspace.templates.length)
@@ -349,11 +351,26 @@ export async function commitAndPersist(
   command: Command,
   storage = defaultStorage
 ): Promise<void> {
+  const workspaceId = activeDoc?.id
+  const profile = currentProfile
+  if (!workspaceId || !profile) throw new Error("Workspace not hydrated")
   if (!pendingWrites) batchSaveFailed = false
   pendingWrites++
   saveState.value = "saving"
   try {
-    await persistCommand(command, storage)
+    const previous = workspaceCommandQueues.get(workspaceId) ?? Promise.resolve()
+    const execute = () => persistCommand(workspaceId, command, profile, storage)
+    const current = previous.catch(() => undefined).then(() =>
+      typeof navigator !== "undefined" && navigator.locks
+        ? navigator.locks.request(`match-workspace-command:${workspaceId}`, execute)
+        : execute())
+    workspaceCommandQueues.set(workspaceId, current)
+    void current.then(() => {
+      if (workspaceCommandQueues.get(workspaceId) === current) workspaceCommandQueues.delete(workspaceId)
+    }, () => {
+      if (workspaceCommandQueues.get(workspaceId) === current) workspaceCommandQueues.delete(workspaceId)
+    })
+    await current
   } catch (error) {
     batchSaveFailed = true
     throw error
@@ -363,17 +380,26 @@ export async function commitAndPersist(
   }
 }
 
-async function persistCommand(command: Command, storage: WorkspaceStorage): Promise<void> {
-  if (!activeDoc || !currentProfile) {
-    throw new Error("Workspace not hydrated")
-  }
+async function persistCommand(workspaceId: string, command: Command, profile: LocalProfile, storage: WorkspaceStorage): Promise<void> {
+  const local = activeDoc?.id === workspaceId ? activeDoc : null
+  const stored = (await storage.loadWorkspaceDoc(workspaceId))?.doc ?? null
+  if (!local && !stored) throw new Error("Workspace not hydrated")
+  const base = local && stored
+    ? Automerge.merge(Automerge.clone(local), Automerge.clone(stored))
+    : (local ?? stored)!
+  let next = await persistAuthorizedCommand(base, command, profile, storage)
 
-  const next = await persistAuthorizedCommand(activeDoc, command, currentProfile, storage)
+  const latest = (await storage.loadWorkspaceDoc(workspaceId))?.doc
+  if (latest) next = Automerge.merge(Automerge.clone(next), Automerge.clone(latest))
+  if (activeDoc?.id === workspaceId) next = Automerge.merge(Automerge.clone(next), Automerge.clone(activeDoc))
+  await storage.saveSnapshot(workspaceId, next, Automerge.save(next))
 
   // ONLY after durable commit: publish document & notify
-  updateReactiveState(next)
-  await saveWorkspace(workspace).catch(() => {})
-  storageChannel?.postMessage({ type: "workspace-persisted" })
+  if (activeDoc?.id === workspaceId) {
+    updateReactiveState(next)
+    await saveWorkspace(workspace).catch(() => {})
+  }
+  storageChannel?.postMessage({ type: "workspace-persisted", workspaceId })
 
   for (const listener of localChangeListeners) {
     listener()
