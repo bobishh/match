@@ -1,8 +1,7 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
-import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
-import { isMeshNetworkFailure as isNetworkFailure } from "@meta-uber/mesh-transport"
+import { MeshReconnectPolicy, MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
 import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
@@ -116,26 +115,9 @@ export type DurableMeshOptions = {
   getOwnedWorkspaceIds?: () => Promise<string[]>
 }
 
-export class MeshDialCancelled extends Error {
-  constructor() { super("Mesh dial cancelled"); this.name = "AbortError" }
-}
-
-export class MeshNodeRestart extends Error {
-  constructor(readonly reason: string) {
-    super(reason)
-    this.name = "MeshNodeRestart"
-  }
-}
+export { MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure }
 
 const MESH_INSTANCE_KEY = "match.mesh.instance.v1"
-
-export function isMeshDialNetworkFailure(error: unknown): boolean {
-  if (isNetworkFailure(error)) return true
-  if (error instanceof AggregateError) return error.errors.length > 0 && error.errors.every(isMeshDialNetworkFailure)
-  return /all promises were rejected|no addressing information available|pkarr.*404/i.test(
-    error instanceof Error ? error.message : String(error),
-  )
-}
 
 export function uniqueCertificates(profile: LocalProfile, certificates: Awaited<ReturnType<typeof defaultProofStore.listCertificates>>) {
   const all = [profile.certificate, ...certificates]
