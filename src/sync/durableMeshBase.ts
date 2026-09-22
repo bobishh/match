@@ -8,8 +8,7 @@ import type { defaultProofStore } from "../domain/proofs"
 import {
   MAX_SUCCESSION_EDITORS,
   type WorkspaceDeparture, type WorkspaceDeviceRevocation, type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
-  type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
-  type WorkspaceBreakGlassClaim } from "./meshRecords"
+  type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { acquireMeshInstanceLease } from "./meshInstanceLease"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 import { peerStore, type PeerStore, type WorkspaceMeshCredential} from "./peerStore"
@@ -33,7 +32,6 @@ export type MeshWorkspaceEnvelope = {
   successionPolicy?: WorkspaceSuccessionPolicy
   successionVotes?: WorkspaceSuccessionVote[]
   successionClaims?: WorkspaceSuccessionClaim[]
-  breakGlassClaims?: WorkspaceBreakGlassClaim[]
 }
 
 export type MeshExport = {
@@ -46,7 +44,6 @@ export type MeshExport = {
   successionPolicy?: WorkspaceSuccessionPolicy
   successionVotes?: WorkspaceSuccessionVote[]
   successionClaims?: WorkspaceSuccessionClaim[]
-  breakGlassClaims?: WorkspaceBreakGlassClaim[]
 }
 
 export type MeshPeerView = {
@@ -148,15 +145,15 @@ export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
   const required = item.version === 1 && nonEmptyText(item.workspaceId) && nonEmptyText(item.ownerPersonId) &&
     nonEmptyText(item.ownerPublicKey) && nonEmptyText(item.transportSecret) && Number.isSafeInteger(item.epoch) && item.epoch! >= 1
   const collections = boundedArray(item.ownerCertificates, 32) && boundedArray(item.peers, 512)
+  if ("breakGlassClaims" in item) throw new Error("Unsupported legacy break-glass authority evidence")
   const optional = optionalArray(item.ownerHistory) && optionalArray(item.ownershipTransfers) &&
-    optionalArray(item.breakGlassClaims, 32) && optionalArray(item.successionVotes, MAX_SUCCESSION_EDITORS) &&
+    optionalArray(item.successionVotes, MAX_SUCCESSION_EDITORS) &&
     optionalArray(item.successionClaims, 32)
   return required && collections && optional
 }
 
 export type MeshCatalog = { departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
-  successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
-  breakGlassClaims?: WorkspaceBreakGlassClaim[] }
+  successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[] }
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
   meshRustRuntime().state.validateMeshCapabilities(capabilities)
 }
@@ -178,13 +175,6 @@ export function ownershipTransfers(credential: WorkspaceMeshCredential): Workspa
 export function successionPolicy(credential: WorkspaceMeshCredential) { return meshCatalog(credential).successionPolicy }
 export function successionVotes(credential: WorkspaceMeshCredential) { return meshCatalog(credential).successionVotes ?? [] }
 export function successionClaims(credential: WorkspaceMeshCredential) { return meshCatalog(credential).successionClaims ?? [] }
-export function breakGlassClaims(credential: WorkspaceMeshCredential) {
-  return (meshCatalog(credential).breakGlassClaims ?? []).filter(record => record?.payload?.kind === "workspace-break-glass")
-}
-
-export function hasConflictingBreakGlassClaims(records: WorkspaceBreakGlassClaim[]) {
-  return meshRustRuntime().state.hasConflictingBreakGlassClaims(records)
-}
 
 export function ownerAuthorities(credential: WorkspaceMeshCredential): WorkspaceAuthority[] {
   return [{ personId: credential.ownerPersonId, publicKey: credential.ownerPublicKey,

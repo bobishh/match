@@ -59,41 +59,6 @@ test("Given an owner names an editor successor, when the editor claims successio
   } finally { await context.close() }
 })
 
-test("Given an offline owner and no recovery policy, when an editor confirms break-glass recovery, then the editor becomes owner and can invite a replacement device", async ({ page, browser }) => {
-  test.setTimeout(150_000)
-  const editorContext = await browser.newContext()
-  const observerContext = await browser.newContext()
-  const editor = await editorContext.newPage()
-  const observer = await observerContext.newPage()
-  try {
-    await page.goto("/")
-    await ensureJobSearchWorkspace(page)
-    await editor.goto("/")
-    await observer.goto("/")
-    await inviteEditor(page, editor)
-    await inviteEditor(page, observer)
-    await page.close()
-
-    await editor.getByRole("button", { name: "Sync", exact: true }).click()
-    const dialog = editor.getByRole("dialog", { name: "Device sync" })
-    await expect(dialog.getByText("No recovery policy.", { exact: false })).toBeVisible({ timeout: 30_000 })
-    await dialog.getByRole("button", { name: "Recover orphaned ownership" }).click()
-    await expect(dialog.getByRole("region", { name: "Confirm ownership recovery" })).toContainText("creates a new authority branch")
-    await dialog.getByRole("button", { name: "Make me owner" }).click()
-
-    await expect(editor.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 20_000 })
-    await expect(dialog.getByRole("button", { name: "Add someone" })).toBeVisible()
-    await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
-    await addLead(editor, "Recovered owner change")
-    await expect(observer.getByRole("button", { name: "Open Recovered owner change — Engineer" }))
-      .toBeVisible({ timeout: 30_000 })
-    await expect(observer.getByLabel("Workspace role: editor")).toBeVisible()
-  } finally {
-    await editorContext.close()
-    await observerContext.close()
-  }
-})
-
 test("Given editor quorum recovery, when a majority votes, then one vote stays pending and quorum elects the candidate", async ({ page, browser }) => {
   test.setTimeout(180_000)
   const firstContext = await browser.newContext()

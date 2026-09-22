@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DeviceEnrollmentInvitation } from "@meta-uber/mesh-pairing"
-import { dialEnrollmentPeer } from "./deviceSyncEnrollment"
+import { decodePairingFrame, encodePairingFrame } from "@meta-uber/mesh-pairing"
+import { dialEnrollmentPeer, sendEnrollmentRejection } from "./deviceSyncEnrollment"
 import type { SyncConnection, SyncNode } from "./transport"
 import { meshTraceSnapshot } from "./meshTrace"
 
@@ -89,5 +90,41 @@ describe("device enrollment dialing", () => {
     expect(result).toBe(relayConnection)
     expect(node.dial).toHaveBeenCalledWith("owner-endpoint")
     expect(node.dialRelay).toHaveBeenCalledWith("owner-endpoint")
+  })
+})
+
+describe("enrollment rejection acknowledgement", () => {
+  afterEach(() => vi.useRealTimers())
+
+  it("reads the acknowledgement from the same rejection stream", async () => {
+    const secret = "rejection-secret"
+    const sent: Uint8Array[] = []
+    const stream = {
+      send: vi.fn(async (frame: Uint8Array) => { sent.push(frame) }),
+      closeSend: vi.fn(async () => undefined),
+      read: vi.fn(async () => encodePairingFrame("enroll-rejected-ack", secret, new Uint8Array())),
+    }
+    const peer = { ...connection(), openStream: vi.fn(async () => stream) }
+
+    await expect(sendEnrollmentRejection(peer, secret, new Error("workspace validation failed"))).resolves.toBeUndefined()
+
+    expect(peer.acceptStream).not.toHaveBeenCalled()
+    expect(stream.read).toHaveBeenCalledOnce()
+    expect(new TextDecoder().decode(decodePairingFrame(sent[0]!, "enroll-rejected", secret))).toContain("workspace validation failed")
+  })
+
+  it("times out when the same stream does not acknowledge rejection", async () => {
+    vi.useFakeTimers()
+    const stream = {
+      send: vi.fn(async () => undefined), closeSend: vi.fn(async () => undefined),
+      read: vi.fn(() => new Promise<Uint8Array>(() => {})),
+    }
+    const peer = { ...connection(), openStream: vi.fn(async () => stream) }
+    const pending = sendEnrollmentRejection(peer, "rejection-secret", new Error("invalid proof"))
+
+    const rejected = expect(pending).rejects.toThrow("Enrollment rejection was not acknowledged")
+    await vi.advanceTimersByTimeAsync(12_000)
+    await rejected
+    expect(peer.acceptStream).not.toHaveBeenCalled()
   })
 })

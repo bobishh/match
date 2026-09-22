@@ -13,7 +13,7 @@ import { verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshR
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync} from "./workspaceSet"
-import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revocations, isGrantRevoked,
+import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revocations, isGrantRevoked,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
@@ -195,7 +195,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ? await this.ownerWorkspaceIds(profile) : undefined
     return this.validateHandshake({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
-      breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+      successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
       ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, peer.workspaceId)
   }
@@ -413,7 +413,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     for (const credential of await this.store.listWorkspaceCredentials()) {
       const summary = meshRustRuntime().state.summarizeSuccession(
         successionPolicy(credential), successionClaims(credential), successionVotes(credential), ownershipTransfers(credential),
-        breakGlassClaims(credential), revocations(credential), credential.epoch,
+        revocations(credential), credential.epoch,
       ) as { successorPersonId: string | null; eligibleEditorPersonIds: string[];
         votes: Array<{ voterPersonId: string; candidatePersonId: string }>; quorum: number; conflicted: boolean } | null
       if (!summary) continue

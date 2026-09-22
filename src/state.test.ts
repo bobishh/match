@@ -8,7 +8,7 @@ import { useMatch, hydrate, resetStateForTest } from "./state"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { isItem, type WorkspaceDocumentV2 } from "./domain/model"
-import { exportAuthorizations } from "./sync/changeAuthorization"
+import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations } from "./sync/changeAuthorization"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -112,7 +112,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const id = match.getActiveDoc()!.id
     const unrelated = Automerge.from(createWorkspaceDoc(id, "Remote board", match.getActiveDoc()!.ownerPersonId, "blank"))
     const bytes = Automerge.save(unrelated)
-    await expect(match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizations(bytes))).rejects.toThrow("Workspace conflict")
+    await expect(match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizationBundle(bytes))).rejects.toThrow("Workspace conflict")
     expect(match.activeWorkspace.id).toBe(id)
     expect(match.activeWorkspace.title).toBe("Job search")
     expect(match.workspace.leads.some(lead => lead.company === "Local data")).toBe(true)
@@ -137,19 +137,22 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const bytes = await match.readWorkspaceBytes(legacy.id)
     const migrated = Automerge.load<WorkspaceDocumentV2>(bytes)
     const lastChange = Automerge.decodeChange(Automerge.getAllChanges(migrated).at(-1)!).hash
-    const authorizations = await exportAuthorizations(Automerge.save(migrated))
+    const authorization = await exportAuthorizationBundle(Automerge.save(migrated))
 
     expect((migrated.entities[item.id] as { kind?: unknown }).kind).toBeUndefined()
-    expect(authorizations.some(record => record.signed.payload.hashes.includes(lastChange))).toBe(true)
+    expect(authorization.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ signed: expect.objectContaining({ payload: expect.objectContaining({ hashes: expect.arrayContaining([lastChange]) }) }) }),
+    ]))
     expect((await defaultStorage.loadWorkspaceDoc(legacy.id))?.heads).toEqual(Automerge.getHeads(migrated))
-    await expect(match.mergeAuthorizedWorkspace(legacy.id, bytes, authorizations)).resolves.toBeUndefined()
+    await expect(match.mergeAuthorizedWorkspace(legacy.id, bytes, authorization)).resolves.toBeUndefined()
   })
 
   it("rejects a document addressed to another workspace without touching the active board", async () => {
     const match = useMatch()
     const before = match.getAutomergeBytes()
-    const remote = Automerge.from(createWorkspaceDoc("other", "Remote board", "owner", "blank"))
-    await expect(match.mergeAuthorizedWorkspace("selected", Automerge.save(remote), [])).rejects.toThrow(/Invalid workspace/)
+    const remote = Automerge.from(createWorkspaceDoc("other", "Remote board", match.getCurrentProfile()!.identity.personId, "blank"))
+    const authorization = await exportAuthorizationBundle(Automerge.save(remote))
+    await expect(match.mergeAuthorizedWorkspace("selected", Automerge.save(remote), authorization)).rejects.toThrow(/Invalid workspace/)
     expect(match.getAutomergeBytes()).toEqual(before)
   })
 
@@ -158,7 +161,11 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const before = match.getActiveDoc()!
     const owner = before.ownerPersonId
     const forged = Automerge.change(Automerge.clone(before), draft => { draft.ownerPersonId = "attacker" })
-    await expect(match.mergeAuthorizedWorkspace(before.id, Automerge.save(forged), [])).rejects.toThrow(/owner/i)
+    const changed = Automerge.getAllChanges(forged).map(change => Automerge.decodeChange(change).hash)
+    await authorizeLocalChanges(forged, match.getCurrentProfile()!, changed)
+    const authorization = await exportAuthorizationBundle(Automerge.save(before))
+    authorization.records = await exportAuthorizations(Automerge.save(forged))
+    await expect(match.mergeAuthorizedWorkspace(before.id, Automerge.save(forged), authorization)).rejects.toThrow(/owner/i)
     expect(match.getActiveDoc()!.ownerPersonId).toBe(owner)
   })
 

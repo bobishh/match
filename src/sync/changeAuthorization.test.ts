@@ -7,9 +7,9 @@ import { createWorkspaceDoc } from "../domain/seeds"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
-import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, pendingHistoryRepair, repairPendingHistory, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
+import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, pendingHistoryRepair, repairPendingHistory, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
-import { isItem } from "../domain/model"
+import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
 
 const peerStoreState = vi.hoisted(() => ({ credential: null as any, authority: null as any }))
 vi.mock("./peerStore", () => ({ peerStore: {
@@ -45,27 +45,94 @@ async function fixture(command: (board: string, column: string) => Command, role
     grant: await createWorkspaceGrant(owner, local.id, member.identity.personId, role) }
   return { local, remote: result.value.newDoc, record }
 }
+function authorizationBundle(doc: Automerge.Doc<WorkspaceDocumentV2>, records: unknown[], current = owner) {
+  const authority = { personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate] }
+  return { version: 1, records, authority: { genesisOwner: authority, genesisEpoch: 1, currentOwner: current === owner
+    ? authority : { personId: current.identity.personId, publicKey: current.identity.publicKey, certificates: [current.certificate] },
+  currentEpoch: 1,
+  ownershipTransfers: [], successionClaims: [], revocations: [], deviceRevocations: [] } }
+}
 it("rejects visitor writes even with a valid device signature and owner-issued visitor grant", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
-  await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/Visitors/)
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).rejects.toThrow(/Visitors/)
   expect(() => assertWorkspaceTransition("visitor", local, remote)).toThrow(/Visitors/)
 })
 it("accepts signed editor item changes, including when forwarded by another peer", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Allowed" }), "editor")
-  await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).resolves.toBeUndefined()
   expect(() => assertWorkspaceTransition("editor", local, remote)).not.toThrow()
+})
+it("accepts transferred-owner history on a clean replica only when the supplied authority chain verifies", async () => {
+  resetIdentityStorageForTest(); const successor = await bootstrapIdentity("Successor")
+  const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Transferred", owner.identity.personId, "blank"))
+  const column = Object.values(local.entities).find(entity => entity.kind === "column")!
+  const transfer = await createWorkspaceOwnershipTransfer(owner, local.id, {
+    personId: successor.identity.personId, publicKey: successor.identity.publicKey, certificates: [successor.certificate],
+  }, Automerge.getHeads(local), 2)
+  const genesisSigned = await signEnvelope(owner.privateKeys.devicePrivateKey, {
+    kind: "workspace-changes" as const, version: 1 as const, workspaceId: local.id,
+    personId: owner.identity.personId, deviceId: owner.device.deviceId,
+    hashes: Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash),
+  }, owner.device.deviceId)
+  const result = await executeCommand(local, { kind: "createItem", parentId: column.id, title: "Successor write" }, successor)
+  if (!result.ok) throw new Error(result.error.message)
+  const signed = await signEnvelope(successor.privateKeys.devicePrivateKey, {
+    kind: "workspace-changes" as const, version: 1 as const, workspaceId: local.id,
+    personId: successor.identity.personId, deviceId: successor.device.deviceId, hashes: [result.value.receipt.changeHash],
+  }, successor.device.deviceId)
+  const authority = { personId: owner.identity.personId, publicKey: owner.identity.publicKey, certificates: [owner.certificate] }
+  const bundle = {
+    version: 1, records: [
+      { signed: genesisSigned, publicKey: owner.identity.publicKey, certificates: [owner.certificate] },
+      { signed, publicKey: successor.identity.publicKey, certificates: [successor.certificate] },
+    ],
+    authority: { genesisOwner: authority, genesisEpoch: 1,
+      currentOwner: { personId: successor.identity.personId, publicKey: successor.identity.publicKey, certificates: [successor.certificate] },
+      currentEpoch: 2,
+      ownershipTransfers: [transfer], successionClaims: [], revocations: [], deviceRevocations: [] },
+  }
+
+  await expect(validateIncomingChanges(undefined, result.value.newDoc, bundle)).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(undefined, result.value.newDoc, { ...bundle,
+    records: [bundle.records[0], { ...bundle.records[1], signed: { ...signed, signature: `${signed.signature}forged` } }] })).rejects.toThrow(/signature/i)
+  await expect(validateIncomingChanges(undefined, result.value.newDoc, { ...bundle,
+    authority: { ...bundle.authority, ownershipTransfers: [{ ...transfer, signature: `${transfer.signature}forged` }] } })).rejects.toThrow(/signature/i)
 })
 it("reports a proof change only once when the same authorization is replayed", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Idempotent" }), "editor")
-  await expect(validateIncomingChangesWithProofStatus(local, remote, [record])).resolves.toBe(true)
-  await expect(validateIncomingChangesWithProofStatus(remote, remote, [record])).resolves.toBe(false)
+  await expect(validateIncomingChangesWithProofStatus(local, remote, authorizationBundle(local, [record]))).resolves.toBe(true)
+  await expect(validateIncomingChangesWithProofStatus(remote, remote, authorizationBundle(remote, [record]))).resolves.toBe(false)
+})
+it("keeps a later local owner boundary when admitting a peer's older history", async () => {
+  resetIdentityStorageForTest(); const successor = await bootstrapIdentity("Successor")
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Boundary", owner.identity.personId, "blank"))
+  const transfer = await createWorkspaceOwnershipTransfer(owner, doc.id, {
+    personId: successor.identity.personId, publicKey: successor.identity.publicKey, certificates: [successor.certificate],
+  }, Automerge.getHeads(doc), 2)
+  peerStoreState.authority = { version: 1, workspaceId: doc.id, genesisOwnerPersonId: owner.identity.personId,
+    ownerPersonId: successor.identity.personId, ownerPublicKey: successor.identity.publicKey,
+    ownerCertificates: [successor.certificate], ownerHistory: [{ personId: owner.identity.personId,
+      publicKey: owner.identity.publicKey, certificates: [owner.certificate] }], epoch: 2,
+    updatedAt: new Date().toISOString(), catalog: { ownershipTransfers: [transfer] } }
+  const signed = await signEnvelope(owner.privateKeys.devicePrivateKey, {
+    kind: "workspace-changes" as const, version: 1 as const, workspaceId: doc.id,
+    personId: owner.identity.personId, deviceId: owner.device.deviceId,
+    hashes: Automerge.getAllChanges(doc).map(change => Automerge.decodeChange(change).hash),
+  }, owner.device.deviceId)
+  await expect(validateIncomingChanges(doc, doc, authorizationBundle(doc, [{ signed,
+    publicKey: owner.identity.publicKey, certificates: [owner.certificate] }]))).resolves.toBeUndefined()
+})
+it("does not persist a proof while validating an incoming workspace", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Pure" }), "editor")
+  await expect(validateIncomingChangeAuthorizations(local, remote, authorizationBundle(local, [record]))).resolves.toHaveLength(1)
+  await expect(validateIncomingChangesWithProofStatus(local, remote, authorizationBundle(local, [record]))).resolves.toBe(true)
 })
 it("reports a proof change once when a replay enriches certificates around the same change signature", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Enriched" }), "editor")
-  await expect(validateIncomingChangesWithProofStatus(local, remote, [record])).resolves.toBe(true)
+  await expect(validateIncomingChangesWithProofStatus(local, remote, authorizationBundle(local, [record]))).resolves.toBe(true)
   const enriched = { ...record, ownerCertificates: [...record.ownerCertificates, member.certificate] }
-  await expect(validateIncomingChangesWithProofStatus(remote, remote, [enriched])).resolves.toBe(true)
-  await expect(validateIncomingChangesWithProofStatus(remote, remote, [record])).resolves.toBe(false)
+  await expect(validateIncomingChangesWithProofStatus(remote, remote, authorizationBundle(remote, [enriched]))).resolves.toBe(true)
+  await expect(validateIncomingChangesWithProofStatus(remote, remote, authorizationBundle(remote, [record]))).resolves.toBe(false)
   const [stored] = await exportAuthorizations(Automerge.save(remote))
   expect(stored.ownerCertificates).toHaveLength(2)
 })
@@ -81,29 +148,32 @@ it("accepts a historical editor grant when its signed authorization carries a mi
     catalog: {},
   }
 
-  await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
+  const bundle = authorizationBundle(local, [record])
+  bundle.authority.genesisOwner.certificates = []
+  bundle.authority.currentOwner.certificates = []
+  await expect(validateIncomingChanges(local, remote, bundle)).resolves.toBeUndefined()
 })
 it("accepts an editor changing only workspace title casing", async () => {
   const { local, remote, record } = await fixture(() => ({ kind: "renameWorkspace", title: "twang" }), "editor")
-  await expect(validateIncomingChanges(local, remote, [record])).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).resolves.toBeUndefined()
   expect(() => assertWorkspaceTransition("editor", local, remote)).not.toThrow()
   expect(remote.title).toBe("twang")
 })
 
 it("rejects editor board-structure changes through the same policy used for local commands", async () => {
   const { local, remote, record } = await fixture(boardId => ({ kind: "createColumn", boardId, title: "Forbidden" }), "editor")
-  await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/Only the owner/)
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).rejects.toThrow(/Only the owner/)
   expect(() => assertWorkspaceTransition("editor", local, remote)).toThrow(/Only the owner/)
 })
 it("rejects a valid signature over a different change hash", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Original" }), "editor")
   const forged = Automerge.change(Automerge.clone(remote), draft => { draft.title = "Forged" })
-  await expect(validateIncomingChanges(local, forged, [record])).rejects.toThrow(/Unsigned/)
+  await expect(validateIncomingChanges(local, forged, authorizationBundle(local, [record]))).rejects.toThrow(/Unsigned/)
 })
 it("rejects tampering with an owner-issued role", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
   record.grant.payload.role = "editor"
-  await expect(validateIncomingChanges(local, remote, [record])).rejects.toThrow(/signature/)
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).rejects.toThrow(/Visitors|signature/)
 })
 
 it("Given a forged durable authority and a valid active credential, when role is recovered, then the forged authority cannot grant editor access", async () => {
@@ -197,17 +267,17 @@ it("lets only the owner sign verified discriminator cleanup, without accepting a
   const remote = Automerge.change(Automerge.clone(local), {message:"Remove item discriminators"}, d => {
     delete (Object.values(d.entities).find(isItem) as any).kind
   })
-  await expect(validateIncomingChanges(local, remote, [])).rejects.toThrow("Unsigned workspace change rejected")
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, []))).rejects.toThrow("Unsigned workspace change rejected")
   expect(pendingHistoryRepair(local.id)).toBe(1)
   await expect(repairPendingHistory(local.id, member)).rejects.toThrow(/owner/i)
   const repaired = await repairPendingHistory(local.id, owner)
-  await expect(validateIncomingChanges(local, Automerge.load(repaired.bytes), repaired.authorization)).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(local, Automerge.load(repaired.bytes), authorizationBundle(local, repaired.authorization))).resolves.toBeUndefined()
   expect(Automerge.getHeads(Automerge.load(repaired.bytes))).toEqual(Automerge.getHeads(remote))
   const malicious = Automerge.change(Automerge.clone(local), {message:"Remove item discriminators"}, d => {
     delete (Object.values(d.entities).find(isItem) as any).kind
     d.title = "Changed behind your back"
   })
-  await expect(validateIncomingChanges(local, malicious, [])).rejects.toThrow("Unsigned workspace change rejected")
+  await expect(validateIncomingChanges(local, malicious, authorizationBundle(local, []))).rejects.toThrow("Unsigned workspace change rejected")
   expect(pendingHistoryRepair(local.id)).toBe(0)
   await expect(repairPendingHistory(local.id, owner)).rejects.toThrow(/No repairable/)
 })

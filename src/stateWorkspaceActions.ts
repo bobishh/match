@@ -3,6 +3,7 @@ import type { WorkspaceRole } from "./domain/permissions";
 import { bootstrapIdentity } from "./domain/identity";
 import { createWorkspaceDoc } from "./domain/seeds";
 import type { WorkspaceDocumentV2 } from "./domain/model";
+import { forkWorkspaceDocumentV2 } from "./domain/workspaceBundle";
 import { registerWorkspaceInRoot } from "./domain/personalRoot";
 import { workspaceRole } from "./sync/changeAuthorization";
 import { defaultStorage, type WorkspaceStorage } from "./storage";
@@ -18,6 +19,7 @@ import { stateRuntime } from "./stateContext";
 export function createWorkspaceActions() {
   return {
     createWorkspaceAsync,
+    importWorkspaceAsNew,
     switchWorkspace,
     getWorkspaceRole,
     renameWorkspaceAsync,
@@ -40,6 +42,28 @@ async function createWorkspaceAsync(
   await storage.registerWorkspace(id, cleanTitle);
   await addWorkspaceToPersonalRoot(id, "genesis", storage);
   saveActiveWorkspaceId(id);
+  updateReactiveState(doc);
+  await refreshAvailableWorkspaces(storage);
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
+  return doc;
+}
+
+async function importWorkspaceAsNew(
+  source: WorkspaceDocumentV2,
+  storage = defaultStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  const profile = await requireProfile();
+  const copied = forkWorkspaceDocumentV2(
+    source,
+    crypto.randomUUID(),
+    profile.identity.personId,
+  );
+  if (!copied.ok) throw new Error(copied.error.message);
+  const doc = copied.value;
+  await storage.saveSnapshot(doc.id, doc, Automerge.save(doc));
+  await storage.registerWorkspace(doc.id, doc.title);
+  await addWorkspaceToPersonalRoot(doc.id, "genesis", storage);
+  saveActiveWorkspaceId(doc.id);
   updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });

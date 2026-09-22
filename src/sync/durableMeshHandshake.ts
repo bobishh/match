@@ -8,10 +8,10 @@ import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as netw
 import { createPeerAdvertisement,
   verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
-  type WorkspaceDeparture, type WorkspaceDeviceRevocation, type WorkspaceBreakGlassClaim } from "./meshRecords"
+  type WorkspaceDeparture, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection, SyncNode, DuplexStream } from "./transport"
-import { DurableMeshBase, MeshNodeRestart, departures, deviceRevocations, isDeviceRevoked, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, isGrantRevoked, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
+import { DurableMeshBase, MeshNodeRestart, departures, deviceRevocations, isDeviceRevoked, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, isGrantRevoked, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
 import { DurableMeshAuthority } from "./durableMeshAuthority"
 
 type InstallSessionArguments = [
@@ -144,7 +144,6 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   protected async prepareCredentials(credentials: WorkspaceMeshCredential[], profile: LocalProfile, endpoint: string): Promise<void> {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (let credential of credentials) {
-      credential = await this.migrateLegacyBreakGlassClaim(credential, profile)
       credential = await this.refreshOwnerCertificates(credential, profile, certificates)
       await this.refreshOwnBundle(credential, profile, endpoint, certificates)
       await this.pruneInvalidStoredPeers(credential, profile.device.deviceId)
@@ -222,12 +221,11 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
 
   protected async mergeIncomingAuthority(credential: WorkspaceMeshCredential, request: {
     departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; capabilities?: string[];
-    ownershipTransfers?: WorkspaceOwnershipTransfer[]; breakGlassClaims?: WorkspaceBreakGlassClaim[];
+    ownershipTransfers?: WorkspaceOwnershipTransfer[];
     successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   }): Promise<WorkspaceMeshCredential> {
     credential = await this.mergeHandshakeAccess(credential, request)
     if (Array.isArray(request.ownershipTransfers)) credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers)
-    if (Array.isArray(request.breakGlassClaims)) credential = await this.mergeBreakGlassClaims(credential, request.breakGlassClaims)
     await this.mergeSuccessionState(credential, request.successionPolicy, request.successionVotes ?? [], request.successionClaims ?? [])
     return await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
   }
@@ -256,7 +254,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       ? await this.ownerWorkspaceIds(profile) : undefined
     return this.validateHandshake({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
-      breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+      successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
       ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, credential.workspaceId)
   }

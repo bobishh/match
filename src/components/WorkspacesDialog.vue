@@ -13,6 +13,7 @@ const emit = defineEmits<{
   (e: "close"): void
   (e: "switch", id: string): void
   (e: "create", payload: { title: string; preset: "blank" | "job-search" }): void
+  (e: "import"): void
   (e: "delete", id: string): void
 }>()
 
@@ -126,6 +127,7 @@ function displayTitle(title: string) {
 
       <div class="dialog-actions">
         <button class="button button-primary" type="button" @click="isCreating = true">New workspace</button>
+        <button class="button button-quiet" type="button" @click="emit('import')">Import as new board</button>
         <button class="button button-quiet" type="button" @click="emit('close')">Close</button>
       </div>
     </section>

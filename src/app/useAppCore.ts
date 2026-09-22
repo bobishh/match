@@ -1,6 +1,6 @@
 import { computed, ref, watch } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
-import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations, workspaceWritesBlocked } from "../sync/changeAuthorization"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
 import { useMatch } from "../state"
@@ -102,7 +102,7 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
       read: match.readWorkspaceBytes,
       validate: async (id, bytes, authorization) => { await match.validateAuthorizedWorkspace(id, bytes, authorization) },
       merge: match.mergeAuthorizedWorkspace,
-      readAuthorization: exportAuthorizations,
+      readAuthorization: exportAuthorizationBundle,
       activate: match.switchWorkspace,
       readChat: exportChat,
       mergeChat: receiveChat,

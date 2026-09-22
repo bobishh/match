@@ -62,7 +62,6 @@ export function useAppMesh(context: MeshContext) {
   const successionVotesForSelf = computed(() => activeSuccession.value?.votes.filter(vote => vote.candidatePersonId === chat.personId.value).length ?? 0)
   const canClaimSuccession = computed(() => currentRole.value === "editor" && Boolean(activeSuccession.value) && !activeSuccession.value!.conflicted &&
     (activeSuccession.value!.successorPersonId === chat.personId.value || (!activeSuccession.value!.successorPersonId && successionVotesForSelf.value >= activeSuccession.value!.quorum)))
-  const canBreakGlassOwnership = computed(() => currentRole.value === "editor" && !activeSuccession.value && meshMembers.value.some(member => member.role === "owner" && !member.online))
   const transferringOwnership = ref("")
 
   async function repairHistory() {
@@ -90,7 +89,6 @@ export function useAppMesh(context: MeshContext) {
   const promoteWorkspacePeer = (personId: string) => meshAction(() => sync.promotePeer(personId), "Could not promote member")()
   const leaveWorkspaceMesh = meshAction(() => sync.leaveMesh(), "Could not leave mesh")
   const claimWorkspaceSuccession = meshAction(() => sync.claimSuccession(), "Could not claim ownership")
-  const breakGlassWorkspaceOwnership = meshAction(() => sync.breakGlassOwnership(), "Could not recover ownership")
   const setWorkspaceSuccessor = (personId: string | null) => meshAction(() => sync.setSuccessor(personId), "Could not set successor")()
   const voteForWorkspaceSuccessor = (personId: string) => meshAction(() => sync.voteForSuccessor(personId), "Could not record vote")()
   async function revokeWorkspacePeer(personId: string) {
@@ -101,7 +99,7 @@ export function useAppMesh(context: MeshContext) {
     catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not revoke access" }
     finally { revokingPeer.value = "" }
   }
-  return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, repairableHistory, repairHistory, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, canBreakGlassOwnership, transferringOwnership, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer }
+  return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, repairableHistory, repairHistory, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, transferringOwnership, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, revokeWorkspacePeer }
 }
 
 function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string, currentRole: WorkspaceRole) {

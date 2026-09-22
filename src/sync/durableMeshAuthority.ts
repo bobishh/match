@@ -3,19 +3,18 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
-import { BrowserMeshAuthority, BrowserMeshBreakGlass, BrowserMeshCatalog, BrowserMeshOwnershipTransfer, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
+import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshOwnershipTransfer, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceDeparture, verifyWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDeviceRevocation, verifyWorkspaceDeviceRevocation, type WorkspaceDeviceRevocation, createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
-  verifyWorkspaceMemberBundle, verifyWorkspaceRevocation, verifyWorkspaceGrant,
+  verifyWorkspaceMemberBundle, verifyWorkspaceRevocation,
   createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
-  createWorkspaceBreakGlassClaim, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
-  type WorkspaceBreakGlassClaim, type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
+  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
+  type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { workspaceSet, publishConfirmedWorkspace} from "./workspaceSet"
-import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
-import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, isGrantRevoked, type MeshExport, type SessionEntry } from "./durableMeshBase"
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revokedPersonIds, isGrantRevoked, type MeshExport, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
@@ -25,7 +24,6 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     parse: raw => meshRustRuntime().state.validateMeshCatalog(raw) as MeshExport,
     credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
     ownership: (credential, value) => this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? []),
-    breakGlass: (credential, value) => this.mergeBreakGlassClaims(credential, value.breakGlassClaims ?? []),
     revocations: async (credential, value) => {
       try {
         await this.mergeDeviceRevocations(credential, value.deviceRevocations ?? [])
@@ -124,22 +122,6 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
         lastSeen: new Date(Math.max(Date.parse(peer.lastSeen), Date.parse(payload.transferredAt)) + 1).toISOString(),
         ...(advertisement ? { advertisement: { ...advertisement, grant, ownerPublicKey: payload.toOwnerPublicKey,
           ownerCertificates: payload.toOwnerCertificates } } : {}) })
-    }
-  }
-
-  protected async mergeBreakGlassClaims(
-    initialCredential: WorkspaceMeshCredential,
-    raw: WorkspaceBreakGlassClaim[],
-  ): Promise<WorkspaceMeshCredential> {
-    return mergeBreakGlassClaims<WorkspaceMeshCredential>(this.breakGlassHost(), initialCredential, raw)
-  }
-
-  protected breakGlassHost(): BreakGlassHost<WorkspaceMeshCredential> {
-    return {
-      getProfile: this.options.getProfile, claims: breakGlassClaims, catalog: credential => meshCatalog(credential),
-      authorities: ownerAuthorities, revokedPeople: revokedPersonIds, conflict: hasConflictingBreakGlassClaims,
-      putCredential: credential => this.store.putWorkspaceCredential(credential),
-      transferCredential: (previousOwner, credential) => this.store.transferWorkspaceCredential(previousOwner, credential),
     }
   }
 
@@ -274,55 +256,6 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       await Promise.any(sessions.map(entry => publishConfirmedWorkspace(entry.connection, credential.transportSecret, snapshot)))
     },
     merge: (credential, transfer) => this.mergeOwnershipTransfers(credential, [transfer]).then(() => undefined),
-    notify: () => this.notify(),
-    publishAll: () => this.publishAll(),
-  })
-  private readonly breakGlass = new BrowserMeshBreakGlass<
-    WorkspaceMeshCredential,
-    { personId: string; profile: LocalProfile },
-    WorkspaceGrant,
-    WorkspaceBreakGlassClaim
-  >({
-    profile: async () => {
-      const profile = await this.options.getProfile()
-      return { personId: profile.identity.personId, profile }
-    },
-    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
-    policy: successionPolicy,
-    canOwn: owner => Boolean(owner.profile.privateKeys.identityPrivateKey),
-    ownerOnline: async credential => (await this.store.listPeers(credential.workspaceId)).some(peer =>
-      peer.personId === credential.ownerPersonId && !peer.revokedAt && [...this.sessions.values()].some(session =>
-        session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId)),
-    grant: credential => credential.localGrant as WorkspaceGrant | undefined,
-    verifyGrant: async (credential, owner, grant) => {
-      if (isGrantRevoked(credential, owner.personId, grant)) throw new Error("Editor grant has been revoked")
-      const failures: string[] = []
-      for (const authority of ownerAuthorities(credential)) {
-        try {
-          await verifyWorkspaceGrant(grant, {
-            workspaceId: credential.workspaceId, personId: owner.personId, ownerPersonId: authority.personId,
-            ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates,
-          })
-          return true
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          if (!failures.includes(message)) failures.push(message)
-        }
-      }
-      throw new Error(`Editor grant cannot be verified: ${failures.join("; ") || "no trusted owner authority"}`)
-    },
-    createClaim: async (owner, credential, grant) => {
-      const certificates = uniqueCertificates(owner.profile, await defaultProofStore.listCertificates())
-      const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential.workspaceId))
-      try {
-        return await createWorkspaceBreakGlassClaim(owner.profile, credential.workspaceId, credential.ownerPersonId,
-          grant, Automerge.getHeads(doc), credential.epoch + 1, new Date().toISOString(), certificates)
-      } finally { Automerge.free(doc) }
-    },
-    merge: (credential, claim) => this.mergeBreakGlassClaims(credential, [claim]).then(() => undefined),
-    ensureOwner: async (workspaceId, owner) => {
-      if (this.node) await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, owner.profile)
-    },
     notify: () => this.notify(),
     publishAll: () => this.publishAll(),
   })
@@ -497,9 +430,6 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     await this.ownership.transfer(workspaceId, personId)
   }
 
-  async breakGlassOwnership(workspaceId: string): Promise<void> {
-    await this.breakGlass.claim(workspaceId)
-  }
 
   async leaveWorkspace(workspaceId: string): Promise<void> {
     const profile = await this.options.getProfile()

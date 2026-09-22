@@ -342,7 +342,14 @@ async function approveEnrollment(
   await stream.send(encodePairingFrame("enroll-approved", secret, payload))
   await stream.closeSend()
   const ack = await connection.acceptStream()
-  await replica.receive(decodePairingFrame(await ack.read(), "enroll-ack", secret))
+  const acknowledgement = await ack.read()
+  if (inspectPairingFrame(acknowledgement).type === "enroll-rejected") {
+    const reason = enrollmentRejection(decodePairingFrame(acknowledgement, "enroll-rejected", secret))
+    await ack.send(encodePairingFrame("enroll-rejected-ack", secret, new Uint8Array()))
+    await ack.closeSend()
+    throw new Error(`The new device rejected enrollment: ${reason}`)
+  }
+  await replica.receive(decodePairingFrame(acknowledgement, "enroll-ack", secret))
   await ack.send(encodePairingFrame("enroll-complete", secret, new Uint8Array()))
   await ack.closeSend()
   const confirmation = await connection.acceptStream()
@@ -443,11 +450,19 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   if (!isCurrent(context, run)) return
   context.state.step.value = "enroll-syncing"
   traceEnrollment("guest", "approved", run)
-  const prepared = await preflightEnrollment(response, invite, profile)
-  const ids = prepared.payload.workspaces.map(item => item.id)
-  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
-  await replica.validate(fromBase64Url(prepared.payload.snapshot))
-  await context.durableMesh!.validateInvitation(prepared.payload.meshWorkspaces, ids, prepared.profile, prepared.payload.grants)
+  let prepared: Awaited<ReturnType<typeof preflightEnrollment>>
+  let ids: string[]
+  let replica: ReturnType<typeof workspaceSet>
+  try {
+    prepared = await preflightEnrollment(response, invite, profile)
+    ids = prepared.payload.workspaces.map(item => item.id)
+    replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
+    await replica.validate(fromBase64Url(prepared.payload.snapshot))
+    await context.durableMesh!.validateInvitation(prepared.payload.meshWorkspaces, ids, prepared.profile, prepared.payload.grants)
+  } catch (error) {
+    await sendEnrollmentRejection(connection, invite.secret, error).catch(() => undefined)
+    throw error
+  }
   const enrolled = await installEnrollment(response, invite, profile, context.state.replacementPersonId.value)
   await context.identityChanged?.()
   await replica.receive(fromBase64Url(enrolled.snapshot))
@@ -474,4 +489,25 @@ function enrollmentDecline(bytes: Uint8Array) {
     const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
     return value && typeof value === "object" && "error" in value && typeof value.error === "string" ? value.error : undefined
   } catch { return undefined }
+}
+
+export async function sendEnrollmentRejection(connection: SyncConnection, secret: string, error: unknown) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    (async () => {
+      const stream = await connection.openStream()
+      const reason = error instanceof Error ? error.message : String(error)
+      await stream.send(encodePairingFrame("enroll-rejected", secret, new TextEncoder().encode(JSON.stringify({ reason }))))
+      await stream.closeSend()
+      decodePairingFrame(await stream.read(), "enroll-rejected-ack", secret)
+    })(),
+    new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Enrollment rejection was not acknowledged")), 12_000) }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+function enrollmentRejection(bytes: Uint8Array) {
+  try {
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as { reason?: unknown }
+    return typeof value.reason === "string" ? value.reason : "the recipient could not validate the workspace"
+  } catch { return "the recipient could not validate the workspace" }
 }

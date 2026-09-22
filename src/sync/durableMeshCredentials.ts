@@ -1,18 +1,17 @@
-import { verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
-import * as Automerge from "@automerge/automerge/slim"
+import { type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
 import { activeCredentialsForProfile as selectActiveCredentials, BrowserMeshCredentials, BrowserMeshInvitations, credentialBelongsToProfile as credentialMatchesProfile } from "@meta-uber/mesh-runtime"
 import { createPeerAdvertisement, verifyDeviceChain, verifyWorkspaceGrant,
-  createWorkspaceBreakGlassClaim, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
+  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
-  type WorkspaceDeparture, type WorkspaceDeviceRevocation, type WorkspaceBreakGlassClaim } from "./meshRecords"
+  type WorkspaceDeparture, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
-import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revokedPersonIds,
-  type MeshCatalog, type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revokedPersonIds,
+  type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
 
 export abstract class DurableMeshCredentials extends DurableMeshBase {
@@ -55,7 +54,6 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
       ownerHistory: ownerAuthorities(credential).slice(1),
       ownershipTransfers: ownershipTransfers(credential),
-      breakGlassClaims: breakGlassClaims(credential),
       successionPolicy: successionPolicy(credential),
       successionVotes: successionVotes(credential),
       successionClaims: successionClaims(credential),
@@ -65,7 +63,6 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     validate: async (workspaceId, envelope, profile, grant) => {
       await this.verifyInvitationAuthority(workspaceId, envelope, profile, grant)
     },
-    mergeOwnershipProof: (credential, envelope) => this.mergeBreakGlassClaims(credential, envelope.breakGlassClaims ?? []),
     install: (workspaceId, envelope, profile, grant) => this.installInvitationWorkspace(workspaceId, envelope, profile, grant),
   })
 
@@ -75,7 +72,6 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   protected abstract mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]): Promise<void>
   protected abstract putVerifiedBundle(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle): Promise<void>
   protected abstract mergeOwnershipTransfers(credential: WorkspaceMeshCredential, raw: WorkspaceOwnershipTransfer[]): Promise<WorkspaceMeshCredential>
-  protected abstract mergeBreakGlassClaims(credential: WorkspaceMeshCredential, raw: WorkspaceBreakGlassClaim[]): Promise<WorkspaceMeshCredential>
   protected abstract mergeSuccessionState(credential: WorkspaceMeshCredential, policy: WorkspaceSuccessionPolicy | undefined, votes: WorkspaceSuccessionVote[], claims: WorkspaceSuccessionClaim[]): Promise<WorkspaceMeshCredential>
   protected abstract refreshSuccessionPolicy(workspaceId: string): Promise<void>
   protected async refreshOwnerCertificates(credential: WorkspaceMeshCredential, profile: LocalProfile,
@@ -95,47 +91,6 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     return next
   }
 
-  protected async migrateLegacyBreakGlassClaim(credential: WorkspaceMeshCredential, profile: LocalProfile) {
-    if (credential.ownerPersonId !== profile.identity.personId) return credential
-    const catalog = meshCatalog(credential) as MeshCatalog & { breakGlassClaims?: unknown[] }
-    const legacy = (catalog.breakGlassClaims ?? []).find((value: unknown) =>
-      (value as { signed?: { payload?: { kind?: unknown } } })?.signed?.payload?.kind === "workspace-break-glass") as {
-      signed: SignedEnvelope<{ kind: "workspace-break-glass"; version: 1; workspaceId: string
-        fromOwnerPersonId: string; toOwnerPersonId: string; epoch: number; claimedAt: string }>
-      grant: WorkspaceGrant
-      certificates: DeviceCertificate[]
-    } | undefined
-    if (!legacy) return credential
-    const payload = legacy.signed.payload
-    if (payload.workspaceId !== credential.workspaceId || payload.toOwnerPersonId !== profile.identity.personId ||
-      payload.epoch !== credential.epoch) throw new Error("Invalid legacy break-glass claim")
-    const previous = ownerAuthorities(credential).find(owner => owner.personId === payload.fromOwnerPersonId)
-    if (!previous) throw new Error("Legacy break-glass authority is missing")
-    let role: "owner" | "editor" | "visitor" | undefined
-    for (const issuer of ownerAuthorities(credential)) {
-      try {
-        role = await verifyWorkspaceGrant(legacy.grant, {
-          workspaceId: credential.workspaceId, personId: profile.identity.personId,
-          ownerPersonId: issuer.personId, ownerPublicKey: issuer.publicKey, ownerCertificates: issuer.certificates,
-        })
-        break
-      } catch { /* Try each historical authority before rejecting the legacy grant. */ }
-    }
-    if (role !== "editor") throw new Error("Legacy break-glass grant is not an editor grant")
-    const deviceKey = await verifyDeviceChain({ personId: profile.identity.personId, publicKey: profile.identity.publicKey,
-      deviceId: legacy.signed.signerKeyId, certificates: legacy.certificates })
-    if (!await verifyEnvelope(legacy.signed, deviceKey)) throw new Error("Invalid legacy break-glass signature")
-    const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential.workspaceId))
-    let claim: WorkspaceBreakGlassClaim
-    try {
-      claim = await createWorkspaceBreakGlassClaim(profile, credential.workspaceId, previous.personId, legacy.grant,
-        Automerge.getHeads(doc), credential.epoch, payload.claimedAt, legacy.certificates)
-    } finally { Automerge.free(doc) }
-    const next = { ...credential, updatedAt: new Date().toISOString(), catalog: { ...catalog,
-      breakGlassClaims: [...breakGlassClaims(credential), claim] } }
-    await this.store.putWorkspaceCredential(next)
-    return next
-  }
 
   protected async credentialBelongsToProfile(credential: WorkspaceMeshCredential, profile: LocalProfile): Promise<boolean> {
     if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId)) return false
@@ -354,7 +309,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       ownerCertificates, ownerHistory: envelope.ownerHistory, transportSecret: envelope.transportSecret, epoch: Math.max(previous?.epoch ?? 1, envelope.epoch),
       updatedAt: new Date().toISOString(), ...(localGrant ? { localGrant } : {}),
       catalog: { ...meshCatalog(previous ?? {} as WorkspaceMeshCredential), revocations: previous ? revocations(previous) : [], ownershipTransfers: envelope.ownershipTransfers ?? [], successionPolicy: undefined,
-        successionVotes: [], successionClaims: [], breakGlassClaims: envelope.breakGlassClaims ?? [] },
+        successionVotes: [], successionClaims: [] },
     }
     await this.store.putWorkspaceCredential(credential)
     await this.mergeInvitationCatalog(credential, envelope)
@@ -393,7 +348,6 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     return { version: 1, peers, deviceRevocations: credential ? deviceRevocations(credential) : [], departures: credential ? departures(credential) : [], revocations: credential ? revocations(credential) : [],
       ownershipTransfers: credential ? ownershipTransfers(credential) : [],
-      breakGlassClaims: credential ? breakGlassClaims(credential) : [],
       successionPolicy: credential ? successionPolicy(credential) : undefined,
       successionVotes: credential ? successionVotes(credential) : [],
       successionClaims: credential ? successionClaims(credential) : [] }

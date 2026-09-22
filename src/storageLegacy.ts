@@ -67,51 +67,6 @@ function saveWorkspaceFallback(record: WorkspaceRecord): void {
   if (typeof localStorage !== "undefined") localStorage.setItem(fallbackKey, JSON.stringify(record))
 }
 
-export function downloadWorkspaceBundle(workspace: Workspace, automergeBytes?: Uint8Array): void {
-  const manifest = {
-    format: "match",
-    version: "0.0.1",
-    exportedAt: new Date().toISOString(),
-    counts: {
-      leads: workspace.leads.length,
-      documents: workspace.documents.length,
-      templates: workspace.templates.length,
-      artifacts: workspace.artifacts.length,
-    },
-    merge: automergeBytes ? "automerge" : "snapshot",
-  }
-  const files: Record<string, Uint8Array> = {
-    "manifest.json": strToU8(JSON.stringify(manifest, null, 2)),
-    "leads.json": strToU8(JSON.stringify(workspace.leads, null, 2)),
-    "documents.json": strToU8(JSON.stringify(workspace.documents, null, 2)),
-    "templates.json": strToU8(JSON.stringify(workspace.templates, null, 2)),
-    "artifacts.json": strToU8(JSON.stringify(workspace.artifacts, null, 2)),
-  }
-  if (automergeBytes) files["automerge/workspace.bin"] = automergeBytes
-  downloadBlob(new Blob([zipSync(files)], { type: "application/vnd.match+zip" }), "match")
-}
-
-function downloadBlob(blob: Blob, extension: string): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement("a")
-  anchor.href = url
-  anchor.download = `match-${new Date().toISOString().slice(0, 10)}.${extension}`
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
-
-export async function readWorkspaceBundle(file: File): Promise<WorkspaceRecord> {
-  const archive = unzipSync(new Uint8Array(await file.arrayBuffer()))
-  const leadsFile = archive["leads.json"]
-  const documentsFile = archive["documents.json"]
-  if (!leadsFile || !documentsFile) throw new Error("Invalid Match bundle")
-  const leads = JSON.parse(strFromU8(leadsFile)) as Workspace["leads"]
-  const documents = JSON.parse(strFromU8(documentsFile)) as Workspace["documents"]
-  const templates = archive["templates.json"] ? JSON.parse(strFromU8(archive["templates.json"])) as Workspace["templates"] : []
-  const artifacts = archive["artifacts.json"] ? JSON.parse(strFromU8(archive["artifacts.json"])) as Workspace["artifacts"] : []
-  return { workspace: { leads, documents, templates, artifacts }, automergeBytes: archive["automerge/workspace.bin"] }
-}
-
 export function createWorkspaceBundleV2(
   workspaceId: string,
   heads: string[],

@@ -22,6 +22,7 @@ import ItemDocuments from "./components/ItemDocuments.vue"
 import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
 import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
+import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
 import { ref } from "vue"
 
 const app = useAppController()
@@ -63,15 +64,15 @@ const {
 } = app.collaboration.device
 const {
   currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
-  canImportWorkspace, canRenameWorkspace,
+  canRenameWorkspace,
 } = app.collaboration.permissions
 const {
   meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
-  canClaimSuccession, canBreakGlassOwnership, transferringOwnership, revokingPeer,
+  canClaimSuccession, transferringOwnership, revokingPeer,
   peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
-  claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer, promoteWorkspacePeer,
+  claimWorkspaceSuccession, revokeWorkspacePeer, promoteWorkspacePeer,
 } = app.collaboration.mesh
 const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates,
@@ -272,6 +273,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
       @create="handleCreateWorkspace"
+      @import="openImport"
       @delete="handleDeleteWorkspace"
     />
 
@@ -315,6 +317,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
           @revoke="revokeWorkspacePeer"
         />
       </template>
+      <template #data><WorkspaceFileActions export-only @export="exportWorkspace" /></template>
     </SchemaEditorDialog>
     <ModalLayer v-else-if="showSettings" @close="showSettings = false">
       <section class="dialog" role="dialog" aria-modal="true" aria-label="Settings">
@@ -425,9 +428,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       :current-role="currentRole"
       :succession="activeSuccession"
       :can-claim-succession="canClaimSuccession"
-      :can-break-glass-ownership="canBreakGlassOwnership"
       :can-manage-mesh="canManageAccess"
-      :can-import="canImportWorkspace"
       :transferring-ownership="transferringOwnership"
       :mesh-action-error="peerAccessError"
       :workspace-connected="meshPresence === 'connected'"
@@ -447,7 +448,6 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       @set-successor="setWorkspaceSuccessor"
       @vote-successor="voteForWorkspaceSuccessor"
       @claim-succession="claimWorkspaceSuccession"
-      @break-glass-ownership="breakGlassWorkspaceOwnership"
       @promote-peer="promoteWorkspacePeer"
       @request-enrollment="sync.requestEnrollment"
       :enrollment-device-name="sync.enrollmentDeviceName.value"

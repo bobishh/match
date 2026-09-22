@@ -4,8 +4,8 @@ import type { WorkspaceDocumentV2 } from "./domain/model";
 import { validateWorkspaceDoc } from "./domain/model";
 import {
   workspaceRole,
-  validateIncomingChanges,
-  validateIncomingChangesWithProofStatus,
+  validateIncomingChangeAuthorizations,
+  persistIncomingChangeAuthorizations,
 } from "./sync/changeAuthorization";
 import {
   defaultStorage,
@@ -62,11 +62,11 @@ async function mergeAuthorizedWorkspace(
   bytes: Uint8Array,
   authorization: unknown,
 ): Promise<void> {
-  const { remote, local } = await validateAuthorizedWorkspace(id, bytes, authorization);
-  const proofChanged = await validateIncomingChangesWithProofStatus(local, remote, authorization);
+  const { remote, verified } = await validateAuthorizedWorkspace(id, bytes, authorization);
   // A signature can make an existing Automerge history trusted without adding
   // a document head. Notify the live mesh in that proof-only case too.
   const documentChanged = await mergeValidatedWorkspaceBytes(id, remote);
+  const proofChanged = await persistIncomingChangeAuthorizations(id, verified);
   if (proofChanged && !documentChanged) notifyLocalChanges();
 }
 
@@ -79,7 +79,7 @@ async function validateAuthorizedWorkspace(
   id: string,
   bytes: Uint8Array,
   authorization: unknown,
-): Promise<{ remote: Automerge.Doc<WorkspaceDocumentV2>; local: Automerge.Doc<WorkspaceDocumentV2> | undefined }> {
+): Promise<{ remote: Automerge.Doc<WorkspaceDocumentV2>; local: Automerge.Doc<WorkspaceDocumentV2> | undefined; verified: unknown[] }> {
   const remote = Automerge.load<WorkspaceDocumentV2>(bytes);
   if (remote.id !== id) {
     throw invalidWorkspaceReceived({
@@ -90,8 +90,8 @@ async function validateAuthorizedWorkspace(
   const validation = validateWorkspaceDoc(remote);
   if (!validation.ok) throw invalidWorkspaceReceived(validation.error);
   const local = await mergeAuthorizationBase(id, remote);
-  await validateIncomingChanges(local, remote, authorization);
-  return { remote, local };
+  const verified = await validateIncomingChangeAuthorizations(local, remote, authorization);
+  return { remote, local, verified };
 }
 
 async function mergeAuthorizationBase(

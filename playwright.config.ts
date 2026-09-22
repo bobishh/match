@@ -39,7 +39,6 @@ export default defineConfig({
     ...scopedIsolated.map(project => ({ ...project, testMatch: "**/scoped-sync.spec.ts" })),
     { name: "succession-named", testMatch: "**/succession.spec.ts", grep: /owner names an editor successor/ },
     { name: "succession-quorum", testMatch: "**/succession.spec.ts", grep: /editor quorum recovery/ },
-    { name: "succession-break-glass", testMatch: "**/succession.spec.ts", grep: /break-glass recovery/ },
   ],
   use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure" },
   webServer: {

@@ -543,7 +543,6 @@ class DeviceSyncController {
       setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)),
       voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),
       claimSuccession: () => this.withActiveWorkspace((id, mesh) => mesh.claimSuccession(id), true),
-      breakGlassOwnership: () => this.withActiveWorkspace((id, mesh) => mesh.breakGlassOwnership(id), true),
       leaveMesh: () => this.leaveMesh(), leaveWorkspace: (workspaceId: string) => this.leaveWorkspace(workspaceId),
       copyInvite: (target?: string) => this.copyInvite(target), close: () => this.close(), dismiss: () => this.dismiss(),
     }

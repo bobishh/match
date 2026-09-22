@@ -2,6 +2,7 @@
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
 import ModalLayer from "./ModalLayer.vue"
+import WorkspaceFileActions from "./WorkspaceFileActions.vue"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import type { SyncStep } from "../app/syncTypes"
 
@@ -54,9 +55,7 @@ const props = defineProps<{
     conflicted: boolean
   }
   canClaimSuccession?: boolean
-  canBreakGlassOwnership?: boolean
   canManageMesh?: boolean
-  canImport?: boolean
   transferringOwnership?: string
   meshActionError?: string
   workspaceConnected?: boolean
@@ -82,7 +81,6 @@ const emit = defineEmits<{
   (e: "setSuccessor", personId: string | null): void
   (e: "voteSuccessor", personId: string): void
   (e: "claimSuccession"): void
-  (e: "breakGlassOwnership"): void
   (e: "copy", url?: string): void
   (e: "requestEnrollment", replaceIdentity: boolean): void
   (e: "approveDevice"): void
@@ -110,7 +108,6 @@ const isEnrollmentHost = computed(
 )
 const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
-const confirmingRecovery = ref(false)
 
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
@@ -274,15 +271,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <p v-if="!succession" class="dialog-copy">No recovery policy. Owner must enable editor quorum or name a successor.</p>
           <button v-if="canManageMesh && !succession" class="button" type="button" @click="emit('setSuccessor', null)">Enable editor quorum</button>
           <button v-if="canClaimSuccession && !succession?.conflicted" class="button button-danger" type="button" @click="emit('claimSuccession')">Claim ownership</button>
-          <button v-if="canBreakGlassOwnership && !confirmingRecovery" class="button button-danger" type="button" @click="confirmingRecovery = true">Recover orphaned ownership</button>
-          <section v-if="confirmingRecovery" class="mesh-member-action" role="region" aria-label="Confirm ownership recovery">
-            <strong>Recover orphaned ownership?</strong>
-            <p class="dialog-copy">This creates a new authority branch. Use only when the recorded owner identity is permanently unavailable.</p>
-            <div class="dialog-actions">
-              <button class="button button-danger" type="button" @click="emit('breakGlassOwnership'); confirmingRecovery = false">Make me owner</button>
-              <button class="button button-quiet" type="button" @click="confirmingRecovery = false">Cancel</button>
-            </div>
-          </section>
         </section>
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
         <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">
@@ -299,6 +287,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <button v-else class="button button-quiet" type="button" @click="emit('start')">Start live sync</button>
           <button v-if="hasMesh" class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
         </div>
+        <WorkspaceFileActions @export="emit('export')" @import="emit('import')" />
       </template>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->
       <template v-else-if="step === 'workspace-select' || step === 'workspace-host-select' || step === 'chooser'">
@@ -347,13 +336,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           </button>
         </section>
 
-        <section class="sync-section">
-          <p class="sync-section-copy">Move or back up this workspace:</p>
-          <div class="dialog-actions sync-data-actions">
-            <button class="button button-quiet" type="button" @click="emit('export')">Export .match</button>
-            <button v-if="canImport" class="button button-quiet" type="button" @click="emit('import')">Import .match</button>
-          </div>
-        </section>
+        <WorkspaceFileActions @export="emit('export')" @import="emit('import')" />
       </template>
 
       <template v-else-if="step === 'enroll-host-preparing'">
@@ -516,7 +499,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .sync-section-action { min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 2px solid var(--line); background: white; font-weight: 850; text-align: left; }
 .sync-section-action:hover { background: var(--yellow); }
 .sync-section-action small { color: var(--muted); font: 800 .65rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.sync-data-actions { justify-content: flex-start; margin: 0; }
 .sync-step-title { margin-bottom: 8px; font-weight: 700; }
 .sync-wrap-actions { flex-wrap: wrap; }
 .sync-step-actions { margin-top: 16px; }

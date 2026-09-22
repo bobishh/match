@@ -1,14 +1,14 @@
 import { computed } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
+import { verifyBlobBytes } from "@meta-uber/mesh-blob"
 import type { useAppCore } from "./useAppCore"
 import type { useAppBoard } from "./useAppBoard"
-import { downloadWorkspaceBundle, readWorkspaceBundle } from "../storage"
-import { exportWorkspaceBundleV2, readWorkspaceBundleV2 } from "../domain/workspaceBundle"
-import { defaultProofStore } from "../domain/proofs"
+import { exportWorkspaceBundleV2, readWorkspaceBundleV2, referenceBlobId, type BundleBlob } from "../domain/workspaceBundle"
+import { blobDescriptor, readStoredAttachment, writeStoredAttachment } from "../attachments"
 import type { BoardSchemaDraft } from "../domain/schema"
 import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
 import { isArchiveColumn } from "../domain/archive"
-import { isItem, type ChangeProof, type Column, type FieldValue, type Heads, type Item, type WorkspaceDocumentV2 } from "../domain/model"
+import { isItem, type Column, type FieldValue, type Heads, type Item, type WorkspaceDocumentV2 } from "../domain/model"
 import type { DocumentInput, LeadStatus } from "../types"
 
 export function useAppActions(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
@@ -324,13 +324,18 @@ async function createWorkspaceWithOwnerCredential(core: ReturnType<typeof useApp
 async function exportActiveWorkspace(core: ReturnType<typeof useAppCore>) {
   const doc = core.match.getActiveDoc()
   if (!doc) {
-    downloadWorkspaceBundle(core.match.workspace, core.match.getAutomergeBytes())
-    core.notice.value = "Match bundle exported"
+    core.notice.value = "Export unavailable: the current board is not ready"
     return
   }
-  const bundle = await exportWorkspaceBundleV2(doc, await defaultProofStore.listChangeProofs())
+  const bundle = await exportWorkspaceBundleV2(doc, reference => {
+    const descriptor = blobDescriptor(reference)
+    return descriptor ? readStoredAttachment(descriptor) : Promise.resolve(undefined)
+  })
+  const inspection = await readWorkspaceBundleV2(bundle)
+  if (!inspection.ok) throw new Error(inspection.error.message)
   downloadBundle(bundle, doc.title)
-  core.notice.value = "Match bundle exported"
+  const missing = inspection.value.manifest.missingBlobHashes.length
+  core.notice.value = `Match bundle exported; ${missing} attachment${missing === 1 ? "" : "s"} unavailable in the file`
 }
 
 function downloadBundle(bytes: Uint8Array, title: string) {
@@ -349,21 +354,49 @@ async function importWorkspaceFile(core: ReturnType<typeof useAppCore>, event: E
   const file = input.files?.[0]
   input.value = ""
   if (!file) return
-  if (!core.canImportWorkspace.value) { core.notice.value = "Only the owner can import into this workspace"; return }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const bundle = await readWorkspaceBundleV2(bytes)
-    if (bundle.ok) await importVersion2Bundle(core, bundle.value)
-    else await core.match.mergeWorkspaceRecord(await readWorkspaceBundle(file))
-    core.notice.value = bundle.ok ? "Match bundle imported" : "Match bundle merged"
+    if (!bundle.ok) throw new Error(bundle.error.message)
+    const result = await importVersion2Bundle(core, bundle.value)
+    const attachmentNotice = result.missingAttachments
+      ? `${result.missingAttachments} attachment${result.missingAttachments === 1 ? "" : "s"} unavailable in the file`
+      : "all attachments available"
+    core.notice.value = result.syncError
+      ? `Imported as a new board; ${attachmentNotice}; sync setup failed: ${result.syncError}`
+      : `Imported as a new board; ${attachmentNotice}`
   } catch (error) { core.notice.value = error instanceof Error ? error.message : "Match bundle import failed" }
 }
 
-type Version2Bundle = { doc: WorkspaceDocumentV2; proofs: ChangeProof[] }
+type Version2Bundle = { doc: WorkspaceDocumentV2; blobs: BundleBlob[]; manifest: { missingBlobHashes: string[] } }
 
-async function importVersion2Bundle(core: ReturnType<typeof useAppCore>, bundle: Version2Bundle) {
-  await core.match.importWorkspaceDocument(bundle.doc)
-  for (const proof of bundle.proofs) if (proof?.payload?.changeHash) await defaultProofStore.putChangeProof(proof.payload.changeHash, proof)
+async function importVersion2Bundle(core: ReturnType<typeof useAppCore>, bundle: Version2Bundle): Promise<{ missingAttachments: number; syncError?: string }> {
+  await restoreBundleAttachments(bundle)
+  const doc = await core.match.importWorkspaceAsNew(bundle.doc)
+  try {
+    await core.sync.addOwnerWorkspace(doc.id)
+    return { missingAttachments: bundle.manifest.missingBlobHashes.length }
+  } catch (error) {
+    return { missingAttachments: bundle.manifest.missingBlobHashes.length, syncError: messageFrom(error) }
+  }
+}
+
+async function restoreBundleAttachments(bundle: Version2Bundle): Promise<void> {
+  const bytesById = new Map(bundle.blobs.map(blob => [blob.blobId, blob.bytes]))
+  for (const entity of Object.values(bundle.doc.entities)) {
+    const references = entity.kind === "document" ? [entity.file]
+      : entity.kind === "artifact" ? [entity.pdf, entity.sourceMarkdown] : []
+    for (const reference of references) {
+      if (!reference) continue
+      const descriptor = blobDescriptor(reference)
+      const blobId = referenceBlobId(reference)
+      const bytes = blobId ? bytesById.get(blobId) : undefined
+      if (descriptor && bytes) {
+        await verifyBlobBytes(descriptor, bytes)
+        await writeStoredAttachment(descriptor, bytes)
+      }
+    }
+  }
 }
 
 function reportArchiveFailure(core: ReturnType<typeof useAppCore>, error: unknown) {

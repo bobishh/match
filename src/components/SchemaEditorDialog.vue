@@ -59,7 +59,7 @@ const emit = defineEmits<{
 }>();
 
 const slots = useSlots();
-const activeTab = ref<"identity" | "templates" | "priority" | "json" | "participants">(
+const activeTab = ref<"identity" | "templates" | "priority" | "json" | "participants" | "data">(
   slots.identity ? "identity" : "templates",
 );
 const draft = ref<BoardSchemaDraft>(
@@ -317,6 +317,17 @@ function invalidJsonError(error: unknown): SchemaValidationError {
             Participants
           </button>
           <button
+            v-if="$slots.data"
+            class="schema-tab-btn"
+            :class="{ active: activeTab === 'data' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'data'"
+            @click="activeTab = 'data'"
+          >
+            Data
+          </button>
+          <button
             v-if="supportsAutomaticPriority"
             class="schema-tab-btn"
             :class="{ active: activeTab === 'priority' }"
@@ -360,6 +371,9 @@ function invalidJsonError(error: unknown): SchemaValidationError {
         />
         <div v-else-if="activeTab === 'participants'" class="schema-tab-content">
           <slot name="participants" />
+        </div>
+        <div v-else-if="activeTab === 'data'" class="schema-tab-content">
+          <slot name="data" />
         </div>
         <SchemaPrioritySection
           v-else-if="activeTab === 'priority'"
