@@ -2,7 +2,7 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
-import { BrowserMeshAuthority, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
+import { BrowserMeshAuthority, BrowserMeshCatalog, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
@@ -18,26 +18,25 @@ import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, succe
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 export abstract class DurableMeshAuthority extends DurableMeshCredentials {
-  async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
-    const value = meshRustRuntime().state.validateMeshCatalog(raw) as MeshExport
-    let credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential) return
-    credential = await this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? [])
-    credential = await this.mergeBreakGlassClaims(credential, value.breakGlassClaims ?? [])
-    try {
-      await this.mergeRevocations(credential, value.revocations)
-    } catch (error) {
-      // A local revocation persists before mergeRevocations rejects the active
-      // session. Publish that state first so the UI closes write paths.
-      if (error instanceof Error && error.message === "Workspace access revoked") await this.notify()
-      throw error
-    }
-    credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential
-    await this.mergeSuccessionState(credential, value.successionPolicy, value.successionVotes ?? [], value.successionClaims ?? [])
-    credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential
-    await this.mergePeerBundles(credential, value.peers)
-    await this.notify()
-  }
+  private readonly catalog = new BrowserMeshCatalog<WorkspaceMeshCredential, MeshExport>({
+    parse: raw => meshRustRuntime().state.validateMeshCatalog(raw) as MeshExport,
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    ownership: (credential, value) => this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? []),
+    breakGlass: (credential, value) => this.mergeBreakGlassClaims(credential, value.breakGlassClaims ?? []),
+    revocations: async (credential, value) => {
+      try { await this.mergeRevocations(credential, value.revocations) }
+      catch (error) {
+        if (error instanceof Error && error.message === "Workspace access revoked") await this.notify()
+        throw error
+      }
+    },
+    succession: (credential, value) => this.mergeSuccessionState(credential, value.successionPolicy, value.successionVotes ?? [], value.successionClaims ?? []),
+    peers: (credential, value) => this.mergePeerBundles(credential, value.peers),
+    refreshed: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    notify: () => this.notify(),
+  })
+
+  async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> { await this.catalog.merge(workspaceId, raw) }
 
   protected async mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]) {
     for (const bundle of bundles) {
