@@ -1,8 +1,37 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { clearMeshTrace, meshTrace, meshTraceSnapshot } from "./meshTrace"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { clearMeshTrace, meshTrace, meshTraceSnapshot, setMeshTraceVerboseLogging } from "./meshTrace"
 
 describe("mesh trace", () => {
-  beforeEach(() => clearMeshTrace())
+  beforeEach(() => {
+    clearMeshTrace()
+    setMeshTraceVerboseLogging(false)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it("keeps routine gossip out of the console by default while retaining it for diagnostic snapshots", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    meshTrace("gossip.packet", { workspaceId: "workspace-a", neighbors: 1 })
+    meshTrace("session.receive.failed", { connectionId: "in-7", reason: "connection lost" }, "warn")
+
+    expect(info).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledOnce()
+    expect(meshTraceSnapshot()).toEqual([
+      expect.objectContaining({ event: "gossip.packet", level: "info", workspaceId: "workspace-a" }),
+      expect.objectContaining({ event: "session.receive.failed", level: "warn", connectionId: "in-7" }),
+    ])
+  })
+
+  it("writes routine mesh detail to the console only when verbose logging is enabled", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+
+    setMeshTraceVerboseLogging(true)
+    meshTrace("gossip.broadcast", { workspaceId: "workspace-a", neighbors: 1 })
+
+    expect(info).toHaveBeenCalledOnce()
+  })
 
   it("Given a connection lifecycle, when events are traced, then ordered correlation data remains inspectable", () => {
     vi.spyOn(console, "info").mockImplementation(() => {})

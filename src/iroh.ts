@@ -10,6 +10,7 @@ import irohInit, {
   WasmMeshRuntimeState,
   WasmPairingCodec,
   WasmStateCore,
+  setBrowserTransportDebugLogging,
 } from "@meta-uber/mesh-transport/wasm"
 export { WasmBlobEngine, WasmGossipEngine, WasmPairingCodec }
 
@@ -76,11 +77,17 @@ export function initializeIrohBrowserRuntime(): Promise<void> {
   return browserRuntimeInitialization
 }
 
-export async function startIrohBrowserNode(secret?: Uint8Array): Promise<IrohNode> {
+export type IrohBrowserNodeOptions = {
+  /** Enables Iroh's high-volume connection and stream events for a focused reproduction. */
+  verboseTransportLogging?: boolean
+}
+
+export async function startIrohBrowserNode(secret?: Uint8Array, options: IrohBrowserNodeOptions = {}): Promise<IrohNode> {
   if (secret !== undefined && secret.byteLength !== 32) {
     throw new Error("Iroh node secret must be exactly 32 bytes")
   }
   await initializeIrohBrowserRuntime()
+  setBrowserTransportDebugLogging(options.verboseTransportLogging === true)
   const node = await BrowserNode.start(secret)
   return {
     endpointId: node.endpointId,

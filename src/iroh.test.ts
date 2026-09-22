@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { BrowserNode, initSync } from "@meta-uber/mesh-transport/wasm"
+import { BrowserNode, browserTransportDebugLoggingEnabled, initSync } from "@meta-uber/mesh-transport/wasm"
 import { startIrohBrowserNode, WasmBlobEngine, WasmGossipEngine, WasmPairingCodec } from "./iroh"
 import { fileReferenceSchema } from "./domain/entitySchemas"
 
@@ -11,6 +11,24 @@ const wasmBytes = readFileSync(wasmPath)
 initSync({ module: wasmBytes })
 
 describe("Iroh persistent node secret support", () => {
+  it("keeps verbose Iroh connection logging disabled unless a caller explicitly enables it", async () => {
+    expect(browserTransportDebugLoggingEnabled()).toBe(false)
+
+    const node = await startIrohBrowserNode(undefined, { verboseTransportLogging: true })
+    try {
+      expect(browserTransportDebugLoggingEnabled()).toBe(true)
+    } finally {
+      await node.close()
+    }
+
+    const defaultNode = await startIrohBrowserNode()
+    try {
+      expect(browserTransportDebugLoggingEnabled()).toBe(false)
+    } finally {
+      await defaultNode.close()
+    }
+  })
+
   it("maintains no-arg compatibility and generates a valid endpointId", async () => {
     const node = await startIrohBrowserNode()
     try {
