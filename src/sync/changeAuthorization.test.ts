@@ -57,6 +57,27 @@ it("rejects visitor writes even with a valid device signature and owner-issued v
   await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).rejects.toThrow(/Visitors/)
   expect(() => assertWorkspaceTransition("visitor", local, remote)).toThrow(/Visitors/)
 })
+
+it("defaults an omitted optional departures list before calling Rust", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
+  const bundle = authorizationBundle(local, [record])
+  delete (bundle.authority as any).departures
+  await expect(validateIncomingChanges(local, remote, bundle)).rejects.toThrow(/Visitors/)
+})
+
+it("admits a valid editor bundle when optional departures are omitted", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Allowed" }), "editor")
+  const bundle = authorizationBundle(local, [record])
+  delete (bundle.authority as any).departures
+  await expect(validateIncomingChanges(local, remote, bundle)).resolves.toBeUndefined()
+})
+
+it("rejects malformed present departures evidence before Rust", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Malformed" }), "editor")
+  const bundle = authorizationBundle(local, [record])
+  ;(bundle.authority as any).departures = null
+  await expect(validateIncomingChanges(local, remote, bundle)).rejects.toThrow("Invalid workspace authority departures")
+})
 it("accepts signed editor item changes with a delegated-device grant, including when forwarded by another peer", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Allowed" }), "editor")
   await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).resolves.toBeUndefined()

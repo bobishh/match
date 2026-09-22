@@ -352,6 +352,13 @@ function authorizationBundle(raw: unknown): IncomingAuthorizationBundle {
   return bundle
 }
 
+function normalizeAuthorityDepartures(authority: WorkspaceWriteAuthorityEvidence): WorkspaceWriteAuthorityEvidence {
+  const departures = (authority as { departures?: unknown }).departures
+  if (departures === undefined) return { ...authority, departures: [] }
+  if (!Array.isArray(departures)) throw new Error("Invalid workspace authority departures")
+  return authority
+}
+
 function assertAuthorityAnchor(remote: Automerge.Doc<WorkspaceDocumentV2>, local: Automerge.Doc<WorkspaceDocumentV2> | undefined,
   incoming: WorkspaceWriteAuthorityEvidence, localAuthority: StoredWorkspaceAuthority | null) {
   const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
@@ -380,7 +387,7 @@ function mergedAuthorityEvidence(remote: Automerge.Doc<WorkspaceDocumentV2>, loc
     successionClaims: mergeEvidence(incoming.successionClaims, known.successionClaims),
     revocations: mergeEvidence(incoming.revocations, known.revocations),
     deviceRevocations: mergeEvidence(incoming.deviceRevocations, known.deviceRevocations),
-    departures: mergeEvidence(incoming.departures, known.departures),
+    departures: mergeEvidence(incoming.departures ?? [], known.departures ?? []),
     ...(known.currentEpoch > incoming.currentEpoch ? {
       currentOwner: known.currentOwner,
       currentEpoch: known.currentEpoch,
@@ -450,7 +457,8 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown): Promise<Authorization[]> {
   const credential = await incomingCredential(remote.id)
   if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
-  const bundle = authorizationBundle(raw)
+  const unnormalizedBundle = authorizationBundle(raw)
+  const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
   assertAuthorityAnchor(remote, local, bundle.authority, credential)
   const authority = enrichAuthorityCertificates(
     mergedAuthorityEvidence(remote, local, bundle.authority, credential), bundle.records,
