@@ -121,7 +121,11 @@ class DeviceSyncController {
   }
 
   private async getOwnedWorkspaceIds() {
-    return ownedWorkspaceIds(this.availableWorkspaces.value, this.workspaceOwner, (await this.getProfile()).identity.personId)
+    return ownedWorkspaceIds(this.availableWorkspaces.value, this.workspaceOwner, (await this.getProfile()).identity.personId,
+      (workspace, error) => {
+        const detail = error instanceof Error ? error.message : String(error)
+        this.state.meshDiagnostic.value = `Workspace ${workspace.title ?? workspace.id} (${workspace.id}) unavailable: ${detail}`
+      })
   }
 
   private decideJoin(id: string, approve: boolean) {

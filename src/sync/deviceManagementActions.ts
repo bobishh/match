@@ -16,9 +16,16 @@ export function deviceManagementActions(mesh: () => Promise<DurableMesh | undefi
   }
 }
 
-export async function ownedWorkspaceIds(workspaces: { id: string }[], owner: ((id: string) => Promise<string>) | undefined, personId: string) {
+export async function ownedWorkspaceIds(workspaces: { id: string; title?: string }[], owner: ((id: string) => Promise<string>) | undefined,
+  personId: string, onWorkspaceError?: (workspace: { id: string; title?: string }, error: unknown) => void) {
   if (!owner) return []
   const result: string[] = []
-  for (const workspace of workspaces) if (await owner(workspace.id) === personId) result.push(workspace.id)
+  for (const workspace of workspaces) {
+    try {
+      if (await owner(workspace.id) === personId) result.push(workspace.id)
+    } catch (error) {
+      try { onWorkspaceError?.(workspace, error) } catch { /* Diagnostics must not stop healthy workspace startup. */ }
+    }
+  }
   return result
 }

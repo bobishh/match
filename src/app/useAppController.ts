@@ -61,7 +61,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
 
 function appCollaboration(core: ReturnType<typeof useAppCore>) {
   const {
-    sync, chat, currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
+    sync, chat, currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
     canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel, activeMeshRetryAt,
     meshMembers, meshParticipantDevices, activeSuccession, canClaimSuccession,
     transferringOwnership, revokingPeer, peerAccessError,
@@ -71,7 +71,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
   } = core
   return {
     device: { sync, chat },
-    permissions: { currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
+    permissions: { currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
     mesh: {
       meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers, meshParticipantDevices,
       activeSuccession, canClaimSuccession, transferringOwnership,

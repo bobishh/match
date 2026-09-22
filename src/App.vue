@@ -63,8 +63,7 @@ const {
   sync, chat,
 } = app.collaboration.device
 const {
-  currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
-  canRenameWorkspace,
+  currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
 } = app.collaboration.permissions
 const {
   meshPresence, meshPresenceLabel,
@@ -109,8 +108,8 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
     <header class="topbar">
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!ready.value" @click="showWorkspaces = true">
         <span class="brand-presence">
-          <span v-if="ready.value && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
-          <span v-else-if="ready.value" class="workspace-role-icon" role="img" :aria-label="`Workspace role: ${currentRole}`">
+          <span v-if="ready.value && workspaceRoleStatus === 'verified' && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
+          <span v-else-if="ready.value" class="workspace-role-icon" role="img" :aria-label="workspaceRoleStatus === 'verified' ? `Workspace role: ${currentRole}` : `Workspace permissions: ${workspaceRoleStatus}`">
             <svg v-if="currentRole === 'editor'" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M3 11.5 2.5 14l2.5-.5L13 5.5 10.5 3zM9.5 4l2.5 2.5" />
             </svg>
@@ -187,6 +186,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
     />
 
     <TransitionGroup name="notice" tag="aside" class="notice-overlay" aria-live="polite" aria-atomic="true" @before-enter="showEnteringElement" @before-leave="hideLeavingElement">
+      <div v-for="error in workspaceAccessErrors" :key="error" role="alert" class="notice notice-error">{{ error }}. Other boards remain available. You can export this board and import it as a new board.</div>
       <div v-if="storageError && !showItemForm" key="storage-error" role="alert" class="notice notice-error">
         <span>{{ storageError }}</span>
         <button type="button" class="notice-dismiss" aria-label="Dismiss storage notice" @click="storageError = ''">×</button>

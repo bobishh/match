@@ -167,7 +167,9 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   const currentRole = ref<WorkspaceRole>("visitor")
   const roleWorkspaceId = ref("")
   const currentWorkspaceOwnerId = ref("")
-  const workspaceAccess = ref<Record<string, { role: WorkspaceRole; blocked: boolean }>>({})
+  const workspaceAccess = ref<Record<string, WorkspaceAccessResult>>({})
+  const workspaceAccessErrors = ref<string[]>([])
+  const workspaceRoleStatus = computed(() => roleWorkspaceId.value !== match.activeWorkspace.id ? "loading" : workspaceAccess.value[match.activeWorkspace.id]?.error ? "unavailable" : "verified")
   watch([() => match.activeWorkspace.id, () => match.availableWorkspaces.value.map(item => item.id).join("|"), match.docVersion, match.ready, sync.ownershipRevision], async (_, __, onCleanup) => {
     let cancelled = false
     onCleanup(() => { cancelled = true })
@@ -179,6 +181,7 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
       currentWorkspaceOwnerId.value = result.ownerId
       roleWorkspaceId.value = doc.id
       workspaceAccess.value = result.access
+      workspaceAccessErrors.value = result.errors
     }
   }, { immediate: true })
   const activePolicyAvailable = computed(() => roleWorkspaceId.value === match.activeWorkspace.id && workspaceAccess.value[match.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(match.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === match.activeWorkspace.id)?.conflicted)
@@ -194,16 +197,28 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   }
   watch(canEditBoard, allowed => { if (!allowed) { ui.isEditingBoard.value = false; ui.editingColumn.value = null; ui.showEntitySettings.value = false } })
   watch(canEditItems, allowed => { if (!allowed) closeRestrictedEditors(ui) })
-  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRepairHistory, canRenameWorkspace }
+  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRepairHistory, canRenameWorkspace }
 }
+
+type WorkspaceAccessResult = { role: WorkspaceRole; blocked: boolean; error?: string }
 
 async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: WorkspaceDocumentV2) {
   const profile = await bootstrapIdentity("My Device")
-  const [role, ownerId, entries] = await Promise.all([
-    workspaceRole(doc, profile), effectiveWorkspaceOwner(doc.id, doc.ownerPersonId),
-    Promise.all(match.availableWorkspaces.value.map(async item => [item.id, { role: await match.getWorkspaceRole(item.id), blocked: await workspaceWritesBlocked(item.id) }] as const)),
-  ])
-  return { role, ownerId, access: Object.fromEntries(entries) }
+  const entries = await Promise.all(match.availableWorkspaces.value.map(async item => {
+    try {
+      const role = item.id === doc.id ? await workspaceRole(doc, profile) : await match.getWorkspaceRole(item.id)
+      return [item.id, { role, blocked: await workspaceWritesBlocked(item.id) }] as const
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : String(cause)
+      const error = `“${item.title}” (${item.id}): permissions could not be verified. ${detail}`
+      return [item.id, { role: "visitor" as const, blocked: true, error }] as const
+    }
+  }))
+  const access: Record<string, WorkspaceAccessResult> = Object.fromEntries(entries)
+  const active = access[doc.id]
+  const ownerId = active?.error ? "" : await effectiveWorkspaceOwner(doc.id, doc.ownerPersonId)
+  return { role: active?.role ?? "visitor", ownerId, access,
+    errors: active?.error ? [active.error] : [] }
 }
 
 function closeRestrictedEditors(ui: ReturnType<typeof useAppUiState>) {
