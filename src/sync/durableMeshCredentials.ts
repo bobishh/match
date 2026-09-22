@@ -233,9 +233,12 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       (value.workspace as { id?: unknown } | undefined)?.id !== value.workspaceId) {
       throw new Error("Invalid owner workspace offer")
     }
-    await this.receiveInvitation([value.envelope], [value.workspaceId], profile, [])
+    // Persist the signed document before activating its credential. Otherwise
+    // an interrupted offer leaves durable mesh retrying a workspace which has
+    // no local document yet.
     await workspaceSet(this.options.workspaceStore, [value.workspaceId]).receive(
       new TextEncoder().encode(JSON.stringify([value.workspace])), false)
+    await this.receiveInvitation([value.envelope], [value.workspaceId], profile, [])
     if (!this.node) throw new Error("Workspace mesh is unavailable")
     await this.ensureOwnerWorkspaces([value.workspaceId], this.node.endpointId, profile)
   }
