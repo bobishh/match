@@ -292,7 +292,7 @@ class DeviceSyncController {
   }
 
   private open() {
-    if (["workspace-reconnecting", "workspace-guest-waiting", "enroll-host-pending", "enroll-guest-waiting", "enroll-syncing"].includes(this.state.step.value)) {
+    if (["workspace-reconnecting", "workspace-guest-waiting", "enroll-host-preparing", "enroll-host", "enroll-host-pending", "enroll-guest-waiting", "enroll-syncing"].includes(this.state.step.value)) {
       this.state.isOpen.value = true
       return
     }

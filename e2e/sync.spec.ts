@@ -17,10 +17,11 @@ async function addLead(page: import("@playwright/test").Page, input: { company: 
 test("Given cards still loading on first visit, when Match opens, then delayed progress appears within the board shell", async ({ page }) => {
   await page.addInitScript(() => {
     const instantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly)
+    const released = new Promise<void>(resolve => {
+      window.addEventListener("match:release-automerge", () => resolve(), { once: true })
+    })
     WebAssembly.instantiateStreaming = async (source, imports) => {
-      await new Promise<void>((release) => {
-        window.addEventListener("match:release-automerge", () => release(), { once: true })
-      })
+      await released
       return instantiateStreaming(source, imports)
     }
   })
@@ -207,7 +208,7 @@ test("Given clipboard access is denied, when Sync opens, then its pairing link r
   await dialog.getByRole("button", { name: "Add my device", exact: true }).click()
   const pairingLink = dialog.getByRole("textbox", { name: "Pairing link", exact: true })
   await expect(pairingLink).toHaveValue(/\/pair#/)
-  await dialog.getByRole("button", { name: "Copy pairing link" }).click()
+  await dialog.getByRole("button", { name: "Copy enrollment link" }).click()
   await expect(dialog.getByText("Clipboard unavailable. Select the pairing link and copy it manually.")).toBeVisible()
 })
 

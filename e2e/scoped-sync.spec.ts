@@ -28,6 +28,10 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await expect(hostDialog.getByRole("button", { name: "Copy pairing link" })).toHaveCount(0)
       const inviteLink = await hostDialog.getByLabel("Pairing link").inputValue()
 
+      await hostDialog.getByRole("button", { name: "Close", exact: true }).click()
+      await page.getByRole("button", { name: "Sync", exact: true }).click()
+      await expect(hostDialog.getByLabel("Pairing link")).toHaveValue(inviteLink)
+
       await expect(hostDialog.getByRole("button", { name: "Approve device" })).toHaveCount(0)
 
       // Second device opens invitation
@@ -351,12 +355,13 @@ test("Given approved enrollment but failed storage, when receiving identity, the
   try {
     const guest = await context.newPage()
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
+    const dialog = guest.getByRole("dialog", { name: "Device sync" })
+    await expect(dialog.getByRole("button", { name: "Add this device" })).toBeVisible()
     const original = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
     await guest.evaluate(async () => {
       const { setStorageFailureHookForTest } = await import('/src/storage.ts')
       setStorageFailureHookForTest(true)
     })
-    const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add this device" }).click()
     await host.getByRole("button", { name: "Approve device" }).click()
     await expect(dialog.getByRole("alert")).toContainText(/storage|save|injected/i)

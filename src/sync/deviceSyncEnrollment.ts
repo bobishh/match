@@ -7,7 +7,7 @@ import {
   invitationUrl,
   type DeviceEnrollmentInvitation,
 } from "@meta-uber/mesh-pairing"
-import { isMeshDialNetworkFailure, MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
+import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
 import { createEnrollmentRequest, enrollmentPayload, installEnrollment, readEnrollmentRequest } from "./enrollment"
 import { defaultProofStore, certHashDefault } from "../domain/proofs"
@@ -40,8 +40,16 @@ function traceEnrollment(role: "host" | "guest", event: string, run: number,
   meshTrace(`enrollment.${role}.${event}`, { runId: run, ...detail }, level)
 }
 
-function errorReason(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
+function errorReason(error: unknown, depth = 0): string {
+  const message = error instanceof Error ? error.message : String(error)
+  if (depth >= 4) return message
+  if (error instanceof AggregateError) {
+    return `${message}: ${error.errors.map(cause => errorReason(cause, depth + 1)).join("; ")}`
+  }
+  if (error instanceof Error && error.cause !== undefined) {
+    return `${message}: ${errorReason(error.cause, depth + 1)}`
+  }
+  return message
 }
 
 function pairingNode(context: EnrollmentContext) {
@@ -62,13 +70,13 @@ export async function selectDeviceEnrollment(context: EnrollmentContext) {
   const run = context.nextRun()
   context.state.step.value = "enroll-host-preparing"
   traceEnrollment("host", "started", run)
-  await context.pauseMesh()
-  await context.stopNode("Starting device enrollment")
-  context.state.copyNotice.value = ""
-  context.state.error.value = ""
-  context.state.authCode.value = ""
-  context.state.enrollmentDeviceName.value = ""
   try {
+    await context.pauseMesh()
+    await context.stopNode("Starting device enrollment")
+    context.state.copyNotice.value = ""
+    context.state.error.value = ""
+    context.state.authCode.value = ""
+    context.state.enrollmentDeviceName.value = ""
     if (!context.workspaceStore || !context.durableMesh) throw new Error("Device sync is unavailable.")
     const profile = await context.getProfile()
     const node = await pairingNode(context)
@@ -93,56 +101,180 @@ async function hostEnrollment(context: EnrollmentContext, run: number, node: Syn
   void receiveEnrollment(context, run, node, acceptor, secret, invite, profile)
 }
 
-async function receiveEnrollment(context: EnrollmentContext, run: number, node: SyncNode, acceptor: Awaited<ReturnType<SyncNode["accept"]>>, secret: string, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
-  let connection: SyncConnection | undefined
+type EnrollmentCandidate = {
+  connection: SyncConnection
+  stream: Awaited<ReturnType<SyncConnection["acceptStream"]>>
+  guest: Awaited<ReturnType<typeof readEnrollmentRequest>>
+}
+
+const enrollmentAdmissionLimit = 2
+const enrollmentAdmissionTimeout = 15_000
+
+export async function receiveEnrollment(context: EnrollmentContext, run: number, node: SyncNode, acceptor: Awaited<ReturnType<SyncNode["accept"]>>, secret: string, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
+  const connections = new Set<SyncConnection>()
+  const admissions = new AbortController()
+  let timedOut = false
   const timeout = setTimeout(() => {
+    timedOut = true
+    admissions.abort()
     context.denyPendingApproval()
+    void closeEnrollmentConnections(connections)
+    void acceptor.close().catch(() => {})
     void node.close("Enrollment timed out").catch(() => {})
   }, 600_000)
   try {
-    while (isCurrent(context, run)) {
-      connection = await acceptor.accept()
-      if (!connection) throw new Error("Device enrollment connection closed. Create a new link.")
-      traceEnrollment("host", "connection.accepted", run)
-      const stream = await connection.acceptStream()
-      const raw = await stream.read()
-      const header = inspectPairingFrame(raw)
-      if (header.type !== "enroll-request" || header.secret !== secret) {
-        traceEnrollment("host", "frame.rejected", run, { type: header.type }, "warn")
-        await connection.close()
-        continue
-      }
-      const guest = await readEnrollmentRequest(decodePairingFrame(raw, "enroll-request", secret), invite)
-      traceEnrollment("host", "request.verified", run, { deviceId: guest.deviceId.slice(0, 8) })
-      const claim = await defaultInvitationService.claimInvitation(invite.invitationId, guest.deviceId)
-      if (!claim.ok) throw new Error(claim.error)
-      context.state.authCode.value = await deriveTranscriptAuthCode(secret, invite.invitationId, guest.publicKey)
-      context.state.enrollmentDeviceName.value = guest.displayName
-      context.state.step.value = "enroll-host-pending"
-      context.state.isOpen.value = true
-      const approved = await waitForApproval(context, run)
-      if (!approved) {
-        traceEnrollment("host", "declined", run, { deviceId: guest.deviceId.slice(0, 8) })
-        await rejectEnrollment(stream, secret)
-        await awaitEnrollmentDeclineAcknowledgement(connection, secret).catch(() => undefined)
-        throw new Error("Device enrollment was declined or cancelled.")
-      }
-      context.state.step.value = "enroll-syncing"
-      traceEnrollment("host", "approved", run, { deviceId: guest.deviceId.slice(0, 8) })
-      await approveEnrollment(context, node, stream, connection, secret, invite, profile, guest)
-      traceEnrollment("host", "completed", run, { deviceId: guest.deviceId.slice(0, 8) })
-      return
+    const stopped = () => timedOut || !isCurrent(context, run)
+    const candidate = await acceptEnrollmentCandidate(context, run, acceptor, connections, secret, invite, stopped, admissions.signal)
+    if (!candidate) {
+      if (!isCurrent(context, run)) return
+      throw new Error(timedOut ? "Device enrollment timed out. Create a new link." : "Device enrollment connection closed. Create a new link.")
     }
+    await acceptor.close().catch(() => {})
+    admissions.abort()
+    await closeEnrollmentConnections(connections, candidate.connection)
+    await completeEnrollmentCandidate(context, run, node, candidate, secret, invite, profile, stopped)
   } catch (err) {
     traceEnrollment("host", "failed", run, { reason: errorReason(err) }, "warn")
     if (isCurrent(context, run)) console.error("Device enrollment host failed", err)
     enrollmentError(context, run, err, "Couldn’t add this device.")
   } finally {
     clearTimeout(timeout)
-    await connection?.close().catch(() => {})
+    admissions.abort()
+    if (isCurrent(context, run)) context.setApprovalResolver(undefined)
+    await closeEnrollmentConnections(connections)
     await acceptor.close().catch(() => {})
     if (isCurrent(context, run)) await context.handoffNode("Enrollment finished")
   }
+}
+
+async function acceptEnrollmentCandidate(context: EnrollmentContext, run: number, acceptor: Awaited<ReturnType<SyncNode["accept"]>>, connections: Set<SyncConnection>, secret: string, invite: DeviceEnrollmentInvitation, stopped: () => boolean, signal: AbortSignal) {
+  const admissions = new Set<Promise<EnrollmentCandidate | undefined>>()
+  let pendingAccept: Promise<SyncConnection | undefined> | undefined
+  let listenerClosed = false
+  while (!stopped()) {
+    if (!listenerClosed && !pendingAccept && admissions.size < enrollmentAdmissionLimit) pendingAccept = acceptor.accept()
+    const event = await nextEnrollmentAdmissionEvent(admissions, pendingAccept)
+    if (event.type === "cancelled") continue
+    if (event.type === "connection") {
+      pendingAccept = undefined
+      if (!event.connection) listenerClosed = true
+      else {
+        connections.add(event.connection)
+        traceEnrollment("host", "connection.accepted", run)
+        admissions.add(readEnrollmentCandidate(run, event.connection, connections, secret, invite, signal))
+      }
+    } else {
+      admissions.delete(event.admission)
+      if (event.candidate) {
+        closeLateEnrollmentConnection(pendingAccept, connections)
+        return event.candidate
+      }
+    }
+    if (listenerClosed && !admissions.size) return undefined
+  }
+  closeLateEnrollmentConnection(pendingAccept, connections)
+}
+
+type EnrollmentAdmissionEvent =
+  | { type: "admission"; admission: Promise<EnrollmentCandidate | undefined>; candidate: EnrollmentCandidate | undefined }
+  | { type: "connection"; connection: SyncConnection | undefined }
+  | { type: "cancelled" }
+
+async function nextEnrollmentAdmissionEvent(admissions: Set<Promise<EnrollmentCandidate | undefined>>, pendingAccept: Promise<SyncConnection | undefined> | undefined): Promise<EnrollmentAdmissionEvent> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const events: Promise<EnrollmentAdmissionEvent>[] = [...admissions].map(async (admission): Promise<EnrollmentAdmissionEvent> => ({
+      type: "admission", admission, candidate: await admission,
+    }))
+    if (pendingAccept) events.push(pendingAccept.then(connection => ({ type: "connection", connection })))
+    events.push(new Promise(resolve => { timer = setTimeout(() => resolve({ type: "cancelled" }), 100) }))
+    return await Promise.race(events)
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+function closeLateEnrollmentConnection(pendingAccept: Promise<SyncConnection | undefined> | undefined, connections: Set<SyncConnection>) {
+  void pendingAccept?.then(async connection => {
+    if (!connection) return
+    connections.add(connection)
+    await connection.close().catch(() => {})
+    connections.delete(connection)
+  }).catch(() => {})
+}
+
+async function readEnrollmentCandidate(run: number, connection: SyncConnection, connections: Set<SyncConnection>, secret: string, invite: DeviceEnrollmentInvitation, signal: AbortSignal): Promise<EnrollmentCandidate | undefined> {
+  let verified = false
+  try {
+    const stream = await admissionDeadline(connection.acceptStream(), signal)
+    const raw = await admissionDeadline(stream.read(), signal)
+    const header = inspectPairingFrame(raw)
+    if (header.type !== "enroll-request" || header.secret !== secret) {
+      traceEnrollment("host", "frame.rejected", run, { type: header.type }, "warn")
+      return undefined
+    }
+    const guest = await readEnrollmentRequest(decodePairingFrame(raw, "enroll-request", secret), invite)
+    traceEnrollment("host", "request.verified", run, { deviceId: guest.deviceId.slice(0, 8) })
+    verified = true
+    return { connection, stream, guest }
+  } catch (err) {
+    traceEnrollment("host", "connection.rejected", run, { reason: errorReason(err) }, "warn")
+  } finally {
+    if (!verified) {
+      connections.delete(connection)
+      await connection.close().catch(() => {})
+    }
+  }
+}
+
+async function admissionDeadline<T>(work: Promise<T>, signal: AbortSignal) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let abort: (() => void) | undefined
+  try {
+    if (signal.aborted) throw new Error("Enrollment admission cancelled.")
+    return await Promise.race([work, new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Enrollment connection did not authenticate in time.")), enrollmentAdmissionTimeout)
+    }), new Promise<T>((_, reject) => {
+      abort = () => reject(new Error("Enrollment admission cancelled."))
+      signal.addEventListener("abort", abort, { once: true })
+    })])
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (abort) signal.removeEventListener("abort", abort)
+  }
+}
+
+async function closeEnrollmentConnections(connections: Set<SyncConnection>, keep?: SyncConnection) {
+  await Promise.all([...connections].filter(connection => connection !== keep).map(async connection => {
+    connections.delete(connection)
+    await connection.close().catch(() => {})
+  }))
+}
+
+async function completeEnrollmentCandidate(context: EnrollmentContext, run: number, node: SyncNode, candidate: EnrollmentCandidate, secret: string, invite: DeviceEnrollmentInvitation, profile: LocalProfile, stopped: () => boolean) {
+  if (stopped()) return
+  const { connection, stream, guest } = candidate
+  const claim = await defaultInvitationService.claimInvitation(invite.invitationId, guest.deviceId)
+  if (!claim.ok) throw new Error(claim.error)
+  if (stopped()) return
+  const authCode = await deriveTranscriptAuthCode(secret, invite.invitationId, guest.publicKey)
+  if (stopped()) return
+  context.state.authCode.value = authCode
+  context.state.enrollmentDeviceName.value = guest.displayName
+  context.state.step.value = "enroll-host-pending"
+  context.state.isOpen.value = true
+  const approved = await waitForApproval(context, run)
+  if (stopped()) return
+  if (!approved) {
+    traceEnrollment("host", "declined", run, { deviceId: guest.deviceId.slice(0, 8) })
+    await rejectEnrollment(stream, secret)
+    await awaitEnrollmentDeclineAcknowledgement(connection, secret).catch(() => undefined)
+    throw new Error("Device enrollment was declined or cancelled.")
+  }
+  context.state.step.value = "enroll-syncing"
+  traceEnrollment("host", "approved", run, { deviceId: guest.deviceId.slice(0, 8) })
+  await approveEnrollment(context, node, stream, connection, secret, invite, profile, guest)
+  traceEnrollment("host", "completed", run, { deviceId: guest.deviceId.slice(0, 8) })
 }
 
 async function waitForApproval(context: EnrollmentContext, run: number) {
@@ -276,7 +408,8 @@ export async function dialEnrollmentPeer(context: EnrollmentContext, run: number
       } catch (err) {
         traceEnrollment("guest", "dial.failed", run, { attempt: attempt + 1, plannedMode: mode,
           reason: errorReason(err) }, "warn")
-        reconnect.recordFailure(peerKey, isMeshDialNetworkFailure(err))
+        // An unpublished invitation endpoint can fail both routes temporarily.
+        // Keep racing both on retry rather than pinning an unproven relay route.
         if (attempt >= 4) throw err
         await context.waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
       }

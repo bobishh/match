@@ -23,6 +23,16 @@ describe("device sync errors", () => {
 })
 
 describe("useDeviceSync direct sync selection and custom workspace sets", () => {
+  it.each(["enroll-host", "enroll-host-preparing"] as const)("restores the active %s screen after hiding the dialog", async step => {
+    const sync = useDeviceSync({ workspace: {}, origin: () => "http://localhost:3000" } as never)
+    sync.step.value = step
+    sync.isOpen.value = true
+    await sync.dismiss()
+    sync.open()
+    expect(sync.isOpen.value).toBe(true)
+    expect(sync.step.value).toBe(step)
+  })
+
   it("Given Device Sync opens, then mesh members appear before the add flow without starting transport", () => {
     let transportStarted = false
     const mockTransport = {
