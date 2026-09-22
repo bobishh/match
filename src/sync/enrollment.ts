@@ -83,6 +83,15 @@ function hasMatchingEnrollmentContents(payload: z.infer<typeof approvalSchema>["
 }
 
 export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
+  const prepared = await preflightEnrollment(bytes, invite, profile)
+  for (const cert of prepared.certificates) await defaultProofStore.putCertificate(await certHashDefault(cert), cert)
+  await defaultStorage.savePersonalRoot(prepared.payload.personalRoot)
+  const enrolled = await adoptEnrolledIdentity(prepared.payload.personalRoot.identity, prepared.payload.certificate)
+  return { ...prepared.payload, profile: enrolled }
+}
+
+/** Checks enrollment data without replacing the local identity or root. */
+export async function preflightEnrollment(bytes: Uint8Array, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
   const raw = JSON.parse(new TextDecoder().decode(bytes))
   if (typeof raw?.error === "string") throw new Error(raw.error)
   const parsed = approvalSchema.safeParse(raw)
@@ -102,10 +111,15 @@ export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollm
   if (issuerKey !== invite.issuerPublicKey) throw new Error("Enrollment issuer does not match the invitation.")
   await verifyDeviceChain({ personId: invite.issuerPersonId, publicKey: payload.personalRoot.identity.publicKey,
     deviceId: profile.device.deviceId, certificates })
-  for (const cert of certificates) await defaultProofStore.putCertificate(await certHashDefault(cert), cert)
   // Validate encoded data before changing the local identity.
   fromBase64Url(payload.snapshot)
-  await defaultStorage.savePersonalRoot(payload.personalRoot)
-  const enrolled = await adoptEnrolledIdentity(payload.personalRoot.identity, payload.certificate)
-  return { ...payload, profile: enrolled }
+  const enrolled: LocalProfile = {
+    identity: payload.personalRoot.identity,
+    certificate: payload.certificate,
+    device: profile.device,
+    privateKeys: payload.personalRoot.identity.personId === profile.identity.personId
+      ? profile.privateKeys
+      : { devicePrivateKey: profile.privateKeys.devicePrivateKey },
+  }
+  return { payload, certificates, profile: enrolled }
 }

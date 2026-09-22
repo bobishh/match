@@ -9,7 +9,7 @@ import {
 } from "@meta-uber/mesh-pairing"
 import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
-import { createEnrollmentRequest, enrollmentPayload, installEnrollment, readEnrollmentRequest } from "./enrollment"
+import { createEnrollmentRequest, enrollmentPayload, installEnrollment, preflightEnrollment, readEnrollmentRequest } from "./enrollment"
 import { defaultProofStore, certHashDefault } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { registerDeviceInRoot } from "../domain/personalRoot"
@@ -442,10 +442,13 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   if (!isCurrent(context, run)) return
   context.state.step.value = "enroll-syncing"
   traceEnrollment("guest", "approved", run)
+  const prepared = await preflightEnrollment(response, invite, profile)
+  const ids = prepared.payload.workspaces.map(item => item.id)
+  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
+  await replica.validate(fromBase64Url(prepared.payload.snapshot))
+  await context.durableMesh!.validateInvitation(prepared.payload.meshWorkspaces, ids, prepared.profile, prepared.payload.grants)
   const enrolled = await installEnrollment(response, invite, profile)
   await context.identityChanged?.()
-  const ids = enrolled.workspaces.map(item => item.id)
-  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
   await replica.receive(fromBase64Url(enrolled.snapshot))
   await context.durableMesh!.receiveInvitation(enrolled.meshWorkspaces, ids, enrolled.profile, enrolled.grants)
   const ownerIds = enrolled.meshWorkspaces.filter(item => item.ownerPersonId === enrolled.profile.identity.personId).map(item => item.workspaceId)

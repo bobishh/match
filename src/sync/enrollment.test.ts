@@ -4,7 +4,7 @@ import { createPersonalRoot } from "../domain/personalRoot"
 import { certHashDefault } from "../domain/proofs"
 import { InvitationService, resetInvitationStorageForTest } from "./invitations"
 import { createDeviceEnrollmentInvite } from "@meta-uber/mesh-pairing"
-import { createEnrollmentRequest, enrollmentPayload, installEnrollment, readEnrollmentRequest } from "./enrollment"
+import { createEnrollmentRequest, enrollmentPayload, installEnrollment, preflightEnrollment, readEnrollmentRequest } from "./enrollment"
 import { defaultStorage } from "../storage"
 import { verifyDeviceChain } from "./meshRecords"
 
@@ -55,6 +55,16 @@ describe("device enrollment boundary", () => {
   it("carries the sender's active workspace for the enrolled device", async () => {
     const { guest, invite, bytes } = await fixture()
     expect((await installEnrollment(bytes, invite, guest)).activeWorkspaceId).toBe("ws")
+  })
+
+  it("preflights approval without replacing the local identity or saving its root", async () => {
+    const { owner, guest, invite, bytes } = await fixture()
+    vi.mocked(defaultStorage.savePersonalRoot).mockClear()
+    const prepared = await preflightEnrollment(bytes, invite, guest)
+
+    expect(prepared.profile.identity.personId).toBe(owner.identity.personId)
+    expect((await bootstrapIdentity()).identity.personId).toBe(guest.identity.personId)
+    expect(defaultStorage.savePersonalRoot).not.toHaveBeenCalled()
   })
 
   it("carries the personal display-name preset to the enrolled device", async () => {
