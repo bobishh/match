@@ -80,6 +80,22 @@ describe("workspace invitation scope", () => {
       "Workspace workspace: Invalid workspace received. [invalid_input at entities.card_1.kind]",
     )
   })
+
+  it("validates every invited workspace before persisting any of them", async () => {
+    const validate = vi.fn(async (id: string) => {
+      if (id === "second") throw new Error("Invalid workspace grant")
+    })
+    const merge = vi.fn()
+    const replica = workspaceSet({ read: vi.fn(), validate, merge, activate: vi.fn() }, ["first", "second"])
+    const bytes = new TextEncoder().encode(JSON.stringify([
+      { id: "first", bytes: "AA" },
+      { id: "second", bytes: "AA" },
+    ]))
+
+    await expect(replica.receive(bytes)).rejects.toThrow("Workspace second: Invalid workspace grant")
+    expect(validate).toHaveBeenCalledTimes(2)
+    expect(merge).not.toHaveBeenCalled()
+  })
 })
 
 describe("live mesh heartbeat", () => {

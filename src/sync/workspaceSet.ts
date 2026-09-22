@@ -26,6 +26,7 @@ export type OwnerWorkspaceOfferFrame = "mesh-owner-workspace-offer"
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
+  validate?: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   merge: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   activate: (id: string) => Promise<void>
   readAuthorization?: (bytes: Uint8Array) => Promise<unknown>
@@ -68,12 +69,21 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
       }}))
       return new TextEncoder().encode(JSON.stringify(entries))
     },
+    async validate(bytes: Uint8Array) {
+      const entries = parseEntries(bytes, ids)
+      for (const entry of entries) {
+        if (store.validate) await receiveStage("Workspace", entry.id, () =>
+          store.validate!(entry.id, fromBase64Url(entry.bytes), entry.authorization))
+      }
+    },
     async receive(bytes: Uint8Array, history = true) {
-      const entries = JSON.parse(new TextDecoder().decode(bytes))
-      if (!Array.isArray(entries) || entries.length !== ids.length ||
-        new Set(entries.map(e => e?.id)).size !== ids.length ||
-        entries.some(e => !ids.includes(e?.id) || typeof e?.bytes !== "string")) {
-        throw new Error("The peer sent a different set of workspaces than the invitation allows.")
+      const entries = parseEntries(bytes, ids)
+      // Validate the complete batch before writing the first workspace. This
+      // keeps a bad second board from stranding the first as an orphaned local
+      // document during enrollment or an invitation.
+      for (const entry of entries) {
+        if (store.validate) await receiveStage("Workspace", entry.id, () =>
+          store.validate!(entry.id, fromBase64Url(entry.bytes), entry.authorization))
       }
       for (const entry of entries) {
         await receiveStage("Workspace", entry.id, () => store.merge(entry.id, fromBase64Url(entry.bytes), entry.authorization))
@@ -82,6 +92,16 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
       }
     },
   }
+}
+
+function parseEntries(bytes: Uint8Array, ids: string[]) {
+  const entries: Array<{ id: string; bytes: string; authorization?: unknown; chat?: unknown; mesh?: unknown }> = JSON.parse(new TextDecoder().decode(bytes))
+  if (!Array.isArray(entries) || entries.length !== ids.length ||
+    new Set(entries.map(e => e?.id)).size !== ids.length ||
+    entries.some(e => !ids.includes(e?.id) || typeof e?.bytes !== "string")) {
+    throw new Error("The peer sent a different set of workspaces than the invitation allows.")
+  }
+  return entries
 }
 
 function safeDiagnostic(error: unknown): string {

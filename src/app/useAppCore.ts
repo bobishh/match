@@ -101,6 +101,7 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
     workspace: { subscribe: listener => subscribeWorkspaceAndChat(match.subscribeLocalChanges, listener) },
     workspaceStore: {
       read: match.readWorkspaceBytes,
+      validate: async (id, bytes, authorization) => { await match.validateAuthorizedWorkspace(id, bytes, authorization) },
       merge: match.mergeAuthorizedWorkspace,
       readAuthorization: exportAuthorizations,
       activate: match.switchWorkspace,

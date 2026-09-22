@@ -9,6 +9,7 @@ import {
   clearInMemoryProfileForReloadTest,
   createIdentityRecovery,
   restoreIdentityRecovery,
+  renameIdentity,
 } from "./identity"
 
 describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
@@ -101,6 +102,16 @@ describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
     const binding = await createActorBinding(profile2, "doc_1", "actor_1")
     const valid = await verifyEnvelope(binding, profile2.device.publicKey)
     expect(valid).toBe(true)
+  })
+
+  it("renames presentation metadata without replacing the identity or device keys", async () => {
+    const before = await bootstrapIdentity("Original name")
+    const renamed = await renameIdentity("Renamed user")
+
+    expect(renamed.identity.personId).toBe(before.identity.personId)
+    expect(renamed.identity.publicKey).toBe(before.identity.publicKey)
+    expect(renamed.device.deviceId).toBe(before.device.deviceId)
+    expect(renamed.identity.displayName).toBe("Renamed user")
   })
 
   it("exports the existing root and restores it only after replacement is confirmed", async () => {

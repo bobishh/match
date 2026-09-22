@@ -5,6 +5,7 @@ import { validateWorkspaceDoc } from "./domain/model";
 import { registerWorkspaceInRoot } from "./domain/personalRoot";
 import {
   workspaceRole,
+  validateIncomingChanges,
   validateIncomingChangesWithProofStatus,
 } from "./sync/changeAuthorization";
 import {
@@ -31,6 +32,7 @@ import {
 export function createSyncActions() {
   return {
     readWorkspaceBytes,
+    validateAuthorizedWorkspace,
     mergeAuthorizedWorkspace,
     importWorkspaceDocument,
     mergeWorkspaceRecord,
@@ -62,6 +64,24 @@ async function mergeAuthorizedWorkspace(
   bytes: Uint8Array,
   authorization: unknown,
 ): Promise<void> {
+  const { remote, local } = await validateAuthorizedWorkspace(id, bytes, authorization);
+  const proofChanged = await validateIncomingChangesWithProofStatus(local, remote, authorization);
+  // A signature can make an existing Automerge history trusted without adding
+  // a document head. Notify the live mesh in that proof-only case too.
+  const documentChanged = await mergeValidatedWorkspaceBytes(id, remote);
+  if (proofChanged && !documentChanged) notifyLocalChanges();
+}
+
+/**
+ * Checks a received document and all of its signatures without writing a
+ * snapshot, proof record, or mesh credential. Invitation flows use this to
+ * reject the whole set before any durable state becomes visible.
+ */
+async function validateAuthorizedWorkspace(
+  id: string,
+  bytes: Uint8Array,
+  authorization: unknown,
+): Promise<{ remote: Automerge.Doc<WorkspaceDocumentV2>; local: Automerge.Doc<WorkspaceDocumentV2> | undefined }> {
   const remote = Automerge.load<WorkspaceDocumentV2>(bytes);
   if (remote.id !== id) {
     throw invalidWorkspaceReceived({
@@ -72,11 +92,8 @@ async function mergeAuthorizedWorkspace(
   const validation = validateWorkspaceDoc(remote);
   if (!validation.ok) throw invalidWorkspaceReceived(validation.error);
   const local = await mergeAuthorizationBase(id, remote);
-  const proofChanged = await validateIncomingChangesWithProofStatus(local, remote, authorization);
-  // A signature can make an existing Automerge history trusted without adding
-  // a document head. Notify the live mesh in that proof-only case too.
-  const documentChanged = await mergeValidatedWorkspaceBytes(id, remote);
-  if (proofChanged && !documentChanged) notifyLocalChanges();
+  await validateIncomingChanges(local, remote, authorization);
+  return { remote, local };
 }
 
 async function mergeAuthorizationBase(

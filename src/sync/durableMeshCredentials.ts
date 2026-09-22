@@ -60,6 +60,9 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     }),
     isEnvelope,
     ownerPersonId: envelope => envelope.ownerPersonId,
+    validate: async (workspaceId, envelope, profile, grant) => {
+      await this.verifyInvitationAuthority(workspaceId, envelope, profile, grant)
+    },
     mergeOwnershipProof: (credential, envelope) => this.mergeBreakGlassClaims(credential, envelope.breakGlassClaims ?? []),
     install: (workspaceId, envelope, profile, grant) => this.installInvitationWorkspace(workspaceId, envelope, profile, grant),
   })
@@ -356,6 +359,10 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   async receiveInvitation(raw: unknown, workspaceIds: string[], profile: LocalProfile, grants: WorkspaceGrant[]): Promise<void> {
     await this.invitations.receive(raw, workspaceIds, profile, grants, grant => grant.payload.workspaceId)
     await this.notify()
+  }
+
+  async validateInvitation(raw: unknown, workspaceIds: string[], profile: LocalProfile, grants: WorkspaceGrant[]): Promise<void> {
+    await this.invitations.validate(raw, workspaceIds, profile, grants, grant => grant.payload.workspaceId)
   }
 
   async nextAccessEpoch(workspaceId: string): Promise<number> {

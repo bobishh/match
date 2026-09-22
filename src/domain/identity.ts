@@ -73,6 +73,10 @@ export async function bootstrapIdentity(displayName = "Match User"): Promise<Loc
   return await identityStore.bootstrap(displayName) as LocalProfile
 }
 
+export async function renameIdentity(displayName: string): Promise<LocalProfile> {
+  return await identityStore.rename(displayName) as LocalProfile
+}
+
 /** Creates an encrypted backup of the existing identity root; it never rotates identity. */
 export async function createIdentityRecovery(
   security: IdentitySecurity = "better",

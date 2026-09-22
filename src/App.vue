@@ -11,7 +11,6 @@ import WorkspacesDialog from "./components/WorkspacesDialog.vue"
 import ColumnDialog from "./components/ColumnDialog.vue"
 import SchemaEditorDialog from "./components/SchemaEditorDialog.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
-import WorkspaceNameSettings from "./components/WorkspaceNameSettings.vue"
 import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
@@ -21,10 +20,12 @@ import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
 import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
+import IdentitySettingsDialog from "./components/IdentitySettingsDialog.vue"
 import { ref } from "vue"
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)
+const showSettings = ref(false)
 async function stopSyncForIdentityRestore() {
   await app.collaboration.device.sync.shutdown()
 }
@@ -136,7 +137,8 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       <div class="top-actions top-actions-desktop" :inert="!ready.value || undefined">
         <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
-        <button class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Settings</button>
+        <button class="button button-quiet" type="button" aria-label="Settings" @click="showSettings = true">Settings</button>
+        <button v-if="canEditBoard" class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Workspace settings</button>
         <button v-if="canEditBoard" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
         <button v-if="isEditingBoard" class="button button-primary" type="button" @click="showEntitySettings = true">Edit {{ entityName }}</button>
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
@@ -173,6 +175,7 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       :entity-name="entityName"
       @close="closeMobileMenu"
       @open-workspaces="showWorkspaces = true"
+      @open-settings="showSettings = true"
       @open-board-settings="showBoardSettings = true"
       @toggle-board-edit="isEditingBoard = !isEditingBoard"
       @open-entity-settings="showEntitySettings = true"
@@ -293,9 +296,6 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       @apply-workspace-settings="handleApplyWorkspaceSettings"
     >
       <template #profile>
-        <WorkspaceNameSettings :name="chat.ownName.value" :display-name="chat.displayName.value" :saving="chat.savingName.value" :error="chat.nameError.value"
-          @save="chat.rename" @randomize="chat.randomize" />
-        <section class="mesh-member-action" aria-label="Identity recovery"><h3>Identity recovery</h3><p class="dialog-copy">Create an encrypted identity backup or restore one on this device.</p><button class="button" type="button" @click="showIdentityRecovery = true">Recovery backup</button></section>
         <WorkspaceParticipants
           :members="chat.members.value"
           :current-person-id="chat.personId.value"
@@ -309,6 +309,8 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
         />
       </template>
     </SchemaEditorDialog>
+    <IdentitySettingsDialog v-if="showSettings" :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
+      @close="showSettings = false" @saved="app.workspace.refreshIdentity()" @recovery="showIdentityRecovery = true" />
     <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
 
     <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"

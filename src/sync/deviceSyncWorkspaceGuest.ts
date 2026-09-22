@@ -160,12 +160,14 @@ async function installInvitation(context: GuestContext, run: number, invite: Wor
   const workspaceIds = invite.workspaces.map(item => item.id)
   if (context.durableMesh && payload.meshWorkspaces === undefined) throw new Error("The other device needs an update. Reload it and generate a new invitation.")
   if (!validWorkspaceJoinPayload(payload, workspaceIds, profile.identity.personId)) throw new Error("The other device needs an update. Reload it and generate a new invitation.")
-  for (const grant of payload.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   if (!current(context, run)) return
   if (!meshOwnersMatch(payload.meshWorkspaces, invite.issuerPersonId)) throw new Error("Invitation owner mismatch")
-  // Save the signed workspace before its mesh credential can be activated. If the
-  // document is rejected, leaving a credential behind makes the durable runtime
-  // retry publishing a workspace that does not exist on this device.
+  // Both durable authority and every received document must validate before
+  // either is persisted. This prevents a later malformed workspace from
+  // leaving an earlier board or credential stranded after an interrupted join.
+  await replica.validate(fromBase64Url(payload.snapshot))
+  await context.durableMesh?.validateInvitation(payload.meshWorkspaces, workspaceIds, profile, payload.grants)
+  for (const grant of payload.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   await replica.receive(fromBase64Url(payload.snapshot))
   await context.durableMesh?.receiveInvitation(payload.meshWorkspaces, workspaceIds, profile, payload.grants)
   if (!connectedBefore) await context.workspaceStore!.activate(invite.workspaces[0]!.id)
