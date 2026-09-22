@@ -16,7 +16,7 @@ export default defineConfig(({ command }) => ({
     __MATCH_BUILD_COMMIT__: JSON.stringify(command === "build" ? buildCommit() : "dev"),
   },
   plugins: [
-    vue(),
+    vue({ template: { compilerOptions: { isCustomElement: (tag) => tag === "berlin-tower" } } }),
     {
       name: "agent-route",
       configureServer(server) {

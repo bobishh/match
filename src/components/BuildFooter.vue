@@ -8,11 +8,11 @@ const commitUrl = hasCommit ? `https://github.com/bobishh/match/commit/${commit}
 
 <template>
   <footer class="site-footer" aria-label="Match build information">
-    <svg class="tower-mark" viewBox="0 0 64 96" aria-hidden="true">
-      <line x1="32" y1="3" x2="32" y2="19" />
+    <berlin-tower class="tower-mark"><svg width="100%" height="100%" viewBox="0 0 64 96" aria-hidden="true">
+      <line x1="32" y1="3" x2="32" y2="39" />
       <circle class="tower-mark__sphere" cx="32" cy="29" r="10" />
       <path d="M32 39 L25 84 M32 39 L39 84 M21 84 H43" />
-    </svg>
+    </svg></berlin-tower>
     <span class="footer-copy">Berlin · 2026 · <a v-if="commitUrl" :href="commitUrl" target="_blank" rel="noreferrer">{{ shortCommit }}</a><template v-else>{{ shortCommit }}</template></span>
   </footer>
 </template>
