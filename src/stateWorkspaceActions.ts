@@ -8,6 +8,7 @@ import { workspaceRole } from "./sync/changeAuthorization";
 import { defaultStorage, type WorkspaceStorage } from "./storage";
 import {
   commitAndPersist,
+  migrateStoredLegacyTaskItems,
   persistAuthorizedCommand,
   refreshAvailableWorkspaces,
   updateReactiveState,
@@ -51,8 +52,10 @@ export async function switchWorkspace(
 ): Promise<void> {
   const loaded = await storage.loadWorkspaceDoc(workspaceId);
   if (!loaded) return;
+  const profile = await requireProfile();
+  const doc = await migrateStoredLegacyTaskItems(loaded.doc, profile, storage);
   saveActiveWorkspaceId(workspaceId);
-  updateReactiveState(loaded.doc);
+  updateReactiveState(doc);
 }
 
 async function getWorkspaceRole(

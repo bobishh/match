@@ -16,6 +16,7 @@ import {
 } from "./domain/personalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
+import { migrateLegacyTaskItems } from "./domain/legacyTaskMigration";
 import { executeCommand, type Command } from "./domain/commands";
 import {
   authorizeLocalChanges,
@@ -82,7 +83,12 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
   try {
     await initializeAutomerge();
     stateRuntime.currentProfile = await bootstrapIdentity("Match User");
-    const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
+    const loaded = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
+    const doc = await migrateStoredLegacyTaskItems(
+      loaded,
+      stateRuntime.currentProfile,
+      storage,
+    );
     updateReactiveState(doc);
     await initializePersonalRoot(storage, stateRuntime.currentProfile);
     applyInjectedFixture();
@@ -95,6 +101,31 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
     readinessWaiters.clear();
     throw error;
   }
+}
+
+/**
+ * Repair the known task-to-item representation change before a document is
+ * rendered or replicated.  It is a normal local Automerge change, signed by a
+ * member who is allowed to write content; it never rewrites received history.
+ */
+export async function migrateStoredLegacyTaskItems(
+  doc: Automerge.Doc<WorkspaceDocumentV2>,
+  profile: LocalProfile,
+  storage = defaultStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  const migrated = migrateLegacyTaskItems(doc)
+  if (!migrated) return doc
+  if (await workspaceWritesBlocked(doc.id))
+    throw new Error("Workspace writes paused: conflicting ownership records")
+  const role = await workspaceRole(doc, profile)
+  assertWorkspaceCapability(role, "content.write")
+  assertWorkspaceTransition(role, doc, migrated)
+  const change = Automerge.getLastLocalChange(migrated)
+  if (!change) throw new Error("Legacy task migration did not produce a change")
+  const hash = Automerge.decodeChange(change).hash
+  await authorizeLocalChanges(migrated, profile, [hash])
+  await storage.saveSnapshot(doc.id, migrated, Automerge.save(migrated))
+  return migrated
 }
 
 export function whenReady(): Promise<void> {
