@@ -348,7 +348,6 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <p v-if="isEnrollmentHost" class="dialog-copy">Scan this with your other device or copy the enrollment link below:</p>
         <div class="dialog-actions" :class="{ 'sync-wrap-actions': isEnrollmentHost }">
           <button class="button button-primary" type="button" @click="emit('copy')">{{ isEnrollmentHost ? "Copy enrollment link" : "Copy invite link" }}</button>
-          <button v-if="isEnrollmentHost" class="button button-quiet" type="button" @click="emit('copy')">Copy pairing link</button>
         </div>
         <p v-if="copyNotice" class="sync-success" role="status">{{ copyNotice }}</p>
         <label class="pairing-paste">

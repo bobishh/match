@@ -24,6 +24,8 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
       // Should show enrollment invitation link / QR
       await expect(hostDialog.getByText("Add your second device")).toBeVisible()
+      await expect(hostDialog.getByRole("button", { name: "Copy enrollment link" })).toBeVisible()
+      await expect(hostDialog.getByRole("button", { name: "Copy pairing link" })).toHaveCount(0)
       const inviteLink = await hostDialog.getByLabel("Pairing link").inputValue()
 
       await expect(hostDialog.getByRole("button", { name: "Approve device" })).toHaveCount(0)
