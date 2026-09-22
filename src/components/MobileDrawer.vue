@@ -13,7 +13,6 @@ defineProps<{
 const emit = defineEmits<{
   (e: "close"): void
   (e: "openWorkspaces"): void
-  (e: "openBoardSettings"): void
   (e: "openSettings"): void
   (e: "toggleBoardEdit"): void
   (e: "openEntitySettings"): void
@@ -86,10 +85,6 @@ function handleAction(event: () => void) {
               @click="handleAction(() => emit('openSettings'))"
             >
               <span>Settings</span>
-              <span class="drawer-item-arrow" aria-hidden="true">→</span>
-            </button>
-            <button v-if="canEditBoard" class="drawer-item-btn" type="button" @click="handleAction(() => emit('openBoardSettings'))">
-              <span>Workspace settings</span>
               <span class="drawer-item-arrow" aria-hidden="true">→</span>
             </button>
             <button v-if="canEditBoard !== false" class="drawer-item-btn" type="button" @click="handleAction(() => emit('toggleBoardEdit'))">

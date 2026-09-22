@@ -15,8 +15,8 @@ test.describe("Datetime field type", () => {
     await createBlankWorkspace(page, "Launch Tracker")
 
     // Configure a datetime field via Workspace Settings JSON
-    await page.getByRole("button", { name: "Workspace settings" }).click()
-    const settingsDialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await page.getByRole("button", { name: "Settings" }).click()
+    const settingsDialog = page.getByRole("dialog", { name: "Settings" })
     await settingsDialog.getByRole("tab", { name: "JSON" }).click()
     const editor = settingsDialog.getByLabel("Workspace settings JSON")
     const config = JSON.parse(await editor.inputValue())

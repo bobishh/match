@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, useSlots } from "vue";
 import "./SchemaEditorDialog.css";
 import ModalLayer from "./ModalLayer.vue";
 import SchemaEntitySection from "./schema-editor/SchemaEntitySection.vue";
@@ -58,8 +58,9 @@ const emit = defineEmits<{
   ): void;
 }>();
 
-const activeTab = ref<"templates" | "priority" | "json" | "profile">(
-  "templates",
+const slots = useSlots();
+const activeTab = ref<"identity" | "templates" | "priority" | "json" | "participants">(
+  slots.identity ? "identity" : "templates",
 );
 const draft = ref<BoardSchemaDraft>(
   projectBoardSchema(props.doc, props.board.id),
@@ -241,19 +242,19 @@ function invalidJsonError(error: unknown): SchemaValidationError {
       role="dialog"
       aria-modal="true"
       :aria-label="
-        mode === 'entity' ? `Edit ${editorEntityName}` : 'Workspace settings'
+        mode === 'entity' ? `Edit ${editorEntityName}` : 'Settings'
       "
     >
       <header class="dialog-head">
         <div>
           <span class="eyebrow">{{
-            mode === "entity" ? "Entity schema" : "Workspace settings"
+            mode === "entity" ? "Entity schema" : "Settings"
           }}</span>
           <h2>
             {{
               mode === "entity"
                 ? `Edit ${editorEntityName}`
-                : "Workspace settings"
+                : "Settings"
             }}
           </h2>
         </div>
@@ -291,18 +292,29 @@ function invalidJsonError(error: unknown): SchemaValidationError {
         <nav
           class="schema-tabs"
           role="tablist"
-          aria-label="Workspace settings views"
+          aria-label="Settings views"
         >
           <button
-            v-if="$slots.profile"
+            v-if="$slots.identity"
             class="schema-tab-btn"
-            :class="{ active: activeTab === 'profile' }"
+            :class="{ active: activeTab === 'identity' }"
             type="button"
             role="tab"
-            :aria-selected="activeTab === 'profile'"
-            @click="activeTab = 'profile'"
+            :aria-selected="activeTab === 'identity'"
+            @click="activeTab = 'identity'"
           >
-            Your profile
+            Identity
+          </button>
+          <button
+            v-if="$slots.participants"
+            class="schema-tab-btn"
+            :class="{ active: activeTab === 'participants' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'participants'"
+            @click="activeTab = 'participants'"
+          >
+            Participants
           </button>
           <button
             v-if="supportsAutomaticPriority"
@@ -337,14 +349,17 @@ function invalidJsonError(error: unknown): SchemaValidationError {
           </button>
         </nav>
 
+        <div v-if="activeTab === 'identity'" class="schema-tab-content">
+          <slot name="identity" />
+        </div>
         <SchemaTemplateSection
-          v-if="activeTab === 'templates'"
+          v-else-if="activeTab === 'templates'"
           :read-only="readOnly"
           :templates="templates"
           @save="emit('saveTemplate', $event)"
         />
-        <div v-else-if="activeTab === 'profile'" class="schema-tab-content">
-          <slot name="profile" />
+        <div v-else-if="activeTab === 'participants'" class="schema-tab-content">
+          <slot name="participants" />
         </div>
         <SchemaPrioritySection
           v-else-if="activeTab === 'priority'"

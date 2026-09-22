@@ -20,7 +20,7 @@ import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
 import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
-import IdentitySettingsDialog from "./components/IdentitySettingsDialog.vue"
+import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import { ref } from "vue"
 
@@ -42,7 +42,7 @@ const {
   detailDialog, importInput, showArtifactForm, search, filters,
   notice, archiveUndo, undoSaving, archiveError, historyRestoreSaving,
   historyRestoreError, historyRestoreNotice, isArchiveOpen, artifactError,
-  showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
+  showWorkspaces, showEntitySettings, isEditingBoard,
   newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId,
   activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
   selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError,
@@ -97,6 +97,10 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
   if (!item) return Promise.reject(new Error("Lead is no longer open"))
   return submitDocument(item.id, document)
 }
+
+async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) {
+  if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false
+}
 </script>
 
 <template>
@@ -139,7 +143,6 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
         <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Settings" @click="showSettings = true">Settings</button>
-        <button v-if="canEditBoard" class="button button-quiet" type="button" aria-label="Workspace settings" @click="showBoardSettings = true">Workspace settings</button>
         <button v-if="canEditBoard" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
         <button v-if="isEditingBoard" class="button button-primary" type="button" @click="showEntitySettings = true">Edit {{ entityName }}</button>
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
@@ -177,7 +180,6 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       @close="closeMobileMenu"
       @open-workspaces="showWorkspaces = true"
       @open-settings="showSettings = true"
-      @open-board-settings="showBoardSettings = true"
       @toggle-board-edit="isEditingBoard = !isEditingBoard"
       @open-entity-settings="showEntitySettings = true"
       @open-sync="sync.open"
@@ -283,7 +285,7 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
     />
 
     <SchemaEditorDialog
-      v-if="showBoardSettings && activeBoard && getActiveDoc()"
+      v-if="showSettings && activeBoard && getActiveDoc()"
       :doc="getActiveDoc()!"
       :read-only="!canEditBoard"
       :board="activeBoard"
@@ -292,11 +294,15 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       :templates="workspace.templates"
       :heads="currentDocHeads"
       mode="templates"
-      @close="showBoardSettings = false"
+      @close="showSettings = false"
       @save-template="handleSaveTemplate"
-      @apply-workspace-settings="handleApplyWorkspaceSettings"
+      @apply-workspace-settings="applyWorkspaceSettings"
     >
-      <template #profile>
+      <template #identity>
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
+          @saved="app.workspace.refreshIdentity()" @recovery="showIdentityRecovery = true" />
+      </template>
+      <template #participants>
         <WorkspaceParticipants
           :members="chat.members.value"
           :current-person-id="chat.personId.value"
@@ -310,8 +316,13 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
         />
       </template>
     </SchemaEditorDialog>
-    <IdentitySettingsDialog v-if="showSettings" :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
-      @close="showSettings = false" @saved="app.workspace.refreshIdentity()" @recovery="showIdentityRecovery = true" />
+    <ModalLayer v-else-if="showSettings" @close="showSettings = false">
+      <section class="dialog" role="dialog" aria-modal="true" aria-label="Settings">
+        <div class="dialog-head"><div><span class="eyebrow">Identity</span><h2>Settings</h2></div><button class="icon-button" type="button" aria-label="Close" @click="showSettings = false">×</button></div>
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
+          @saved="app.workspace.refreshIdentity()" @recovery="showIdentityRecovery = true" />
+      </section>
+    </ModalLayer>
     <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
 
     <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"

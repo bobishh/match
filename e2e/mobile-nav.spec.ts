@@ -45,7 +45,8 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
 
       // Check actions inside drawer
       await expect(drawer.getByRole("button", { name: "Workspaces" })).toBeVisible()
-      await expect(drawer.getByRole("button", { name: "Workspace settings" })).toBeVisible()
+      await expect(drawer.getByRole("button", { name: "Settings" })).toBeVisible()
+      await expect(drawer.getByRole("button", { name: "Workspace settings" })).toHaveCount(0)
       await expect(drawer.getByRole("button", { name: "Sync, import & export" })).toBeVisible()
 
       // Escape key closes drawer and restores focus to hamburger trigger
@@ -53,12 +54,12 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
       await expect(drawer).toBeHidden()
       await expect(hamburger).toBeFocused()
 
-      // Re-open and verify clicking Settings opens the single workspace settings modal.
+      // Re-open and verify clicking Settings opens the unified settings modal.
       await hamburger.click()
       await expect(drawer).toBeVisible()
-      await drawer.getByRole("button", { name: "Workspace settings" }).click()
+      await drawer.getByRole("button", { name: "Settings" }).click()
       await expect(drawer).toBeHidden()
-      await expect(page.getByRole("dialog", { name: "Workspace settings" })).toBeVisible()
+      await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible()
       await page.getByRole("button", { name: "Dismiss" }).click()
 
       // Re-open and verify clicking backdrop closes drawer
@@ -85,7 +86,8 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
     const desktopActions = page.locator(".top-actions-desktop")
     await expect(desktopActions).toBeVisible()
     await expect(page.getByRole("button", { name: "Open workspaces" })).toBeVisible()
-    await expect(desktopActions.getByRole("button", { name: "Workspace settings" })).toBeVisible()
+    await expect(desktopActions.getByRole("button", { name: "Settings" })).toBeVisible()
+    await expect(desktopActions.getByRole("button", { name: "Workspace settings" })).toHaveCount(0)
     await expect(desktopActions.getByRole("button", { name: "Sync" })).toBeVisible()
     await expect(desktopActions.getByRole("button", { name: /Add lead/ })).toHaveCount(0)
     await expect(desktopActions.getByRole("link", { name: "Agent guide" })).toHaveCount(0)
@@ -109,8 +111,8 @@ test.describe("Mobile Navigation & Drawer (Gate D)", () => {
       ariaHidden: node.getAttribute("aria-hidden"),
     }))).toEqual({ inert: true, ariaHidden: "true" })
 
-    await page.getByRole("button", { name: "Workspace settings", exact: true }).click()
-    const settings = page.getByRole("dialog", { name: "Workspace settings", exact: true })
+    await page.getByRole("button", { name: "Settings", exact: true }).click()
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true })
     await expect(settings).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe("fixed")
     await settings.getByRole("button", { name: "Dismiss", exact: true }).click()

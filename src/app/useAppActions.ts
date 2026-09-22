@@ -218,9 +218,12 @@ async function applySchema(core: ReturnType<typeof useAppCore>, payload: { schem
 async function applyWorkspaceSettings(core: ReturnType<typeof useAppCore>, payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }) {
   try {
     await core.match.executeCommandAsync({ kind: "updateWorkspaceSettings", settings: payload.settings, expectedHeads: payload.expectedHeads })
-    core.showBoardSettings.value = false
     core.notice.value = "Workspace settings updated"
-  } catch (error) { core.notice.value = `Workspace settings failed: ${messageFrom(error)}` }
+    return true
+  } catch (error) {
+    core.notice.value = `Workspace settings failed: ${messageFrom(error)}`
+    return false
+  }
 }
 
 async function archiveItem(core: ReturnType<typeof useAppCore>, item: Item | null, itemId: string) {

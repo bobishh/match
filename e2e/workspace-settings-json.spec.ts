@@ -13,8 +13,8 @@ async function createBlankWorkspace(page: Page) {
 test.describe("Workspace settings JSON", () => {
   test("Given settings JSON, when one draft changes all settings, then one apply persists them", async ({ page }) => {
     await createBlankWorkspace(page)
-    await page.getByRole("button", { name: "Workspace settings" }).click()
-    const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Settings" })
     await dialog.getByRole("tab", { name: "JSON" }).click()
     const editor = dialog.getByLabel("Workspace settings JSON")
     const config = JSON.parse(await editor.inputValue())
@@ -36,8 +36,8 @@ test.describe("Workspace settings JSON", () => {
 
   test("Given invalid JSON, when edited, then apply stays blocked with exact path", async ({ page }) => {
     await createBlankWorkspace(page)
-    await page.getByRole("button", { name: "Workspace settings" }).click()
-    const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Settings" })
     await dialog.getByRole("tab", { name: "JSON" }).click()
     const editor = dialog.getByLabel("Workspace settings JSON")
     const config = JSON.parse(await editor.inputValue())
@@ -50,8 +50,8 @@ test.describe("Workspace settings JSON", () => {
 
   test("Given a renamed archive column, when settings are applied, then its archive behavior persists", async ({ page }) => {
     await createBlankWorkspace(page)
-    await page.getByRole("button", { name: "Workspace settings" }).click()
-    const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Settings" })
     await dialog.getByRole("tab", { name: "JSON" }).click()
     const editor = dialog.getByLabel("Workspace settings JSON")
     const config = JSON.parse(await editor.inputValue())
@@ -67,8 +67,8 @@ test.describe("Workspace settings JSON", () => {
 
   test("Given two archive columns, when settings are edited, then validation rejects the second", async ({ page }) => {
     await createBlankWorkspace(page)
-    await page.getByRole("button", { name: "Workspace settings" }).click()
-    const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+    await page.getByRole("button", { name: "Settings" }).click()
+    const dialog = page.getByRole("dialog", { name: "Settings" })
     await dialog.getByRole("tab", { name: "JSON" }).click()
     const editor = dialog.getByLabel("Workspace settings JSON")
     const config = JSON.parse(await editor.inputValue())

@@ -40,7 +40,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
   const {
     detailDialog, importInput, showArtifactForm, search, filters, notice, archiveUndo, undoSaving,
     archiveError, historyRestoreSaving, historyRestoreError, historyRestoreNotice, isArchiveOpen,
-    artifactError, showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
+    artifactError, showWorkspaces, showEntitySettings, isEditingBoard,
     newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId,
     activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
     selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError, quickNoteDraft,
@@ -50,7 +50,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
   return { state: {
     detailDialog, importInput, showArtifactForm, search, filters, notice, archiveUndo, undoSaving,
     archiveError, historyRestoreSaving, historyRestoreError, historyRestoreNotice, isArchiveOpen,
-    artifactError, showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
+    artifactError, showWorkspaces, showEntitySettings, isEditingBoard,
     newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId,
     activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
     selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError, quickNoteDraft,

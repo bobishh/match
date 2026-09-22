@@ -9,8 +9,8 @@ async function createBoard(page: Page) {
   await create.getByRole("radio", { name: "Blank board" }).check()
   await create.getByRole("button", { name: "Create", exact: true }).click()
 
-  await page.getByRole("button", { name: "Workspace settings" }).click()
-  const settings = page.getByRole("dialog", { name: "Workspace settings" })
+  await page.getByRole("button", { name: "Settings" }).click()
+  const settings = page.getByRole("dialog", { name: "Settings" })
   await settings.getByRole("tab", { name: "JSON", exact: true }).click()
   const editor = settings.getByLabel("Workspace settings JSON")
   const json = JSON.parse(await editor.inputValue())

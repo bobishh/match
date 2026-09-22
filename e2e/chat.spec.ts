@@ -8,9 +8,9 @@ async function openChat(page: Page) {
 
 async function profileSettings(page: Page) {
   if ((page.viewportSize()?.width ?? 1280) < 768) await page.getByRole("button", { name: "Menu", exact: true }).click()
-  await page.getByRole("button", { name: "Workspace settings", exact: true }).click()
-  const dialog = page.getByRole("dialog", { name: "Workspace settings", exact: true })
-  await dialog.getByRole("tab", { name: "Your profile" }).click()
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings", exact: true })
+  await dialog.getByRole("tab", { name: "Identity" }).click()
   return dialog
 }
 

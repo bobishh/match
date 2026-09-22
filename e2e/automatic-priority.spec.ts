@@ -2,8 +2,8 @@ import { expect, test, type Page } from "@playwright/test"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
 async function openPriorityRules(page: Page) {
-  await page.getByRole("button", { name: "Workspace settings" }).click()
-  const dialog = page.getByRole("dialog", { name: "Workspace settings" })
+  await page.getByRole("button", { name: "Settings" }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings" })
   await dialog.getByRole("tab", { name: "Priority rules" }).click()
   return dialog
 }

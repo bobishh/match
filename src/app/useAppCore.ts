@@ -42,7 +42,6 @@ function useAppUiState() {
   const isArchiveOpen = ref(false)
   const artifactError = ref("")
   const showWorkspaces = ref(false)
-  const showBoardSettings = ref(false)
   const showEntitySettings = ref(false)
   const isEditingBoard = ref(false)
   const newBoardColumnTitle = ref("")
@@ -74,7 +73,7 @@ function useAppUiState() {
   return {
     selectedLeadId, detailDialog, importInput, showArtifactForm, search, filters, notice,
     archiveUndo, undoSaving, archiveError, historyRestoreSaving, historyRestoreError, historyRestoreNotice,
-    isArchiveOpen, artifactError, showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
+    isArchiveOpen, artifactError, showWorkspaces, showEntitySettings, isEditingBoard,
     newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId, activeMobileColumnIndex,
     showItemForm, itemFormParentId, itemFormError, savingItem, editingColumn, selectedItemId, editingItemId,
     itemToMove, showMoveDialog, storageError, quickNoteDraft, quickNoteSaving, quickNoteError,
