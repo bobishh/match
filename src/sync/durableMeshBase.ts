@@ -214,6 +214,8 @@ export abstract class DurableMeshBase {
   protected stopWatch: (() => void) | undefined
   private reconnectPolicyState: MeshReconnectPolicy | undefined
   protected runtimeState: MeshRuntimeState | undefined
+  /** Only credentials verified for the current local identity may produce routes. */
+  protected activeWorkspaceIds: Set<string> | undefined
   protected readonly runtimeId = crypto.randomUUID()
   protected instanceId = ""
   protected releaseInstance: (() => Promise<void>) | undefined
@@ -320,9 +322,8 @@ export abstract class DurableMeshBase {
 
   protected async peerInstances(workspaceId?: string) {
     const list = (this.store as PeerStore & { listPeerInstances?: PeerStore["listPeerInstances"] }).listPeerInstances
-    if (list) return list.call(this.store, workspaceId)
-    const listPeers = (this.store as PeerStore & { listPeers?: PeerStore["listPeers"] }).listPeers
-    return listPeers ? listPeers.call(this.store, workspaceId) : []
+    const peers = list ? await list.call(this.store, workspaceId) : await (this.store as PeerStore & { listPeers?: PeerStore["listPeers"] }).listPeers?.call(this.store, workspaceId) ?? []
+    return this.activeWorkspaceIds === undefined ? peers : peers.filter(peer => this.activeWorkspaceIds!.has(peer.workspaceId))
   }
 
   protected report(stage: string, error: unknown) {

@@ -67,7 +67,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   protected async refreshRoutesWhenDue(profile: LocalProfile, nextAt: number): Promise<number> {
     if (Date.now() < nextAt) return nextAt
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
-    for (const credential of await this.store.listWorkspaceCredentials()) {
+    for (const credential of await this.activeCredentialsForProfile(await this.store.listWorkspaceCredentials(), profile)) {
       await this.refreshOwnBundle(credential, profile, this.node!.endpointId, certificates)
     }
     await this.publishAll()
@@ -153,7 +153,6 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       credential = handshake.credential
       if (Array.isArray(handshake.response.revocations)) await this.mergeRevocations(credential, handshake.response.revocations)
       this.throwIfDialCancelled(signal, routeSignal)
-      this.clearRouteReconnect(key)
       const result = { connection, connectionId, instanceId: handshake.remote.instanceId, issuedAt: handshake.remote.issuedAt,
         routeSequence: handshake.remote.routeSequence, personId: handshake.remote.personId, endpoint: handshake.remote.endpoint,
         ownerWorkspaceIds: handshake.response.ownerWorkspaceIds, ...handshake.features }
@@ -220,7 +219,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       reason: error instanceof Error ? error.message : String(error) }, "warn")
     if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
     else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
-    this.runtime().scheduleReconnect(key, Date.now(), 5_000, 5 * 60_000)
+    this.runtime().scheduleReconnect(key, Date.now(), 1_000, 10_000)
     await connection?.close().catch(() => {})
     if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
       const stale = this.node
@@ -288,6 +287,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     },
     notify: () => this.notify(),
     publishRecovered: (key, entry) => this.publishRecoveredSession(key, entry as SessionEntry),
+    stableSession: key => this.clearRouteReconnect(key),
     protocolFailure: (stage, error) => this.reportProtocolFailure(stage, error),
     networkFailure: (key, error) => this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error)),
   }, this.sessions)

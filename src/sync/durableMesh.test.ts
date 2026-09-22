@@ -48,6 +48,22 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given an identity-mismatched credential has peers, when scheduling routes, then it never dials that workspace", async () => {
+    const credential = {
+      version: 1 as const, workspaceId: "stale-workspace", ownerPersonId: "previous-person",
+      ownerPublicKey: "previous-key", ownerCertificates: [], transportSecret: "mesh-secret", epoch: 1, updatedAt: new Date().toISOString(),
+    }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" } } as never),
+      store: { listWorkspaceCredentials: async () => [credential], listPeers: async () => [{ workspaceId: "stale-workspace", deviceId: "old-device" }] } as never })
+    const internal = mesh as any
+
+    await internal.activeCredentialsForProfile([credential], { identity: { personId: "current-person", publicKey: "current-key" } })
+
+    await expect(internal.peerInstances()).resolves.toEqual([])
+    await mesh.dispose()
+  })
+
   it("explains a missing recovery policy separately from editor eligibility", async () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "editor" } } as never),

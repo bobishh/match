@@ -150,6 +150,8 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     if (mismatched.length && active.length === 0) {
       this.report("Mesh identity", new Error("Stored mesh trust belongs to another local identity. Re-enroll this device."))
     }
+    // Keep the record for recovery, but never let it reach the dial scheduler.
+    this.activeWorkspaceIds = new Set(active.map(credential => credential.workspaceId))
     return active
   }
 

@@ -90,6 +90,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     this.trace("node.shutdown", { sessions: this.sessions.size, pendingIncoming: this.pendingIncomingConnections })
     this.stopWatch?.()
     this.stopWatch = undefined
+    this.activeWorkspaceIds = undefined
     const offline = this.offlineHandler
     this.offlineHandler = undefined
     if (offline && typeof window !== "undefined") window.removeEventListener("offline", offline)
