@@ -106,6 +106,7 @@ test("Given two open tabs, when both edit one workspace together, then both conv
   const edit = async (target: typeof page, id: string, title: string) => target.evaluate(async ({ id, title }) => {
     const { useMatch } = await import("/src/state.ts")
     const match = useMatch()
+    await match.whenReady()
     const doc = match.getActiveDoc()!
     const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
     await match.executeCommandAsync({ kind: "createItem", id, parentId: column.id, title })
@@ -118,7 +119,9 @@ test("Given two open tabs, when both edit one workspace together, then both conv
     ])
     await expect.poll(async () => Promise.all([page, second].map(target => target.evaluate(async () => {
       const { useMatch } = await import("/src/state.ts")
-      return Object.values(useMatch().getActiveDoc()!.entities)
+      const match = useMatch()
+      await match.whenReady()
+      return Object.values(match.getActiveDoc()!.entities)
         .map(entity => "title" in entity ? entity.title : "")
         .filter(title => title === "Cross-tab A" || title === "Cross-tab B")
         .sort()

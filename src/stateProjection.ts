@@ -144,6 +144,7 @@ function projectDocuments(doc: Automerge.Doc<WorkspaceDocumentV2>): Document[] {
       title: document.title,
       format: document.format,
       content: document.content || undefined,
+      file: document.file ?? undefined,
       localPath: localFileName(document.file),
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,

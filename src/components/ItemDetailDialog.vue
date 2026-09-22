@@ -3,12 +3,16 @@ import ModalLayer from "./ModalLayer.vue"
 import QuickNoteForm from "./QuickNoteForm.vue"
 import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
+import type { Document, DocumentInput } from "../types"
+import ItemDocuments from "./ItemDocuments.vue"
 
 defineProps<{
   readOnly?: boolean
   item: Item
   subitems: Item[]
   fields: FieldDefinition[]
+  documents: Document[]
+  saveDocument: (document: Omit<DocumentInput, "leadId">) => Promise<void>
   history?: HistoryEntry[]
   archiveError?: string
   restoreSaving?: boolean
@@ -21,6 +25,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void
+  (e: "edit", item: Item): void
   (e: "addSubitem", parentItemId: string): void
   (e: "startMove", item: Item): void
   (e: "deleteItem", itemId: string): void
@@ -38,7 +43,10 @@ const emit = defineEmits<{
           <span class="eyebrow">Item</span>
           <h2>{{ item.title }}</h2>
         </div>
-        <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('close')">×</button>
+        <div class="detail-head-actions">
+          <button class="button button-small" type="button" :disabled="readOnly" @click="emit('edit', item)">Edit</button>
+          <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('close')">×</button>
+        </div>
       </div>
 
       <div class="detail-scroll detail-content">
@@ -54,6 +62,12 @@ const emit = defineEmits<{
           :read-only="readOnly"
           @update:model-value="emit('update:quickNote', $event)"
           @save="emit('saveNote')"
+        />
+
+        <ItemDocuments
+          :documents="documents"
+          :read-only="readOnly"
+          :save="saveDocument"
         />
 
         <div v-if="fields.length" class="detail-grid">

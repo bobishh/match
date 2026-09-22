@@ -4,7 +4,7 @@ import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizations, workspace
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
 import { useMatch } from "../state"
-import type { ArtifactKind, DocumentKind } from "../types"
+import type { ArtifactKind } from "../types"
 import { type Column, type Item, type WorkspaceDocumentV2 } from "../domain/model"
 import { configureChat, exportChat, receiveChat, subscribeChat } from "../chat/service"
 import { useWorkspaceChat } from "../chat/useWorkspaceChat"
@@ -28,7 +28,6 @@ function useAppUiState() {
   const selectedLeadId = ref<string | null>(null)
   const detailDialog = ref<HTMLElement | null>(null)
   const importInput = ref<HTMLInputElement | null>(null)
-  const showDocumentForm = ref(false)
   const showArtifactForm = ref(false)
   const search = ref("")
   const filters = ref<BoardFilters>(defaultBoardFilters())
@@ -72,7 +71,7 @@ function useAppUiState() {
   const toggleMobileMenu = () => { showMobileMenu.value = !showMobileMenu.value }
   const closeMobileMenu = () => { showMobileMenu.value = false }
   return {
-    selectedLeadId, detailDialog, importInput, showDocumentForm, showArtifactForm, search, filters, notice,
+    selectedLeadId, detailDialog, importInput, showArtifactForm, search, filters, notice,
     archiveUndo, undoSaving, archiveError, historyRestoreSaving, historyRestoreError, historyRestoreNotice,
     isArchiveOpen, artifactError, showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
     newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId, activeMobileColumnIndex,
@@ -83,9 +82,8 @@ function useAppUiState() {
 }
 
 function useAppDrafts() {
-  const newDocument = ref({ kind: "note" as DocumentKind, title: "", format: "markdown" as "markdown" | "html" | "pdf" | "path", content: "", localPath: "" })
   const artifactDraft = ref({ kind: "cv" as ArtifactKind, title: "", templateId: "", pdfPath: "", sourceMarkdownPath: "" })
-  return { newDocument, artifactDraft }
+  return { artifactDraft }
 }
 
 function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<typeof useAppUiState>) {
@@ -176,7 +174,6 @@ async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: Work
 function closeRestrictedEditors(ui: ReturnType<typeof useAppUiState>) {
   ui.showItemForm.value = false
   ui.editingItemId.value = null
-  ui.showDocumentForm.value = false
   ui.showArtifactForm.value = false
   ui.showMoveDialog.value = false
   ui.itemToMove.value = null

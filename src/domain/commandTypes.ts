@@ -44,8 +44,9 @@ export type Command =
       itemId: string;
       documentKind: "cv" | "cover_letter" | "note" | "attachment";
       title: string;
-      format: "markdown" | "html" | "pdf" | "path";
+      format: "markdown" | "html" | "pdf" | "file" | "path";
       content?: string | null;
+      file?: FileReference | null;
       localPath?: string;
     }
   | { kind: "patchDocument"; documentId: string; title?: string; content?: string | null }

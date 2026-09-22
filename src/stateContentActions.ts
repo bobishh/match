@@ -36,6 +36,7 @@ async function createDocumentAsync(
     title: input.title,
     format: input.format,
     content: input.content,
+    file: input.file,
     localPath: input.localPath,
   });
   return (

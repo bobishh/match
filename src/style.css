@@ -603,3 +603,9 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 
 .join-request { padding: 16px; margin: 12px 0; border: 2px solid var(--ink); background: var(--yellow); }
 .join-request label { display: grid; gap: 6px; margin-top: 12px; }
+.document-row .document-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 7px; }
+.document-preview-dialog { width: min(860px, 100%); }
+.document-preview-text { max-height: 65dvh; overflow: auto; margin: 18px 0 0; padding: 16px; border: 2px solid var(--line); background: white; white-space: pre-wrap; overflow-wrap: anywhere; font: .78rem/1.55 ui-monospace, monospace; }
+.document-preview-frame { width: 100%; min-height: 65dvh; margin-top: 18px; border: 2px solid var(--line); background: white; }
+.document-preview-image { display: block; max-width: 100%; max-height: 65dvh; margin: 18px auto 0; object-fit: contain; }
+.document-preview-message { margin-top: 18px; padding: 14px; border: 2px solid var(--line); background: var(--soft); }

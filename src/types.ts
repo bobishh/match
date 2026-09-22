@@ -1,7 +1,9 @@
+import type { FileReference } from "./domain/model"
+
 export type LeadStatus = "lead" | "applied" | "interview" | "rejected" | "offer" | "archived"
 export type LeadPriority = "p0" | "p1" | "p2" | "p3"
 export type DocumentKind = "cv" | "cover_letter" | "note" | "attachment"
-type DocumentFormat = "markdown" | "html" | "pdf" | "path"
+type DocumentFormat = "markdown" | "html" | "pdf" | "file" | "path"
 export type ArtifactKind = "cv" | "cover_letter"
 
 export type Lead = {
@@ -29,6 +31,7 @@ export type Document = {
   title: string
   format: DocumentFormat
   content?: string
+  file?: FileReference
   localPath?: string
   createdAt: string
   updatedAt: string
@@ -82,13 +85,6 @@ export const priorityLabels: Record<LeadPriority, string> = {
   p1: "P1 · strong",
   p2: "P2 · later",
   p3: "P3 · weak",
-}
-
-export const documentKindLabels: Record<DocumentKind, string> = {
-  cv: "CV",
-  cover_letter: "Cover letter",
-  note: "Note",
-  attachment: "Attachment",
 }
 
 export const artifactKindLabels: Record<ArtifactKind, string> = {

@@ -35,6 +35,13 @@ type MatchWindow = Window & {
   __MATCH_INJECT_FIXTURE__?: { items?: FixtureItem[] };
 };
 
+type ReadinessWaiter = {
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+};
+
+const readinessWaiters = new Set<ReadinessWaiter>();
+
 export function resetStateForTest(): void {
   stateRuntime.activeDoc = null;
   stateRuntime.currentProfile = null;
@@ -72,14 +79,29 @@ export function updateReactiveState(
 }
 
 export async function hydrate(storage = defaultStorage): Promise<void> {
-  await initializeAutomerge();
-  stateRuntime.currentProfile = await bootstrapIdentity("Match User");
-  const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
-  updateReactiveState(doc);
-  await initializePersonalRoot(storage, stateRuntime.currentProfile);
-  applyInjectedFixture();
-  await refreshAvailableWorkspaces(storage);
-  stateRuntime.ready.value = true;
+  try {
+    await initializeAutomerge();
+    stateRuntime.currentProfile = await bootstrapIdentity("Match User");
+    const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
+    updateReactiveState(doc);
+    await initializePersonalRoot(storage, stateRuntime.currentProfile);
+    applyInjectedFixture();
+    await refreshAvailableWorkspaces(storage);
+    stateRuntime.ready.value = true;
+    for (const waiter of readinessWaiters) waiter.resolve();
+    readinessWaiters.clear();
+  } catch (error) {
+    for (const waiter of readinessWaiters) waiter.reject(error);
+    readinessWaiters.clear();
+    throw error;
+  }
+}
+
+export function whenReady(): Promise<void> {
+  if (stateRuntime.ready.value && stateRuntime.activeDoc) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    readinessWaiters.add({ resolve, reject });
+  });
 }
 
 export async function commitAndPersist(

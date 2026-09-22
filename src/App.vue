@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { useAppController } from "./app/useAppController"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
-import { artifactKindLabels, documentKindLabels, priorityLabels, statusLabels } from "./types"
+import { artifactKindLabels, priorityLabels, statusLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
 import SyncDialog from "./components/SyncDialog.vue"
 import LeadFilters from "./components/LeadFilters.vue"
@@ -17,11 +17,12 @@ import QuickNoteForm from "./components/QuickNoteForm.vue"
 import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
+import ItemDocuments from "./components/ItemDocuments.vue"
 
 const {
   workspace, ready, saveState, availableWorkspaces, activeWorkspace, activeBoard,
   isBlankBoard, genericColumns, boardFields, getActiveDoc,
-  detailDialog, importInput, showDocumentForm, showArtifactForm, search, filters,
+  detailDialog, importInput, showArtifactForm, search, filters,
   notice, archiveUndo, undoSaving, archiveError, historyRestoreSaving,
   historyRestoreError, historyRestoreNotice, isArchiveOpen, artifactError,
   showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
@@ -39,8 +40,8 @@ const {
   peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
   claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer,
-  newDocument, artifactDraft, selectedLead, selectedLeadItem, selectedDocuments,
-  selectedArtifacts, availableArtifactTemplates, visibleItems, hasFilters,
+  artifactDraft, selectedLead, selectedLeadItem, selectedDocuments,
+  selectedArtifacts, availableArtifactTemplates, documentsFor, visibleItems, hasFilters,
   workspacePresenceSummary, visibleColumns, clearFilters, reloadPage, leadForItem,
   cardNotes, cardFields, columnStatus, itemsForColumn, isArchiveColumn,
   updateMobileColumnIndex, moveMobileColumn, openBoardItem, selectedItem,
@@ -54,6 +55,18 @@ const {
   handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn,
   addBoardColumn,
 } = useAppController()
+
+function saveSelectedItemDocument(document: Omit<DocumentInput, "leadId">) {
+  const item = selectedItem.value
+  if (!item) return Promise.reject(new Error("Item is no longer open"))
+  return submitDocument(item.id, document)
+}
+
+function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
+  const item = selectedLeadItem.value
+  if (!item) return Promise.reject(new Error("Lead is no longer open"))
+  return submitDocument(item.id, document)
+}
 </script>
 
 <template>
@@ -306,6 +319,8 @@ const {
       :read-only="!canEditItems"
       :subitems="subitemsForSelectedItem"
       :fields="boardFields"
+      :documents="documentsFor(selectedItem.id)"
+      :save-document="saveSelectedItemDocument"
       :history="selectedItemHistory"
       :archive-error="archiveError"
       :restore-saving="historyRestoreSaving"
@@ -315,6 +330,7 @@ const {
       :note-saving="quickNoteSaving"
       :note-error="quickNoteError"
       @close="selectedItemId = null; historyRestoreError = ''; historyRestoreNotice = ''"
+      @edit="handleOpenItemEdit"
       @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
       @delete-item="handleDeleteItem"
@@ -450,10 +466,12 @@ const {
           <div v-for="artifact in selectedArtifacts" :key="artifact.id" class="document-row"><span class="document-icon">{{ artifact.kind === "cv" ? "CV" : "CL" }}</span><div><strong>{{ artifact.title }}</strong><span>{{ artifactKindLabels[artifact.kind] }} · from template</span></div><a :href="`file://${artifact.pdfPath}`" class="open-path" title="Open PDF">Open PDF</a></div>
         </section>
 
-        <section class="detail-section documents-section"><div class="section-heading"><div><span class="detail-label">Notes & files</span><h3>{{ selectedDocuments.length ? `${selectedDocuments.length} attached` : "Nothing attached" }}</h3></div><button class="button button-small" type="button" :disabled="!canEditItems" @click="showDocumentForm = !showDocumentForm">+ Document</button></div>
-          <form v-if="showDocumentForm" class="document-form" @submit.prevent="submitDocument"><label><span>Kind</span><select v-model="newDocument.kind"><option value="note">Note</option><option value="attachment">Attachment</option></select></label><label><span>Title</span><input v-model="newDocument.title" required /></label><label><span>Format</span><select v-model="newDocument.format"><option value="markdown">Markdown</option><option value="html">HTML</option><option value="path">Local path</option></select></label><label v-if="newDocument.format === 'path'"><span>Path</span><input v-model="newDocument.localPath" placeholder="/Users/…" /></label><label v-else><span>Content</span><textarea v-model="newDocument.content" rows="5" placeholder="Paste note…"></textarea></label><button class="button button-primary" type="submit">Attach</button></form>
-          <div v-for="document in selectedDocuments" :key="document.id" class="document-row"><span class="document-icon">{{ document.kind === "cv" ? "CV" : document.kind === "cover_letter" ? "CL" : "↗" }}</span><div><strong>{{ document.title }}</strong><span>{{ documentKindLabels[document.kind] }} · {{ document.format }}</span></div><a v-if="document.localPath" :href="`file://${document.localPath}`" class="open-path" title="Open local file">Open</a></div>
-        </section>
+        <ItemDocuments
+          v-if="selectedLeadItem"
+          :documents="selectedDocuments"
+          :read-only="!canEditItems"
+          :save="saveSelectedLeadDocument"
+        />
       </div>
       </section>
     </ModalLayer>

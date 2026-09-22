@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim";
 import { bootstrapIdentity } from "./domain/identity";
-import { commitAndPersist, reconcile } from "./statePersistence";
+import { commitAndPersist, reconcile, whenReady } from "./statePersistence";
 import { stateRuntime } from "./stateContext";
 import { createStateDerived } from "./stateDerived";
 import { createWorkspaceActions } from "./stateWorkspaceActions";
@@ -23,6 +23,7 @@ export function createMatchActions() {
     ...createContentActions(),
     executeCommandAsync: commitAndPersist,
     getActiveDoc: () => stateRuntime.activeDoc,
+    whenReady,
     getCurrentProfile: () => stateRuntime.currentProfile,
     refreshIdentity,
     reconcile,

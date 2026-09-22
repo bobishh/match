@@ -9,7 +9,7 @@ import type { BoardSchemaDraft } from "../domain/schema"
 import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
 import { isArchiveColumn } from "../domain/archive"
 import { isItem, type ChangeProof, type Column, type FieldValue, type Heads, type Item, type WorkspaceDocumentV2 } from "../domain/model"
-import type { LeadStatus } from "../types"
+import type { DocumentInput, LeadStatus } from "../types"
 
 export function useAppActions(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
   const selection = useLeadSelection(core)
@@ -58,12 +58,8 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
     } catch (error) { core.quickNoteError.value = `Note not saved: ${messageFrom(error)}` }
     finally { core.quickNoteSaving.value = false }
   }
-  const submitDocument = async () => {
-    if (!selection.selectedLead.value || !core.newDocument.value.title.trim()) return
-    const draft = core.newDocument.value
-    await core.match.createDocumentAsync({ leadId: selection.selectedLead.value.id, kind: draft.kind, title: draft.title.trim(), format: draft.format, content: draft.content || undefined, localPath: draft.localPath || undefined })
-    core.showDocumentForm.value = false
-    core.newDocument.value = { kind: "note", title: "", format: "markdown", content: "", localPath: "" }
+  const submitDocument = async (itemId: string, draft: Omit<DocumentInput, "leadId">) => {
+    await core.match.createDocumentAsync({ leadId: itemId, ...draft, title: draft.title.trim() })
     core.notice.value = "Document attached"
   }
   const handleSaveTemplate = async (payload: { id?: string; name: string; markdown: string }) => {
@@ -134,7 +130,6 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   const closeDetail = () => {
     core.selectedLeadId.value = null
     core.selectedItemId.value = null
-    core.showDocumentForm.value = false
     core.showArtifactForm.value = false
   }
   const openAddItem = (columnId?: string) => {

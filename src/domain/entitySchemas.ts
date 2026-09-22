@@ -60,7 +60,7 @@ export const fileReferenceSchema = z.discriminatedUnion("type", [
 ])
 const documentSchema = z.strictObject({
   ...common, kind: z.literal("document"), documentKind: z.enum(["cv", "cover_letter", "note", "attachment"]),
-  format: z.enum(["markdown", "html", "pdf", "path"]), content: z.string().nullable(), file: fileReferenceSchema.nullable(),
+  format: z.enum(["markdown", "html", "pdf", "file", "path"]), content: z.string().nullable(), file: fileReferenceSchema.nullable(),
 })
 const templateSchema = z.strictObject({ ...common, kind: z.literal("document_template"), markdown: z.string() })
 const legacyTemplateSchema = z.strictObject({ ...common, kind: z.literal("template"), markdown: z.string(), templateKind: z.string().optional() })

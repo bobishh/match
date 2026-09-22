@@ -114,9 +114,9 @@ export const addDocument: CommandHandler<"addDocument"> = (doc, command, context
       documentKind: command.documentKind,
       format: command.format,
       content: command.content ?? null,
-      file: command.localPath
+      file: command.file ?? (command.localPath
         ? { type: "local-file", fileId: crypto.randomUUID(), fileName: command.localPath }
-        : null,
+        : null),
       placement: { parentId: command.itemId, rank: insertion.rank },
       deleted: false,
       createdAt: context.nowIso,
