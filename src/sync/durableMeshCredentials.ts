@@ -345,6 +345,11 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     await this.notify()
   }
 
+  async nextAccessEpoch(workspaceId: string): Promise<number> {
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    return (credential?.epoch ?? 0) + 1
+  }
+
   async exportWorkspace(workspaceId: string): Promise<MeshExport> {
     const peers = (await this.peerInstances(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
       .map(peer => peer.advertisement as WorkspaceMemberBundle)

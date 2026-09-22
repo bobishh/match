@@ -92,6 +92,7 @@ export type WorkspaceGrant = SignedEnvelope<{
   workspaceId: WorkspaceId
   personId: PersonId
   role: "owner" | "editor" | "visitor"
+  accessEpoch?: number
 }>
 
 export type WorkspaceGenesis = SignedEnvelope<{

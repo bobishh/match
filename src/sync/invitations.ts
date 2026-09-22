@@ -140,7 +140,8 @@ export class InvitationService {
     workspaceId: string,
     profile: LocalProfile,
     workspaceOwnerPersonId?: string,
-    role: "editor" | "visitor" = "visitor"
+    role: "editor" | "visitor" = "visitor",
+    accessEpoch = 1,
   ): Promise<{ ok: true; grant: WorkspaceGrant } | { ok: false; error: string }> {
     const invite = await this.getInvitation(invitationId)
     if (!invite) {
@@ -155,7 +156,7 @@ export class InvitationService {
       return { ok: false, error: "Only the workspace owner can issue workspace grants" }
     }
 
-    const signedGrant = await createWorkspaceGrant(profile, workspaceId, recipientPersonId, role)
+    const signedGrant = await createWorkspaceGrant(profile, workspaceId, recipientPersonId, role, accessEpoch)
 
     invite.status = "consumed"
     invite.approvedAt = new Date().toISOString()
@@ -169,7 +170,8 @@ export class InvitationService {
     workspaceIds: string[],
     profile: LocalProfile,
     workspaceOwners?: Map<string, string>,
-    role: "editor" | "visitor" = "visitor"
+    role: "editor" | "visitor" = "visitor",
+    accessEpochs?: Map<string, number>,
   ): Promise<{ ok: true; grants: WorkspaceGrant[] } | { ok: false; error: string }> {
     const invite = await this.getInvitation(invitationId)
     if (!invite) {
@@ -190,7 +192,7 @@ export class InvitationService {
     const grants: WorkspaceGrant[] = []
 
     for (const wsId of workspaceIds) {
-      grants.push(await createWorkspaceGrant(profile, wsId, recipientPersonId, role))
+      grants.push(await createWorkspaceGrant(profile, wsId, recipientPersonId, role, accessEpochs?.get(wsId) ?? 1))
     }
 
     invite.status = "consumed"

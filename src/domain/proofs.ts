@@ -161,7 +161,8 @@ export async function createWorkspaceGrant(
   profile: LocalProfile,
   workspaceId: WorkspaceId,
   subjectPersonId: PersonId,
-  role: "owner" | "editor" | "visitor"
+  role: "owner" | "editor" | "visitor",
+  accessEpoch = 1,
 ): Promise<WorkspaceGrant> {
   const payload = {
     kind: "workspace-grant" as const,
@@ -170,6 +171,7 @@ export async function createWorkspaceGrant(
     workspaceId,
     personId: subjectPersonId,
     role,
+    accessEpoch,
   }
 
   return (await signEnvelope(

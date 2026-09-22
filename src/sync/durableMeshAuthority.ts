@@ -14,7 +14,7 @@ import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerSt
 import { workspaceSet, publishConfirmedWorkspace} from "./workspaceSet"
 import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
-import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, type MeshExport, type SessionEntry } from "./durableMeshBase"
+import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, isGrantRevoked, type MeshExport, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
@@ -68,7 +68,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     }
     const p = verified.advertisement.payload
     const route = await adaptVerifiedWorkspaceAdvertisement(verified.advertisement)
-    if (revokedPersonIds(credential).has(p.personId)) throw new Error("Workspace member is revoked")
+    if (isGrantRevoked(credential, p.personId, raw.grant as WorkspaceGrant | undefined)) throw new Error("Workspace member is revoked")
     const record: WorkspacePeerRecord = {
       workspaceId: route.scopeId,
       personId: route.personId,
@@ -366,8 +366,9 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     await this.store.putWorkspaceCredential({ ...credential, epoch, updatedAt: new Date().toISOString(),
       catalog: { ...meshCatalog(credential), revocations: merged } })
     await this.applyRevocationsToPeers(credential, new Map(merged.map(record => [record.payload.personId, record])), disconnect)
-    const localPersonId = (credential.localGrant as WorkspaceGrant | undefined)?.payload.personId
-    if (localPersonId && merged.some(record => record.payload.personId === localPersonId)) throw new Error("Workspace access revoked")
+    const localGrant = credential.localGrant as WorkspaceGrant | undefined
+    if (localGrant && isGrantRevoked({ ...credential, epoch, catalog: { ...meshCatalog(credential), revocations: merged } },
+      localGrant.payload.personId, localGrant)) throw new Error("Workspace access revoked")
   }
 
   async revokePerson(workspaceId: string, personId: string): Promise<void> {

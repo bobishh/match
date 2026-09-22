@@ -176,7 +176,9 @@ async function grantWorkspaceAccess(runtime: HostRuntime, connection: SyncConnec
     await rejectWorkspaceJoin(connection, stream, runtime.invite.secret, "The owner declined this request.")
     return
   }
-  const result = await defaultInvitationService.approveWorkspaceJoinSet(runtime.invite.invitationId, guest.personId, runtime.workspaces.map(item => item.id), runtime.profile, runtime.owners, role)
+  const accessEpochs = new Map(await Promise.all(runtime.workspaces.map(async item => [item.id,
+    await runtime.context.durableMesh?.nextAccessEpoch(item.id) ?? 1] as const)))
+  const result = await defaultInvitationService.approveWorkspaceJoinSet(runtime.invite.invitationId, guest.personId, runtime.workspaces.map(item => item.id), runtime.profile, runtime.owners, role, accessEpochs)
   if (!result.ok) throw new Error(result.error)
   for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   await runtime.context.durableMesh?.acceptGuest(runtime.workspaces.map(item => item.id), guest.meshPeers, result.grants)

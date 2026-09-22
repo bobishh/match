@@ -7,10 +7,17 @@ import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEn
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceBreakGlassClaim, createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
 import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure, shouldReplaceMeshSession } from "./durableMesh"
+import { isGrantRevoked } from "./durableMeshBase"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("rejects a removed person's stale grant but accepts their newly approved generation", () => {
+    const credential = { catalog: { revocations: [{ payload: { personId: "returning", epoch: 2 } }] } } as any
+    expect(isGrantRevoked(credential, "returning", { payload: { accessEpoch: 2 } })).toBe(true)
+    expect(isGrantRevoked(credential, "returning", { payload: { accessEpoch: 3 } })).toBe(false)
+    expect(isGrantRevoked(credential, "returning", { payload: {} })).toBe(true)
+  })
   it("Given Iroh has no route metadata, when Promise.any rejects, then it remains a network failure", () => {
     const unavailable = new AggregateError([new Error("No addressing information available")], "All promises were rejected")
     expect(isMeshDialNetworkFailure(unavailable)).toBe(true)

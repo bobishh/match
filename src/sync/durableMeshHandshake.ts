@@ -11,7 +11,7 @@ import { createPeerAdvertisement,
   type WorkspaceBreakGlassClaim } from "./meshRecords"
 import { type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection, SyncNode, DuplexStream } from "./transport"
-import { DurableMeshBase, MeshNodeRestart, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revokedPersonIds, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
+import { DurableMeshBase, MeshNodeRestart, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, isGrantRevoked, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
 import { DurableMeshAuthority } from "./durableMeshAuthority"
 
 type InstallSessionArguments = [
@@ -186,7 +186,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     workspaceId: credential => credential.workspaceId,
     mergeAuthority: (credential, request) => this.mergeIncomingAuthority(credential, request),
     verifyPeer: (credential, bundle) => this.verifyIncomingPeer(credential, bundle),
-    revoked: (credential, personId) => revokedPersonIds(credential).has(personId),
+    revoked: (credential, personId, grant) => isGrantRevoked(credential, personId, grant as WorkspaceGrant | undefined),
     revocations: credential => revocations(credential),
     ownBundle: credential => this.ownBundle(credential),
     response: (credential, remotePersonId) => this.incomingResponse(credential, remotePersonId),

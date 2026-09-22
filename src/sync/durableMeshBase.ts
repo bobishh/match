@@ -191,6 +191,14 @@ export function revokedPersonIds(credential: WorkspaceMeshCredential) {
   return new Set(revocations(credential).map(record => record.payload.personId))
 }
 
+/** A signed grant issued after a removal has a new access generation. Legacy
+ * grants are generation 1, so old persisted documents still verify normally. */
+export function isGrantRevoked(credential: WorkspaceMeshCredential, personId: string,
+  grant: { payload?: { accessEpoch?: unknown } } | undefined): boolean {
+  const accessEpoch = typeof grant?.payload?.accessEpoch === "number" ? grant.payload.accessEpoch : 1
+  return revocations(credential).some(record => record.payload.personId === personId && record.payload.epoch >= accessEpoch)
+}
+
 export abstract class DurableMeshBase {
   static readonly ROUTE_LEASE_MS = 2 * 60_000
   static readonly ROUTE_RENEW_MS = 60_000

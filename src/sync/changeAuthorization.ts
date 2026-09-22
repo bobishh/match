@@ -29,7 +29,8 @@ async function verifyWorkspaceGrant(grant: WorkspaceGrant | undefined, scope: {
   const payload = grant.payload
   if (payload.kind !== "workspace-grant" || payload.version !== 1 || !payload.grantId ||
     payload.workspaceId !== scope.workspaceId || payload.personId !== scope.personId ||
-    !["owner", "editor", "visitor"].includes(payload.role)) throw new Error("Invalid workspace grant")
+    !["owner", "editor", "visitor"].includes(payload.role) ||
+    (payload.accessEpoch !== undefined && (!Number.isSafeInteger(payload.accessEpoch) || payload.accessEpoch < 1))) throw new Error("Invalid workspace grant")
   if (await publicKeyId(scope.ownerPublicKey) !== scope.ownerPersonId) throw new Error("Invalid workspace owner")
   if (await verifyEnvelope(grant, scope.ownerPublicKey)) return payload.role
   try {
@@ -300,8 +301,9 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
   if (!authority) return "visitor"
   const grant = authority.localGrant as WorkspaceGrant | undefined
   if (!grant || grant.payload.personId !== profile.identity.personId || grant.payload.workspaceId !== doc.id) return "visitor"
-  const revoked = ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string } }> } | undefined)?.revocations ?? [])
-    .some(record => record?.payload?.personId === profile.identity.personId)
+  const accessEpoch = grant.payload.accessEpoch ?? 1
+  const revoked = ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string; epoch?: number } }> } | undefined)?.revocations ?? [])
+    .some(record => record?.payload?.personId === profile.identity.personId && (record.payload.epoch ?? 1) >= accessEpoch)
   if (revoked || (await peerStore.listPeers(doc.id)).some(peer => peer.personId === profile.identity.personId && peer.revokedAt)) return "visitor"
   return roleFromAuthorities(grant, doc.id, profile.identity.personId, authorities(authority))
 }
