@@ -11,6 +11,7 @@ import type { DurableMesh } from "./durableMesh"
 import { startPersistentNode } from "./persistentNode"
 import type { SyncConnection, SyncNode, SyncTransport } from "./transport"
 import { meshOwnersMatch, type DeviceSyncState, userMessage, validWorkspaceJoinPayload, type WorkspaceJoinPayload } from "./deviceSyncState"
+import { offlineRetryDelay } from "./offlineRetry"
 
 type GuestContext = {
   state: DeviceSyncState
@@ -69,7 +70,7 @@ async function reconnectGuest(context: GuestContext, run: number, invite: Worksp
   while (current(context, run)) {
     if (!navigator.onLine) {
       context.state.step.value = "workspace-reconnecting"
-      await context.waitToReconnect(15_000)
+      await context.waitToReconnect(offlineRetryDelay(attempts + 1))
       continue
     }
     const cycle = await connectOnce(context, run, invite, profile, replica, connectedBefore, attempts)
@@ -80,7 +81,7 @@ async function reconnectGuest(context: GuestContext, run: number, invite: Worksp
     }
     connectedBefore ||= Boolean(cycle.session)
     attempts += 1
-    await context.waitToReconnect(Math.min(1_000 * 2 ** attempts, 15_000))
+    await context.waitToReconnect(offlineRetryDelay(attempts))
   }
 }
 

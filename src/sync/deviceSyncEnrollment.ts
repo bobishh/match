@@ -21,6 +21,7 @@ import { userMessage } from "./deviceSyncState"
 import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
 import { meshTrace, type MeshTraceLevel } from "./meshTrace"
+import { offlineRetryDelay } from "./offlineRetry"
 
 type EnrollmentContext = PairingContext & {
   activeWorkspaceId?: () => string
@@ -411,7 +412,7 @@ export async function dialEnrollmentPeer(context: EnrollmentContext, run: number
         // An unpublished invitation endpoint can fail both routes temporarily.
         // Keep racing both on retry rather than pinning an unproven relay route.
         if (attempt >= 4) throw err
-        await context.waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
+        await context.waitToReconnect(offlineRetryDelay(attempt + 1))
       }
     }
   } finally {
