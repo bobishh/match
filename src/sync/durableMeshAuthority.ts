@@ -2,7 +2,7 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
-import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
+import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
@@ -183,6 +183,37 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     notify: () => this.notify(),
     publishAll: () => this.publishAll(),
   })
+  private readonly recovery = new BrowserMeshRecovery<
+    WorkspaceMeshCredential,
+    { personId: string; profile: LocalProfile },
+    WorkspaceSuccessionPolicy,
+    WorkspaceGrant,
+    WorkspaceSuccessionVote,
+    WorkspaceSuccessionClaim,
+    DeviceCertificate
+  >({
+    profile: async () => {
+      const profile = await this.options.getProfile()
+      return { personId: profile.identity.personId, profile }
+    },
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    policy: successionPolicy,
+    grant: credential => credential.localGrant as WorkspaceGrant | undefined,
+    votes: successionVotes,
+    certificates: async owner => uniqueCertificates(owner.profile, await defaultProofStore.listCertificates()),
+    createVote: (owner, policy, candidate, grant, certificates) =>
+      createWorkspaceSuccessionVote(owner.profile, policy, candidate, grant, new Date().toISOString(), certificates),
+    createClaim: async (owner, credential, policy, votes, grant, certificates) => {
+      const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential.workspaceId))
+      try {
+        return await createWorkspaceSuccessionClaim(owner.profile, policy, votes, grant,
+          Automerge.getHeads(doc), credential.epoch + 1, certificates)
+      } finally { Automerge.free(doc) }
+    },
+    merge: (credential, policy, votes, claims) => this.mergeSuccessionState(credential, policy, votes, claims).then(() => undefined),
+    notify: () => this.notify(),
+    publishAll: () => this.publishAll(),
+  })
   async setSuccessor(workspaceId: string, personId: string | null): Promise<void> {
     await this.succession.setSuccessor(workspaceId, personId)
   }
@@ -203,40 +234,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   async voteForSuccessor(workspaceId: string, candidatePersonId: string): Promise<void> {
-    const profile = await this.options.getProfile()
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    const policy = credential && successionPolicy(credential)
-    const grant = credential?.localGrant as WorkspaceGrant | undefined
-    if (!credential) throw new Error("Workspace membership is unavailable")
-    if (!policy) throw new Error("The owner has not enabled ownership recovery")
-    if (!grant || grant.payload.role !== "editor" || !policy.payload.eligibleEditorPersonIds.includes(profile.identity.personId)) {
-      throw new Error("You are not an eligible editor in the current recovery policy")
-    }
-    if (policy.payload.successorPersonId) throw new Error("This workspace uses a named successor, not editor voting")
-    const existing = successionVotes(credential).find(vote => vote.signed.payload.voterPersonId === profile.identity.personId)
-    if (existing?.signed.payload.candidatePersonId === candidatePersonId) return
-    if (existing) throw new Error("Your vote is already recorded for this policy")
-    const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
-    const vote = await createWorkspaceSuccessionVote(profile, policy, candidatePersonId, grant,
-      new Date().toISOString(), certificates)
-    await this.mergeSuccessionState(credential, policy, [vote], [])
-    await this.notify()
-    await this.publishAll()
+    await this.recovery.vote(workspaceId, candidatePersonId)
   }
 
   async claimSuccession(workspaceId: string): Promise<void> {
-    const profile = await this.options.getProfile()
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    const policy = credential && successionPolicy(credential)
-    const grant = credential?.localGrant as WorkspaceGrant | undefined
-    if (!credential || !policy || !grant || grant.payload.role !== "editor") throw new Error("Only an eligible editor can claim ownership")
-    const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
-    const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(workspaceId))
-    const claim = await createWorkspaceSuccessionClaim(profile, policy, successionVotes(credential), grant,
-      Automerge.getHeads(doc), credential.epoch + 1, certificates)
-    await this.mergeSuccessionState(credential, policy, successionVotes(credential), [claim])
-    await this.notify()
-    await this.publishAll()
+    await this.recovery.claim(workspaceId)
   }
 
   protected async verifyRevocation(credential: WorkspaceMeshCredential, value: unknown): Promise<WorkspaceRevocation> {
