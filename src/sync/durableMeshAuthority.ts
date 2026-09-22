@@ -2,7 +2,7 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
-import { BrowserMeshAuthority, BrowserMeshCatalog, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
+import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
@@ -168,17 +168,23 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     notify: () => this.notify(),
     leave: workspaceId => this.leaveWorkspaceHost(workspaceId),
   })
+  private readonly succession = new BrowserMeshSuccession<WorkspaceMeshCredential, { personId: string; profile: LocalProfile }, WorkspaceSuccessionPolicy>({
+    profile: async () => {
+      const profile = await this.options.getProfile()
+      return { personId: profile.identity.personId, profile }
+    },
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    eligibleEditors: async workspaceId => meshRustRuntime().state.eligibleEditorPersonIds(await this.store.listPeers(workspaceId)),
+    epoch: credential => credential.epoch,
+    createPolicy: (owner, workspaceId, successor, eligible, epoch) =>
+      createWorkspaceSuccessionPolicy(owner.profile, workspaceId, successor, eligible, epoch),
+    setPolicy: (credential, policy) => this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
+      catalog: { ...meshCatalog(credential), successionPolicy: policy, successionVotes: [] } }),
+    notify: () => this.notify(),
+    publishAll: () => this.publishAll(),
+  })
   async setSuccessor(workspaceId: string, personId: string | null): Promise<void> {
-    const profile = await this.options.getProfile()
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential || credential.ownerPersonId !== profile.identity.personId) throw new Error("Only the workspace owner can set succession")
-    const eligible = meshRustRuntime().state.eligibleEditorPersonIds(await this.store.listPeers(workspaceId))
-    if (personId && !eligible.includes(personId)) throw new Error("Successor must be an editor")
-    const policy = await createWorkspaceSuccessionPolicy(profile, workspaceId, personId, eligible, credential.epoch)
-    await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
-      catalog: { ...meshCatalog(credential), successionPolicy: policy, successionVotes: [] } })
-    await this.notify()
-    await this.publishAll()
+    await this.succession.setSuccessor(workspaceId, personId)
   }
 
   protected async refreshSuccessionPolicy(workspaceId: string): Promise<void> {
