@@ -21,6 +21,7 @@ import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
 import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
 import IdentitySettingsDialog from "./components/IdentitySettingsDialog.vue"
+import BuildFooter from "./components/BuildFooter.vue"
 import { ref } from "vue"
 
 const app = useAppController()
@@ -504,4 +505,5 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
     </ModalLayer>
     </template>
   </main>
+  <BuildFooter />
 </template>

@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test"
 
+test("Given Match is open in development, when the footer renders, then it shows the tower and honest dev build label", async ({ page }) => {
+  await page.goto("/")
+
+  const footer = page.getByRole("contentinfo", { name: "Match build information" })
+  await expect(footer.locator(".tower-mark")).toBeVisible()
+  await expect(footer).toContainText("Match · build dev")
+})
+
 test("Given Device sync members are open, when the user wants to dismiss it, then only the header close control is shown", async ({ page }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
