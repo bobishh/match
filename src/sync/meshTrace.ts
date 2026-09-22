@@ -13,10 +13,6 @@ export function setMeshTraceVerboseLogging(enabled: boolean) {
   verboseConsoleLogging = enabled
 }
 
-export function meshTraceVerboseLoggingEnabled(): boolean {
-  return verboseConsoleLogging
-}
-
 export function meshTrace(event: string, detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info") {
   traceBuffer.trace(event, detail, level)
 }
