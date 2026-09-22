@@ -23,6 +23,7 @@ export type PendingJoin = {
 
 export function createDeviceSyncState() {
   const isOpen = ref(false)
+  const isEnabled = ref(false)
   const directLive = ref(false)
   const liveWorkspaceIds = ref<string[]>([])
   const step = ref<SyncStep>("idle")
@@ -58,7 +59,7 @@ export function createDeviceSyncState() {
     return step.value === "synced" ? "Live sync on" : "Device sync"
   })
   return {
-    isOpen, directLive, liveWorkspaceIds, step, qrCode, inviteUrl, copyNotice, error, authCode,
+    isOpen, isEnabled, directLive, liveWorkspaceIds, step, qrCode, inviteUrl, copyNotice, error, authCode,
     pendingJoins, selectedWorkspaceId, selectedWorkspaceIds, invitationWorkspaceTitle,
     invitationWorkspaces, parsedInvite, meshPeers, meshDiagnostic, meshRetryAt, networkOnline,
     localDeviceId, localUserAgent, meshLiveWorkspaceIds, revokedWorkspaceIds, ownershipRevision,

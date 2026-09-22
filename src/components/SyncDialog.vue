@@ -80,6 +80,7 @@ const emit = defineEmits<{
   (e: "approveDevice"): void
   (e: "declineDevice"): void
   (e: "acceptAndJoin"): void
+  (e: "start"): void
   (e: "stop"): void
   (e: "export"): void
   (e: "import"): void
@@ -282,6 +283,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <div class="dialog-actions sync-primary-actions">
           <button v-if="canManageMesh" class="button button-primary" type="button" @click="emit('selectSyncWorkspace')">Add someone</button>
           <button v-if="live" class="button button-quiet" type="button" @click="emit('stop')">Stop live sync</button>
+          <button v-else class="button button-quiet" type="button" @click="emit('start')">Start live sync</button>
           <button v-if="hasMesh" class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
         </div>
       </template>

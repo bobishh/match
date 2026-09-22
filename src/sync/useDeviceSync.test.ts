@@ -23,6 +23,19 @@ describe("device sync errors", () => {
 })
 
 describe("useDeviceSync direct sync selection and custom workspace sets", () => {
+  it("keeps sync enabled while no peer session is connected, and only disables it when stopped", async () => {
+    const sync = useDeviceSync({ workspace: {}, origin: () => "http://localhost:3000" } as never)
+
+    await sync.startDurableMesh()
+
+    expect(sync.isLive.value).toBe(false)
+    expect(sync.isEnabled.value).toBe(true)
+
+    await sync.stopLiveSync()
+
+    expect(sync.isEnabled.value).toBe(false)
+  })
+
   it.each(["enroll-host", "enroll-host-preparing"] as const)("restores the active %s screen after hiding the dialog", async step => {
     const sync = useDeviceSync({ workspace: {}, origin: () => "http://localhost:3000" } as never)
     sync.step.value = step

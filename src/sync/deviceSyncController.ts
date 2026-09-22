@@ -157,7 +157,21 @@ class DeviceSyncController {
   private async startDurableMesh(adoptedNode?: SyncNode) {
     const mesh = await this.ensureDurableMesh()
     this.state.revokedWorkspaceIds.value = await mesh?.revokedWorkspaceIds() ?? []
+    this.state.isEnabled.value = true
     await mesh?.resumeAll(adoptedNode)
+  }
+
+  private async stopLiveSync() {
+    this.state.isEnabled.value = false
+    this.run += 1
+    this.wakeRetry?.()
+    await this.pauseDurableMesh()
+    await this.stopNode("Live sync stopped")
+    for (const session of this.directPeerSessions.values()) await session.close().catch(() => {})
+    this.directPeerSessions.clear()
+    this.state.meshLiveWorkspaceIds.value = []
+    this.state.meshRetryAt.value = {}
+    this.state.meshDiagnostic.value = ""
   }
 
   private async handoffDirectNode(reason: string) {
@@ -503,7 +517,7 @@ class DeviceSyncController {
   api() {
     const state = this.state
     return {
-      isOpen: state.isOpen, pendingJoins: state.pendingJoins, decideJoin: (id: string, approve: boolean) => this.decideJoin(id, approve),
+      isOpen: state.isOpen, isEnabled: state.isEnabled, pendingJoins: state.pendingJoins, decideJoin: (id: string, approve: boolean) => this.decideJoin(id, approve),
       isLive: state.isLive, isWorkspaceLive: (id: string) => (state.directLive.value && state.liveWorkspaceIds.value.includes(id)) || state.meshLiveWorkspaceIds.value.includes(id),
       isWorkspaceAccessRevoked: (id: string) => state.revokedWorkspaceIds.value.includes(id), meshPeers: state.meshPeers, meshDiagnostic: state.meshDiagnostic,
       meshRetryAt: state.meshRetryAt, networkOnline: state.networkOnline, meshSuccession: state.meshSuccession, localDeviceId: state.localDeviceId,
@@ -514,7 +528,7 @@ class DeviceSyncController {
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName,
       requestEnrollment: () => this.requestEnrollment(), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
-      joinFromLocation: (raw: string) => this.joinFromLocation(raw), startDurableMesh: () => this.startDurableMesh(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
+      joinFromLocation: (raw: string) => this.joinFromLocation(raw), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
       fetchBlob: (workspaceId: string, descriptor: BlobDescriptor) => this.fetchBlob(workspaceId, descriptor),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),

@@ -420,7 +420,7 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       :network-online="sync.networkOnline.value"
       :repairable-history="repairableHistory"
       @repair-history="repairHistory"
-      :live="sync.isLive.value"
+      :live="sync.isEnabled.value"
       @update:selected-workspace-ids="sync.selectedWorkspaceIds.value = $event"
       @update:selected-workspace-id="sync.selectedWorkspaceId.value = $event"
       @select-sync-all="sync.selectSyncAll"
@@ -441,7 +441,8 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       @export="exportWorkspace"
       @import="openImport"
       @dismiss="sync.dismiss"
-      @stop="sync.close"
+      @start="sync.startDurableMesh"
+      @stop="sync.stopLiveSync"
     />
 
     <ModalLayer v-if="selectedLead" class="overlay detail-overlay" @close="closeDetail">

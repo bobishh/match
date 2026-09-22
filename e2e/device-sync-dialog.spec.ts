@@ -10,6 +10,21 @@ test("Given Device sync members are open, when the user wants to dismiss it, the
   await dialog.getByRole("button", { name: "Close", exact: true }).click()
   await expect(dialog).toBeHidden()
 })
+
+test("Given live sync is enabled without a connected peer, when Sync opens, then Stop remains available until explicitly stopped", async ({ page }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await expect(dialog.getByRole("button", { name: "Stop live sync", exact: true })).toBeVisible()
+
+  await dialog.getByRole("button", { name: "Stop live sync", exact: true }).click()
+  await expect(dialog.getByRole("button", { name: "Start live sync", exact: true })).toBeVisible()
+
+  await dialog.getByRole("button", { name: "Start live sync", exact: true }).click()
+  await expect(dialog.getByRole("button", { name: "Stop live sync", exact: true })).toBeVisible()
+})
+
 test("Given Device sync shows an invalid-link failure, when it renders recovery actions, then Dismiss remains and Close is not duplicated", async ({ page }) => {
   await page.goto("/pair#invalid")
 
