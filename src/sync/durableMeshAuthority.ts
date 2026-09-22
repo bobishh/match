@@ -283,6 +283,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
         session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId)),
     grant: credential => credential.localGrant as WorkspaceGrant | undefined,
     verifyGrant: async (credential, owner, grant) => {
+      if (isGrantRevoked(credential, owner.personId, grant)) throw new Error("Editor grant has been revoked")
+      const failures: string[] = []
       for (const authority of ownerAuthorities(credential)) {
         try {
           await verifyWorkspaceGrant(grant, {
@@ -290,9 +292,12 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
             ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates,
           })
           return true
-        } catch { /* Try historical owner authorities. */ }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          if (!failures.includes(message)) failures.push(message)
+        }
       }
-      return false
+      throw new Error(`Editor grant cannot be verified: ${failures.join("; ") || "no trusted owner authority"}`)
     },
     createClaim: async (owner, credential, grant) => {
       const certificates = uniqueCertificates(owner.profile, await defaultProofStore.listCertificates())

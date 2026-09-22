@@ -48,6 +48,25 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("refuses break-glass recovery with a revoked editor grant", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Offline owner")
+    resetIdentityStorageForTest()
+    const editor = await bootstrapIdentity("Revoked editor")
+    const grant = await createWorkspaceGrant(owner, "workspace-1", editor.identity.personId, "editor")
+    const credential: any = { version: 1, workspaceId: "workspace-1", ownerPersonId: owner.identity.personId,
+      ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret", epoch: 2,
+      localGrant: grant, updatedAt: new Date().toISOString(), catalog: { revocations: [{ payload: { personId: editor.identity.personId, epoch: 2 } }] } }
+    const doc = Automerge.from({ id: "workspace-1", ownerPersonId: owner.identity.personId })
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: { read: async () => Automerge.save(doc) } as never, getProfile: async () => editor,
+      store: { getWorkspaceCredential: async () => credential, listPeers: async () => [] } as never })
+
+    await expect(mesh.breakGlassOwnership("workspace-1")).rejects.toThrow("Editor grant has been revoked")
+    Automerge.free(doc)
+    await mesh.dispose()
+  })
+
   it("Given an identity-mismatched credential has peers, when scheduling routes, then it never dials that workspace", async () => {
     const credential = {
       version: 1 as const, workspaceId: "stale-workspace", ownerPersonId: "previous-person",
