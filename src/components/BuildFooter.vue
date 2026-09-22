@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* global __MATCH_BUILD_COMMIT__ */
 const commit = __MATCH_BUILD_COMMIT__
 const hasCommit = /^[0-9a-f]{40}$/i.test(commit)
 const shortCommit = hasCommit ? commit.slice(0, 7) : commit

@@ -15,6 +15,7 @@ import { defaultStorage } from "../storage"
 import { registerDeviceInRoot } from "../domain/personalRoot"
 import { fromBase64Url, type LocalProfile } from "../domain/identity"
 import { workspaceSet } from "./workspaceSet"
+import type { WorkspaceGrant } from "../domain/model"
 import { startPersistentNode } from "./persistentNode"
 import type { SyncConnection, SyncNode } from "./transport"
 import { userMessage } from "./deviceSyncState"
@@ -351,7 +352,7 @@ async function approveEnrollment(
 
 async function transferableWorkspaces(context: EnrollmentContext, profile: LocalProfile) {
   const workspaces = [] as { id: string; title: string }[]
-  const grants = [] as import("../domain/model").WorkspaceGrant[]
+  const grants: WorkspaceGrant[] = []
   const ownerIds: string[] = []
   for (const item of context.availableWorkspaces) {
     if (!context.workspaceOwner || await context.workspaceOwner(item.id) === profile.identity.personId) {

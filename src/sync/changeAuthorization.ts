@@ -301,11 +301,12 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
   if (!authority) return "visitor"
   const grant = authority.localGrant as WorkspaceGrant | undefined
   if (!grant || grant.payload.personId !== profile.identity.personId || grant.payload.workspaceId !== doc.id) return "visitor"
-  const accessEpoch = grant.payload.accessEpoch ?? 1
-  const revoked = ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string; epoch?: number } }> } | undefined)?.revocations ?? [])
-    .some(record => record?.payload?.personId === profile.identity.personId && (record.payload.epoch ?? 1) >= accessEpoch)
-  if (revoked || (await peerStore.listPeers(doc.id)).some(peer => peer.personId === profile.identity.personId && peer.revokedAt)) return "visitor"
+  if (await localWorkspaceAccessRevoked(authority, doc.id, profile.identity.personId, grant)) return "visitor"
   return roleFromAuthorities(grant, doc.id, profile.identity.personId, authorities(authority))
+}
+
+async function localWorkspaceAccessRevoked(authority: StoredWorkspaceAuthority, workspaceId: string, personId: string, grant: WorkspaceGrant): Promise<boolean> {
+  return ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string; epoch?: number } }> } | undefined)?.revocations ?? []).some(record => record?.payload?.personId === personId && (record.payload.epoch ?? 1) >= (grant.payload.accessEpoch ?? 1)) || (await peerStore.listPeers(workspaceId)).some(peer => peer.personId === personId && peer.revokedAt)
 }
 
 export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerPersonId: string) {

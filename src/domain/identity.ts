@@ -48,15 +48,7 @@ const identityStore = new BrowserIdentityStore({
   signatureDomain: "MATCH/1",
 })
 const recoveryStorageKey = "match.identity_recovery.v1"
-let recoveryEnvelopeMemory: string | null = null
-
-function readRecoveryEnvelope(): string | null {
-  try { return typeof localStorage === "undefined" ? recoveryEnvelopeMemory : localStorage.getItem(recoveryStorageKey) }
-  catch { return recoveryEnvelopeMemory }
-}
-
 function writeRecoveryEnvelope(value: string) {
-  recoveryEnvelopeMemory = value
   try { localStorage?.setItem(recoveryStorageKey, value) } catch { /* The downloaded file remains the durable backup. */ }
 }
 
@@ -66,7 +58,6 @@ export function clearInMemoryProfileForReloadTest(): void {
 
 export function resetIdentityStorageForTest(): void {
   identityStore.reset()
-  recoveryEnvelopeMemory = null
 }
 
 export async function bootstrapIdentity(displayName = "Match User"): Promise<LocalProfile> {
@@ -91,13 +82,6 @@ export async function createIdentityRecovery(
   if (restored.identity.personId !== profile.identity.personId) throw new Error("Identity backup does not match this identity")
   writeRecoveryEnvelope(JSON.stringify(recoveryEnvelope))
   return { recoveryKey, recoveryEnvelope }
-}
-
-export function savedIdentityRecoveryEnvelope(): IdentityRecoveryEnvelope | null {
-  try {
-    const raw = readRecoveryEnvelope()
-    return raw ? JSON.parse(raw) as IdentityRecoveryEnvelope : null
-  } catch { return null }
 }
 
 export async function restoreIdentityRecovery(
