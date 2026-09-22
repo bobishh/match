@@ -111,12 +111,12 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
         value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported,
-        value.personId, value.ownerWorkspaceSupported, value.blobTransferSupported, value.endpoint)
+        value.personId, value.ownerWorkspaceSupported, value.ownerWorkspaceOfferFrame, value.blobTransferSupported, value.endpoint)
       if (installed) await this.refreshWorkspaceGossip(peer.workspaceId)
-      if (installed && value.ownerWorkspaceSupported) {
+      if (installed && value.ownerWorkspaceOfferFrame) {
         const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
         if (credential) await this.offerMissingOwnerWorkspaces(value.connection, credential.transportSecret,
-          value.ownerWorkspaceIds, value.personId)
+          value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame)
       }
     } catch (error) {
       if (this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
@@ -247,6 +247,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         }),
       incremental: input => liveAutomergeWorkspaceSync(input.connection, input.secret, this.options.workspaceStore,
         input.workspaceId, input.localDeviceId, input.deviceId, input.engine, input.onDocumentStatus, {
+          ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
           onOwnerWorkspaceOffer: input.onOwnerWorkspaceOffer,
           onGossipPacket: input.onGossipPacket,
           onBlobRequest: input.blobTransferSupported
@@ -294,10 +295,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   protected async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
-    remotePersonId = "", ownerWorkspaceSupported = false, blobTransferSupported = false, remoteEndpoint = "") {
+    remotePersonId = "", ownerWorkspaceSupported = false, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined = undefined,
+    blobTransferSupported = false, remoteEndpoint = "") {
     return this.browserSessions.install({ workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence,
       direction, connection, heartbeatSupported, incrementalSupported, connectionId, ownershipReceiptSupported,
-      remotePersonId, ownerWorkspaceSupported, blobTransferSupported, remoteEndpoint })
+      remotePersonId, ownerWorkspaceSupported, ownerWorkspaceOfferFrame, blobTransferSupported, remoteEndpoint })
   }
 
   private async respondToBlobRequest(workspaceId: string, deviceId: string, secret: string,

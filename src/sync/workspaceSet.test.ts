@@ -227,7 +227,7 @@ describe("incremental workspace control plane", () => {
     let delivered = false
     const inbound = {
       send: vi.fn(), closeSend: vi.fn(async () => {}),
-      read: vi.fn(async () => encodePairingFrame("mesh-gossip", "mesh-secret", offer)),
+      read: vi.fn(async () => encodePairingFrame("mesh-owner-workspace-offer", "mesh-secret", offer)),
     }
     const connection: SyncConnection = {
       openStream: vi.fn(),
@@ -239,7 +239,10 @@ describe("incremental workspace control plane", () => {
     }
     const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
       read: async () => new Uint8Array(), merge: vi.fn(), activate: vi.fn(),
-    }, "workspace", "local", "remote", undefined, undefined, { onOwnerWorkspaceOffer: accepted })
+    }, "workspace", "local", "remote", undefined, undefined, {
+      ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer",
+      onOwnerWorkspaceOffer: accepted,
+    })
 
     await vi.waitFor(() => expect(accepted).toHaveBeenCalledWith(offer))
     expect(inspectPairingFrame(inbound.send.mock.calls[0]![0]).type).toBe("mesh-durable-ack")
@@ -248,10 +251,12 @@ describe("incremental workspace control plane", () => {
 
   it("requires a matching receipt when publishing an owner workspace", async () => {
     const offer = new Uint8Array([1, 2, 3])
-    const connection = { openStream: async () => ({ send: vi.fn(), closeSend: vi.fn(),
+    const stream = { send: vi.fn(), closeSend: vi.fn(),
       read: async () => encodePairingFrame("mesh-durable-ack", "secret",
-        new TextEncoder().encode(await sha256Base64Url(offer))) }) } as never
-    await expect(publishOwnerWorkspaceOffer(connection, "secret", offer)).resolves.toBeUndefined()
+        new TextEncoder().encode(await sha256Base64Url(offer))) }
+    const connection = { openStream: async () => stream } as never
+    await expect(publishOwnerWorkspaceOffer(connection, "secret", offer, "mesh-owner-workspace-offer")).resolves.toBeUndefined()
+    expect(inspectPairingFrame(stream.send.mock.calls[0]![0]).type).toBe("mesh-owner-workspace-offer")
   })
 })
 

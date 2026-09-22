@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError } from "@meta-uber/mesh-transport"
+import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEnvelope, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceBreakGlassClaim, createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
@@ -58,6 +59,86 @@ describe("DurableMesh peer catalog gossip", () => {
     await expect(mesh.transferOwnership("workspace", "target")).rejects.toThrow(/reload Match/i)
     expect(put).not.toHaveBeenCalled()
     ;(mesh as any).sessions.clear()
+    await mesh.dispose()
+  })
+
+  it("does not offer a new owner workspace to a same-person session without the v2 offer capability", async () => {
+    const credential = { workspaceId: "new-workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
+      ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" } } as never),
+      store: { getWorkspaceCredential: async () => credential, getPeer: async () => ({ personId: "owner" }),
+        listWorkspaceCredentials: async () => [] } as never })
+    const internal = mesh as any
+    internal.ownerCredentials.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.start = vi.fn(async () => {})
+    internal.notify = vi.fn(async () => {})
+    internal.encodeOwnerWorkspaceOffer = vi.fn(async () => new Uint8Array([1]))
+    const connection = { openStream: vi.fn() }
+    internal.sessions.set("workspace:owner-device:instance", {
+      workspaceId: "workspace", deviceId: "owner-device", instanceId: "instance", connection,
+      remotePersonId: "owner", session: {}, evict: async () => {},
+    })
+
+    await internal.addOwnerWorkspace("new-workspace")
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(internal.encodeOwnerWorkspaceOffer).not.toHaveBeenCalled()
+    expect(connection.openStream).not.toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
+  it("offers a new owner workspace over the renamed frame only after v2 negotiation", async () => {
+    const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
+      ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
+    const offer = new Uint8Array([1])
+    const receipt = new TextEncoder().encode(await sha256Base64Url(offer))
+    const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
+      read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" } } as never),
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [] } as never })
+    const internal = mesh as any
+    internal.ownerCredentials.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.start = vi.fn(async () => {})
+    internal.notify = vi.fn(async () => {})
+    internal.encodeOwnerWorkspaceOffer = vi.fn(async () => offer)
+    const connection = { openStream: vi.fn(async () => stream) }
+    internal.sessions.set("workspace:owner-device:instance", {
+      workspaceId: "workspace", deviceId: "owner-device", instanceId: "instance", connection,
+      remotePersonId: "owner", ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer", session: {}, evict: async () => {},
+    })
+
+    await internal.addOwnerWorkspace("new-workspace")
+    await vi.waitFor(() => expect(stream.send).toHaveBeenCalledOnce())
+
+    expect(inspectPairingFrame(stream.send.mock.calls[0]![0]).type).toBe("mesh-owner-workspace-offer")
+    await mesh.dispose()
+  })
+
+  it("does not trust a stale peer record to offer an owner workspace to another person", async () => {
+    const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
+      ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" } } as never),
+      store: { getWorkspaceCredential: async () => credential, getPeer: async () => ({ personId: "owner" }),
+        listWorkspaceCredentials: async () => [] } as never })
+    const internal = mesh as any
+    internal.ownerCredentials.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.start = vi.fn(async () => {})
+    internal.notify = vi.fn(async () => {})
+    internal.encodeOwnerWorkspaceOffer = vi.fn(async () => new Uint8Array([1]))
+    const connection = { openStream: vi.fn() }
+    internal.sessions.set("workspace:other-device:instance", {
+      workspaceId: "workspace", deviceId: "other-device", instanceId: "instance", connection,
+      remotePersonId: "other-person", ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer", session: {}, evict: async () => {},
+    })
+
+    await internal.addOwnerWorkspace("new-workspace")
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(internal.encodeOwnerWorkspaceOffer).not.toHaveBeenCalled()
+    expect(connection.openStream).not.toHaveBeenCalled()
     await mesh.dispose()
   })
   it("does not report a cancelled losing route as an invalid peer or penalize its health", async () => {

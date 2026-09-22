@@ -22,6 +22,8 @@ export type LiveWorkspaceSync = {
 const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
 const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
 const MAX_GOSSIP_PACKET_BYTES = 256 * 1024
+const OWNER_WORKSPACE_OFFER_FRAME = "mesh-owner-workspace-offer"
+export type OwnerWorkspaceOfferFrame = typeof OWNER_WORKSPACE_OFFER_FRAME
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
@@ -41,6 +43,7 @@ export type WorkspaceSetStore = {
 
 type LiveWorkspaceOptions = {
   onHandoffRequest?: (stream: DuplexStream) => Promise<void>
+  ownerWorkspaceOfferFrame?: OwnerWorkspaceOfferFrame
   onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
   onGossipPacket?: (packet: Uint8Array) => Promise<void>
   onBlobRequest?: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
@@ -102,10 +105,11 @@ export async function publishConfirmedWorkspace(connection: SyncConnection, secr
   } finally { clearTimeout(timer) }
 }
 
-export async function publishOwnerWorkspaceOffer(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
+export async function publishOwnerWorkspaceOffer(connection: SyncConnection, secret: string, bytes: Uint8Array,
+  frame: OwnerWorkspaceOfferFrame): Promise<void> {
   if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
   const stream = await connection.openStream()
-  await stream.send(encodePairingFrame("mesh-gossip", secret, bytes))
+  await stream.send(encodePairingFrame(frame, secret, bytes))
   await stream.closeSend()
   const receipt = decodePairingFrame(await stream.read(), "mesh-durable-ack", secret)
   if (new TextDecoder().decode(receipt) !== await sha256Base64Url(bytes)) throw new Error("Owner workspace receipt does not match")
@@ -250,8 +254,8 @@ async function receiveAutomergeFrame(stream: DuplexStream, frame: Uint8Array, in
     await stream.send(encodePairingFrame("sync-heartbeat-ack", input.secret, new Uint8Array()))
   } else if (type === "mesh-control-sync") {
     await input.receiveControl(decodePairingFrame(frame, "mesh-control-sync", input.secret))
-  } else if (type === "mesh-gossip" && input.options.onOwnerWorkspaceOffer) {
-    const bytes = decodePairingFrame(frame, "mesh-gossip", input.secret)
+  } else if (type === input.options.ownerWorkspaceOfferFrame && input.options.onOwnerWorkspaceOffer) {
+    const bytes = decodePairingFrame(frame, input.options.ownerWorkspaceOfferFrame, input.secret)
     if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
     await input.options.onOwnerWorkspaceOffer(bytes)
     await stream.send(encodePairingFrame("mesh-durable-ack", input.secret, new TextEncoder().encode(await sha256Base64Url(bytes))))

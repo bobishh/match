@@ -104,7 +104,7 @@ async function renameInactiveWorkspace(
 async function deleteWorkspaceAsync(
   workspaceId: string,
   storage = defaultStorage,
-): Promise<void> {
+): Promise<Automerge.Doc<WorkspaceDocumentV2> | undefined> {
   const wasActive = stateRuntime.activeDoc?.id === workspaceId;
   await storage.deleteWorkspace(workspaceId);
   const root = await storage.loadPersonalRoot();
@@ -118,15 +118,18 @@ async function deleteWorkspaceAsync(
       (workspace) => workspace.id !== workspaceId,
     );
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
-  if (wasActive) await selectWorkspaceReplacement(storage);
+  if (wasActive) return selectWorkspaceReplacement(storage);
 }
 
 async function selectWorkspaceReplacement(
   storage: WorkspaceStorage,
-): Promise<void> {
+): Promise<Automerge.Doc<WorkspaceDocumentV2> | undefined> {
   const replacement = stateRuntime.availableWorkspaces.value[0];
-  if (replacement) await switchWorkspace(replacement.id, storage);
-  else await createWorkspaceAsync("Untitled", "blank", storage);
+  if (replacement) {
+    await switchWorkspace(replacement.id, storage);
+    return undefined;
+  }
+  return createWorkspaceAsync("Untitled", "blank", storage);
 }
 
 export async function addWorkspaceToPersonalRoot(

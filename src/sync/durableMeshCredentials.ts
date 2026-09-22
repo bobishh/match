@@ -205,12 +205,11 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     await this.start()
     await this.notify()
     void Promise.allSettled([...this.sessions.values()].map(async entry => {
-      const peer = await this.store.getPeer(entry.workspaceId, entry.deviceId)
-      if (peer?.personId !== profile.identity.personId) return
+      if (entry.remotePersonId !== profile.identity.personId || !entry.ownerWorkspaceOfferFrame) return
       const credential = await this.store.getWorkspaceCredential(entry.workspaceId)
       if (!credential) return
       await publishOwnerWorkspaceOffer(entry.connection, credential.transportSecret,
-        await this.encodeOwnerWorkspaceOffer(workspaceId))
+        await this.encodeOwnerWorkspaceOffer(workspaceId), entry.ownerWorkspaceOfferFrame)
     }))
   }
 
@@ -242,15 +241,15 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   protected async offerMissingOwnerWorkspaces(connection: SyncConnection, secret: string,
-    remoteWorkspaceIds: unknown, remotePersonId: string) {
+    remoteWorkspaceIds: unknown, remotePersonId: string, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined) {
     const profile = await this.options.getProfile()
-    if (remotePersonId !== profile.identity.personId) return
+    if (remotePersonId !== profile.identity.personId || !ownerWorkspaceOfferFrame) return
     const known = new Set(Array.isArray(remoteWorkspaceIds)
       ? remoteWorkspaceIds.filter((id): id is string => typeof id === "string")
       : [])
     for (const workspaceId of await this.ownerWorkspaceIds(profile)) {
       if (known.has(workspaceId)) continue
-      await publishOwnerWorkspaceOffer(connection, secret, await this.encodeOwnerWorkspaceOffer(workspaceId))
+      await publishOwnerWorkspaceOffer(connection, secret, await this.encodeOwnerWorkspaceOffer(workspaceId), ownerWorkspaceOfferFrame)
     }
   }
 

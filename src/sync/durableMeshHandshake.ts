@@ -28,6 +28,7 @@ type InstallSessionArguments = [
   ownershipReceiptSupported?: boolean,
   remotePersonId?: string,
   ownerWorkspaceSupported?: boolean,
+  ownerWorkspaceOfferFrame?: "mesh-owner-workspace-offer",
   blobTransferSupported?: boolean,
   remoteEndpoint?: string,
 ]
@@ -193,10 +194,10 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     install: ({ credential, remote, connection, features, connectionId }) => this.installSession(
       credential.workspaceId, remote.deviceId, remote.instanceId, remote.issuedAt, remote.routeSequence,
       "incoming", connection as SyncConnection, features.heartbeatSupported, features.incrementalSupported,
-      connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported,
+      connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported, features.ownerWorkspaceOfferFrame,
       features.blobTransferSupported, remote.endpoint),
     afterInstalled: ({ credential, remote, request, connection, features }) => this.afterIncomingInstall(
-      credential, remote, request.ownerWorkspaceIds, connection as SyncConnection, features.ownerWorkspaceSupported),
+      credential, remote, request.ownerWorkspaceIds, connection as SyncConnection, features.ownerWorkspaceOfferFrame),
     trace: (event, detail, level) => this.trace(event, detail, level),
     failed: (stage, error) => this.reportProtocolFailure(stage, error),
   }, this.handshakeCodec)
@@ -248,9 +249,11 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   }
 
   protected async afterIncomingInstall(credential: WorkspaceMeshCredential, remote: IncomingPeer,
-    ownerWorkspaceIds: string[] | undefined, connection: SyncConnection, ownerWorkspaceSupported: boolean): Promise<void> {
+    ownerWorkspaceIds: string[] | undefined, connection: SyncConnection,
+    ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined): Promise<void> {
     await this.refreshWorkspaceGossip(credential.workspaceId)
-    if (ownerWorkspaceSupported) await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret, ownerWorkspaceIds, remote.personId)
+    await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret, ownerWorkspaceIds, remote.personId,
+      ownerWorkspaceOfferFrame)
   }
 
   protected validateHandshake(raw: unknown, workspaceId: string): MeshHandshakePayload {

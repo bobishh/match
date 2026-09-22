@@ -303,8 +303,9 @@ function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
   const handleSwitchWorkspace = async (id: string) => { await core.match.switchWorkspace(id); core.notice.value = "Switched workspace" }
   const handleRenameWorkspace = async (payload: { id: string; title: string }) => { await core.match.renameWorkspaceAsync(payload.id, payload.title); core.notice.value = `Workspace renamed to "${payload.title}"` }
   const handleDeleteWorkspace = async (id: string) => {
+    const fallback = await core.match.deleteWorkspaceAsync(id)
     await core.sync.leaveWorkspace(id)
-    await core.match.deleteWorkspaceAsync(id)
+    if (fallback) await core.sync.addOwnerWorkspace(fallback.id)
     core.notice.value = "Workspace deleted"
   }
   return { reloadPage, exportWorkspace, openImport, importWorkspace, createAndSyncWorkspace, handleCreateWorkspace, handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace }

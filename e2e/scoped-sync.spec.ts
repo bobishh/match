@@ -83,6 +83,60 @@ test.describe("Scoped Sync Outer Scenarios", () => {
     }
   })
 
+  test("Given an enrolled device deletes its final workspace, when Match creates the fallback, then the enrolled device remains its owner after reload", async ({ browser, page }) => {
+    test.setTimeout(120_000)
+    const secondContext = await browser.newContext()
+    const secondPage = await secondContext.newPage()
+
+    try {
+      await page.goto("/")
+      await page.getByRole("button", { name: "Sync", exact: true }).click()
+      const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+      await hostDialog.getByRole("button", { name: "Add someone" }).click()
+      await hostDialog.getByRole("button", { name: "Add my device", exact: true }).click()
+
+      await secondPage.goto(await hostDialog.getByLabel("Pairing link").inputValue())
+      const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
+      await secondDialog.getByRole("button", { name: "Add this device" }).click()
+      await hostDialog.getByRole("button", { name: "Approve device" }).click()
+      await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
+      await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
+      await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await secondDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+
+      await secondPage.getByRole("button", { name: "Open workspaces" }).click()
+      const workspaces = secondPage.getByRole("dialog", { name: "Workspaces" })
+      const initialWorkspaceCount = await workspaces.locator(".workspace-item").count()
+      const deletedWorkspaceIds = await secondPage.evaluate(async () => {
+        const { useMatch } = await import("/src/state.ts")
+        return useMatch().availableWorkspaces.value.map(workspace => workspace.id)
+      })
+      for (let index = 0; index < initialWorkspaceCount; index += 1) {
+        const workspace = workspaces.locator(".workspace-item").first()
+        await workspace.getByRole("button", { name: "Delete", exact: true }).click()
+        await workspace.getByRole("button", { name: "Delete workspace", exact: true }).click()
+      }
+
+      await workspaces.getByRole("button", { name: "Close", exact: true }).last().click()
+      await expect(secondPage.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
+      const fallbackId = await secondPage.evaluate(async () => {
+        const { useMatch } = await import("/src/state.ts")
+        return useMatch().activeWorkspace.id
+      })
+      expect(deletedWorkspaceIds).not.toContain(fallbackId)
+      await secondPage.reload()
+      await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
+      await expect.poll(async () => secondPage.evaluate(async () => {
+        const { useMatch } = await import("/src/state.ts")
+        return useMatch().activeWorkspace.id
+      })).toBe(fallbackId)
+    } finally {
+      await secondContext.close()
+    }
+  })
+
   test("Given Sync is opened, when active workspace is preselected, then Generate link creates a usable single-workspace invite without extra navigation", async ({ browser, page }) => {
     const guestContext = await browser.newContext()
     const guestPage = await guestContext.newPage()
