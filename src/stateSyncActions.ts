@@ -2,7 +2,6 @@ import * as Automerge from "@automerge/automerge/slim";
 import { assertWorkspaceCapability } from "./domain/permissions";
 import type { WorkspaceDocumentV2 } from "./domain/model";
 import { validateWorkspaceDoc } from "./domain/model";
-import { registerWorkspaceInRoot } from "./domain/personalRoot";
 import {
   workspaceRole,
   validateIncomingChanges,
@@ -25,7 +24,6 @@ import { stateRuntime } from "./stateContext";
 import {
   addWorkspaceToPersonalRoot,
   requireProfile,
-  saveActiveWorkspaceId,
   switchWorkspace,
 } from "./stateWorkspaceActions";
 
@@ -101,7 +99,8 @@ async function mergeAuthorizationBase(
   remote: Automerge.Doc<WorkspaceDocumentV2>,
 ) {
   const local = (await defaultStorage.loadWorkspaceDoc(id))?.doc;
-  return local && sharesBoard(local, remote) ? local : undefined;
+  if (local && !sharesBoard(local, remote)) throw new Error(`Workspace conflict: ${id} identifies different boards. Nothing was replaced.`);
+  return local;
 }
 
 async function mergeValidatedWorkspaceBytes(
@@ -118,8 +117,7 @@ async function mergeValidatedWorkspaceBytes(
     return true;
   }
   if (!sharesBoard(local, remote)) {
-    await moveLocalWorkspaceAside(id, local, remote, storage);
-    return true;
+    throw new Error(`Workspace conflict: ${id} identifies different boards. Nothing was replaced.`);
   }
   if (remote.ownerPersonId !== local.ownerPersonId)
     throw new Error("Workspace ownership cannot change through sync.");
@@ -147,58 +145,6 @@ function sameHeads(
     Automerge.getHeads(left).sort().join() ===
     Automerge.getHeads(right).sort().join()
   );
-}
-
-async function moveLocalWorkspaceAside(
-  id: string,
-  local: Automerge.Doc<WorkspaceDocumentV2>,
-  remote: Automerge.Doc<WorkspaceDocumentV2>,
-  storage: WorkspaceStorage,
-): Promise<void> {
-  const localId = crypto.randomUUID();
-  const localTitle = await uniqueLocalTitle(local.title, storage);
-  const moved = await storage.rekeyWorkspace(id, localId, localTitle);
-  if (stateRuntime.activeDoc?.id === id) {
-    saveActiveWorkspaceId(localId);
-    updateReactiveState(moved);
-  }
-  await moveRootWorkspaceReference(id, localId, storage);
-  await saveMergedWorkspace(id, remote, storage);
-}
-
-async function uniqueLocalTitle(
-  title: string,
-  storage: WorkspaceStorage,
-): Promise<string> {
-  const taken = new Set(
-    (await storage.listWorkspaces()).map((workspace) => workspace.title),
-  );
-  const base = `${title} (local)`;
-  let candidate = base;
-  for (let suffix = 2; taken.has(candidate); suffix += 1)
-    candidate = `${base} ${suffix}`;
-  return candidate;
-}
-
-async function moveRootWorkspaceReference(
-  id: string,
-  localId: string,
-  storage: WorkspaceStorage,
-): Promise<void> {
-  const root = await storage.loadPersonalRoot();
-  if (!root) return;
-  const previous = root.workspaces[id];
-  delete root.workspaces[id];
-  root.workspaces[localId] = previous
-    ? { ...previous, workspaceId: localId, documentId: localId }
-    : {
-        workspaceId: localId,
-        documentId: localId,
-        grantHash: "genesis",
-        forgotten: false,
-      };
-  registerWorkspaceInRoot(root, id, id, "shared");
-  await storage.savePersonalRoot(root);
 }
 
 async function saveMergedWorkspace(

@@ -3,6 +3,7 @@ import { defineConfig } from "@playwright/test"
 const port = Number(process.env.MATCH_E2E_PORT ?? 4244)
 
 const networkSpecs = [
+  "**/member-access.spec.ts",
   "**/chat.spec.ts",
   "**/durable-mesh.spec.ts",
   "**/scoped-sync.spec.ts",

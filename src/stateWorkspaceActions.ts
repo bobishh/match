@@ -152,7 +152,7 @@ export async function requireProfile() {
   return stateRuntime.currentProfile;
 }
 
-export function saveActiveWorkspaceId(id: string): void {
+function saveActiveWorkspaceId(id: string): void {
   if (typeof localStorage !== "undefined")
     localStorage.setItem("match.active_workspace_id", id);
 }

@@ -720,6 +720,7 @@ describe("DurableMesh peer catalog gossip", () => {
       updatedAt: new Date().toISOString(),
     }
     const store = {
+      getWorkspaceCredential: async () => credential,
       getPeer: async () => ({
         workspaceId: "workspace-1", personId: "previous-person", deviceId: owner.device.deviceId,
         endpoint: "old-endpoint", transportSecret: "mesh-secret", role: "visitor" as const,

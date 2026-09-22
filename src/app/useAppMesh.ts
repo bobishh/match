@@ -55,7 +55,7 @@ export function useAppMesh(context: MeshContext) {
     const selfId = chat.personId.value
     const personIds = new Set(peers.map(peer => peer.personId))
     if (selfId) personIds.add(selfId)
-    return [...personIds].map(personId => createMeshMember(personId, peers, selfId, sync, chat, currentWorkspaceOwnerId.value))
+    return [...personIds].map(personId => createMeshMember(personId, peers, selfId, sync, chat, currentWorkspaceOwnerId.value, currentRole.value))
       .sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
   })
   const activeSuccession = computed(() => sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id))
@@ -87,6 +87,7 @@ export function useAppMesh(context: MeshContext) {
     try { await action() }
     catch (error) { peerAccessError.value = error instanceof Error ? error.message : message }
   }
+  const promoteWorkspacePeer = (personId: string) => meshAction(() => sync.promotePeer(personId), "Could not promote member")()
   const leaveWorkspaceMesh = meshAction(() => sync.leaveMesh(), "Could not leave mesh")
   const claimWorkspaceSuccession = meshAction(() => sync.claimSuccession(), "Could not claim ownership")
   const breakGlassWorkspaceOwnership = meshAction(() => sync.breakGlassOwnership(), "Could not recover ownership")
@@ -100,10 +101,10 @@ export function useAppMesh(context: MeshContext) {
     catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not revoke access" }
     finally { revokingPeer.value = "" }
   }
-  return { meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, repairableHistory, repairHistory, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, canBreakGlassOwnership, transferringOwnership, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer }
+  return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, repairableHistory, repairHistory, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, canBreakGlassOwnership, transferringOwnership, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer }
 }
 
-function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string) {
+function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string, currentRole: WorkspaceRole) {
   const devices = peers.filter(peer => peer.personId === personId)
   const self = personId === selfId
   const localUserAgent = sync.localUserAgent.value || undefined
@@ -115,5 +116,5 @@ function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSy
   }))
   if (self && sync.localDeviceId.value && !deviceList.some(device => device.deviceId === sync.localDeviceId.value)) deviceList.push({ deviceId: sync.localDeviceId.value, name: "This device", online: true, lastSeen: new Date().toISOString(), userAgent: localUserAgent, description: describeUserAgent(localUserAgent), tabs: 1 })
   const peerRole = devices[0]?.role ?? "visitor"
-  return { personId, name: self ? chat.displayName.value || "You" : chat.members.value.find(member => member.personId === personId)?.name ?? `Participant · ${personId.slice(0, 6)}`, role: personId === ownerId ? "owner" as const : peerRole === "owner" ? "editor" as const : peerRole, online: deviceList.some(device => device.online), onlineDevices: deviceList.filter(device => device.online).length, devices: deviceList.length, deviceList, self }
+  return { personId, name: self ? chat.displayName.value || "You" : chat.members.value.find(member => member.personId === personId)?.name ?? `Participant · ${personId.slice(0, 6)}`, role: self ? currentRole : personId === ownerId ? "owner" as const : peerRole === "owner" ? "editor" as const : peerRole, online: deviceList.some(device => device.online), onlineDevices: deviceList.filter(device => device.online).length, devices: deviceList.length, deviceList, self }
 }

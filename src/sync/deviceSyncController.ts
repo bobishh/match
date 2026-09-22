@@ -1,3 +1,4 @@
+import { deviceManagementActions, ownedWorkspaceIds } from "./deviceManagementActions"
 import { ref, type Ref } from "vue"
 import { parseInvitation, type ScopedInvitation } from "@meta-uber/mesh-pairing"
 import { irohTransport } from "./irohTransport"
@@ -118,13 +119,7 @@ class DeviceSyncController {
   }
 
   private async getOwnedWorkspaceIds() {
-    if (!this.workspaceOwner) return []
-    const profile = await this.getProfile()
-    const result: string[] = []
-    for (const workspace of this.availableWorkspaces.value) {
-      if (await this.workspaceOwner(workspace.id) === profile.identity.personId) result.push(workspace.id)
-    }
-    return result
+    return ownedWorkspaceIds(this.availableWorkspaces.value, this.workspaceOwner, (await this.getProfile()).identity.personId)
   }
 
   private decideJoin(id: string, approve: boolean) {
@@ -222,6 +217,7 @@ class DeviceSyncController {
     const workspaceId = this.activeWorkspaceId?.()
     const mesh = await this.ensureDurableMesh()
     if (!workspaceId || !mesh) throw new Error("No active workspace")
+    await mesh.leaveWorkspace(workspaceId)
     this.run += 1
     this.wakeRetry?.()
     this.beforeLeaveWorkspace(workspaceId)
@@ -230,7 +226,6 @@ class DeviceSyncController {
       await this.stopNode("Leaving workspace mesh")
       for (const session of this.directPeerSessions.values()) await session.close().catch(() => {})
       this.directPeerSessions.clear()
-      await mesh.leaveWorkspace(workspaceId)
       void this.startDurableMesh()
     } finally { this.leavingWorkspaceIds.delete(workspaceId) }
   }
@@ -443,6 +438,11 @@ class DeviceSyncController {
 
   private async showInviteStep(invite: ScopedInvitation) {
     if (invite.kind === "device-enrollment") {
+      const profile = await this.getProfile()
+      this.state.replacementPersonId.value = undefined
+      this.state.enrollmentConflict.value = profile.identity.personId === invite.issuerPersonId ? null : {
+        currentPersonId: profile.identity.personId, currentName: profile.identity.displayName, targetPersonId: invite.issuerPersonId,
+      }
       this.state.step.value = "enroll-guest"
       this.state.authCode.value = await deriveTranscriptAuthCode(invite.secret, invite.invitationId, invite.issuerPublicKey)
       return
@@ -463,10 +463,16 @@ class DeviceSyncController {
     window.history.replaceState(window.history.state, "", url)
   }
 
-  private async requestEnrollment() {
+  private async requestEnrollment(replaceIdentity = false) {
     const invite = this.state.parsedInvite.value
     if (!invite || invite.kind !== "device-enrollment" || this.state.step.value !== "enroll-guest") return
     await this.ensureDurableMesh()
+    const profile = await this.getProfile()
+    if (profile.identity.personId !== invite.issuerPersonId && (!replaceIdentity || this.state.enrollmentConflict.value?.currentPersonId !== profile.identity.personId)) {
+      this.state.error.value = "Identity conflict: confirm the identity replacement first."
+      return
+    }
+    this.state.replacementPersonId.value = replaceIdentity ? profile.identity.personId : undefined
     await requestDeviceEnrollment(this.enrollmentContext(), invite)
   }
 
@@ -526,10 +532,12 @@ class DeviceSyncController {
       selectedWorkspaceId: state.selectedWorkspaceId, selectedWorkspaceIds: state.selectedWorkspaceIds, invitationWorkspaceTitle: state.invitationWorkspaceTitle,
       invitationWorkspaces: state.invitationWorkspaces, availableWorkspaces: this.availableWorkspaces, open: () => this.open(),
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
-      approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName,
-      requestEnrollment: () => this.requestEnrollment(), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
+      approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
+      requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
       joinFromLocation: (raw: string) => this.joinFromLocation(raw), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
       fetchBlob: (workspaceId: string, descriptor: BlobDescriptor) => this.fetchBlob(workspaceId, descriptor),
+      ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
+      promotePeer: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.promotePerson(id, personId), true),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),
       setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)),

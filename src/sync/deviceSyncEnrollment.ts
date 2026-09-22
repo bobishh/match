@@ -448,7 +448,7 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
   await replica.validate(fromBase64Url(prepared.payload.snapshot))
   await context.durableMesh!.validateInvitation(prepared.payload.meshWorkspaces, ids, prepared.profile, prepared.payload.grants)
-  const enrolled = await installEnrollment(response, invite, profile)
+  const enrolled = await installEnrollment(response, invite, profile, context.state.replacementPersonId.value)
   await context.identityChanged?.()
   await replica.receive(fromBase64Url(enrolled.snapshot))
   await context.durableMesh!.receiveInvitation(enrolled.meshWorkspaces, ids, enrolled.profile, enrolled.grants)

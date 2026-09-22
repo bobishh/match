@@ -1,5 +1,5 @@
 import { type LocalProfile} from "../domain/identity"
-import type { DeviceCertificate } from "../domain/model"
+import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { BrowserMeshGossip, MeshReconnectPolicy, MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
 import type { BrowserMeshLifecycle } from "@meta-uber/mesh-runtime"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
@@ -7,7 +7,7 @@ import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtim
 import type { defaultProofStore } from "../domain/proofs"
 import {
   MAX_SUCCESSION_EDITORS,
-  type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
+  type WorkspaceDeparture, type WorkspaceDeviceRevocation, type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
   type WorkspaceBreakGlassClaim } from "./meshRecords"
 import { acquireMeshInstanceLease } from "./meshInstanceLease"
@@ -25,6 +25,8 @@ export type MeshWorkspaceEnvelope = {
   transportSecret: string
   epoch: number
   peers: WorkspaceMemberBundle[]
+  departures?: WorkspaceDeparture[]
+  deviceRevocations?: WorkspaceDeviceRevocation[]
   revocations?: WorkspaceRevocation[]
   ownerHistory?: WorkspaceAuthority[]
   ownershipTransfers?: WorkspaceOwnershipTransfer[]
@@ -37,6 +39,8 @@ export type MeshWorkspaceEnvelope = {
 export type MeshExport = {
   version: 1
   peers: WorkspaceMemberBundle[]
+  departures?: WorkspaceDeparture[]
+  deviceRevocations?: WorkspaceDeviceRevocation[]
   revocations: WorkspaceRevocation[]
   ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy
@@ -150,7 +154,7 @@ export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
   return required && collections && optional
 }
 
-export type MeshCatalog = { revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
+export type MeshCatalog = { departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   breakGlassClaims?: WorkspaceBreakGlassClaim[] }
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
@@ -196,7 +200,7 @@ export function revokedPersonIds(credential: WorkspaceMeshCredential) {
 export function isGrantRevoked(credential: WorkspaceMeshCredential, personId: string,
   grant: { payload?: { accessEpoch?: unknown } } | undefined): boolean {
   const accessEpoch = typeof grant?.payload?.accessEpoch === "number" ? grant.payload.accessEpoch : 1
-  return revocations(credential).some(record => record.payload.personId === personId && record.payload.epoch >= accessEpoch)
+  return hasLeftWorkspace(credential, personId, grant as WorkspaceGrant | undefined) || revocations(credential).some(record => record.payload.personId === personId && record.payload.epoch >= accessEpoch)
 }
 
 export abstract class DurableMeshBase {
@@ -377,4 +381,17 @@ export abstract class DurableMeshBase {
   protected abstract stop(releaseInstance?: boolean): Promise<void>
   protected abstract notify(): Promise<void>
   protected abstract publishAll(): Promise<void>
+}
+
+export function deviceRevocations(credential: WorkspaceMeshCredential): WorkspaceDeviceRevocation[] {
+  return meshCatalog(credential).deviceRevocations ?? []
+}
+export function isDeviceRevoked(credential: WorkspaceMeshCredential, personId: string, deviceId: string): boolean {
+  return deviceRevocations(credential).some(value => value.record.payload.personId === personId && value.record.payload.deviceId === deviceId)
+}
+
+export function departures(credential: WorkspaceMeshCredential): WorkspaceDeparture[] { return meshCatalog(credential).departures ?? [] }
+export function hasLeftWorkspace(credential: WorkspaceMeshCredential, personId: string, grant?: WorkspaceGrant): boolean {
+  if (credential.ownerPersonId === personId) return false
+  return departures(credential).some(value => value.record.payload.personId === personId && value.record.payload.accessEpoch >= (grant?.payload.accessEpoch ?? 1))
 }

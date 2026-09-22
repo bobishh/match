@@ -71,7 +71,7 @@ const {
   canClaimSuccession, canBreakGlassOwnership, transferringOwnership, revokingPeer,
   peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
-  claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer,
+  claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer, promoteWorkspacePeer,
 } = app.collaboration.mesh
 const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates,
@@ -418,6 +418,8 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       :selected-workspace-ids="sync.selectedWorkspaceIds.value"
       :selected-workspace-id="sync.selectedWorkspaceId.value"
       :mesh-members="meshMembers"
+      v-bind="{ activeWorkspaceId: activeWorkspace.id, localDeviceId: sync.localDeviceId.value,
+        removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value }"
       :has-mesh="meshMembers.length > 0"
       :current-person-id="chat.personId.value"
       :current-role="currentRole"
@@ -446,6 +448,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       @vote-successor="voteForWorkspaceSuccessor"
       @claim-succession="claimWorkspaceSuccession"
       @break-glass-ownership="breakGlassWorkspaceOwnership"
+      @promote-peer="promoteWorkspacePeer"
       @request-enrollment="sync.requestEnrollment"
       :enrollment-device-name="sync.enrollmentDeviceName.value"
       @approve-device="sync.approveEnrollment"

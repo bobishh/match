@@ -1,5 +1,6 @@
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked } from "./durableMeshBase"
 import { type LocalProfile} from "../domain/identity"
-import type { DeviceCertificate } from "../domain/model"
+import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { isMeshNetworkFailure, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
 import { BrowserMeshDialScheduler, BrowserMeshDocumentSessions, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
@@ -12,7 +13,7 @@ import { verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshR
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync} from "./workspaceSet"
-import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revocations, revokedPersonIds,
+import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, revocations, isGrantRevoked,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
@@ -195,7 +196,8 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     return this.validateHandshake({ workspaceId: peer.workspaceId, peer: await this.ownBundle(credential),
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
+      revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
+      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, peer.workspaceId)
   }
 
   protected async verifyOutgoingHandshakePeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle) {
@@ -203,6 +205,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
     const payload = verified.advertisement.payload
+    if (hasLeftWorkspace(credential, payload.personId, bundle.grant) || isDeviceRevoked(credential, payload.personId, payload.deviceId)) throw new Error("Device access revoked")
     return { deviceId: payload.deviceId, instanceId: payload.instanceId ?? "legacy", issuedAt: payload.issuedAt,
       routeSequence: payload.routeSequence, personId: payload.personId, endpoint: payload.endpoint }
   }
@@ -400,7 +403,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     const profile = await this.options.getProfile()
     const result: string[] = []
     for (const credential of await this.store.listWorkspaceCredentials()) {
-      if (revokedPersonIds(credential).has(profile.identity.personId)) result.push(credential.workspaceId)
+      if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || (deviceRevocations(credential).length > 0 && isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId)) || isGrantRevoked(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined)) result.push(credential.workspaceId)
     }
     return result
   }

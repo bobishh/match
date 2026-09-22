@@ -35,6 +35,26 @@ profile for a demo so you do not enroll someone else's browser into your identit
 The [demo guide](docs/demo.md) covers offline edits, attachments, and what to explain
 when showing the project.
 
+## Identity and access
+
+- Enrolling into another identity requires explicit confirmation. The previous
+  identity is backed up locally; enrollment does not merge people or their rights.
+- Conflicting workspace IDs or owners stop the import without replacing the local
+  board. A newer grant cannot be overwritten by an older network announcement.
+- In **Sync**, an owner can select a visitor and choose **Make editor**.
+- **Remove device** asks whether to apply to this board or all eligible boards,
+  listing the affected boards. Editors can remove their own other devices; owners
+  can remove other participants' devices only from boards they own. Removal is
+  signed and survives reconnects. Reusing a removed device requires a new device
+  identity; old local copies cannot be remotely erased.
+- **Leave mesh** leaves the participant's membership on all their devices for that
+  board, while preserving the identity and other boards. Owners must transfer
+  ownership first. A peer must be connected to deliver the departure; the local
+  copy remains read-only, and returning requires a new invitation.
+
+Reload Match on both sides after this protocol update. Older clients cannot join
+sessions until they support device removals and membership departures.
+
 ## Run locally
 
 Requirements: Git and Node.js 22 or newer. Rust is **not** needed to run Match:

@@ -67,7 +67,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
     canBreakGlassOwnership, transferringOwnership, revokingPeer, peerAccessError,
     repairableHistory, repairHistory, transferWorkspaceOwnership, leaveWorkspaceMesh,
     setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession,
-    breakGlassWorkspaceOwnership, revokeWorkspacePeer,
+    breakGlassWorkspaceOwnership, revokeWorkspacePeer, promoteWorkspacePeer,
   } = core
   return {
     device: { sync, chat },
@@ -77,7 +77,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
       activeSuccession, canClaimSuccession, canBreakGlassOwnership, transferringOwnership,
       revokingPeer, peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
       leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
-      claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer,
+      claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer, promoteWorkspacePeer,
     },
   }
 }

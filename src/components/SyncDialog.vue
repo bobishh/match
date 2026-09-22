@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import EnrollmentRequest from "./EnrollmentRequest.vue"
+import DeviceRemovalControl from "./DeviceRemovalControl.vue"
 import ModalLayer from "./ModalLayer.vue"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import type { SyncStep } from "../app/syncTypes"
@@ -12,6 +14,7 @@ const props = defineProps<{
   copyNotice: string
   error: string
   enrollmentDeviceName?: string
+  enrollmentConflict?: { currentPersonId: string; currentName: string; targetPersonId: string } | null
   authCode?: string
   invitationWorkspaceTitle?: string
   invitationWorkspaces?: { id: string; title: string }[]
@@ -36,6 +39,10 @@ const props = defineProps<{
       tabs: number
     }>
   }>
+  activeWorkspaceId?: string
+  localDeviceId?: string
+  removableDeviceWorkspaces?: (personId: string, deviceId: string) => Promise<{ id: string; title: string }[]>
+  removeDevice?: (personId: string, deviceId: string, workspaceIds: string[]) => Promise<void>
   hasMesh?: boolean
   currentPersonId?: string
   currentRole?: "owner" | "editor" | "visitor"
@@ -70,13 +77,14 @@ const emit = defineEmits<{
   (e: "generateWorkspaceInvite"): void
   (e: "transferOwnership", personId: string): void
   (e: "leaveMesh"): void
+  (e: "promotePeer", personId: string): void
   (e: "repairHistory"): void
   (e: "setSuccessor", personId: string | null): void
   (e: "voteSuccessor", personId: string): void
   (e: "claimSuccession"): void
   (e: "breakGlassOwnership"): void
   (e: "copy", url?: string): void
-  (e: "requestEnrollment"): void
+  (e: "requestEnrollment", replaceIdentity: boolean): void
   (e: "approveDevice"): void
   (e: "declineDevice"): void
   (e: "acceptAndJoin"): void
@@ -103,6 +111,7 @@ const isEnrollmentHost = computed(
 const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
 const confirmingRecovery = ref(false)
+
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
 const canVoteForSelectedMember = computed(() => {
@@ -217,6 +226,9 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
                 <code>{{ device.deviceId.slice(0, 8) }}</code>
               </div>
               <small>{{ device.description }}</small>
+              <DeviceRemovalControl v-if="device.deviceId !== localDeviceId && (canManageMesh || (selectedMember.self && currentRole === 'editor'))"
+                :person-id="selectedMember.personId" :device-id="device.deviceId" :name="device.name" :active-workspace-id="activeWorkspaceId"
+                :removable-device-workspaces="removableDeviceWorkspaces" :remove-device="removeDevice" />
               <small>{{ device.tabs }} {{ device.tabs === 1 ? 'tab' : 'tabs' }}</small>
               <small>{{ device.online ? 'Online now' : `Last seen ${new Date(device.lastSeen).toLocaleString()}` }}</small>
               <details v-if="device.userAgent" class="mesh-device-ua">
@@ -225,6 +237,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
               </details>
             </li>
           </ul>
+          <button v-if="canManageMesh && selectedMember.role === 'visitor'" class="button" type="button" @click="emit('promotePeer', selectedMember.personId)">Make editor</button>
           <p v-if="canManageMesh && selectedMember.role !== 'owner' && !selectedMember.online" class="dialog-copy">This member must be online before ownership can move.</p>
           <p v-else-if="canManageMesh && selectedMember.role !== 'owner'" class="dialog-copy">They become owner. You keep editor access.</p>
           <button
@@ -274,7 +287,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
         <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">
           <strong>Leave this workspace mesh?</strong>
-          <p class="dialog-copy">Workspace data stays on this device. Trusted peers, access grant, and automatic sync are removed.</p>
+          <p class="dialog-copy">Your identity leaves this workspace on all its devices. Your identity and other workspaces are kept. Local data stays as a read-only copy. An owner must transfer ownership first; another workspace device must be connected.</p>
           <div class="dialog-actions">
             <button class="button button-danger" type="button" @click="emit('leaveMesh'); confirmingLeave = false">Leave mesh, keep copy</button>
             <button class="button button-quiet" type="button" @click="confirmingLeave = false">Cancel</button>
@@ -380,15 +393,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       </template>
 
       <!-- Step 5: Enroll guest request -->
-      <template v-else-if="step === 'enroll-guest'">
-        <p class="dialog-copy">
-          Add this device to the identity of your other device. You receive Owner access to the workspaces it owns.
-          Existing boards stay saved on this device. The identity changes only after approval on your other device.
-        </p>
-        <div class="dialog-actions sync-step-actions">
-          <button class="button button-primary" type="button" @click="emit('requestEnrollment')">Add this device</button>
-        </div>
-      </template>
+      <EnrollmentRequest v-else-if="step === 'enroll-guest'" :conflict="enrollmentConflict" @request="emit('requestEnrollment', $event)" />
 
       <!-- Step 6: Enroll guest waiting -->
       <template v-else-if="step === 'enroll-guest-waiting'">

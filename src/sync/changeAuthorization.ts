@@ -1,3 +1,4 @@
+import { deviceAccessRevoked } from "./workspaceAccessRevocation"
 import * as Automerge from "@automerge/automerge/slim"
 import { bootstrapIdentity, canonicalizeJson, publicKeyId, signEnvelope, verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
 import { isItem } from "../domain/model"
@@ -296,17 +297,19 @@ async function putRecords(id: string, incoming: Authorization[]): Promise<boolea
 }
 export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfile): Promise<WorkspaceRole> {
   const authority = await recoverWorkspaceAuthority(doc, profile)
+  if (authority && deviceAccessRevoked(authority.catalog, profile.identity.personId, profile.device.deviceId)) return "visitor"
   if (authority?.ownerPersonId === profile.identity.personId && authority.ownerPublicKey === profile.identity.publicKey) return "owner"
   if (!authority && typeof indexedDB === "undefined" && doc.ownerPersonId === profile.identity.personId) return "owner"
   if (!authority) return "visitor"
   const grant = authority.localGrant as WorkspaceGrant | undefined
   if (!grant || grant.payload.personId !== profile.identity.personId || grant.payload.workspaceId !== doc.id) return "visitor"
-  if (await localWorkspaceAccessRevoked(authority, doc.id, profile.identity.personId, grant)) return "visitor"
+  if (await localWorkspaceAccessRevoked(authority, doc.id, profile.identity.personId, profile.device.deviceId, grant)) return "visitor"
   return roleFromAuthorities(grant, doc.id, profile.identity.personId, authorities(authority))
 }
 
-async function localWorkspaceAccessRevoked(authority: StoredWorkspaceAuthority, workspaceId: string, personId: string, grant: WorkspaceGrant): Promise<boolean> {
-  return ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string; epoch?: number } }> } | undefined)?.revocations ?? []).some(record => record?.payload?.personId === personId && (record.payload.epoch ?? 1) >= (grant.payload.accessEpoch ?? 1)) || (await peerStore.listPeers(workspaceId)).some(peer => peer.personId === personId && peer.revokedAt)
+async function localWorkspaceAccessRevoked(authority: StoredWorkspaceAuthority, workspaceId: string, personId: string, deviceId: string, grant: WorkspaceGrant): Promise<boolean> {
+  const departed = ((authority.catalog as { departures?: Array<{ record: { payload: { personId: string; accessEpoch: number } } }> } | undefined)?.departures ?? []).some(value => value.record.payload.personId === personId && value.record.payload.accessEpoch >= (grant.payload.accessEpoch ?? 1))
+  return departed || ((authority.catalog as { revocations?: Array<{ payload?: { personId?: string; epoch?: number } }> } | undefined)?.revocations ?? []).some(record => record?.payload?.personId === personId && (record.payload.epoch ?? 1) >= (grant.payload.accessEpoch ?? 1)) || (await peerStore.listPeers(workspaceId)).some(peer => peer.personId === personId && peer.deviceId === deviceId && peer.revokedAt)
 }
 
 export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerPersonId: string) {
@@ -434,6 +437,11 @@ type IncomingAuthorizationContext = {
 }
 
 async function incomingAuthorizationRole(record: Authorization, personId: string, context: IncomingAuthorizationContext): Promise<WorkspaceRole> {
+  try {
+    if ((await peerStore.listPeers(context.workspaceId)).some(peer => peer.personId === personId && peer.deviceId === record.signed.payload.deviceId && peer.revokedAt)) throw new Error("Workspace device access revoked")
+  } catch (error) {
+    if (typeof indexedDB !== "undefined" || !/IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) throw error
+  }
   if (personId === context.expectedOwner) return "owner"
   const storedOwners = context.ownerSet.length ? context.ownerSet : [{ personId: context.expectedOwner,
     publicKey: record.ownerPublicKey, certificates: record.ownerCertificates }]
@@ -441,14 +449,6 @@ async function incomingAuthorizationRole(record: Authorization, personId: string
     authoritiesWithEmbeddedCertificates(storedOwners, record))
   const historical = context.historicalHashes.get(personId)
   if (grantRole !== "editor" && !historical) throw new Error("Visitors cannot write workspace changes")
-  try {
-    if ((await peerStore.listPeers(context.workspaceId)).some(peer => peer.personId === personId && peer.revokedAt)) {
-      throw new Error("Workspace access revoked")
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message === "Workspace access revoked") throw error
-    if (typeof indexedDB !== "undefined" || !/IndexedDB is not available/i.test(error instanceof Error ? error.message : String(error))) throw error
-  }
   return grantRole === "editor" ? "editor" : "owner"
 }
 

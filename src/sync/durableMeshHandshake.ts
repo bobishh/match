@@ -8,10 +8,10 @@ import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as netw
 import { createPeerAdvertisement,
   verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
-  type WorkspaceBreakGlassClaim } from "./meshRecords"
+  type WorkspaceDeparture, type WorkspaceDeviceRevocation, type WorkspaceBreakGlassClaim } from "./meshRecords"
 import { type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection, SyncNode, DuplexStream } from "./transport"
-import { DurableMeshBase, MeshNodeRestart, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, isGrantRevoked, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
+import { DurableMeshBase, MeshNodeRestart, departures, deviceRevocations, isDeviceRevoked, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, ownerAuthorities, isGrantRevoked, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
 import { DurableMeshAuthority } from "./durableMeshAuthority"
 
 type InstallSessionArguments = [
@@ -187,7 +187,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     workspaceId: credential => credential.workspaceId,
     mergeAuthority: (credential, request) => this.mergeIncomingAuthority(credential, request),
     verifyPeer: (credential, bundle) => this.verifyIncomingPeer(credential, bundle),
-    revoked: (credential, personId, grant) => isGrantRevoked(credential, personId, grant as WorkspaceGrant | undefined),
+    revoked: (credential, personId, grant, deviceId) => isDeviceRevoked(credential, personId, deviceId) || isGrantRevoked(credential, personId, grant as WorkspaceGrant | undefined),
     revocations: credential => revocations(credential),
     ownBundle: credential => this.ownBundle(credential),
     response: (credential, remotePersonId) => this.incomingResponse(credential, remotePersonId),
@@ -221,13 +221,24 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   }
 
   protected async mergeIncomingAuthority(credential: WorkspaceMeshCredential, request: {
+    departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; capabilities?: string[];
     ownershipTransfers?: WorkspaceOwnershipTransfer[]; breakGlassClaims?: WorkspaceBreakGlassClaim[];
     successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   }): Promise<WorkspaceMeshCredential> {
+    credential = await this.mergeHandshakeAccess(credential, request)
     if (Array.isArray(request.ownershipTransfers)) credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers)
     if (Array.isArray(request.breakGlassClaims)) credential = await this.mergeBreakGlassClaims(credential, request.breakGlassClaims)
     await this.mergeSuccessionState(credential, request.successionPolicy, request.successionVotes ?? [], request.successionClaims ?? [])
     return await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
+  }
+
+  private async mergeHandshakeAccess(credential: WorkspaceMeshCredential, request: { deviceRevocations?: WorkspaceDeviceRevocation[]; departures?: WorkspaceDeparture[]; capabilities?: string[] }) {
+    if (!request.capabilities?.includes("device-revocation-v1")) throw new Error("Reload Match to support device removals")
+    await this.mergeDeviceRevocations(credential, request.deviceRevocations ?? [])
+    credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
+    await this.mergeDepartures(credential, request.departures ?? [])
+    credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
+    return credential
   }
 
   protected async verifyIncomingPeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle): Promise<IncomingPeer> {
@@ -246,7 +257,8 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     return this.validateHandshake({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       breakGlassClaims: breakGlassClaims(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
-      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, credential.workspaceId)
+      revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
+      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, credential.workspaceId)
   }
 
   protected async afterIncomingInstall(credential: WorkspaceMeshCredential, remote: IncomingPeer,

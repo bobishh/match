@@ -106,20 +106,16 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(match.ready.value).toBe(true)
   })
 
-  it("moves an unrelated populated same-ID workspace aside before saving the invited workspace", async () => {
+  it("rejects an unrelated same-ID workspace without changing local documents or identity", async () => {
     const match = useMatch()
     await match.createLeadAsync({ company: "Local data", role: "Engineer", status: "lead" })
     const id = match.getActiveDoc()!.id
     const unrelated = Automerge.from(createWorkspaceDoc(id, "Remote board", match.getActiveDoc()!.ownerPersonId, "blank"))
     const bytes = Automerge.save(unrelated)
-    await match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizations(bytes))
-
-    expect(match.activeWorkspace.id).not.toBe(id)
-    expect(match.activeWorkspace.title).toBe("Job search (local)")
+    await expect(match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizations(bytes))).rejects.toThrow("Workspace conflict")
+    expect(match.activeWorkspace.id).toBe(id)
+    expect(match.activeWorkspace.title).toBe("Job search")
     expect(match.workspace.leads.some(lead => lead.company === "Local data")).toBe(true)
-    await match.switchWorkspace(id)
-    expect(match.activeWorkspace.title).toBe("Remote board")
-    expect(match.workspace.leads).toHaveLength(0)
   })
 
   it("migrates persisted task cards into a signed structural-item change before sharing", async () => {

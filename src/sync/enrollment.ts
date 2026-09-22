@@ -82,8 +82,22 @@ function hasMatchingEnrollmentContents(payload: z.infer<typeof approvalSchema>["
     item.ownerPersonId === invite.issuerPersonId && item.ownerPublicKey === payload.personalRoot.identity.publicKey && workspaceIds.has(item.workspaceId))
 }
 
-export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
+export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollmentInvitation, profile: LocalProfile, replacePersonId?: string) {
   const prepared = await preflightEnrollment(bytes, invite, profile)
+  if (prepared.profile.identity.personId !== profile.identity.personId && replacePersonId !== profile.identity.personId) {
+    throw new Error("Identity conflict: this device already belongs to another identity. Explicit replacement is required; identities and permissions are not merged.")
+  }
+  const existingRoot = profile.identity.personId === prepared.profile.identity.personId
+    ? await defaultStorage.loadPersonalRoot() : await defaultStorage.loadPersonalRoot(prepared.payload.personalRoot.rootId)
+  if (existingRoot?.identity.personId === prepared.profile.identity.personId) {
+    const incoming = prepared.payload.personalRoot
+    for (const [id, device] of Object.entries(incoming.devices)) {
+      if (existingRoot.devices[id] && existingRoot.devices[id]!.publicKey !== device.publicKey) throw new Error("Identity conflict: a device id has different public keys")
+    }
+    prepared.payload.personalRoot = { ...incoming, rootId: existingRoot.rootId,
+      devices: { ...existingRoot.devices, ...incoming.devices },
+      workspaces: { ...incoming.workspaces, ...existingRoot.workspaces } }
+  }
   for (const cert of prepared.certificates) await defaultProofStore.putCertificate(await certHashDefault(cert), cert)
   await defaultStorage.savePersonalRoot(prepared.payload.personalRoot)
   const enrolled = await adoptEnrolledIdentity(prepared.payload.personalRoot.identity, prepared.payload.certificate)

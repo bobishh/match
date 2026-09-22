@@ -286,6 +286,8 @@ test("Given paired browser profiles, when either peer changes a card, then the o
     await peer.goto(invite)
     const peerDialog = peer.getByRole("dialog", { name: "Device sync" })
     await expect(peerDialog.getByRole("button", { name: "Connect to mesh" })).toHaveCount(0)
+    await peerDialog.getByRole("button", { name: "Add this device" }).waitFor({ state: "visible" })
+    if (await peerDialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).count()) await peerDialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).check()
     await peerDialog.getByRole("button", { name: "Add this device" }).click()
     await hostDialog.getByRole("button", { name: "Approve device" }).click()
     await expect(peerDialog.getByText("Device enrolled", { exact: true })).toBeVisible({ timeout: 25_000 })

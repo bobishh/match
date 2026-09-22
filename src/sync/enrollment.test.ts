@@ -8,7 +8,7 @@ import { createEnrollmentRequest, enrollmentPayload, installEnrollment, prefligh
 import { defaultStorage } from "../storage"
 import { verifyDeviceChain } from "./meshRecords"
 
-vi.mock("../storage", () => ({ defaultStorage: { savePersonalRoot: vi.fn(async () => {}) } }))
+vi.mock("../storage", () => ({ defaultStorage: { loadPersonalRoot: vi.fn(async () => null), savePersonalRoot: vi.fn(async () => {}) } }))
 
 async function fixture() {
   const owner = await bootstrapIdentity("Owner")
@@ -30,6 +30,25 @@ async function fixture() {
 beforeEach(() => { resetIdentityStorageForTest(); resetInvitationStorageForTest() })
 
 describe("device enrollment boundary", () => {
+  it("rejects replacement of another identity without explicit consent before writing anything", async () => {
+    const { guest, invite, bytes } = await fixture()
+    vi.mocked(defaultStorage.savePersonalRoot).mockClear()
+    await expect(installEnrollment(bytes, invite, guest)).rejects.toThrow("Identity conflict")
+    expect((await bootstrapIdentity()).identity.personId).toBe(guest.identity.personId)
+    expect(defaultStorage.savePersonalRoot).not.toHaveBeenCalled()
+  })
+
+  it("preserves an existing target identity's local root entries during enrollment", async () => {
+    const { owner, guest, invite, bytes } = await fixture()
+    const localRoot = createPersonalRoot(owner, await certHashDefault(owner.certificate))
+    localRoot.workspaces.local = { workspaceId: "local", documentId: "local", grantHash: "local-proof", forgotten: false }
+    vi.mocked(defaultStorage.loadPersonalRoot).mockResolvedValueOnce(localRoot)
+    const result = await installEnrollment(bytes, invite, guest, guest.identity.personId)
+    expect(result.personalRoot.rootId).toBe(localRoot.rootId)
+    expect(result.personalRoot.workspaces.local).toEqual(localRoot.workspaces.local)
+    expect(defaultStorage.savePersonalRoot).toHaveBeenLastCalledWith(result.personalRoot)
+  })
+
   it("requires possession of the requested device key and binds requests to an invitation", async () => {
     const { guest, invite } = await fixture()
     const bytes = await createEnrollmentRequest(invite, guest)
@@ -42,7 +61,7 @@ describe("device enrollment boundary", () => {
 
   it("persists the approved identity and device certificate without copying a root private key", async () => {
     const { owner, guest, invite, bytes } = await fixture()
-    await installEnrollment(bytes, invite, guest)
+    await installEnrollment(bytes, invite, guest, guest.identity.personId)
     clearInMemoryProfileForReloadTest()
     const restored = await bootstrapIdentity()
     expect(restored.identity.personId).toBe(owner.identity.personId)
@@ -54,7 +73,7 @@ describe("device enrollment boundary", () => {
 
   it("carries the sender's active workspace for the enrolled device", async () => {
     const { guest, invite, bytes } = await fixture()
-    expect((await installEnrollment(bytes, invite, guest)).activeWorkspaceId).toBe("ws")
+    expect((await installEnrollment(bytes, invite, guest, guest.identity.personId)).activeWorkspaceId).toBe("ws")
   })
 
   it("preflights approval without replacing the local identity or saving its root", async () => {
@@ -69,7 +88,7 @@ describe("device enrollment boundary", () => {
 
   it("carries the personal display-name preset to the enrolled device", async () => {
     const { guest, invite, bytes } = await fixture()
-    const enrolled = await installEnrollment(bytes, invite, guest)
+    const enrolled = await installEnrollment(bytes, invite, guest, guest.identity.personId)
     expect(enrolled.personalRoot.displayNamePreset).toBe("Owner preset")
     expect(defaultStorage.savePersonalRoot).toHaveBeenCalledWith(expect.objectContaining({ displayNamePreset: "Owner preset" }))
   })
@@ -86,13 +105,13 @@ describe("device enrollment boundary", () => {
   it("keeps the current identity when approval cannot be saved", async () => {
     const { guest, invite, bytes } = await fixture()
     vi.mocked(defaultStorage.savePersonalRoot).mockRejectedValueOnce(new Error("Storage full"))
-    await expect(installEnrollment(bytes, invite, guest)).rejects.toThrow("Storage full")
+    await expect(installEnrollment(bytes, invite, guest, guest.identity.personId)).rejects.toThrow("Storage full")
     expect((await bootstrapIdentity()).identity.personId).toBe(guest.identity.personId)
   })
 
   it("lets an enrolled device issue a verifiable delegated certificate for another device", async () => {
     const { owner, guest, invite, bytes, service } = await fixture()
-    const enrolled = await installEnrollment(bytes, invite, guest)
+    const enrolled = await installEnrollment(bytes, invite, guest, guest.identity.personId)
     resetIdentityStorageForTest()
     const third = await bootstrapIdentity("Third device")
     const thirdInvite = createDeviceEnrollmentInvite("second-endpoint", "another-secret", enrolled.profile)

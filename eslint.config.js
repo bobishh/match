@@ -13,6 +13,7 @@ export default tseslint.config(
     ],
   },
   js.configs.recommended,
+  { files: ["src/vendor/**/*.js"], languageOptions: { globals: globals.browser } },
   ...tseslint.configs.recommended,
   ...vue.configs["flat/essential"],
   {

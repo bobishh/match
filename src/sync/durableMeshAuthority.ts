@@ -1,11 +1,12 @@
+import { preferNewerMemberGrant, persistLocalMemberGrant } from "./memberGrant"
 import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
-import { defaultProofStore } from "../domain/proofs"
+import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
 import { BrowserMeshAuthority, BrowserMeshBreakGlass, BrowserMeshCatalog, BrowserMeshOwnershipTransfer, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
+import { createWorkspaceDeparture, verifyWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDeviceRevocation, verifyWorkspaceDeviceRevocation, type WorkspaceDeviceRevocation, createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
   verifyWorkspaceMemberBundle, verifyWorkspaceRevocation, verifyWorkspaceGrant,
   createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
   createWorkspaceBreakGlassClaim, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
@@ -14,7 +15,7 @@ import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerSt
 import { workspaceSet, publishConfirmedWorkspace} from "./workspaceSet"
 import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
-import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, isGrantRevoked, type MeshExport, type SessionEntry } from "./durableMeshBase"
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, isGrantRevoked, type MeshExport, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
@@ -26,7 +27,13 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     ownership: (credential, value) => this.mergeOwnershipTransfers(credential, value.ownershipTransfers ?? []),
     breakGlass: (credential, value) => this.mergeBreakGlassClaims(credential, value.breakGlassClaims ?? []),
     revocations: async (credential, value) => {
-      try { await this.mergeRevocations(credential, value.revocations) }
+      try {
+        await this.mergeDeviceRevocations(credential, value.deviceRevocations ?? [])
+        credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
+        await this.mergeDepartures(credential, value.departures ?? [])
+        credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
+        await this.mergeRevocations(credential, value.revocations)
+      }
       catch (error) {
         if (error instanceof Error && error.message === "Workspace access revoked") await this.notify()
         throw error
@@ -52,6 +59,9 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   protected async putVerifiedBundle(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle) {
+    credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
+    const previous = await this.store.getPeer(credential.workspaceId, raw.advertisement.payload.deviceId)
+    raw = preferNewerMemberGrant(previous?.advertisement as WorkspaceMemberBundle | undefined, raw)
     const verified = await verifyWorkspaceMemberBundle(raw, {
       workspaceId: credential.workspaceId,
       ownerPersonId: credential.ownerPersonId,
@@ -67,8 +77,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       await this.store.putWorkspaceCredential({ ...credential, ownerCertificates, updatedAt: new Date().toISOString() })
     }
     const p = verified.advertisement.payload
+    if (isDeviceRevoked(credential, p.personId, p.deviceId)) throw new Error("Device access revoked")
     const route = await adaptVerifiedWorkspaceAdvertisement(verified.advertisement)
     if (isGrantRevoked(credential, p.personId, raw.grant as WorkspaceGrant | undefined)) throw new Error("Workspace member is revoked")
+    await persistLocalMemberGrant(this.store, credential, await this.options.getProfile(), raw.grant, ownerCertificates)
     const record: WorkspacePeerRecord = {
       workspaceId: route.scopeId,
       personId: route.personId,
@@ -355,7 +367,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     disconnect: boolean): Promise<void> {
     for (const peer of await this.store.listPeers(credential.workspaceId)) {
       const record = records.get(peer.personId)
-      if (!record) continue
+      if (!record || !isGrantRevoked(credential, peer.personId, (peer.advertisement as WorkspaceMemberBundle | undefined)?.grant)) continue
       if (!peer.revokedAt) await this.store.upsertPeer({ ...peer, lastSeen: new Date().toISOString(), revokedAt: record.payload.revokedAt })
       if (disconnect) for (const [, session] of [...this.sessions.entries()].filter(([, session]) =>
         session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId)) await session.evict("peer revoked")
@@ -373,10 +385,108 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const epoch = Math.max(credential.epoch, ...merged.map(record => record.payload.epoch))
     await this.store.putWorkspaceCredential({ ...credential, epoch, updatedAt: new Date().toISOString(),
       catalog: { ...meshCatalog(credential), revocations: merged } })
-    await this.applyRevocationsToPeers(credential, new Map(merged.map(record => [record.payload.personId, record])), disconnect)
+    await this.applyRevocationsToPeers({ ...credential, catalog: { ...meshCatalog(credential), revocations: merged } }, new Map(merged.map(record => [record.payload.personId, record])), disconnect)
     const localGrant = credential.localGrant as WorkspaceGrant | undefined
     if (localGrant && isGrantRevoked({ ...credential, epoch, catalog: { ...meshCatalog(credential), revocations: merged } },
       localGrant.payload.personId, localGrant)) throw new Error("Workspace access revoked")
+  }
+
+  protected async mergeDepartures(credential: WorkspaceMeshCredential, records: WorkspaceDeparture[], disconnect = true): Promise<void> {
+    if (!records.length) return
+    const merged = new Map(departures(credential).map(value => [value.record.payload.personId, value]))
+    for (const raw of records) {
+      const value = verifyWorkspaceDeparture(raw, credential.workspaceId)
+      const p = value.record.payload
+      const previous = merged.get(p.personId)
+      if (!previous || previous.record.payload.accessEpoch < p.accessEpoch) merged.set(p.personId, value)
+    }
+    if (merged.size > 512) throw new Error("Too many workspace departures")
+    const next = { ...credential, epoch: Math.max(credential.epoch, ...[...merged.values()].map(value => value.record.payload.accessEpoch)),
+      catalog: { ...meshCatalog(credential), departures: [...merged.values()].sort((a, b) => a.record.payload.personId.localeCompare(b.record.payload.personId)) } }
+    await this.store.putWorkspaceCredential(next)
+    if (!disconnect) return
+    for (const peer of await this.store.listPeers(credential.workspaceId)) {
+      if (!hasLeftWorkspace(next, peer.personId, (peer.advertisement as WorkspaceMemberBundle | undefined)?.grant)) continue
+      await this.store.upsertPeer({ ...peer, revokedAt: merged.get(peer.personId)!.record.payload.leftAt })
+      for (const session of [...this.sessions.values()]) if (session.workspaceId === credential.workspaceId && session.remotePersonId === peer.personId) await session.evict("member left workspace")
+    }
+  }
+
+  protected async mergeDeviceRevocations(credential: WorkspaceMeshCredential, records: WorkspaceDeviceRevocation[], disconnect = true): Promise<void> {
+    if (!records.length) return
+    const merged = new Map(deviceRevocations(credential).map(value => [JSON.stringify([value.record.payload.personId, value.record.payload.deviceId]), value]))
+    for (const raw of records) {
+      const value = verifyWorkspaceDeviceRevocation(raw, credential.workspaceId, credential.ownerPersonId)
+      const key = JSON.stringify([value.record.payload.personId, value.record.payload.deviceId])
+      const previous = merged.get(key)
+      if (!previous || value.record.payload.revokedAt < previous.record.payload.revokedAt) merged.set(key, value)
+    }
+    if (merged.size > 512) throw new Error("Too many device revocations")
+    const next = { ...credential, catalog: { ...meshCatalog(credential), deviceRevocations: [...merged.values()].sort((a, b) => a.record.payload.deviceId.localeCompare(b.record.payload.deviceId)) } }
+    await this.store.putWorkspaceCredential(next)
+    for (const peer of await this.store.listPeers(credential.workspaceId)) {
+      if (!isDeviceRevoked(next, peer.personId, peer.deviceId)) continue
+      const revokedAt = merged.get(JSON.stringify([peer.personId, peer.deviceId]))!.record.payload.revokedAt
+      await this.store.upsertPeer({ ...peer, revokedAt })
+      if (disconnect) for (const session of [...this.sessions.values()]) {
+        if (session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId) await session.evict("device revoked")
+      }
+    }
+    const profile = await this.options.getProfile()
+    if (isDeviceRevoked(next, profile.identity.personId, profile.device.deviceId)) throw new Error("Workspace access revoked")
+  }
+
+  async removableDeviceWorkspaces(personId: string, deviceId: string): Promise<string[]> {
+    const profile = await this.options.getProfile()
+    const own = personId === profile.identity.personId
+    const ids: string[] = []
+    for (const credential of await this.store.listWorkspaceCredentials()) {
+      if (!await this.credentialBelongsToProfile(credential, profile)) continue
+      const owner = credential.ownerPersonId === profile.identity.personId
+      if (!owner && (!own || (credential.localGrant as WorkspaceGrant | undefined)?.payload.role !== "editor")) continue
+      const peer = await this.store.getPeer(credential.workspaceId, deviceId)
+      if (peer?.personId === personId && !isDeviceRevoked(credential, personId, deviceId)) ids.push(credential.workspaceId)
+    }
+    return ids.sort()
+  }
+
+  async removeDevice(personId: string, deviceId: string, workspaceIds: string[]): Promise<void> {
+    const eligible = await this.removableDeviceWorkspaces(personId, deviceId)
+    if (!workspaceIds.length || workspaceIds.some(id => !eligible.includes(id))) throw new Error("Device removal scope is no longer authorized")
+    const profile = await this.options.getProfile()
+    if (deviceId === profile.device.deviceId) throw new Error("Remove this device from another device")
+    const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
+    for (const workspaceId of new Set(workspaceIds)) {
+      const credential = (await this.store.getWorkspaceCredential(workspaceId))!
+      const record = await createWorkspaceDeviceRevocation(profile, workspaceId, personId, deviceId, certificates)
+      await this.mergeDeviceRevocations(credential, [record], false)
+    }
+    await this.publishAll()
+    for (const workspaceId of new Set(workspaceIds)) {
+      const credential = (await this.store.getWorkspaceCredential(workspaceId))!
+      await this.mergeDeviceRevocations(credential, deviceRevocations(credential))
+    }
+    await this.notify()
+  }
+
+  async promotePerson(workspaceId: string, personId: string): Promise<void> {
+    const profile = await this.options.getProfile()
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential || credential.ownerPersonId !== profile.identity.personId) throw new Error("Only the workspace owner can change roles")
+    if (personId === credential.ownerPersonId) throw new Error("The owner is already authorized")
+    const peers = (await this.peerInstances(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt && peer.advertisement)
+    if (!peers.length) throw new Error("No active membership found for this person")
+    credential.ownerCertificates = uniqueCertificates(profile, [...credential.ownerCertificates as DeviceCertificate[], ...await defaultProofStore.listCertificates()])
+    const epoch = Math.max(credential.epoch, ...peers.map(peer => ((peer.advertisement as WorkspaceMemberBundle).grant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1)) + 1
+    const grant = await createWorkspaceGrant(profile, workspaceId, personId, "editor", epoch)
+    await this.store.putWorkspaceCredential({ ...credential, epoch })
+    for (const peer of peers) {
+      const bundle = { ...peer.advertisement as WorkspaceMemberBundle, grant, ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as DeviceCertificate[] }
+      await this.putVerifiedBundle({ ...credential, epoch }, bundle)
+    }
+    await this.refreshSuccessionPolicy(workspaceId)
+    await this.notify()
+    await this.publishAll()
   }
 
   async revokePerson(workspaceId: string, personId: string): Promise<void> {
@@ -392,6 +502,17 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   async leaveWorkspace(workspaceId: string): Promise<void> {
+    const profile = await this.options.getProfile()
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential) throw new Error("No workspace membership")
+    if (credential.ownerPersonId === profile.identity.personId) throw new Error("Transfer ownership before leaving this workspace")
+    if (![...this.sessions.values()].some(session => session.workspaceId === workspaceId)) throw new Error("Connect to another workspace device before leaving so your departure can be delivered")
+    const departure = await createWorkspaceDeparture(profile, workspaceId, (credential.localGrant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1,
+      uniqueCertificates(profile, await defaultProofStore.listCertificates()))
+    await this.mergeDepartures(credential, [departure], false)
+    await this.publishAll()
+    const current = await this.store.getWorkspaceCredential(workspaceId) ?? credential
+    await this.mergeDepartures(current, [departure])
     await this.authority.leaveWorkspace(workspaceId)
   }
 
