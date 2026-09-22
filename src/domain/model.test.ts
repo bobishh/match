@@ -263,6 +263,18 @@ describe("model runtime types and validators (Requirement 1.1)", () => {
 
     expect(validateWorkspaceDoc(validDoc).ok).toBe(true)
 
+    const legacyTaskDoc = {
+      ...validDoc,
+      entities: {
+        task_1: {
+          id: "task_1", kind: "task", title: "Created before item migration", body: "",
+          placement: { parentId: "column_1", rank: "0/1" }, deleted: false,
+          createdAt: "2026-09-15T10:00:00.000Z", updatedAt: "2026-09-15T10:00:00.000Z", values: {},
+        },
+      },
+    }
+    expect(validateWorkspaceDoc(legacyTaskDoc).ok).toBe(true)
+
     const unsupportedVersion = { ...validDoc, formatVersion: 3 }
     const result = validateWorkspaceDoc(unsupportedVersion)
     expect(result.ok).toBe(false)

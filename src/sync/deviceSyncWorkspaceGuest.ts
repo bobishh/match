@@ -162,8 +162,11 @@ async function installInvitation(context: GuestContext, run: number, invite: Wor
   for (const grant of payload.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   if (!current(context, run)) return
   if (!meshOwnersMatch(payload.meshWorkspaces, invite.issuerPersonId)) throw new Error("Invitation owner mismatch")
-  await context.durableMesh?.receiveInvitation(payload.meshWorkspaces, workspaceIds, profile, payload.grants)
+  // Save the signed workspace before its mesh credential can be activated. If the
+  // document is rejected, leaving a credential behind makes the durable runtime
+  // retry publishing a workspace that does not exist on this device.
   await replica.receive(fromBase64Url(payload.snapshot))
+  await context.durableMesh?.receiveInvitation(payload.meshWorkspaces, workspaceIds, profile, payload.grants)
   if (!connectedBefore) await context.workspaceStore!.activate(invite.workspaces[0]!.id)
   const acknowledgement = await connection.openStream()
   await acknowledgement.send(encodePairingFrame("sync-ack", invite.secret, await replica.snapshot()))

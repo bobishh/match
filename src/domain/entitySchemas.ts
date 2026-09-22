@@ -38,7 +38,10 @@ const columnSchema = z.strictObject({
   displayHint: z.enum(["normal", "collapsed"]),
   archive: z.literal(true).optional(),
 })
-const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema) })
+// Workspaces created before the structural-item migration stored `kind: "task"`.
+// Items no longer need a discriminator, but accepting that one historic marker keeps
+// already-created shared boards portable without allowing arbitrary entity kinds.
+const itemSchema = z.strictObject({ ...common, kind: z.literal("task").optional(), body: z.string(), values: z.record(z.string(), fieldValueSchema) })
 const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, deleted: z.boolean() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
 const fieldSchema = z.discriminatedUnion("valueType", [
