@@ -309,6 +309,14 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     return this.invitations.payload(workspaceIds)
   }
 
+  /** Returns a real signed grant only when this identity still verifies for it. */
+  async enrollmentGrant(workspaceId: string, profile: LocalProfile): Promise<WorkspaceGrant | undefined> {
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential || credential.ownerPersonId === profile.identity.personId) return undefined
+    if (!await this.credentialBelongsToProfile(credential, profile)) return undefined
+    return credential.localGrant as WorkspaceGrant | undefined
+  }
+
   protected async verifyInvitationAuthority(workspaceId: string, envelope: MeshWorkspaceEnvelope, profile: LocalProfile,
     localGrant: WorkspaceGrant | undefined): Promise<DeviceCertificate[]> {
     const ownerCertificates = envelope.ownerCertificates as DeviceCertificate[]

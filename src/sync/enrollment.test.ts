@@ -23,7 +23,7 @@ async function fixture() {
   const root = createPersonalRoot(owner, await certHashDefault(owner.certificate))
   root.displayNamePreset = "Owner preset"
   const bytes = await enrollmentPayload(invite, owner, result.certificate, root, [{ id: "ws", title: "Board" }],
-    "ws", [{ workspaceId: "ws", ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey, optionalMeshField: undefined }], new TextEncoder().encode("[]"))
+    "ws", [{ workspaceId: "ws", ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey, optionalMeshField: undefined }], [], new TextEncoder().encode("[]"))
   return { owner, guest, service, invite, bytes, certificate: result.certificate }
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { adoptEnrolledIdentity, fromBase64Url, signEnvelope, toBase64Url, verifyEnvelope, type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, PersonalRootDocumentV1 } from "../domain/model"
+import type { WorkspaceGrant } from "../domain/model"
 import { certHashDefault, defaultProofStore } from "../domain/proofs"
 import { defaultStorage } from "../storage"
 import { keyId, verifyDeviceChain } from "./meshRecords"
@@ -28,6 +29,9 @@ const approvalSchema = z.object({
     personalRoot: rootSchema, workspaces: z.array(z.object({ id: text, title: text })).min(1).max(512),
     activeWorkspaceId: text,
     meshWorkspaces: z.array(z.object({ workspaceId: text, ownerPersonId: text, ownerPublicKey: text }).passthrough()).max(512),
+    grants: z.array(z.object({ payload: z.object({ kind: z.literal("workspace-grant"), version: z.literal(1), grantId: text,
+      workspaceId: text, personId: text, role: z.enum(["owner", "editor", "visitor"]), accessEpoch: z.number().int().positive().optional() }),
+      signerKeyId: text, signature: text }).passthrough()).max(512),
     snapshot: z.string().min(1),
   }), signerKeyId: text, signature: text,
 })
@@ -52,14 +56,14 @@ export async function readEnrollmentRequest(bytes: Uint8Array, invite: DeviceEnr
 
 export async function enrollmentPayload(invite: DeviceEnrollmentInvitation, profile: LocalProfile,
   certificate: DeviceCertificate, personalRoot: PersonalRootDocumentV1, workspaces: { id: string; title: string }[],
-  activeWorkspaceId: string, meshWorkspaces: unknown[], snapshot: Uint8Array) {
+  activeWorkspaceId: string, meshWorkspaces: unknown[], grants: WorkspaceGrant[], snapshot: Uint8Array) {
   const certificates = [profile.certificate, ...(await defaultProofStore.listCertificates())]
     .filter(cert => cert.payload.personId === profile.identity.personId)
   const payload = {
     kind: "device-enrollment-approval", version: 2, invitationId: invite.invitationId,
     recipientDeviceId: certificate.payload.deviceId, certificate,
     certificates: [...new Map(certificates.map(cert => [cert.signature, cert])).values()],
-    personalRoot, workspaces, activeWorkspaceId, meshWorkspaces, snapshot: toBase64Url(snapshot),
+    personalRoot, workspaces, activeWorkspaceId, meshWorkspaces, grants, snapshot: toBase64Url(snapshot),
   }
   // Optional mesh fields must have exactly the same shape when signed and sent as JSON.
   return encode(await signEnvelope(profile.privateKeys.devicePrivateKey, JSON.parse(JSON.stringify(payload)), profile.device.deviceId))

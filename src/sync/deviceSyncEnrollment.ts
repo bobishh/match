@@ -329,14 +329,15 @@ async function approveEnrollment(
   if (!root) throw new Error("Personal identity is unavailable. Reload and try again.")
   registerDeviceInRoot(root, { ...guest, certificateHash, addedAt: new Date().toISOString() })
   await defaultStorage.savePersonalRoot(root)
-  const workspaces = await ownedWorkspaces(context, profile)
+  const transfer = await transferableWorkspaces(context, profile)
+  const workspaces = transfer.workspaces
   const ids = workspaces.map(item => item.id)
   const active = selectActiveWorkspace(context, ids)
   await context.durableMesh?.forgetEnrolledDevice(ids, guest.deviceId)
-  await context.durableMesh?.ensureOwnerWorkspaces(ids, node.endpointId, profile)
+  await context.durableMesh?.ensureOwnerWorkspaces(transfer.ownerIds, node.endpointId, profile)
   const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
   const payload = await enrollmentPayload(invite, profile, result.certificate, root, workspaces, active,
-    await context.durableMesh!.invitationPayload(ids), await replica.snapshot())
+    await context.durableMesh!.invitationPayload(ids), transfer.grants, await replica.snapshot())
   await stream.send(encodePairingFrame("enroll-approved", secret, payload))
   await stream.closeSend()
   const ack = await connection.acceptStream()
@@ -348,13 +349,20 @@ async function approveEnrollment(
   context.state.step.value = "enroll-host-done"
 }
 
-async function ownedWorkspaces(context: EnrollmentContext, profile: LocalProfile) {
+async function transferableWorkspaces(context: EnrollmentContext, profile: LocalProfile) {
   const workspaces = [] as { id: string; title: string }[]
+  const grants = [] as import("../domain/model").WorkspaceGrant[]
+  const ownerIds: string[] = []
   for (const item of context.availableWorkspaces) {
-    if (!context.workspaceOwner || await context.workspaceOwner(item.id) === profile.identity.personId) workspaces.push(item)
+    if (!context.workspaceOwner || await context.workspaceOwner(item.id) === profile.identity.personId) {
+      workspaces.push(item); ownerIds.push(item.id)
+    } else {
+      const grant = await context.durableMesh!.enrollmentGrant(item.id, profile)
+      if (grant) { workspaces.push(item); grants.push(grant) }
+    }
   }
-  if (!workspaces.length) throw new Error("No owned workspaces are available to sync.")
-  return workspaces
+  if (!workspaces.length) throw new Error("No accessible workspaces are available to sync.")
+  return { workspaces, grants, ownerIds }
 }
 
 function selectActiveWorkspace(context: EnrollmentContext, ids: string[]) {
@@ -437,10 +445,11 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   const enrolled = await installEnrollment(response, invite, profile)
   await context.identityChanged?.()
   const ids = enrolled.workspaces.map(item => item.id)
-  await context.durableMesh!.receiveInvitation(enrolled.meshWorkspaces, ids, enrolled.profile, [])
   const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
   await replica.receive(fromBase64Url(enrolled.snapshot))
-  await context.durableMesh!.ensureOwnerWorkspaces(ids, node.endpointId, enrolled.profile)
+  await context.durableMesh!.receiveInvitation(enrolled.meshWorkspaces, ids, enrolled.profile, enrolled.grants)
+  const ownerIds = enrolled.meshWorkspaces.filter(item => item.ownerPersonId === enrolled.profile.identity.personId).map(item => item.workspaceId)
+  await context.durableMesh!.ensureOwnerWorkspaces(ownerIds, node.endpointId, enrolled.profile)
   await context.workspaceStore!.activate(enrolled.activeWorkspaceId)
   const ack = await connection.openStream()
   await ack.send(encodePairingFrame("enroll-ack", invite.secret, await replica.snapshot()))
