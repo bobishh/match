@@ -20,8 +20,17 @@ import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
+import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
+import { ref } from "vue"
 
 const app = useAppController()
+const showIdentityRecovery = ref(false)
+async function stopSyncForIdentityRestore() {
+  await app.collaboration.device.sync.shutdown()
+}
+function restoredIdentity() {
+  window.location.reload()
+}
 const {
   workspace, ready, saveState, availableWorkspaces, activeWorkspace, activeBoard,
   isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor,
@@ -286,6 +295,7 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       <template #profile>
         <WorkspaceNameSettings :name="chat.ownName.value" :display-name="chat.displayName.value" :saving="chat.savingName.value" :error="chat.nameError.value"
           @save="chat.rename" @randomize="chat.randomize" />
+        <section class="mesh-member-action" aria-label="Identity recovery"><h3>Identity recovery</h3><p class="dialog-copy">Create an encrypted identity backup or restore one on this device.</p><button class="button" type="button" @click="showIdentityRecovery = true">Recovery backup</button></section>
         <WorkspaceParticipants
           :members="chat.members.value"
           :current-person-id="chat.personId.value"
@@ -299,6 +309,7 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
         />
       </template>
     </SchemaEditorDialog>
+    <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
 
     <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"
       :read-only="!canEditItems"

@@ -7,6 +7,8 @@ import {
   canonicalizeJson,
   resetIdentityStorageForTest,
   clearInMemoryProfileForReloadTest,
+  createIdentityRecovery,
+  restoreIdentityRecovery,
 } from "./identity"
 
 describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
@@ -99,6 +101,18 @@ describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
     const binding = await createActorBinding(profile2, "doc_1", "actor_1")
     const valid = await verifyEnvelope(binding, profile2.device.publicKey)
     expect(valid).toBe(true)
+  })
+
+  it("exports the existing root and restores it only after replacement is confirmed", async () => {
+    const original = await bootstrapIdentity("Backup owner")
+    const backup = await createIdentityRecovery("better")
+    expect(backup.recoveryKey.split(" ")).toHaveLength(12)
+    expect(backup.recoveryEnvelope.personId).toBe(original.identity.personId)
+
+    await expect(restoreIdentityRecovery(backup.recoveryEnvelope, "wrong recovery words", "Backup owner", true))
+      .rejects.toThrow(/Invalid recovery words/)
+    await expect(restoreIdentityRecovery({ ...backup.recoveryEnvelope, ciphertext: "invalid" }, backup.recoveryKey, "Backup owner", true))
+      .rejects.toThrow(/Recovery words do not open this identity/)
   })
 
   it("fails cleanly when unsupported crypto is detected", async () => {

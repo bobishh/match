@@ -7,6 +7,13 @@ import {
   signEnvelope,
   toBase64Url,
   verifyEnvelope,
+  generateIdentityRecovery,
+  identitySeedFromPrivateKey,
+  identitySecurityForRecovery,
+  openIdentityRecoveryEnvelope,
+  sealIdentitySeed,
+  type IdentityRecoveryEnvelope,
+  type IdentitySecurity,
   type LocalProfile as MeshLocalProfile,
   type SignedEnvelope,
 } from "@meta-uber/mesh-identity"
@@ -29,6 +36,7 @@ export {
   verifyEnvelope,
 }
 export type { SignedEnvelope }
+export type { IdentityRecoveryEnvelope, IdentitySecurity }
 
 export type LocalProfile = MeshLocalProfile & {
   identity: PublicIdentity
@@ -39,6 +47,18 @@ const identityStore = new BrowserIdentityStore({
   storageKey: "match.local_profile.v1",
   signatureDomain: "MATCH/1",
 })
+const recoveryStorageKey = "match.identity_recovery.v1"
+let recoveryEnvelopeMemory: string | null = null
+
+function readRecoveryEnvelope(): string | null {
+  try { return typeof localStorage === "undefined" ? recoveryEnvelopeMemory : localStorage.getItem(recoveryStorageKey) }
+  catch { return recoveryEnvelopeMemory }
+}
+
+function writeRecoveryEnvelope(value: string) {
+  recoveryEnvelopeMemory = value
+  try { localStorage?.setItem(recoveryStorageKey, value) } catch { /* The downloaded file remains the durable backup. */ }
+}
 
 export function clearInMemoryProfileForReloadTest(): void {
   identityStore.clearMemory()
@@ -46,10 +66,50 @@ export function clearInMemoryProfileForReloadTest(): void {
 
 export function resetIdentityStorageForTest(): void {
   identityStore.reset()
+  recoveryEnvelopeMemory = null
 }
 
 export async function bootstrapIdentity(displayName = "Match User"): Promise<LocalProfile> {
   return await identityStore.bootstrap(displayName) as LocalProfile
+}
+
+/** Creates an encrypted backup of the existing identity root; it never rotates identity. */
+export async function createIdentityRecovery(
+  security: IdentitySecurity = "better",
+): Promise<{ recoveryKey: string; recoveryEnvelope: IdentityRecoveryEnvelope }> {
+  const profile = await bootstrapIdentity()
+  const key = profile.privateKeys.identityPrivateKey
+  if (!key) throw new Error("This device cannot back up the workspace identity")
+  const seed = await identitySeedFromPrivateKey(key, profile.identity.personId)
+  const recoveryKey = generateIdentityRecovery(security)
+  const recoveryEnvelope = await sealIdentitySeed(seed, profile.identity.personId, recoveryKey, security)
+  const restored = await openIdentityRecoveryEnvelope(recoveryEnvelope, recoveryKey, profile.identity.displayName)
+  if (restored.identity.personId !== profile.identity.personId) throw new Error("Identity backup does not match this identity")
+  writeRecoveryEnvelope(JSON.stringify(recoveryEnvelope))
+  return { recoveryKey, recoveryEnvelope }
+}
+
+export function savedIdentityRecoveryEnvelope(): IdentityRecoveryEnvelope | null {
+  try {
+    const raw = readRecoveryEnvelope()
+    return raw ? JSON.parse(raw) as IdentityRecoveryEnvelope : null
+  } catch { return null }
+}
+
+export async function restoreIdentityRecovery(
+  envelope: IdentityRecoveryEnvelope,
+  recoveryKey: string,
+  displayName: string,
+  replaceExisting = false,
+  beforeRestore?: () => Promise<void>,
+): Promise<LocalProfile> {
+  if (!identitySecurityForRecovery(recoveryKey)) throw new Error("Invalid recovery words")
+  const candidate = await openIdentityRecoveryEnvelope(envelope, recoveryKey, displayName)
+  const current = await bootstrapIdentity(displayName)
+  if (current.identity.personId !== candidate.identity.personId && !replaceExisting)
+    throw new Error("Confirm identity replacement before restoring a different identity")
+  await beforeRestore?.()
+  return await identityStore.restoreEnvelope(envelope, recoveryKey, displayName) as LocalProfile
 }
 
 export async function adoptEnrolledIdentity(
