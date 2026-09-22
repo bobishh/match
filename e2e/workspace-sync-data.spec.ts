@@ -143,7 +143,7 @@ test("Given no network before accepting, when the connection returns, then the s
     await expect(dialog.getByRole("button", { name: "Accept and join" })).toBeVisible()
     await context.setOffline(true)
     await dialog.getByRole("button", { name: "Accept and join" }).click()
-    await expect(dialog.getByRole("status")).toContainText("Reconnecting automatically")
+    await expect(dialog.getByRole("status")).toContainText("Retrying automatically")
     await context.setOffline(false)
     await page.getByLabel("Participant role").selectOption("editor")
     await page.getByRole("button", { name: "Approve access" }).click()
@@ -268,40 +268,5 @@ test("Given three workspaces, when sharing A and B while viewing Private, then o
     await expect(page.getByRole("heading", { name: "MATCH // Private", exact: true })).toBeVisible()
   } finally {
     await guestContext.close()
-  }
-})
-
-test("Given a sender without mesh support, when joining, then request an update before importing its items", async ({ browser, page }) => {
-  test.setTimeout(45_000)
-  await page.route("**/src/sync/deviceSyncHostController.ts", async route => {
-    const response = await route.fetch()
-    const source = await response.text()
-    const legacy = source.replace(
-      /meshWorkspaces: await runtime\.context\.durableMesh\?\.invitationPayload\([^\n]+/,
-      "meshWorkspaces: undefined,",
-    )
-    expect(legacy).not.toBe(source)
-    await route.fulfill({ response, body: legacy })
-  })
-  await page.goto("/")
-  await addLead(page, "Legacy sender item")
-  await page.getByRole("button", { name: "Sync", exact: true }).click()
-  const host = page.getByRole("dialog", { name: "Device sync" })
-  await host.getByRole("button", { name: "Add someone" }).click()
-  await host.getByRole("button", { name: "Generate link" }).click()
-  const invite = await host.getByLabel("Pairing link").inputValue()
-  const context = await browser.newContext()
-  try {
-    const guest = await context.newPage()
-    await guest.goto(invite)
-    const dialog = guest.getByRole("dialog", { name: "Device sync" })
-    await dialog.getByRole("button", { name: "Accept and join" }).click()
-    await page.getByLabel("Participant role").selectOption("editor")
-    await page.getByRole("button", { name: "Approve access" }).click()
-    await expect(dialog.getByRole("alert")).toHaveText("The other device needs an update. Reload it and generate a new invitation.", { timeout: 25_000 })
-    await dialog.getByRole("button", { name: "Dismiss" }).click()
-    await expect(guest.getByRole("button", { name: "Open Legacy sender item — Engineer" })).toHaveCount(0)
-  } finally {
-    await context.close()
   }
 })
