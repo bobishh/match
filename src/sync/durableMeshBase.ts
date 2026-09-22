@@ -1,9 +1,7 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
-import * as Automerge from "@automerge/automerge/slim"
 import { BrowserMeshGossip, MeshReconnectPolicy, MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
 import type { BrowserMeshLifecycle } from "@meta-uber/mesh-runtime"
-import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
 import type { defaultProofStore } from "../domain/proofs"
@@ -197,7 +195,6 @@ export abstract class DurableMeshBase {
   protected node: SyncNode | undefined
   protected acceptor: SyncAcceptor | undefined
   protected sessions = new Map<string, SessionEntry>()
-  protected syncEngines = new Map<string, AutomergeAntiEntropy>()
   protected pendingIncomingConnections = 0
   protected runSequence = 0
   protected currentRunId = 0
@@ -286,19 +283,6 @@ export abstract class DurableMeshBase {
     return `${workspaceId}:${deviceId}`
   }
 
-  protected syncEngine(workspaceId: string, deviceId: string, localDeviceId: string, instanceId: string) {
-    const key = this.peerKey(workspaceId, deviceId, instanceId)
-    let engine = this.syncEngines.get(key)
-    if (!engine) {
-      engine = new AutomergeAntiEntropy(localDeviceId, Automerge, {
-        proof: async () => this.options.workspaceStore.readAuthorization?.(
-          await this.options.workspaceStore.read(workspaceId),
-        ),
-      })
-      this.syncEngines.set(key, engine)
-    }
-    return engine
-  }
   protected async acquireInstance() {
     if (this.releaseInstance) return
     const preferred = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(MESH_INSTANCE_KEY)

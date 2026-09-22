@@ -150,8 +150,9 @@ describe("DurableMesh peer catalog gossip", () => {
     const internal = mesh as any
     const publish = vi.fn(async () => {})
     internal.lifecycle = { stopped: false }
-    internal.createMeshSession = vi.fn(() => ({ incrementalEngine: undefined,
-      session: { publish, close: async () => {}, done: new Promise<never>(() => {}) } }))
+    internal.documentSessions.create = vi.fn(() => ({
+      session: { publish, close: async () => {}, done: new Promise<never>(() => {}) },
+    }))
     const connection = { close: vi.fn(async () => {}), acceptStream: vi.fn(), openStream: vi.fn() }
 
     await internal.installSession("workspace", "remote", "slot-0", "2026-09-21", 1, "incoming", connection)
@@ -176,8 +177,8 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(first.close).not.toHaveBeenCalled()
     expect(sibling.close).not.toHaveBeenCalled()
     expect(internal.sessions.size).toBe(2)
-    expect(internal.syncEngine("workspace", "remote", "local", "slot-0"))
-      .not.toBe(internal.syncEngine("workspace", "remote", "local", "slot-1"))
+    expect(internal.documentSessions.engine("workspace", "remote", "slot-0", "local"))
+      .not.toBe(internal.documentSessions.engine("workspace", "remote", "slot-1", "local"))
     await internal.sessions.get("workspace:remote:slot-0").evict("remote closed")
     expect(internal.sessions.get("workspace:remote:slot-1").connection).toBe(sibling)
     expect(sibling.close).not.toHaveBeenCalled()

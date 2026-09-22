@@ -1,8 +1,9 @@
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
+import * as Automerge from "@automerge/automerge/slim"
 import { isMeshNetworkFailure, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
-import { BrowserMeshDialScheduler, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
-import type { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { BrowserMeshDialScheduler, BrowserMeshDocumentSessions, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
+import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { defaultProofStore } from "../domain/proofs"
@@ -226,17 +227,40 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       await stale?.close("Mesh runtime closed").catch(() => {})
     }
   }
+  private readonly documentSessions = new BrowserMeshDocumentSessions<SyncConnection, LiveWorkspaceSync,
+    WorkspaceMeshCredential, LocalProfile, AutomergeAntiEntropy>({
+      localDeviceId: profile => profile.device.deviceId,
+      localPersonId: profile => profile.identity.personId,
+      secret: credential => credential.transportSecret,
+      createEngine: ({ localDeviceId, workspaceId }) => new AutomergeAntiEntropy(localDeviceId, Automerge, {
+        proof: async () => this.options.workspaceStore.readAuthorization?.(
+          await this.options.workspaceStore.read(workspaceId),
+        ),
+      }),
+      legacy: input => liveWorkspaceSetSync(input.connection, input.secret,
+        workspaceSet(this.options.workspaceStore, [input.workspaceId]), { onGossipPacket: input.onGossipPacket }),
+      incremental: input => liveAutomergeWorkspaceSync(input.connection, input.secret, this.options.workspaceStore,
+        input.workspaceId, input.localDeviceId, input.deviceId, input.engine, input.onDocumentStatus, {
+          onOwnerWorkspaceOffer: input.onOwnerWorkspaceOffer,
+          onGossipPacket: input.onGossipPacket,
+        }),
+      ownerWorkspaceOffer: (bytes, remotePersonId) => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId),
+      gossipPacket: (workspaceId, endpoint, packet) => this.receiveWorkspaceGossipPacket(workspaceId, endpoint, packet),
+      rejected: (stage, error) => this.report(stage, error),
+      cleared: stage => {
+        if (this.lastDiagnostic.startsWith(`${stage}:`)) {
+          this.lastDiagnostic = ""
+          this.options.onDiagnostic?.("")
+        }
+      },
+      trace: (event, detail, level) => this.trace(event, detail, level),
+    })
+
   private readonly browserSessions = new BrowserMeshSessions<SyncConnection, LiveWorkspaceSync, LocalProfile>({
     profile: this.options.getProfile,
     deviceId: profile => profile.device.deviceId,
     credential: workspaceId => this.store.getWorkspaceCredential(workspaceId),
-    create: input => {
-      const created = this.createMeshSession(input.connection, input.credential as WorkspaceMeshCredential,
-        input.workspaceId, input.deviceId, input.instanceId, input.profile, input.incrementalSupported,
-        input.connectionId, input.remotePersonId, input.ownerWorkspaceSupported, input.remoteEndpoint)
-      return { session: created.session, reset: created.incrementalEngine
-        ? () => created.incrementalEngine!.reset(input.workspaceId, input.deviceId) : undefined }
-    },
+    create: input => this.documentSessions.create({ ...input, credential: input.credential as WorkspaceMeshCredential }),
     runtime: () => this.runtime(),
     key: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     stopped: () => this.stopped,
@@ -275,36 +299,6 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
       this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("recovery publish failed")
-    }
-  }
-
-  protected createMeshSession(connection: SyncConnection, credential: WorkspaceMeshCredential, workspaceId: string, deviceId: string,
-    instanceId: string, profile: LocalProfile, incrementalSupported: boolean, connectionId: string, remotePersonId: string,
-    ownerWorkspaceSupported: boolean, remoteEndpoint: string): { incrementalEngine: AutomergeAntiEntropy | undefined; session: LiveWorkspaceSync } {
-    const incrementalEngine = incrementalSupported ? this.syncEngine(workspaceId, deviceId, profile.device.deviceId, instanceId) : undefined
-    if (!incrementalEngine) return { incrementalEngine, session: liveWorkspaceSetSync(connection, credential.transportSecret,
-      workspaceSet(this.options.workspaceStore, [workspaceId]), { onGossipPacket: remoteEndpoint
-        ? packet => this.receiveWorkspaceGossipPacket(workspaceId, remoteEndpoint, packet) : undefined }) }
-    const session = liveAutomergeWorkspaceSync(connection, credential.transportSecret, this.options.workspaceStore, workspaceId,
-      profile.device.deviceId, deviceId, incrementalEngine, error => this.handleDocumentSyncError(error ?? undefined, connectionId, workspaceId, deviceId, instanceId), {
-        onOwnerWorkspaceOffer: ownerWorkspaceSupported && remotePersonId === profile.identity.personId
-          ? bytes => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId) : undefined,
-        onGossipPacket: remoteEndpoint ? packet => this.receiveWorkspaceGossipPacket(workspaceId, remoteEndpoint, packet) : undefined,
-      })
-    return { incrementalEngine, session }
-  }
-
-  protected handleDocumentSyncError(error: Error | undefined, connectionId: string, workspaceId: string, deviceId: string,
-    instanceId: string): void {
-    const stage = `Workspace ${workspaceId.slice(0, 8)} from ${deviceId.slice(0, 8)}`
-    if (error) {
-      this.trace("document.rejected", { connectionId, workspaceId, peerId: deviceId, instanceId, reason: error.message }, "warn")
-      this.report(stage, error)
-      return
-    }
-    if (this.lastDiagnostic.startsWith(`${stage}:`)) {
-      this.lastDiagnostic = ""
-      this.options.onDiagnostic?.("")
     }
   }
 
