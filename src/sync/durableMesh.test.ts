@@ -18,11 +18,14 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(isGrantRevoked(credential, "returning", { payload: { accessEpoch: 3 } })).toBe(false)
     expect(isGrantRevoked(credential, "returning", { payload: {} })).toBe(true)
   })
-  it("rejects obsolete break-glass authority evidence", () => {
-    expect(() => isEnvelope({
+  it("ignores an empty old envelope field but rejects obsolete authority evidence", () => {
+    const envelope = {
       version: 1, workspaceId: "workspace-1", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, peers: [], breakGlassClaims: [],
-    })).toThrow("Unsupported legacy break-glass authority evidence")
+    }
+    expect(isEnvelope(envelope)).toBe(true)
+    expect(() => isEnvelope({ ...envelope, breakGlassClaims: [{}] }))
+      .toThrow("Unsupported legacy break-glass authority evidence")
   })
   it("Given Iroh has no route metadata, when Promise.any rejects, then it remains a network failure", () => {
     const unavailable = new AggregateError([new Error("No addressing information available")], "All promises were rejected")

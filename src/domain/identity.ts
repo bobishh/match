@@ -26,6 +26,7 @@ import type {
   PublicIdentity,
 } from "./model"
 import { readLocal, writeLocal, deleteLocal } from "../localDb"
+import { normalizeDisplayName, randomDisplayName, validateDisplayName } from "../chat/names"
 
 export {
   canonicalizeJson,
@@ -62,15 +63,23 @@ export function resetIdentityStorageForTest(): void {
   identityStore.reset()
 }
 
-export async function bootstrapIdentity(displayName = "Match User"): Promise<LocalProfile> {
-  const bootstrap = () => identityStore.bootstrap(displayName) as Promise<LocalProfile>
+export async function bootstrapIdentity(displayName?: string): Promise<LocalProfile> {
+  const bootstrap = async () => {
+    const profile = await identityStore.bootstrap(displayName ?? randomDisplayName()) as LocalProfile
+    return profile.identity.displayName === "Match User"
+      ? await identityStore.rename(randomDisplayName()) as LocalProfile
+      : profile
+  }
   return typeof navigator !== "undefined" && navigator.locks
     ? await navigator.locks.request("match-identity-bootstrap", bootstrap)
     : await bootstrap()
 }
 
 export async function renameIdentity(displayName: string): Promise<LocalProfile> {
-  return await identityStore.rename(displayName) as LocalProfile
+  const normalized = normalizeDisplayName(displayName)
+  const error = validateDisplayName(normalized)
+  if (error) throw new Error(error)
+  return await identityStore.rename(normalized) as LocalProfile
 }
 
 /** Creates an encrypted backup of the existing identity root; it never rotates identity. */

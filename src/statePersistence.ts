@@ -82,7 +82,7 @@ export function updateReactiveState(
 export async function hydrate(storage = defaultStorage): Promise<void> {
   try {
     await initializeAutomerge();
-    stateRuntime.currentProfile = await bootstrapIdentity("Match User");
+    stateRuntime.currentProfile = await bootstrapIdentity();
     const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
     updateReactiveState(doc);
     await initializePersonalRoot(storage, stateRuntime.currentProfile);
@@ -263,7 +263,9 @@ async function initializePersonalRoot(
     root,
     await storage.listWorkspaces(),
   );
-  if (newlyAdded.length > 0) await storage.savePersonalRoot(root);
+  const nameChanged = root.identity.personId === profile.identity.personId && root.identity.displayName !== profile.identity.displayName;
+  if (nameChanged) root.identity.displayName = profile.identity.displayName;
+  if (newlyAdded.length > 0 || nameChanged) await storage.savePersonalRoot(root);
 }
 
 function applyInjectedFixture(): void {

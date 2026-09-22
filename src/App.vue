@@ -23,6 +23,7 @@ import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
 import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
+import { saveIdentityName } from "./app/identityName"
 import { computed, ref } from "vue"
 
 const app = useAppController()
@@ -301,13 +302,12 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       @apply-workspace-settings="applyWorkspaceSettings"
     >
       <template #identity>
-        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
-          @saved="app.workspace.refreshIdentity()" @recovery="showIdentityRecovery = true" />
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :save-name="name => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
       </template>
       <template #participants>
         <WorkspaceParticipants
           :members="chat.members.value" :current-person-id="chat.personId.value"
-          :current-identity-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
+          :current-identity-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''"
           :current-role="currentRole"
           :owner-person-id="currentWorkspaceOwnerId"
           :peers="meshParticipantDevices"
@@ -322,11 +322,11 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
     <ModalLayer v-else-if="showSettings" @close="showSettings = false">
       <section class="dialog" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="dialog-head"><div><span class="eyebrow">Identity</span><h2>Settings</h2></div><button class="icon-button" type="button" aria-label="Close" @click="showSettings = false">×</button></div>
-        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
-          @saved="app.workspace.refreshIdentity()" @recovery="showIdentityRecovery = true" />
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''"
+          :save-name="name => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
       </section>
     </ModalLayer>
-    <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
+    <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
 
     <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"
       :read-only="!canEditItems"

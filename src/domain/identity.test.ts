@@ -48,6 +48,15 @@ describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
     expect(JSON.stringify(profile.certificate)).not.toContain("privateKey")
   })
 
+  it("uses the shared word list for a fresh identity name and replaces the old placeholder", async () => {
+    const fresh = await bootstrapIdentity()
+    expect(fresh.identity.displayName).toMatch(/^[A-Za-z]+ [A-Za-z]+$/)
+    resetIdentityStorageForTest()
+    const old = await bootstrapIdentity("Match User")
+    expect(old.identity.displayName).toMatch(/^[A-Za-z]+ [A-Za-z]+$/)
+    expect(old.identity.displayName).not.toBe("Match User")
+  })
+
   it("simultaneous first-open tabs create one profile atomically", async () => {
     // Simulate two concurrent tabs opening at the same time
     const [tabA, tabB] = await Promise.all([

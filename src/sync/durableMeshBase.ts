@@ -145,11 +145,16 @@ export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
   const required = item.version === 1 && nonEmptyText(item.workspaceId) && nonEmptyText(item.ownerPersonId) &&
     nonEmptyText(item.ownerPublicKey) && nonEmptyText(item.transportSecret) && Number.isSafeInteger(item.epoch) && item.epoch! >= 1
   const collections = boundedArray(item.ownerCertificates, 32) && boundedArray(item.peers, 512)
-  if ("breakGlassClaims" in item) throw new Error("Unsupported legacy break-glass authority evidence")
+  assertNoUnsupportedAuthorityEvidence(item)
   const optional = optionalArray(item.ownerHistory) && optionalArray(item.ownershipTransfers) &&
     optionalArray(item.successionVotes, MAX_SUCCESSION_EDITORS) &&
     optionalArray(item.successionClaims, 32)
   return required && collections && optional
+}
+
+function assertNoUnsupportedAuthorityEvidence(item: Partial<MeshWorkspaceEnvelope>) {
+  if ("breakGlassClaims" in item && (!Array.isArray(item.breakGlassClaims) || item.breakGlassClaims.length > 0))
+    throw new Error("Unsupported legacy break-glass authority evidence")
 }
 
 export type MeshCatalog = { departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]

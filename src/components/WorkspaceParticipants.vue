@@ -29,7 +29,7 @@ function roleFor(member: { personId: string }, peers: Array<{ personId: string; 
     <ul>
       <li v-for="member in members" :key="member.personId">
         <strong>{{ member.personId === currentPersonId ? currentIdentityName : member.name }}</strong>
-        <span>{{ roleFor(member, peers, ownerPersonId, currentPersonId, currentRole) }}{{ member.personId === currentPersonId ? ` · You · Chat name: ${member.name}` : '' }}</span>
+        <span>{{ roleFor(member, peers, ownerPersonId, currentPersonId, currentRole) }}{{ member.personId === currentPersonId ? ' · You' : '' }}</span>
       </li>
     </ul>
     <template v-if="canManageAccess && peers.length">

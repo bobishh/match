@@ -171,7 +171,7 @@ export async function addWorkspaceToPersonalRoot(
 
 export async function requireProfile() {
   if (!stateRuntime.currentProfile)
-    stateRuntime.currentProfile = await bootstrapIdentity("Match User");
+    stateRuntime.currentProfile = await bootstrapIdentity();
   return stateRuntime.currentProfile;
 }
 

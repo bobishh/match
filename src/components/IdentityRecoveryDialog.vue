@@ -3,7 +3,7 @@ import { computed, ref } from "vue"
 import ModalLayer from "./ModalLayer.vue"
 import { createIdentityRecovery, restoreIdentityRecovery, type IdentityRecoveryEnvelope, type IdentitySecurity } from "../domain/identity"
 
-const props = defineProps<{ beforeRestore: () => Promise<void> }>()
+const props = defineProps<{ beforeRestore: () => Promise<void>; displayName: string }>()
 const emit = defineEmits<{ close: []; restored: [] }>()
 const security = ref<IdentitySecurity>("better")
 const words = ref("")
@@ -38,7 +38,7 @@ async function restore() {
   busy.value = true; error.value = ""
   try {
     const envelope = JSON.parse(envelopeText.value) as IdentityRecoveryEnvelope
-    await restoreIdentityRecovery(envelope, words.value, "Match User", replace.value, props.beforeRestore)
+    await restoreIdentityRecovery(envelope, words.value, props.displayName, replace.value, props.beforeRestore)
     emit("restored")
   } catch (cause) { error.value = cause instanceof Error ? cause.message : "Could not restore identity" }
   finally { busy.value = false }
@@ -46,7 +46,7 @@ async function restore() {
 </script>
 
 <template>
-  <ModalLayer @close="emit('close')">
+  <ModalLayer class="overlay-level-120" @close="emit('close')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Identity recovery">
       <div class="dialog-head"><div><span class="eyebrow">Account recovery</span><h2>Back up or restore your identity</h2></div><button class="icon-button" type="button" aria-label="Close" @click="emit('close')">×</button></div>
       <p class="dialog-copy">Your recovery file and words restore your Match identity, not workspace or board content. Keep both somewhere safe and separate.</p>

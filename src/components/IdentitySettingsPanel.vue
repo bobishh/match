@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from "vue"
-import { renameIdentity } from "../domain/identity"
 
-const props = defineProps<{ displayName: string }>()
-const emit = defineEmits<{ saved: []; recovery: [] }>()
+const props = defineProps<{ displayName: string; saveName: (value: string) => Promise<void> }>()
+const emit = defineEmits<{ recovery: [] }>()
 const name = ref(props.displayName)
 const saving = ref(false)
 const error = ref("")
@@ -16,8 +15,7 @@ async function save() {
   saving.value = true
   error.value = ""
   try {
-    await renameIdentity(value)
-    emit("saved")
+    await props.saveName(value)
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Could not save identity name"
   } finally {
@@ -30,7 +28,7 @@ async function save() {
   <section aria-label="Identity settings">
     <form class="mesh-member-action identity-name-form" @submit.prevent="save">
       <h3>Your name</h3>
-      <label>Name<input v-model="name" maxlength="256" :disabled="saving" /></label>
+      <label>Name<input v-model="name" maxlength="48" :disabled="saving" /></label>
       <button class="button button-primary" type="submit" :disabled="saving || !name.trim()">Save name</button>
     </form>
     <section class="mesh-member-action" aria-label="Identity recovery">
