@@ -3,7 +3,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
-import { activeCredentialsForProfile as selectActiveCredentials, BrowserMeshCredentials, credentialBelongsToProfile as credentialMatchesProfile } from "@meta-uber/mesh-runtime"
+import { activeCredentialsForProfile as selectActiveCredentials, BrowserMeshCredentials, BrowserMeshInvitations, credentialBelongsToProfile as credentialMatchesProfile } from "@meta-uber/mesh-runtime"
 import { createPeerAdvertisement, verifyDeviceChain, verifyWorkspaceGrant,
   createWorkspaceBreakGlassClaim, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
@@ -35,6 +35,33 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     createCredential: (workspaceId, owner, certificates) => ({ version: 1, workspaceId, ownerPersonId: owner.personId,
       ownerPublicKey: owner.publicKey, ownerCertificates: certificates, transportSecret: createPairingSecret(), epoch: 1, updatedAt: new Date().toISOString() }),
     refreshOwnerCertificates: (credential, owner, certificates) => this.refreshOwnerCertificates(credential, owner.profile, certificates),
+  })
+  private readonly invitations = new BrowserMeshInvitations<WorkspaceMeshCredential, MeshWorkspaceEnvelope, WorkspaceGrant, WorkspaceMemberBundle, LocalProfile>({
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    peers: async workspaceId => (await this.peerInstances(workspaceId))
+      .filter(peer => !peer.revokedAt && peer.advertisement)
+      .map(peer => peer.advertisement as WorkspaceMemberBundle),
+    createEnvelope: (credential, peers) => ({
+      version: 1,
+      workspaceId: credential.workspaceId,
+      ownerPersonId: credential.ownerPersonId,
+      ownerPublicKey: credential.ownerPublicKey,
+      ownerCertificates: credential.ownerCertificates,
+      transportSecret: credential.transportSecret,
+      epoch: credential.epoch,
+      peers,
+      revocations: revocations(credential),
+      ownerHistory: ownerAuthorities(credential).slice(1),
+      ownershipTransfers: ownershipTransfers(credential),
+      breakGlassClaims: breakGlassClaims(credential),
+      successionPolicy: successionPolicy(credential),
+      successionVotes: successionVotes(credential),
+      successionClaims: successionClaims(credential),
+    }),
+    isEnvelope,
+    ownerPersonId: envelope => envelope.ownerPersonId,
+    mergeOwnershipProof: (credential, envelope) => this.mergeBreakGlassClaims(credential, envelope.breakGlassClaims ?? []),
+    install: (workspaceId, envelope, profile, grant) => this.installInvitationWorkspace(workspaceId, envelope, profile, grant),
   })
 
   protected abstract refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
@@ -271,36 +298,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   async invitationPayload(workspaceIds: string[]): Promise<MeshWorkspaceEnvelope[]> {
-    const result: MeshWorkspaceEnvelope[] = []
-    for (const workspaceId of workspaceIds) {
-      const credential = await this.store.getWorkspaceCredential(workspaceId)
-      if (!credential) throw new Error("Missing workspace mesh credential")
-      result.push({
-        version: 1,
-        workspaceId,
-        ownerPersonId: credential.ownerPersonId,
-        ownerPublicKey: credential.ownerPublicKey,
-        ownerCertificates: credential.ownerCertificates,
-        transportSecret: credential.transportSecret,
-        epoch: credential.epoch,
-        peers: (await this.peerInstances(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
-          .map(peer => peer.advertisement as WorkspaceMemberBundle),
-        revocations: revocations(credential),
-        ownerHistory: ownerAuthorities(credential).slice(1),
-        ownershipTransfers: ownershipTransfers(credential),
-        breakGlassClaims: breakGlassClaims(credential),
-        successionPolicy: successionPolicy(credential),
-        successionVotes: successionVotes(credential),
-        successionClaims: successionClaims(credential),
-      })
-    }
-    return result
-  }
-
-  protected invitationEnvelope(raw: unknown[], workspaceId: string): MeshWorkspaceEnvelope {
-    const envelope = raw.find((item: unknown) => (item as { workspaceId?: unknown })?.workspaceId === workspaceId)
-    if (!isEnvelope(envelope)) throw new Error("Invalid mesh invitation")
-    return envelope
+    return this.invitations.payload(workspaceIds)
   }
 
   protected async verifyInvitationAuthority(workspaceId: string, envelope: MeshWorkspaceEnvelope, profile: LocalProfile,
@@ -340,18 +338,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   async receiveInvitation(raw: unknown, workspaceIds: string[], profile: LocalProfile, grants: WorkspaceGrant[]): Promise<void> {
-    if (!Array.isArray(raw) || raw.length !== workspaceIds.length ||
-      new TextEncoder().encode(JSON.stringify(raw)).byteLength > 8 * 1024 * 1024) throw new Error("Invalid mesh invitation")
-    for (const workspaceId of workspaceIds) {
-      const envelope = this.invitationEnvelope(raw, workspaceId)
-      let existing = await this.store.getWorkspaceCredential(workspaceId)
-      if (existing && existing.ownerPersonId !== envelope.ownerPersonId) {
-        existing = await this.mergeBreakGlassClaims(existing, envelope.breakGlassClaims ?? [])
-        if (existing.ownerPersonId !== envelope.ownerPersonId) throw new Error("Workspace ownership proof is missing")
-      }
-      await this.installInvitationWorkspace(workspaceId, envelope, profile,
-        grants.find(grant => grant.payload.workspaceId === workspaceId))
-    }
+    await this.invitations.receive(raw, workspaceIds, profile, grants, grant => grant.payload.workspaceId)
     await this.notify()
   }
 
