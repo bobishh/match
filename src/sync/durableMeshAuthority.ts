@@ -2,7 +2,7 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
-import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshOwnershipTransfer, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
+import { BrowserMeshAuthority, BrowserMeshBreakGlass, BrowserMeshCatalog, BrowserMeshOwnershipTransfer, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
@@ -262,6 +262,50 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     notify: () => this.notify(),
     publishAll: () => this.publishAll(),
   })
+  private readonly breakGlass = new BrowserMeshBreakGlass<
+    WorkspaceMeshCredential,
+    { personId: string; profile: LocalProfile },
+    WorkspaceGrant,
+    WorkspaceBreakGlassClaim
+  >({
+    profile: async () => {
+      const profile = await this.options.getProfile()
+      return { personId: profile.identity.personId, profile }
+    },
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    policy: successionPolicy,
+    canOwn: owner => Boolean(owner.profile.privateKeys.identityPrivateKey),
+    ownerOnline: async credential => (await this.store.listPeers(credential.workspaceId)).some(peer =>
+      peer.personId === credential.ownerPersonId && !peer.revokedAt && [...this.sessions.values()].some(session =>
+        session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId)),
+    grant: credential => credential.localGrant as WorkspaceGrant | undefined,
+    verifyGrant: async (credential, owner, grant) => {
+      for (const authority of ownerAuthorities(credential)) {
+        try {
+          await verifyWorkspaceGrant(grant, {
+            workspaceId: credential.workspaceId, personId: owner.personId, ownerPersonId: authority.personId,
+            ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates,
+          })
+          return true
+        } catch { /* Try historical owner authorities. */ }
+      }
+      return false
+    },
+    createClaim: async (owner, credential, grant) => {
+      const certificates = uniqueCertificates(owner.profile, await defaultProofStore.listCertificates())
+      const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential.workspaceId))
+      try {
+        return await createWorkspaceBreakGlassClaim(owner.profile, credential.workspaceId, credential.ownerPersonId,
+          grant, Automerge.getHeads(doc), credential.epoch + 1, new Date().toISOString(), certificates)
+      } finally { Automerge.free(doc) }
+    },
+    merge: (credential, claim) => this.mergeBreakGlassClaims(credential, [claim]).then(() => undefined),
+    ensureOwner: async (workspaceId, owner) => {
+      if (this.node) await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, owner.profile)
+    },
+    notify: () => this.notify(),
+    publishAll: () => this.publishAll(),
+  })
   async setSuccessor(workspaceId: string, personId: string | null): Promise<void> {
     await this.succession.setSuccessor(workspaceId, personId)
   }
@@ -335,45 +379,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   async breakGlassOwnership(workspaceId: string): Promise<void> {
-    const profile = await this.options.getProfile()
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential) throw new Error("Workspace membership is unavailable")
-    if (credential.ownerPersonId === profile.identity.personId) return
-    if (successionPolicy(credential)) throw new Error("Use the configured ownership succession policy")
-    if (!profile.privateKeys.identityPrivateKey) throw new Error("This identity cannot own workspaces without its root key")
-    const ownerOnline = (await this.store.listPeers(workspaceId)).some(peer =>
-      peer.personId === credential.ownerPersonId && !peer.revokedAt && [...this.sessions.values()].some(session =>
-        session.workspaceId === workspaceId && session.deviceId === peer.deviceId))
-    if (ownerOnline) throw new Error("Workspace owner is online; use signed ownership transfer")
-    const grant = credential.localGrant as WorkspaceGrant | undefined
-    if (!grant || grant.payload.personId !== profile.identity.personId || grant.payload.role !== "editor") {
-      throw new Error("Only an editor can recover orphaned ownership")
-    }
-    let verified = false
-    for (const authority of ownerAuthorities(credential)) {
-      try {
-        await verifyWorkspaceGrant(grant, {
-          workspaceId, personId: profile.identity.personId, ownerPersonId: authority.personId,
-          ownerPublicKey: authority.publicKey, ownerCertificates: authority.certificates,
-        })
-        verified = true
-        break
-      } catch { /* Recheck after the next catalog update. */ }
-    }
-    if (!verified) throw new Error("Editor grant cannot be verified")
-    const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
-    const epoch = credential.epoch + 1
-    const claimedAt = new Date().toISOString()
-    const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(workspaceId))
-    let claim: WorkspaceBreakGlassClaim
-    try {
-      claim = await createWorkspaceBreakGlassClaim(profile, workspaceId, credential.ownerPersonId, grant,
-        Automerge.getHeads(doc), epoch, claimedAt, certificates)
-    } finally { Automerge.free(doc) }
-    await this.mergeBreakGlassClaims(credential, [claim])
-    if (this.node) await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, profile)
-    await this.notify()
-    await this.publishAll()
+    await this.breakGlass.claim(workspaceId)
   }
 
   async leaveWorkspace(workspaceId: string): Promise<void> {
