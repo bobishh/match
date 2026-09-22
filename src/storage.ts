@@ -12,7 +12,7 @@ import { toBase64Url, fromBase64Url } from "./domain/identity"
 import { getStorageRaw, removeStorageRaw, setStorageRaw, storageKeys } from "./storageRaw"
 import {
   deleteWorkspaceJournal,
-  ensureJournalMigrated,
+  openWorkspaceJournal,
   readLocalJournal,
   recordsForWorkspace,
   requestResult,
@@ -94,7 +94,7 @@ async function readIndexedJournalRecord<T>(
   storeName: "receipts" | "proofs",
   key: string
 ): Promise<T | undefined> {
-  const database = await ensureJournalMigrated(workspaceId)
+  const database = await openWorkspaceJournal()
   const transaction = database.transaction(storeName, "readonly")
   const completion = transactionDone(transaction)
   const record = await requestResult(transaction.objectStore(storeName).get(key)) as T | undefined
@@ -114,22 +114,21 @@ export class WorkspaceStorage {
     // Each workspace owns a separate key: saving one can never erase another.
     // Discover snapshots whose catalog record is missing.
     const records = new Map<string, WorkspaceMeta>()
-    const deleted = (id: string) => getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null
     const accept = (value: WorkspaceMeta) => {
-      if (value && typeof value.id === "string" && typeof value.title === "string" && !deleted(value.id)) {
+      if (value && typeof value.id === "string" && typeof value.title === "string") {
         records.set(value.id, value)
       }
     }
-    const keys = storageKeys()
+    const keys = await storageKeys()
     for (const key of keys.filter(key => key.startsWith(workspaceMetaPrefix))) {
-      try { accept(JSON.parse(getStorageRaw(key)!)) } catch { /* Recover from the snapshot below. */ }
+      try { accept(JSON.parse((await getStorageRaw(key))!)) } catch { /* Recover from the snapshot below. */ }
     }
     for (const key of keys.filter(key => key.startsWith("match.snapshot."))) {
       const id = key.slice("match.snapshot.".length)
-      if (records.has(id) || deleted(id)) continue
+      if (records.has(id)) continue
       let doc: Automerge.Doc<WorkspaceDocumentV2> | undefined
       try {
-        const saved = JSON.parse(getStorageRaw(key)!)
+        const saved = JSON.parse((await getStorageRaw(key))!)
         doc = Automerge.load<WorkspaceDocumentV2>(saved.bytesBase64 ? fromBase64Url(saved.bytesBase64) : new Uint8Array(saved))
         if (doc.id === id && typeof doc.title === "string") accept({ id, title: doc.title, updatedAt: saved.savedAt ?? "" })
       } catch { /* Preserve unreadable data for manual recovery. */ }
@@ -137,16 +136,17 @@ export class WorkspaceStorage {
     }
     for (const record of records.values()) {
       const key = `${workspaceMetaPrefix}${record.id}`
-      if (getStorageRaw(key) === null) setStorageRaw(key, JSON.stringify(record))
+      if (await getStorageRaw(key) === null) await setStorageRaw(key, JSON.stringify(record))
     }
+    for (const id of records.keys()) if (await getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) records.delete(id)
     this.inMemory.workspaces = records
     return [...records.values()]
   }
 
   async registerWorkspace(id: string, title: string): Promise<void> {
-    if (getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) throw new Error("Workspace was deleted in another tab")
+    if (await getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) throw new Error("Workspace was deleted in another tab")
     const meta = { id, title, updatedAt: new Date().toISOString() }
-    setStorageRaw(`${workspaceMetaPrefix}${id}`, JSON.stringify(meta))
+    await setStorageRaw(`${workspaceMetaPrefix}${id}`, JSON.stringify(meta))
     this.inMemory.workspaces.set(id, meta)
   }
 
@@ -164,7 +164,7 @@ export class WorkspaceStorage {
     // Save the recoverable copy first. Old keys are removed only after that succeeds.
     await this.saveSnapshot(newId, moved, Automerge.save(moved))
 
-    removeStorageRaw(`${workspaceMetaPrefix}${oldId}`)
+    await removeStorageRaw(`${workspaceMetaPrefix}${oldId}`)
     this.inMemory.snapshots.delete(oldId)
     this.inMemory.workspaces.delete(oldId)
     for (const map of [this.inMemory.changes, this.inMemory.proofs, this.inMemory.receipts]) {
@@ -174,15 +174,15 @@ export class WorkspaceStorage {
     }
     await deleteWorkspaceJournal(oldId)
     for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
-      removeStorageRaw(`${prefix}${oldId}`)
+      await removeStorageRaw(`${prefix}${oldId}`)
     }
     return moved
   }
 
   async deleteWorkspace(workspaceId: string): Promise<void> {
     checkStorageFailureHook()
-    setStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`, new Date().toISOString())
-    removeStorageRaw(`${workspaceMetaPrefix}${workspaceId}`)
+    await setStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`, new Date().toISOString())
+    await removeStorageRaw(`${workspaceMetaPrefix}${workspaceId}`)
     this.inMemory.snapshots.delete(workspaceId)
     this.inMemory.workspaces.delete(workspaceId)
     for (const map of [this.inMemory.changes, this.inMemory.proofs, this.inMemory.receipts]) {
@@ -192,7 +192,7 @@ export class WorkspaceStorage {
     }
     await deleteWorkspaceJournal(workspaceId)
     for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
-      removeStorageRaw(`${prefix}${workspaceId}`)
+      await removeStorageRaw(`${prefix}${workspaceId}`)
     }
   }
 
@@ -213,7 +213,7 @@ export class WorkspaceStorage {
     }
 
     if (typeof indexedDB !== "undefined") {
-      const database = await ensureJournalMigrated(workspaceId)
+      const database = await openWorkspaceJournal()
       const transaction = database.transaction(["changes", "proofs", "receipts"], "readwrite")
       const completion = transactionDone(transaction)
       try {
@@ -271,8 +271,8 @@ export class WorkspaceStorage {
       bytes: new Uint8Array(bytes),
       savedAt: new Date().toISOString(),
     }
-    if (getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) throw new Error("Workspace was deleted in another tab")
-    setStorageRaw(
+    if (await getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) throw new Error("Workspace was deleted in another tab")
+    await setStorageRaw(
       `match.snapshot.${workspaceId}`,
       JSON.stringify({ heads, bytesBase64: toBase64Url(bytes), savedAt: snapshot.savedAt })
     )
@@ -283,8 +283,8 @@ export class WorkspaceStorage {
   async loadWorkspaceDoc(
     workspaceId: string
   ): Promise<{ doc: Automerge.Doc<WorkspaceDocumentV2>; heads: Heads } | null> {
-    if (getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) return null
-    const rawSnapshot = getStorageRaw(`match.snapshot.${workspaceId}`)
+    if (await getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) return null
+    const rawSnapshot = await getStorageRaw(`match.snapshot.${workspaceId}`)
     const parsedSnapshot = rawSnapshot ? parseStoredSnapshot(rawSnapshot, workspaceId) : null
     if (parsedSnapshot) this.inMemory.snapshots.set(workspaceId, parsedSnapshot)
     const snapshot = parsedSnapshot ?? this.inMemory.snapshots.get(workspaceId) ?? null
@@ -341,7 +341,7 @@ export class WorkspaceStorage {
     }
 
     if (typeof indexedDB !== "undefined") {
-      const database = await ensureJournalMigrated(workspaceId)
+      const database = await openWorkspaceJournal()
       const transaction = database.transaction("changes", "readwrite")
       const completion = transactionDone(transaction)
       const store = transaction.objectStore("changes")
@@ -366,7 +366,7 @@ export class WorkspaceStorage {
     const prefix = `${workspaceId}:`
     let results: StoredChange[]
     if (typeof indexedDB !== "undefined") {
-      const database = await ensureJournalMigrated(workspaceId)
+      const database = await openWorkspaceJournal()
       const records = await recordsForWorkspace<StoredChange & { id: string }>(database, "changes", workspaceId)
       results = records.map(record => ({
         workspaceId: record.workspaceId,
@@ -410,7 +410,7 @@ export class WorkspaceStorage {
   async getProofs(workspaceId: string): Promise<StoredProofsV1> {
     let records: StoredProofRecord[]
     if (typeof indexedDB !== "undefined") {
-      const database = await ensureJournalMigrated(workspaceId)
+      const database = await openWorkspaceJournal()
       records = await recordsForWorkspace<StoredProofRecord>(database, "proofs", workspaceId)
     } else {
       records = Object.entries(readLocalJournal(workspaceId).proofs).map(([changeHash, proof]) => ({
@@ -432,14 +432,14 @@ export class WorkspaceStorage {
   async savePersonalRoot(root: PersonalRootDocumentV1): Promise<void> {
     checkStorageFailureHook()
     this.inMemory.personalRoots.set(root.rootId, JSON.parse(JSON.stringify(root)))
-    const raw = getStorageRaw("match.v1.personal_roots")
+    const raw = await getStorageRaw("match.v1.personal_roots")
     const map: Record<string, PersonalRootDocumentV1> = raw ? JSON.parse(raw) : {}
     map[root.rootId] = JSON.parse(JSON.stringify(root))
-    setStorageRaw("match.v1.personal_roots", JSON.stringify(map))
+    await setStorageRaw("match.v1.personal_roots", JSON.stringify(map))
   }
 
   async loadPersonalRoot(rootId?: string): Promise<PersonalRootDocumentV1 | null> {
-    const raw = getStorageRaw("match.v1.personal_roots")
+    const raw = await getStorageRaw("match.v1.personal_roots")
     if (raw) {
       try {
         const map = JSON.parse(raw)

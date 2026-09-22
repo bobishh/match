@@ -7,7 +7,7 @@ import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identit
 import { useMatch, hydrate, resetStateForTest } from "./state"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
-import { isItem, type WorkspaceDocumentV2 } from "./domain/model"
+import { isItem } from "./domain/model"
 import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations } from "./sync/changeAuthorization"
 
 beforeAll(async () => {
@@ -116,35 +116,6 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(match.activeWorkspace.id).toBe(id)
     expect(match.activeWorkspace.title).toBe("Job search")
     expect(match.workspace.leads.some(lead => lead.company === "Local data")).toBe(true)
-  })
-
-  it("migrates persisted task cards into a signed structural-item change before sharing", async () => {
-    const match = useMatch()
-    const profile = match.getCurrentProfile()!
-    const raw = createWorkspaceDoc("legacy-task-board", "Old board", profile.identity.personId, "blank")
-    const column = Object.values(raw.entities).find(entity => entity.kind === "column")!
-    const item = {
-      id: "legacy-task-item", title: "Persisted old card", body: "", values: {},
-      placement: { parentId: column.id, rank: "0/1" }, deleted: false,
-      createdAt: "2026-09-17T08:27:28.056Z", updatedAt: "2026-09-17T08:27:28.056Z",
-    }
-    raw.entities[item.id] = item
-    const legacy = Automerge.change(Automerge.from(raw), draft => {
-      ;(draft.entities[item.id] as { kind?: string }).kind = "task"
-    })
-    await defaultStorage.saveSnapshot(legacy.id, legacy, Automerge.save(legacy))
-
-    const bytes = await match.readWorkspaceBytes(legacy.id)
-    const migrated = Automerge.load<WorkspaceDocumentV2>(bytes)
-    const lastChange = Automerge.decodeChange(Automerge.getAllChanges(migrated).at(-1)!).hash
-    const authorization = await exportAuthorizationBundle(Automerge.save(migrated))
-
-    expect((migrated.entities[item.id] as { kind?: unknown }).kind).toBeUndefined()
-    expect(authorization.records).toEqual(expect.arrayContaining([
-      expect.objectContaining({ signed: expect.objectContaining({ payload: expect.objectContaining({ hashes: expect.arrayContaining([lastChange]) }) }) }),
-    ]))
-    expect((await defaultStorage.loadWorkspaceDoc(legacy.id))?.heads).toEqual(Automerge.getHeads(migrated))
-    await expect(match.mergeAuthorizedWorkspace(legacy.id, bytes, authorization)).resolves.toBeUndefined()
   })
 
   it("rejects a document addressed to another workspace without touching the active board", async () => {

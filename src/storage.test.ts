@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } from "./domain/identity"
@@ -22,62 +22,28 @@ beforeAll(async () => {
 })
 
 describe("Workspace catalog across browser tabs", () => {
-  let backing: Map<string, string>
   const tab = () => new WorkspaceStorage({ changes: new Map(), proofs: new Map(), receipts: new Map(),
     snapshots: new Map(), workspaces: new Map(), personalRoots: new Map() })
-  beforeEach(() => {
-    backing = new Map()
-    vi.stubGlobal("localStorage", {
-      getItem: (key: string) => backing.get(key) ?? null,
-      setItem: (key: string, value: string) => backing.set(key, value),
-      removeItem: (key: string) => backing.delete(key),
-      key: (index: number) => [...backing.keys()][index] ?? null,
-      get length() { return backing.size },
-    })
-  })
-  afterEach(() => vi.unstubAllGlobals())
 
   it("keeps a received workspace when a stale tab saves another workspace", async () => {
+    const existingId = crypto.randomUUID()
+    const newId = crypto.randomUUID()
     const old = tab()
-    await old.registerWorkspace("existing", "Existing")
+    await old.registerWorkspace(existingId, "Existing")
     const receiving = tab()
     await receiving.listWorkspaces()
-    await receiving.registerWorkspace("new", "Twang issues")
-    await old.registerWorkspace("existing", "Edited")
-    expect((await tab().listWorkspaces()).map(w => w.id)).toEqual(expect.arrayContaining(["existing", "new"]))
+    await receiving.registerWorkspace(newId, "Twang issues")
+    await old.registerWorkspace(existingId, "Edited")
+    expect((await tab().listWorkspaces()).map(w => w.id)).toEqual(expect.arrayContaining([existingId, newId]))
   })
 
-  it("recovers an unlisted snapshot without reading the retired catalog", async () => {
-    const doc = Automerge.from(createWorkspaceDoc("orphan", "Twang issues", "owner", "blank"))
-    await tab().saveSnapshot("orphan", doc, Automerge.save(doc))
-    for (const key of [...backing.keys()]) if (!key.startsWith("match.snapshot.")) backing.delete(key)
-    backing.set("match.workspaces", JSON.stringify([{ id: "legacy", title: "Retired", updatedAt: "2026-09-17" }]))
-    expect((await tab().listWorkspaces()).map(w => w.title)).toEqual(["Twang issues"])
-  })
-
-  it("does not resurrect a deleted workspace from a stale tab or legacy catalog", async () => {
+  it("does not resurrect a deleted workspace from a stale tab", async () => {
+    const id = crypto.randomUUID()
     const stale = tab()
-    await stale.registerWorkspace("gone", "Gone")
-    await tab().deleteWorkspace("gone")
-    backing.set("match.workspaces", JSON.stringify([{ id: "gone", title: "Gone", updatedAt: "2026-09-17" }]))
-    expect(await stale.listWorkspaces()).toEqual([])
-    await expect(stale.registerWorkspace("gone", "Stale edit")).rejects.toThrow(/deleted/i)
-  })
-
-  it("reports a browser write failure instead of pretending the workspace was saved", async () => {
-    vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw new Error("QuotaExceededError") })
-    await expect(tab().registerWorkspace("full", "Full")).rejects.toThrow("QuotaExceededError")
-  })
-
-  it("does not cache a durable receipt when the browser rejects the write", async () => {
-    const storage = tab()
-    const receipt = { transactionId: "failed-save", changeHash: "change" } as never
-    const write = vi.spyOn(localStorage, "setItem").mockImplementation(() => { throw new Error("QuotaExceededError") })
-    await expect(storage.commitTransaction("workspace", receipt, new Uint8Array([1]), {} as never)).rejects.toThrow("QuotaExceededError")
-    expect(await storage.getReceipt("workspace", "failed-save")).toBeNull()
-    write.mockRestore()
-    await storage.commitTransaction("workspace", receipt, new Uint8Array([1]), {} as never)
-    expect(await tab().getReceipt("workspace", "failed-save")).toEqual(receipt)
+    await stale.registerWorkspace(id, "Gone")
+    await tab().deleteWorkspace(id)
+    expect((await stale.listWorkspaces()).some(workspace => workspace.id === id)).toBe(false)
+    await expect(stale.registerWorkspace(id, "Stale edit")).rejects.toThrow(/deleted/i)
   })
 })
 

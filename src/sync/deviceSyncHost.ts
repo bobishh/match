@@ -247,6 +247,9 @@ function readWorkspaceRequest(runtime: HostRuntime, payload: Uint8Array) {
 }
 
 async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: string; displayName?: unknown; meshPeers?: unknown }) {
+  if (guest.personId === runtime.profile.identity.personId) {
+    return { ok: false as const, error: "This invite is for another person, but this browser uses the owner's identity. Use a separate identity to join as an editor." }
+  }
   const existing = runtime.grants.get(guest.personId)
   if (existing) return { ok: true as const, value: { personId: guest.personId, grants: existing.grants } }
   if (Date.parse(runtime.invite.expiresAt) <= Date.now()) {

@@ -14,7 +14,6 @@ import {
   type WorkspaceStorage,
 } from "./storage";
 import {
-  migrateStoredLegacyTaskItems,
   notifyLocalChanges,
   reconcile,
   refreshAvailableWorkspaces,
@@ -48,13 +47,7 @@ async function readWorkspaceBytes(
       : (await storage.loadWorkspaceDoc(id))?.doc;
   if (!doc)
     throw new Error("The selected workspace is unavailable on this device.");
-  const profile = await requireProfile();
-  const migrated = await migrateStoredLegacyTaskItems(doc, profile, storage);
-  if (migrated !== doc && stateRuntime.activeDoc?.id === id) {
-    updateReactiveState(migrated);
-    notifyLocalChanges();
-  }
-  return Automerge.save(migrated);
+  return Automerge.save(doc);
 }
 
 async function mergeAuthorizedWorkspace(

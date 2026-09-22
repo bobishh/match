@@ -5,7 +5,6 @@ import type { StoredProofsV1 } from "./domain/proofs"
 const databaseName = "match"
 const storeName = "workspace"
 const workspaceKey = "default"
-const fallbackKey = "match.workspace"
 
 export type WorkspaceRecord = {
   workspace: Workspace
@@ -47,24 +46,13 @@ export async function saveWorkspace(workspace: Workspace): Promise<void> {
 }
 
 export async function saveWorkspaceRecord(record: WorkspaceRecord): Promise<void> {
-  if (typeof indexedDB === "undefined") {
-    saveWorkspaceFallback(record)
-    return
-  }
-  try {
-    const database = await openDatabase()
-    await new Promise<void>((resolve, reject) => {
-      const request = database.transaction(storeName, "readwrite").objectStore(storeName).put(record, workspaceKey)
-      request.onsuccess = () => resolve()
-      request.onerror = () => reject(request.error)
-    })
-  } catch {
-    saveWorkspaceFallback(record)
-  }
-}
-
-function saveWorkspaceFallback(record: WorkspaceRecord): void {
-  if (typeof localStorage !== "undefined") localStorage.setItem(fallbackKey, JSON.stringify(record))
+  if (typeof indexedDB === "undefined") return
+  const database = await openDatabase()
+  await new Promise<void>((resolve, reject) => {
+    const request = database.transaction(storeName, "readwrite").objectStore(storeName).put(record, workspaceKey)
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+  })
 }
 
 export function createWorkspaceBundleV2(

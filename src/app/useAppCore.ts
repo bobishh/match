@@ -175,13 +175,17 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
     onCleanup(() => { cancelled = true })
     const doc = match.getActiveDoc()
     if (!doc) return
-    const result = await loadWorkspaceAccess(match, doc)
-    if (!cancelled && match.activeWorkspace.id === doc.id) {
+    const commit = (result: Awaited<ReturnType<typeof loadWorkspaceAccess>>) => {
+      if (cancelled || match.activeWorkspace.id !== doc.id) return
       currentRole.value = result.role
       currentWorkspaceOwnerId.value = result.ownerId
       roleWorkspaceId.value = doc.id
-      workspaceAccess.value = result.access
+      workspaceAccess.value = { ...workspaceAccess.value, ...result.access }
       workspaceAccessErrors.value = result.errors
+    }
+    const result = await loadWorkspaceAccess(match, doc, commit)
+    if (!cancelled && match.activeWorkspace.id === doc.id) {
+      commit(result)
     }
   }, { immediate: true })
   const activePolicyAvailable = computed(() => roleWorkspaceId.value === match.activeWorkspace.id && workspaceAccess.value[match.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(match.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === match.activeWorkspace.id)?.conflicted)
@@ -202,9 +206,10 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
 
 type WorkspaceAccessResult = { role: WorkspaceRole; blocked: boolean; error?: string }
 
-async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: WorkspaceDocumentV2) {
+async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: WorkspaceDocumentV2,
+  onActive?: (result: { role: WorkspaceRole; ownerId: string; access: Record<string, WorkspaceAccessResult>; errors: string[] }) => void) {
   const profile = await bootstrapIdentity("My Device")
-  const entries = await Promise.all(match.availableWorkspaces.value.map(async item => {
+  const resolve = async (item: { id: string; title: string }) => {
     try {
       const role = item.id === doc.id ? await workspaceRole(doc, profile) : await match.getWorkspaceRole(item.id)
       return [item.id, { role, blocked: await workspaceWritesBlocked(item.id) }] as const
@@ -213,12 +218,17 @@ async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: Work
       const error = `“${item.title}” (${item.id}): permissions could not be verified. ${detail}`
       return [item.id, { role: "visitor" as const, blocked: true, error }] as const
     }
-  }))
-  const access: Record<string, WorkspaceAccessResult> = Object.fromEntries(entries)
-  const active = access[doc.id]
+  }
+  const items = match.availableWorkspaces.value
+  const activeItem = items.find(item => item.id === doc.id) ?? { id: doc.id, title: doc.title }
+  const [activeId, activeRaw] = await resolve(activeItem)
+  const active: WorkspaceAccessResult = activeRaw
   const ownerId = active?.error ? "" : await effectiveWorkspaceOwner(doc.id, doc.ownerPersonId)
-  return { role: active?.role ?? "visitor", ownerId, access,
-    errors: active?.error ? [active.error] : [] }
+  const initial = { role: active.role, ownerId, access: { [activeId]: active },
+    errors: active.error ? [active.error] : [] }
+  onActive?.(initial)
+  const others = await Promise.all(items.filter(item => item.id !== doc.id).map(resolve))
+  return { ...initial, access: Object.fromEntries([[activeId, active], ...others]) }
 }
 
 function closeRestrictedEditors(ui: ReturnType<typeof useAppUiState>) {

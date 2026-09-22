@@ -102,6 +102,29 @@ test("Given a pending access request, when the owner declines, then no shared wo
   } finally { await context.close() }
 })
 
+test("Given another browser uses the owner's identity, when it opens an editor invite, then Match explains the identity conflict before approval", async ({ page, browser }) => {
+  await page.goto("/")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const ownerProfile = await page.evaluate(async () => (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))
+  expect(ownerProfile).toBeTruthy()
+  const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add someone" }).click()
+  await host.getByRole("button", { name: "Generate link" }).click()
+  const invite = await host.getByLabel("Pairing link").inputValue()
+  const context = await browser.newContext()
+  try {
+    const guest = await context.newPage()
+    await guest.goto("/")
+    await guest.evaluate(async profile => (await import("/src/localDb.ts")).writeLocal("match.local_profile.v1", profile), ownerProfile!)
+    await guest.goto(invite)
+    const dialog = guest.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("button", { name: "Accept and join" }).click()
+    await expect(dialog.getByRole("alert")).toContainText("This invite is for another person")
+    await expect(dialog.getByRole("alert")).toContainText("separate identity")
+    await expect(host.getByRole("region", { name: "Access request" })).toHaveCount(0)
+  } finally { await context.close() }
+})
+
 test("Given snapshot preparation fails, when an editor is approved, then both devices see one terminal cause", async ({ page, browser }) => {
   test.setTimeout(60_000)
   await page.goto("/")

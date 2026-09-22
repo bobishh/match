@@ -17,6 +17,12 @@ test("Settings keeps identity available while workspace controls stay role-gated
   await settings.getByLabel("Name").fill("Settings identity")
   await settings.getByRole("button", { name: "Save name" }).click()
   await expect(settings.getByLabel("Name")).toHaveValue("Settings identity")
+  const nameWidth = await settings.getByLabel("Name").evaluate(element => element.getBoundingClientRect().width)
+  const buttonWidth = await settings.getByRole("button", { name: "Save name" }).evaluate(element => element.getBoundingClientRect().width)
+  expect(Math.abs(nameWidth - buttonWidth)).toBeLessThan(1)
+  await settings.getByRole("tab", { name: "Participants" }).click()
+  await expect(settings.getByRole("listitem").filter({ hasText: "You" })).toContainText("Settings identity")
+  await expect(settings.getByRole("listitem").filter({ hasText: "You" })).toContainText("Chat name:")
   await settings.getByRole("button", { name: "Dismiss" }).click()
 
   await page.getByRole("button", { name: "Open workspaces" }).click()

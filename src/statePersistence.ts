@@ -16,7 +16,6 @@ import {
 } from "./domain/personalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
-import { migrateLegacyTaskItems } from "./domain/legacyTaskMigration";
 import { executeCommand, type Command } from "./domain/commands";
 import {
   authorizeLocalChanges,
@@ -30,6 +29,7 @@ import {
 } from "./storage";
 import { projectWorkspace } from "./stateProjection";
 import { stateRuntime } from "./stateContext";
+import { readLocal, writeLocal } from "./localDb";
 
 type FixtureItem = { id: string; title: string; parentId: string };
 type MatchWindow = Window & {
@@ -83,12 +83,7 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
   try {
     await initializeAutomerge();
     stateRuntime.currentProfile = await bootstrapIdentity("Match User");
-    const loaded = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
-    const doc = await migrateStoredLegacyTaskItems(
-      loaded,
-      stateRuntime.currentProfile,
-      storage,
-    );
+    const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
     updateReactiveState(doc);
     await initializePersonalRoot(storage, stateRuntime.currentProfile);
     applyInjectedFixture();
@@ -101,31 +96,6 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
     readinessWaiters.clear();
     throw error;
   }
-}
-
-/**
- * Repair the known task-to-item representation change before a document is
- * rendered or replicated.  It is a normal local Automerge change, signed by a
- * member who is allowed to write content; it never rewrites received history.
- */
-export async function migrateStoredLegacyTaskItems(
-  doc: Automerge.Doc<WorkspaceDocumentV2>,
-  profile: LocalProfile,
-  storage = defaultStorage,
-): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
-  const migrated = migrateLegacyTaskItems(doc)
-  if (!migrated) return doc
-  if (await workspaceWritesBlocked(doc.id))
-    throw new Error("Workspace writes paused: conflicting ownership records")
-  const role = await workspaceRole(doc, profile)
-  assertWorkspaceCapability(role, "content.write")
-  assertWorkspaceTransition(role, doc, migrated)
-  const change = Automerge.getLastLocalChange(migrated)
-  if (!change) throw new Error("Legacy task migration did not produce a change")
-  const hash = Automerge.decodeChange(change).hash
-  await authorizeLocalChanges(migrated, profile, [hash])
-  await storage.saveSnapshot(doc.id, migrated, Automerge.save(migrated))
-  return migrated
 }
 
 export function whenReady(): Promise<void> {
@@ -230,7 +200,7 @@ async function loadInitialWorkspace(
   storage: WorkspaceStorage,
   profile: LocalProfile,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
-  const initialId = activeWorkspaceId();
+  const initialId = await activeWorkspaceId();
   const loaded = await loadPreferredWorkspace(storage, initialId);
   if (loaded) return loaded.doc;
   const doc = await initializeFirstWorkspace(
@@ -241,10 +211,8 @@ async function loadInitialWorkspace(
   return doc;
 }
 
-function activeWorkspaceId(): string {
-  return typeof localStorage === "undefined"
-    ? "default"
-    : (localStorage.getItem("match.active_workspace_id") ?? "default");
+async function activeWorkspaceId(): Promise<string> {
+  return await readLocal("match.active_workspace_id") ?? "default";
 }
 
 async function loadPreferredWorkspace(
@@ -271,8 +239,7 @@ async function initializeFirstWorkspace(
     );
     await storage.saveSnapshot(workspaceId, doc, Automerge.save(doc));
     await storage.registerWorkspace(workspaceId, "Untitled");
-    if (typeof localStorage !== "undefined")
-      localStorage.setItem("match.active_workspace_id", workspaceId);
+    await writeLocal("match.active_workspace_id", workspaceId);
     return doc;
   };
   return typeof navigator !== "undefined" && navigator.locks

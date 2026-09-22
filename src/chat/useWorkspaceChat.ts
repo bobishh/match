@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue"
 import { bootstrapIdentity } from "../domain/identity"
 import { messageOrderKey, type ChatSnapshot } from "./store"
 import { resolveDisplayNames, randomDisplayName } from "./names"
+import { readLocal, writeLocal } from "../localDb"
 import {
   ensureChatProfile,
   renameChatProfile,
@@ -76,8 +77,8 @@ function subscribeWorkspaceChat(options: SubscriptionOptions): () => void {
     void navigator.locks.request(`match-chat-notification:${last.workspaceId}`, async () => {
       const key = `match.chat.notified:${last.workspaceId}`
       const order = messageOrderKey(last)
-      if ((localStorage.getItem(key) ?? "") >= order) return
-      localStorage.setItem(key, order)
+      if ((await readLocal(key) ?? "") >= order) return
+      await writeLocal(key, order)
       if (options.workspaceId.value !== event.workspaceId || options.open.value) return
       const sender = options.names.value[last.personId] ?? "New message"
       options.toast.value = { workspaceId: event.workspaceId, text: `${sender}: ${last.body.slice(0, 120)}` }

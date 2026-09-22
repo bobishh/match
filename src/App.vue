@@ -23,7 +23,7 @@ import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
 import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
-import { ref } from "vue"
+import { computed, ref } from "vue"
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)
@@ -65,8 +65,8 @@ const {
 const {
   currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
 } = app.collaboration.permissions
-const {
-  meshPresence, meshPresenceLabel,
+const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
+const { meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
   canClaimSuccession, transferringOwnership, revokingPeer,
   peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
@@ -104,12 +104,12 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
 </script>
 
 <template>
-  <main class="shell" :aria-busy="!ready.value && !startupError">
+  <main class="shell" :aria-busy="!uiReady && !startupError">
     <header class="topbar">
-      <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!ready.value" @click="showWorkspaces = true">
+      <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!uiReady" @click="showWorkspaces = true">
         <span class="brand-presence">
           <span v-if="ready.value && workspaceRoleStatus === 'verified' && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
-          <span v-else-if="ready.value" class="workspace-role-icon" role="img" :aria-label="workspaceRoleStatus === 'verified' ? `Workspace role: ${currentRole}` : `Workspace permissions: ${workspaceRoleStatus}`">
+          <span v-else-if="ready.value && workspaceRoleStatus !== 'loading'" class="workspace-role-icon" role="img" :aria-label="workspaceRoleStatus === 'verified' ? `Workspace role: ${currentRole}` : `Workspace permissions: ${workspaceRoleStatus}`">
             <svg v-if="currentRole === 'editor'" viewBox="0 0 16 16" aria-hidden="true">
               <path d="M3 11.5 2.5 14l2.5-.5L13 5.5 10.5 3zM9.5 4l2.5 2.5" />
             </svg>
@@ -125,13 +125,13 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
         </div>
       </button>
       <div class="topbar-mobile-controls">
-        <button class="button button-quiet button-small" type="button" aria-label="Workspace chat" :disabled="!ready.value" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
+        <button class="button button-quiet button-small" type="button" aria-label="Workspace chat" :disabled="!uiReady" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
         <button
           ref="menuButtonRef"
           class="button button-quiet mobile-menu-button"
           type="button"
           aria-label="Menu"
-          :disabled="!ready.value"
+          :disabled="!uiReady"
           :aria-expanded="showMobileMenu ? 'true' : 'false'"
           aria-controls="mobile-drawer"
           @click="toggleMobileMenu"
@@ -139,7 +139,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
           <span class="hamburger-icon" aria-hidden="true">☰</span>
         </button>
       </div>
-      <div class="top-actions top-actions-desktop" :inert="!ready.value || undefined">
+      <div class="top-actions top-actions-desktop" :inert="!uiReady || undefined">
         <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
         <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Settings" @click="showSettings = true">Settings</button>
@@ -150,14 +150,14 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       </div>
     </header>
 
-    <section v-if="!ready.value" class="boot-placeholder" aria-label="Opening workspace">
+    <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
       <div class="boot-toolbar">
         <div class="boot-search" aria-hidden="true"></div>
         <div class="boot-progress" aria-live="polite">
           <Transition name="notice">
-            <div v-if="showLoading" class="loading-indicator" role="status">
+            <div v-if="showLoading || (ready.value && workspaceRoleStatus === 'loading')" class="loading-indicator" role="status">
               <div class="loading-track" aria-hidden="true"><span></span></div>
-              <span>Loading your cards</span>
+              <span>{{ ready.value ? 'Checking workspace access' : 'Loading your cards' }}</span>
             </div>
           </Transition>
           <div v-if="startupError" class="startup-error" role="alert">
@@ -306,8 +306,8 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       </template>
       <template #participants>
         <WorkspaceParticipants
-          :members="chat.members.value"
-          :current-person-id="chat.personId.value"
+          :members="chat.members.value" :current-person-id="chat.personId.value"
+          :current-identity-name="app.workspace.getCurrentProfile()?.identity.displayName ?? 'Match User'"
           :current-role="currentRole"
           :owner-person-id="currentWorkspaceOwnerId"
           :peers="meshParticipantDevices"

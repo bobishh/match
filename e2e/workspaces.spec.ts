@@ -21,13 +21,29 @@ test("Given boards with identical names, when choosing an invitation scope, then
 })
 
 test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
+  test("Given an owner workspace, when access is checked after reload, then visitor role never flashes", async ({ page }) => {
+    await page.goto("/")
+    await expect(page.getByRole("img", { name: "Workspace role: owner" })).toBeVisible()
+    await page.addInitScript(() => {
+      (window as Window & { __visitorFlashed?: boolean }).__visitorFlashed = false
+      new MutationObserver(() => {
+        if (document.querySelector('[aria-label="Workspace role: visitor"]')) {
+          (window as Window & { __visitorFlashed?: boolean }).__visitorFlashed = true
+        }
+      }).observe(document, { childList: true, subtree: true, attributes: true })
+    })
+    await page.reload()
+    await expect(page.getByRole("img", { name: "Workspace role: owner" })).toBeVisible()
+    expect(await page.evaluate(() => (window as Window & { __visitorFlashed?: boolean }).__visitorFlashed)).toBe(false)
+  })
+
   test("Given a new profile, when Match opens, then it starts with a collision-safe blank Untitled workspace", async ({ page }) => {
     await page.goto("/")
 
     await expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
     await expect(page.getByRole("region", { name: "To do" })).toBeVisible()
     await expect(page.getByRole("region", { name: "Lead" })).toHaveCount(0)
-    await expect.poll(() => page.evaluate(() => localStorage.getItem("match.active_workspace_id"))).not.toBe("default")
+    await expect.poll(() => page.evaluate(async () => (await import("/src/localDb.ts")).readLocal("match.active_workspace_id"))).not.toBe("default")
   })
 
   test("Given two first tabs, when both open together, then they share one generated Untitled workspace", async ({ page }) => {
@@ -38,7 +54,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
         expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible(),
         expect(peer.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible(),
       ])
-      const activeId = (target: typeof page) => target.evaluate(() => localStorage.getItem("match.active_workspace_id"))
+      const activeId = (target: typeof page) => target.evaluate(async () => (await import("/src/localDb.ts")).readLocal("match.active_workspace_id"))
       await expect.poll(() => activeId(peer)).toBe(await activeId(page))
       await page.getByRole("button", { name: "Open workspaces" }).click()
       await expect(page.getByRole("dialog", { name: "Workspaces" }).locator(".workspace-item")).toHaveCount(1)

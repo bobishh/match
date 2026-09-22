@@ -1,6 +1,4 @@
 import type { ChangeProof, TransactionReceipt } from "./domain/model"
-import { fromBase64Url } from "./domain/identity"
-import { getStorageRaw, removeStorageRaw, setStorageRaw } from "./storageRaw"
 
 export type StoredChange = {
   workspaceId: string
@@ -24,13 +22,13 @@ export type LocalJournal = {
 }
 
 const journalDatabaseName = "match-workspace-journal-v1"
-const journalStores = ["changes", "proofs", "receipts", "metadata"] as const
+const journalStores = ["changes", "proofs", "receipts"] as const
 type JournalStoreName = typeof journalStores[number]
-type JournalIndexedStoreName = Exclude<JournalStoreName, "metadata">
+type JournalIndexedStoreName = JournalStoreName
 
 let journalDatabasePromise: Promise<IDBDatabase> | undefined
 const localJournalQueues = new Map<string, Promise<unknown>>()
-const migratedJournalWorkspaces = new Set<string>()
+const memoryJournals = new Map<string, LocalJournal>()
 
 export function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -55,8 +53,8 @@ function openJournalDatabase(): Promise<IDBDatabase> {
       const database = request.result
       for (const name of journalStores) {
         if (database.objectStoreNames.contains(name)) continue
-        const store = database.createObjectStore(name, { keyPath: name === "metadata" ? "workspaceId" : "id" })
-        if (name !== "metadata") store.createIndex("workspaceId", "workspaceId", { unique: false })
+        const store = database.createObjectStore(name, { keyPath: "id" })
+        store.createIndex("workspaceId", "workspaceId", { unique: false })
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -66,37 +64,11 @@ function openJournalDatabase(): Promise<IDBDatabase> {
 }
 
 export function readLocalJournal(workspaceId: string): LocalJournal {
-  const current = getStorageRaw(`match.v2.journal.${workspaceId}`)
-  if (current) {
-    try {
-      return JSON.parse(current) as LocalJournal
-    } catch {
-      // Read legacy records below.
-    }
-  }
-  let changes: LocalJournal["changes"] = []
-  let proofs: LocalJournal["proofs"] = {}
-  let receipts: LocalJournal["receipts"] = {}
-  try {
-    changes = JSON.parse(getStorageRaw(`match.v1.changes.${workspaceId}`) ?? "[]") as LocalJournal["changes"]
-  } catch {
-    // Ignore malformed legacy changes.
-  }
-  try {
-    proofs = JSON.parse(getStorageRaw(`match.v1.proofs.${workspaceId}`) ?? "{}") as LocalJournal["proofs"]
-  } catch {
-    // Ignore malformed legacy proofs.
-  }
-  try {
-    receipts = JSON.parse(getStorageRaw(`match.v1.receipts.${workspaceId}`) ?? "{}") as LocalJournal["receipts"]
-  } catch {
-    // Ignore malformed legacy receipts.
-  }
-  return { changes, proofs, receipts }
+  return memoryJournals.get(workspaceId) ?? { changes: [], proofs: {}, receipts: {} }
 }
 
 export function writeLocalJournal(workspaceId: string, journal: LocalJournal): void {
-  setStorageRaw(`match.v2.journal.${workspaceId}`, JSON.stringify(journal))
+  memoryJournals.set(workspaceId, journal)
 }
 
 export function withLocalJournalLock<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
@@ -111,43 +83,8 @@ export function withLocalJournalLock<T>(workspaceId: string, operation: () => Pr
   return current
 }
 
-export async function ensureJournalMigrated(workspaceId: string): Promise<IDBDatabase> {
-  const database = await openJournalDatabase()
-  if (migratedJournalWorkspaces.has(workspaceId)) return database
-  const transaction = database.transaction([...journalStores], "readwrite")
-  const completion = transactionDone(transaction)
-  try {
-    const migrated = await requestResult(transaction.objectStore("metadata").get(workspaceId))
-    if (!migrated) migrateLegacyJournal(transaction, workspaceId)
-  } catch (error) {
-    transaction.abort()
-    await completion.catch(() => undefined)
-    throw error
-  }
-  await completion
-  migratedJournalWorkspaces.add(workspaceId)
-  return database
-}
-
-function migrateLegacyJournal(transaction: IDBTransaction, workspaceId: string): void {
-  const legacy = readLocalJournal(workspaceId)
-  const changes = transaction.objectStore("changes")
-  const proofs = transaction.objectStore("proofs")
-  const receipts = transaction.objectStore("receipts")
-  for (const change of legacy.changes) changes.put({
-    id: `${workspaceId}:${change.changeHash}`,
-    workspaceId: change.workspaceId,
-    changeHash: change.changeHash,
-    bytes: fromBase64Url(change.bytesBase64),
-    addedAt: change.addedAt,
-  })
-  for (const [changeHash, proof] of Object.entries(legacy.proofs)) {
-    proofs.put({ id: `${workspaceId}:${changeHash}`, workspaceId, changeHash, proof } satisfies StoredProofRecord)
-  }
-  for (const [transactionId, receipt] of Object.entries(legacy.receipts)) {
-    receipts.put({ id: `${workspaceId}:${transactionId}`, workspaceId, transactionId, receipt } satisfies StoredReceiptRecord)
-  }
-  transaction.objectStore("metadata").put({ workspaceId, migratedAt: new Date().toISOString() })
+export async function openWorkspaceJournal(): Promise<IDBDatabase> {
+  return openJournalDatabase()
 }
 
 export async function recordsForWorkspace<T>(
@@ -165,9 +102,8 @@ export async function recordsForWorkspace<T>(
 }
 
 export async function deleteWorkspaceJournal(workspaceId: string): Promise<void> {
-  migratedJournalWorkspaces.delete(workspaceId)
+  memoryJournals.delete(workspaceId)
   if (typeof indexedDB === "undefined") {
-    removeStorageRaw(`match.v2.journal.${workspaceId}`)
     return
   }
   const database = await openJournalDatabase()
@@ -178,7 +114,5 @@ export async function deleteWorkspaceJournal(workspaceId: string): Promise<void>
     const keys = await requestResult(store.index("workspaceId").getAllKeys(workspaceId))
     for (const key of keys) store.delete(key)
   }
-  transaction.objectStore("metadata").delete(workspaceId)
   await completion
-  removeStorageRaw(`match.v2.journal.${workspaceId}`)
 }

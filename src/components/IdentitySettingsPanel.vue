@@ -28,7 +28,7 @@ async function save() {
 
 <template>
   <section aria-label="Identity settings">
-    <form class="mesh-member-action" @submit.prevent="save">
+    <form class="mesh-member-action identity-name-form" @submit.prevent="save">
       <h3>Your name</h3>
       <label>Name<input v-model="name" maxlength="256" :disabled="saving" /></label>
       <button class="button button-primary" type="submit" :disabled="saving || !name.trim()">Save name</button>
@@ -41,3 +41,8 @@ async function save() {
     <p v-if="error" class="sync-error" role="alert">{{ error }}</p>
   </section>
 </template>
+
+<style scoped>
+.identity-name-form label { display: grid; gap: 7px; min-width: 0; }
+.identity-name-form input, .identity-name-form .button { box-sizing: border-box; width: 100%; min-height: 46px; }
+</style>

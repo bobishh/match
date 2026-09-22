@@ -17,6 +17,7 @@ import {
   verifyEnvelope,
   type LocalProfile,
 } from "./identity"
+import { readLocal, writeLocal } from "../localDb"
 
 export type ChainValidationResult =
   | { ok: true }
@@ -188,23 +189,9 @@ export async function verifyWorkspaceGrant(
   return verifyEnvelope(grant, publicKey)
 }
 
-const PROOF_STORE_BACKING = new Map<string, string>()
-
-function getProofStoreRaw(key: string): string | null {
-  if (typeof localStorage !== "undefined") {
-    try { return localStorage.getItem(key) } catch { return null }
-  }
-  return PROOF_STORE_BACKING.get(key) ?? null
-}
-
-function setProofStoreRaw(key: string, val: string): void {
-  if (typeof localStorage !== "undefined") {
-    try { localStorage.setItem(key, val) } catch { return }
-  }
-  PROOF_STORE_BACKING.set(key, val)
-}
-
 export class ProofStore {
+  private readonly loaded: Promise<void>
+  private readonly persist: boolean
   private actorBindings = new Map<string, ActorBinding>()
   private changeProofs = new Map<string, ChangeProof>()
   private certificates = new Map<string, DeviceCertificate>()
@@ -212,13 +199,12 @@ export class ProofStore {
   private grants = new Map<string, WorkspaceGrant>()
 
   constructor(persist = true) {
-    if (persist) {
-      this.load()
-    }
+    this.persist = persist
+    this.loaded = persist ? this.load() : Promise.resolve()
   }
 
-  private load() {
-    const raw = getProofStoreRaw("match.v1.proof_store")
+  private async load() {
+    const raw = await readLocal("match.v1.proof_store")
     if (raw) {
       try {
         const data = JSON.parse(raw)
@@ -231,8 +217,9 @@ export class ProofStore {
     }
   }
 
-  private save() {
-    try {
+  private async save() {
+    if (!this.persist) return
+    await this.loaded
       const data = {
         actorBindings: Object.fromEntries(this.actorBindings),
         changeProofs: Object.fromEntries(this.changeProofs),
@@ -240,75 +227,88 @@ export class ProofStore {
         genesis: Object.fromEntries(this.genesis),
         grants: Object.fromEntries(this.grants),
       }
-      setProofStoreRaw("match.v1.proof_store", JSON.stringify(data))
-    } catch { return }
+      await writeLocal("match.v1.proof_store", JSON.stringify(data))
   }
 
   async putActorBinding(hash: string, binding: ActorBinding): Promise<void> {
+    await this.loaded
     this.actorBindings.set(hash, binding)
-    this.save()
+    await this.save()
   }
 
   async getActorBinding(hash: string): Promise<ActorBinding | null> {
+    await this.loaded
     return this.actorBindings.get(hash) ?? null
   }
 
   async putChangeProof(hash: string, proof: ChangeProof): Promise<void> {
+    await this.loaded
     this.changeProofs.set(hash, proof)
-    this.save()
+    await this.save()
   }
 
   async getChangeProof(hash: string): Promise<ChangeProof | null> {
+    await this.loaded
     return this.changeProofs.get(hash) ?? null
   }
 
   async listChangeProofs(): Promise<ChangeProof[]> {
+    await this.loaded
     return Array.from(this.changeProofs.values())
   }
 
   async putCertificate(hash: string, cert: DeviceCertificate): Promise<void> {
+    await this.loaded
     this.certificates.set(hash, cert)
-    this.save()
+    await this.save()
   }
 
   async getCertificate(hash: string): Promise<DeviceCertificate | null> {
+    await this.loaded
     return this.certificates.get(hash) ?? null
   }
 
   async listCertificates(): Promise<DeviceCertificate[]> {
+    await this.loaded
     return Array.from(this.certificates.values())
   }
 
   async putGenesis(workspaceId: string, gen: WorkspaceGenesis): Promise<void> {
+    await this.loaded
     this.genesis.set(workspaceId, gen)
-    this.save()
+    await this.save()
   }
 
   async getGenesis(workspaceId: string): Promise<WorkspaceGenesis | null> {
+    await this.loaded
     return this.genesis.get(workspaceId) ?? null
   }
 
   async putGrant(grantId: string, grant: WorkspaceGrant): Promise<void> {
+    await this.loaded
     this.grants.set(grantId, grant)
-    this.save()
+    await this.save()
   }
 
   async getGrant(grantId: string): Promise<WorkspaceGrant | null> {
+    await this.loaded
     return this.grants.get(grantId) ?? null
   }
 
   async listGrants(workspaceId?: string): Promise<WorkspaceGrant[]> {
+    await this.loaded
     const list = Array.from(this.grants.values())
     if (!workspaceId) return list
     return list.filter((g) => g.payload.workspaceId === workspaceId)
   }
 
   async removeWorkspaceGrants(workspaceId: string): Promise<void> {
+    await this.loaded
     if (!workspaceId) throw new Error("Invalid workspaceId")
     for (const [grantId, grant] of this.grants) {
       if (grant.payload.workspaceId === workspaceId) this.grants.delete(grantId)
     }
-    this.save()
+    await this.save()
   }
 }
 

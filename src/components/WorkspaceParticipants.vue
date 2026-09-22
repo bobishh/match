@@ -4,6 +4,7 @@ import type { WorkspaceRole } from "../domain/permissions"
 defineProps<{
   members: Array<{ personId: string; name: string }>
   currentPersonId: string
+  currentIdentityName: string
   currentRole: WorkspaceRole
   ownerPersonId: string
   peers: Array<{ deviceId: string; personId: string; name: string; online: boolean; role: WorkspaceRole; revokedAt?: string | null }>
@@ -27,8 +28,8 @@ function roleFor(member: { personId: string }, peers: Array<{ personId: string; 
     <p>{{ canManageAccess ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
     <ul>
       <li v-for="member in members" :key="member.personId">
-        <strong>{{ member.name }}</strong>
-        <span>{{ roleFor(member, peers, ownerPersonId, currentPersonId, currentRole) }}{{ member.personId === currentPersonId ? ' · You' : '' }}</span>
+        <strong>{{ member.personId === currentPersonId ? currentIdentityName : member.name }}</strong>
+        <span>{{ roleFor(member, peers, ownerPersonId, currentPersonId, currentRole) }}{{ member.personId === currentPersonId ? ` · You · Chat name: ${member.name}` : '' }}</span>
       </li>
     </ul>
     <template v-if="canManageAccess && peers.length">

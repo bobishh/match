@@ -9,12 +9,12 @@ import { workspaceRole } from "./sync/changeAuthorization";
 import { defaultStorage, type WorkspaceStorage } from "./storage";
 import {
   commitAndPersist,
-  migrateStoredLegacyTaskItems,
   persistAuthorizedCommand,
   refreshAvailableWorkspaces,
   updateReactiveState,
 } from "./statePersistence";
 import { stateRuntime } from "./stateContext";
+import { writeLocal } from "./localDb";
 
 export function createWorkspaceActions() {
   return {
@@ -41,7 +41,7 @@ async function createWorkspaceAsync(
   await storage.saveSnapshot(id, doc, Automerge.save(doc));
   await storage.registerWorkspace(id, cleanTitle);
   await addWorkspaceToPersonalRoot(id, "genesis", storage);
-  saveActiveWorkspaceId(id);
+  await saveActiveWorkspaceId(id);
   updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
@@ -63,7 +63,7 @@ async function importWorkspaceAsNew(
   await storage.saveSnapshot(doc.id, doc, Automerge.save(doc));
   await storage.registerWorkspace(doc.id, doc.title);
   await addWorkspaceToPersonalRoot(doc.id, "genesis", storage);
-  saveActiveWorkspaceId(doc.id);
+  await saveActiveWorkspaceId(doc.id);
   updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
@@ -76,9 +76,8 @@ export async function switchWorkspace(
 ): Promise<void> {
   const loaded = await storage.loadWorkspaceDoc(workspaceId);
   if (!loaded) return;
-  const profile = await requireProfile();
-  const doc = await migrateStoredLegacyTaskItems(loaded.doc, profile, storage);
-  saveActiveWorkspaceId(workspaceId);
+  const doc = loaded.doc;
+  await saveActiveWorkspaceId(workspaceId);
   updateReactiveState(doc);
 }
 
@@ -176,7 +175,6 @@ export async function requireProfile() {
   return stateRuntime.currentProfile;
 }
 
-function saveActiveWorkspaceId(id: string): void {
-  if (typeof localStorage !== "undefined")
-    localStorage.setItem("match.active_workspace_id", id);
+async function saveActiveWorkspaceId(id: string): Promise<void> {
+  await writeLocal("match.active_workspace_id", id);
 }

@@ -48,6 +48,9 @@ type GuestCycle = {
 
 export async function connectWorkspaceJoin(context: WorkspaceJoinBrowserContext, run: number, invite: WorkspaceJoinInvite) {
   const profile = await context.getProfile()
+  if (profile.identity.personId === invite.issuerPersonId) {
+    throw new Error("This invite is for another person, but this browser uses the owner's identity. Use a separate identity to join as an editor.")
+  }
   const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore, invite.workspaces.map(item => item.id))
   let attempts = 0
   while (context.currentRun() === run) {

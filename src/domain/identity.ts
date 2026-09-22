@@ -25,6 +25,7 @@ import type {
   Hash,
   PublicIdentity,
 } from "./model"
+import { readLocal, writeLocal, deleteLocal } from "../localDb"
 
 export {
   canonicalizeJson,
@@ -46,11 +47,12 @@ export type LocalProfile = MeshLocalProfile & {
 const identityStore = new BrowserIdentityStore({
   storageKey: "match.local_profile.v1",
   signatureDomain: "MATCH/1",
+  ...(typeof indexedDB === "undefined" ? {} : {
+    asyncStorage: { getItem: readLocal, setItem: writeLocal, removeItem: deleteLocal },
+    requirePersistence: true,
+  }),
 })
 const recoveryStorageKey = "match.identity_recovery.v1"
-function writeRecoveryEnvelope(value: string) {
-  try { localStorage?.setItem(recoveryStorageKey, value) } catch { /* The downloaded file remains the durable backup. */ }
-}
 
 export function clearInMemoryProfileForReloadTest(): void {
   identityStore.clearMemory()
@@ -61,7 +63,10 @@ export function resetIdentityStorageForTest(): void {
 }
 
 export async function bootstrapIdentity(displayName = "Match User"): Promise<LocalProfile> {
-  return await identityStore.bootstrap(displayName) as LocalProfile
+  const bootstrap = () => identityStore.bootstrap(displayName) as Promise<LocalProfile>
+  return typeof navigator !== "undefined" && navigator.locks
+    ? await navigator.locks.request("match-identity-bootstrap", bootstrap)
+    : await bootstrap()
 }
 
 export async function renameIdentity(displayName: string): Promise<LocalProfile> {
@@ -80,7 +85,7 @@ export async function createIdentityRecovery(
   const recoveryEnvelope = await sealIdentitySeed(seed, profile.identity.personId, recoveryKey, security)
   const restored = await openIdentityRecoveryEnvelope(recoveryEnvelope, recoveryKey, profile.identity.displayName)
   if (restored.identity.personId !== profile.identity.personId) throw new Error("Identity backup does not match this identity")
-  writeRecoveryEnvelope(JSON.stringify(recoveryEnvelope))
+  await writeLocal(recoveryStorageKey, JSON.stringify(recoveryEnvelope))
   return { recoveryKey, recoveryEnvelope }
 }
 
