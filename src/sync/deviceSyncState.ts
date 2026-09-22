@@ -1,6 +1,6 @@
 import { computed, ref } from "vue"
 import type { ScopedInvitation } from "@meta-uber/mesh-pairing"
-import { isMeshNetworkFailure } from "@meta-uber/mesh-transport"
+import { isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
 import type { MeshPeerView, MeshSuccessionView } from "./durableMesh"
 import type { WorkspaceGrant } from "../domain/model"
 
@@ -75,7 +75,7 @@ export function userMessage(err: unknown, fallback: string) {
   if (/older version of Match/i.test(message)) return "This sync link was created by an older version of Match. Please create a new invitation."
   if (/Pairing cancelled/i.test(message)) return "Pairing was cancelled on the other device. Generate a new QR and try again."
   if (/out of date document|outdated document/i.test(message)) return "Couldn’t merge workspace changes. Keep this tab open and try pairing again."
-  if (isMeshNetworkFailure(err)) return "Couldn’t reach the other device. Check both connections and try again."
+  if (isMeshDialNetworkFailure(err)) return "Couldn’t reach the other device. Check both connections and try again."
   return message || fallback
 }
 

@@ -7,8 +7,7 @@ import {
   invitationUrl,
   type DeviceEnrollmentInvitation,
 } from "@meta-uber/mesh-pairing"
-import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
-import { isMeshNetworkFailure } from "@meta-uber/mesh-transport"
+import { isMeshDialNetworkFailure, MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
 import { createEnrollmentRequest, enrollmentPayload, installEnrollment, readEnrollmentRequest } from "./enrollment"
 import { defaultProofStore, certHashDefault } from "../domain/proofs"
@@ -277,7 +276,7 @@ export async function dialEnrollmentPeer(context: EnrollmentContext, run: number
       } catch (err) {
         traceEnrollment("guest", "dial.failed", run, { attempt: attempt + 1, plannedMode: mode,
           reason: errorReason(err) }, "warn")
-        reconnect.recordFailure(peerKey, isMeshNetworkFailure(err))
+        reconnect.recordFailure(peerKey, isMeshDialNetworkFailure(err))
         if (attempt >= 4) throw err
         await context.waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
       }

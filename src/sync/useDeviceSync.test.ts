@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { MeshNetworkError } from "@meta-uber/mesh-transport"
 import { userMessage, useDeviceSync } from "./useDeviceSync"
 
 describe("device sync errors", () => {
@@ -15,8 +14,8 @@ describe("device sync errors", () => {
 
   it("Given both routes fail, when pairing reports an aggregate error, then the UI identifies a connection problem", () => {
     const error = new AggregateError([
-      new MeshNetworkError("direct connection timed out"),
-      new MeshNetworkError("relay connection timed out"),
+      new Error("No addressing information available for remote endpoint"),
+      new Error("relay connection timed out"),
     ])
 
     expect(userMessage(error, "Try again.")).toBe("Couldn’t reach the other device. Check both connections and try again.")
