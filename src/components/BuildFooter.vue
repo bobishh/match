@@ -13,8 +13,7 @@ const commitUrl = hasCommit ? `https://github.com/bobishh/match/commit/${commit}
       <circle class="tower-mark__sphere" cx="32" cy="29" r="10" />
       <path d="M32 39 L25 84 M32 39 L39 84 M21 84 H43" />
     </svg>
-    <span class="footer-copy">Berlin · 2026</span>
-    <span class="footer-version"><a v-if="commitUrl" :href="commitUrl" target="_blank" rel="noreferrer">{{ shortCommit }}</a><template v-else>{{ shortCommit }}</template></span>
+    <span class="footer-copy">Berlin · 2026 · <a v-if="commitUrl" :href="commitUrl" target="_blank" rel="noreferrer">{{ shortCommit }}</a><template v-else>{{ shortCommit }}</template></span>
   </footer>
 </template>
 
@@ -23,7 +22,6 @@ const commitUrl = hasCommit ? `https://github.com/bobishh/match/commit/${commit}
 .tower-mark { width: 36px; height: 54px; overflow: visible; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: square; stroke-linejoin: miter; }
 .tower-mark__sphere { fill: var(--red); }
 .footer-copy { font-size: .78rem; }
-.footer-version { font-size: .65rem; opacity: .65; }
-.footer-version a { color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
-.footer-version a:hover { color: var(--red); }
+.footer-copy a { color: inherit; text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.footer-copy a:hover { color: var(--red); }
 </style>
