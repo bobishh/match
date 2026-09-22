@@ -56,8 +56,14 @@ async function mergeAuthorizedWorkspace(
   authorization: unknown,
 ): Promise<void> {
   const remote = Automerge.load<WorkspaceDocumentV2>(bytes);
-  if (remote.id !== id || !validateWorkspaceDoc(remote).ok)
-    throw new Error("Invalid workspace received.");
+  if (remote.id !== id) {
+    throw invalidWorkspaceReceived({
+      code: "workspace_id_mismatch",
+      message: "The document id does not match the invited workspace.",
+    });
+  }
+  const validation = validateWorkspaceDoc(remote);
+  if (!validation.ok) throw invalidWorkspaceReceived(validation.error);
   const local = await mergeAuthorizationBase(id, remote);
   const proofChanged = await validateIncomingChangesWithProofStatus(local, remote, authorization);
   // A signature can make an existing Automerge history trusted without adding
@@ -187,8 +193,8 @@ async function importWorkspaceDocument(
   doc: Automerge.Doc<WorkspaceDocumentV2>,
   storage = defaultStorage,
 ): Promise<void> {
-  if (!validateWorkspaceDoc(doc).ok)
-    throw new Error("Invalid workspace received.");
+  const validation = validateWorkspaceDoc(doc);
+  if (!validation.ok) throw invalidWorkspaceReceived(validation.error);
   const profile = await requireProfile();
   await assertImportAllowed(doc, profile, storage);
   await storage.saveSnapshot(doc.id, doc, Automerge.save(doc));
@@ -197,6 +203,16 @@ async function importWorkspaceDocument(
   await switchWorkspace(doc.id, storage);
   await refreshAvailableWorkspaces(storage);
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
+}
+
+function invalidWorkspaceReceived(diagnostic: {
+  code: string;
+  message: string;
+  field?: string;
+}): Error {
+  const error = new Error("Invalid workspace received.", { cause: diagnostic });
+  error.name = "WorkspaceDocumentRejected";
+  return error;
 }
 
 async function assertImportAllowed(

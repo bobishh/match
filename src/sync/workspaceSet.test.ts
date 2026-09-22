@@ -66,6 +66,20 @@ describe("workspace invitation scope", () => {
 
     await expect(replica.receive(bytes)).rejects.toThrow("Chat workspace: Invalid workspace grant")
   })
+
+  it("Given workspace validation rejects a snapshot, when the join reports the failure, then its safe schema path is retained", async () => {
+    const rejected = new Error("Invalid workspace received.", {
+      cause: { code: "invalid_input", field: "entities.card_1.kind" },
+    })
+    const replica = workspaceSet({
+      read: vi.fn(), merge: vi.fn().mockRejectedValue(rejected), activate: vi.fn(),
+    }, ["workspace"])
+    const bytes = new TextEncoder().encode(JSON.stringify([{ id: "workspace", bytes: "AA" }]))
+
+    await expect(replica.receive(bytes)).rejects.toThrow(
+      "Workspace workspace: Invalid workspace received. [invalid_input at entities.card_1.kind]",
+    )
+  })
 })
 
 describe("live mesh heartbeat", () => {
