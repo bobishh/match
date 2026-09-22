@@ -2,7 +2,7 @@ import type { LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore } from "../domain/proofs"
-import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
+import { BrowserMeshAuthority, BrowserMeshCatalog, BrowserMeshOwnershipTransfer, BrowserMeshRecovery, BrowserMeshSuccession, mergeOwnershipTransfers, type OwnershipTransferHost } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceOwnershipTransfer, createWorkspaceRevocation,
@@ -14,8 +14,10 @@ import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerSt
 import { workspaceSet, publishConfirmedWorkspace} from "./workspaceSet"
 import { mergeBreakGlassClaims, type BreakGlassHost } from "./durableBreakGlass"
 import { mergeSuccessionState, type SuccessionHost } from "./durableSuccession"
-import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, type MeshExport } from "./durableMeshBase"
+import { uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, breakGlassClaims, hasConflictingBreakGlassClaims, ownerAuthorities, revokedPersonIds, type MeshExport, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
+
+type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
 
 export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   private readonly catalog = new BrowserMeshCatalog<WorkspaceMeshCredential, MeshExport>({
@@ -214,6 +216,52 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     notify: () => this.notify(),
     publishAll: () => this.publishAll(),
   })
+  private readonly ownership = new BrowserMeshOwnershipTransfer<
+    WorkspaceMeshCredential,
+    { personId: string; profile: LocalProfile },
+    WorkspacePeerRecord,
+    VerifiedWorkspaceMember,
+    WorkspaceOwnershipTransfer,
+    SessionEntry
+  >({
+    profile: async () => {
+      const profile = await this.options.getProfile()
+      return { personId: profile.identity.personId, profile }
+    },
+    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
+    peers: workspaceId => this.store.listPeers(workspaceId),
+    online: (peer, workspaceId) => [...this.sessions.values()].some(session =>
+      session.workspaceId === workspaceId && session.deviceId === peer.deviceId),
+    confirmationSessions: (peers, workspaceId) => [...this.sessions.values()].filter(session =>
+      session.workspaceId === workspaceId && peers.some(peer => peer.deviceId === session.deviceId) &&
+      session.ownershipReceiptSupported),
+    advertisement: peer => peer.advertisement,
+    verifyTarget: (credential, raw) => verifyWorkspaceMemberBundle(raw, {
+      workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
+      ownerPublicKey: credential.ownerPublicKey,
+      ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
+      ownerHistory: ownerAuthorities(credential).slice(1),
+    }),
+    transfers: ownershipTransfers,
+    createTransfer: async (owner, credential, target) => {
+      const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential.workspaceId))
+      try {
+        return await createWorkspaceOwnershipTransfer(owner.profile, credential.workspaceId, {
+          personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates,
+        }, Automerge.getHeads(doc), credential.epoch + 1)
+      } finally { Automerge.free(doc) }
+    },
+    persistProposal: (credential, transfer) => this.store.putWorkspaceCredential({ ...credential,
+      updatedAt: new Date().toISOString(), catalog: { ...meshCatalog(credential),
+        ownershipTransfers: [...ownershipTransfers(credential), transfer] } }),
+    confirmDelivery: async (sessions, credential) => {
+      const snapshot = await workspaceSet(this.options.workspaceStore, [credential.workspaceId]).snapshot()
+      await Promise.any(sessions.map(entry => publishConfirmedWorkspace(entry.connection, credential.transportSecret, snapshot)))
+    },
+    merge: (credential, transfer) => this.mergeOwnershipTransfers(credential, [transfer]).then(() => undefined),
+    notify: () => this.notify(),
+    publishAll: () => this.publishAll(),
+  })
   async setSuccessor(workspaceId: string, personId: string | null): Promise<void> {
     await this.succession.setSuccessor(workspaceId, personId)
   }
@@ -282,66 +330,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     await this.authority.revokePerson(workspaceId, personId)
   }
 
-  protected ownershipQueue: Promise<void> = Promise.resolve()
-
   async transferOwnership(workspaceId: string, personId: string): Promise<void> {
-    const run = () => this.transferOwnershipConfirmed(workspaceId, personId)
-    const result = this.ownershipQueue.then(() => typeof navigator !== "undefined" && navigator.locks
-      ? navigator.locks.request(`match-ownership:${workspaceId}`, run) : run())
-    this.ownershipQueue = result.catch(() => {})
-    return result
-  }
-
-  protected async transferOwnershipConfirmed(workspaceId: string, personId: string): Promise<void> {
-    const profile = await this.options.getProfile()
-    const credential = await this.store.getWorkspaceCredential(workspaceId)
-    if (!credential || credential.ownerPersonId !== profile.identity.personId) {
-      throw new Error("Only the workspace owner can transfer ownership")
-    }
-    if (personId === profile.identity.personId) throw new Error("You already own this workspace")
-    const peers = (await this.store.listPeers(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt)
-    if (!peers.length) throw new Error("Select an active mesh member")
-    if (!peers.some(peer => [...this.sessions.values()].some(session =>
-      session.workspaceId === workspaceId && session.deviceId === peer.deviceId))) {
-      throw new Error("Member must be online to receive ownership")
-    }
-    const targetSessions = [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
-      peers.some(peer => peer.deviceId === session.deviceId) && session.ownershipReceiptSupported)
-    if (!targetSessions.length) throw new Error("The recipient must reload Match before receiving ownership")
-    const raw = peers.find(peer => peer.advertisement)?.advertisement as WorkspaceMemberBundle | undefined
-    if (!raw) throw new Error("Member identity is unavailable")
-    const target = await verifyWorkspaceMemberBundle(raw, {
-      workspaceId, ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
-      ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1),
-    })
-    const pending = ownershipTransfers(credential).find(record => record.payload.epoch === credential.epoch + 1 &&
-      record.payload.fromOwnerPersonId === profile.identity.personId)
-    if (pending && pending.payload.toOwnerPersonId !== personId) {
-      throw new Error("An ownership transfer is pending for another member. Reconnect that member to finish it.")
-    }
-    const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(workspaceId))
-    let transfer: WorkspaceOwnershipTransfer
-    try {
-      transfer = pending ?? await createWorkspaceOwnershipTransfer(profile, workspaceId, {
-        personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates,
-      }, Automerge.getHeads(doc), credential.epoch + 1)
-    } finally { Automerge.free(doc) }
-
-    // Retain the exact signed proposal across unknown outcomes; never sign a
-    // competing successor at this epoch. Only report success after durable receipt.
-    if (!pending) await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
-      catalog: { ...meshCatalog(credential), ownershipTransfers: [...ownershipTransfers(credential), transfer] } })
-    const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
-    try {
-      await Promise.any(targetSessions.map(entry => publishConfirmedWorkspace(entry.connection, credential.transportSecret, snapshot)))
-    } catch {
-      throw new Error("Ownership delivery is unconfirmed. Keep both devices open and retry the same recipient.")
-    }
-    const current = await this.store.getWorkspaceCredential(workspaceId)
-    if (!current) throw new Error("Workspace mesh credential disappeared")
-    await this.mergeOwnershipTransfers(current, [transfer])
-    await this.notify()
-    await this.publishAll()
+    await this.ownership.transfer(workspaceId, personId)
   }
 
   async breakGlassOwnership(workspaceId: string): Promise<void> {
