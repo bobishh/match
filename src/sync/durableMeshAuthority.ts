@@ -78,6 +78,9 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       transportSecret: credential.transportSecret,
       role: verified.role,
       lastSeen: route.issuedAt,
+      // A grant at a newer generation is the owner's explicit re-approval;
+      // clear the old per-device tombstone so every device can reconnect.
+      revokedAt: null,
       advertisement: raw,
     }
     await this.store.upsertPeer(record)
