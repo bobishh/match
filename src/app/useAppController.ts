@@ -19,7 +19,11 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
   let loadingTimer: ReturnType<typeof setTimeout> | undefined
   onMounted(async () => {
     loadingTimer = setTimeout(() => { core.showLoading.value = true }, 200)
-    try { await hydrate() }
+    try {
+      const { initializeIrohBrowserRuntime } = await import("../iroh")
+      await initializeIrohBrowserRuntime()
+      await hydrate()
+    }
     catch { core.startupError.value = "Could not open your local data. Reload to try again."; return }
     finally { clearTimeout(loadingTimer); core.showLoading.value = false }
     if (!core.sync.joinFromLocation(window.location.href)) await core.sync.startDurableMesh()

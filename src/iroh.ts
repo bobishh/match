@@ -15,6 +15,7 @@ export { WasmBlobEngine, WasmGossipEngine, WasmPairingCodec }
 
 let pairingCodecInstalled = false
 let rustRuntimeInstalled = false
+let browserRuntimeInitialization: Promise<void> | undefined
 
 export type IrohNode = {
   endpointId: string
@@ -47,7 +48,7 @@ function irohArtifactAvailable(): boolean {
   return typeof WebAssembly !== "undefined"
 }
 
-async function initializeIrohBrowserRuntime(): Promise<void> {
+async function installIrohBrowserRuntime(): Promise<void> {
   if (!irohArtifactAvailable()) throw new Error("WebAssembly unavailable in this browser")
   await irohInit()
   if (!rustRuntimeInstalled) {
@@ -64,6 +65,15 @@ async function initializeIrohBrowserRuntime(): Promise<void> {
     installPairingCodec(new WasmPairingCodec())
     pairingCodecInstalled = true
   }
+}
+
+/** Initializes the Rust/WASM policy runtime before application state reads it. */
+export function initializeIrohBrowserRuntime(): Promise<void> {
+  browserRuntimeInitialization ??= installIrohBrowserRuntime().catch(error => {
+    browserRuntimeInitialization = undefined
+    throw error
+  })
+  return browserRuntimeInitialization
 }
 
 export async function startIrohBrowserNode(secret?: Uint8Array): Promise<IrohNode> {
