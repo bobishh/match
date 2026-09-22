@@ -28,6 +28,7 @@ type InstallSessionArguments = [
   ownershipReceiptSupported?: boolean,
   remotePersonId?: string,
   ownerWorkspaceSupported?: boolean,
+  blobTransferSupported?: boolean,
   remoteEndpoint?: string,
 ]
 
@@ -192,7 +193,8 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     install: ({ credential, remote, connection, features, connectionId }) => this.installSession(
       credential.workspaceId, remote.deviceId, remote.instanceId, remote.issuedAt, remote.routeSequence,
       "incoming", connection as SyncConnection, features.heartbeatSupported, features.incrementalSupported,
-      connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported, remote.endpoint),
+      connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported,
+      features.blobTransferSupported, remote.endpoint),
     afterInstalled: ({ credential, remote, request, connection, features }) => this.afterIncomingInstall(
       credential, remote, request.ownerWorkspaceIds, connection as SyncConnection, features.ownerWorkspaceSupported),
     trace: (event, detail, level) => this.trace(event, detail, level),

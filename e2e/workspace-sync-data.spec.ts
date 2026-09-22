@@ -14,6 +14,64 @@ async function addLeadToActiveWorkspace(page: Page, company: string) {
   await page.getByRole("button", { name: "Close detail" }).click()
 }
 
+test("Given a workspace attachment, when another peer opens it, then verified bytes transfer over the authenticated mesh session", async ({ browser, page }) => {
+  test.setTimeout(90_000)
+  await page.goto("/")
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  await page.getByRole("button", { name: "New workspace" }).click()
+  const create = page.getByRole("dialog", { name: "Create workspace" })
+  await create.getByLabel("Title", { exact: true }).fill("Shared files")
+  await create.getByRole("radio", { name: "Blank board" }).check()
+  await create.getByRole("button", { name: "Create", exact: true }).click()
+  await page.getByRole("button", { name: "Add item to To do" }).click()
+  const item = page.getByRole("dialog", { name: "Item details" })
+  await item.getByLabel("Title *").fill("Architecture")
+  await item.getByRole("button", { name: "Save item" }).click()
+  await page.getByRole("button", { name: "Open Architecture" }).click()
+  const detail = page.getByRole("dialog", { name: "Item overview" })
+  await detail.getByRole("button", { name: "+ Document" }).click()
+  const attachment = detail.getByRole("form", { name: "Attach document" })
+  await attachment.getByLabel("Kind").selectOption("attachment")
+  await attachment.getByLabel("Title").fill("Mesh design")
+  await attachment.getByLabel("File").setInputFiles({
+    name: "mesh-design.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Blob bytes crossed the authenticated workspace session."),
+  })
+  await attachment.getByRole("button", { name: "Attach" }).click()
+  await detail.getByRole("button", { name: "Dismiss" }).click()
+
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const hostDialog = page.getByRole("dialog", { name: "Device sync" })
+  await hostDialog.getByRole("button", { name: "Add someone" }).click()
+  await hostDialog.getByRole("button", { name: "Generate link" }).click()
+  const invite = await hostDialog.getByLabel("Pairing link").inputValue()
+  const guestContext = await browser.newContext({ acceptDownloads: true })
+  try {
+    const guest = await guestContext.newPage()
+    await guest.goto(invite)
+    const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await guestDialog.getByRole("button", { name: "Accept and join" }).click()
+    await page.getByLabel("Participant role").selectOption("editor")
+    await page.getByRole("button", { name: "Approve access" }).click()
+    await expect(guestDialog.getByText(/Connected to/)).toBeVisible({ timeout: 25_000 })
+    await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+
+    await guest.getByRole("button", { name: "Open Architecture" }).click()
+    const remoteAttachment = guest.getByRole("group", { name: "Mesh design" })
+    await remoteAttachment.getByRole("button", { name: "Preview" }).click()
+    await expect(guest.getByRole("dialog", { name: "Document preview" }))
+      .toContainText("Blob bytes crossed the authenticated workspace session.", { timeout: 15_000 })
+    await guest.getByRole("dialog", { name: "Document preview" }).getByRole("button", { name: "Close" }).click()
+
+    const downloadStarted = guest.waitForEvent("download")
+    await remoteAttachment.getByRole("button", { name: "Download" }).click()
+    expect((await downloadStarted).suggestedFilename()).toBe("mesh-design.txt")
+  } finally {
+    await guestContext.close()
+  }
+})
+
 test("Given independent devices without a signaling API, when a workspace invitation is accepted, then saved cards arrive and edits sync both ways", async ({ browser, page }) => {
   test.setTimeout(90_000)
   await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))

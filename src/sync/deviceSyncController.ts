@@ -10,6 +10,7 @@ import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
 import { acceptWorkspaceInvitation } from "./deviceSyncWorkspaceGuest"
 import { generateWorkspaceInvite as generateHostInvite } from "./deviceSyncHost"
+import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
@@ -168,6 +169,10 @@ class DeviceSyncController {
 
   private async addOwnerWorkspace(workspaceId: string) {
     await (await this.ensureDurableMesh())?.addOwnerWorkspace(workspaceId)
+  }
+
+  private async fetchBlob(workspaceId: string, descriptor: BlobDescriptor): Promise<Uint8Array | undefined> {
+    return (await this.ensureDurableMesh())?.fetchBlob(workspaceId, descriptor)
   }
 
   private async shutdown() {
@@ -510,6 +515,7 @@ class DeviceSyncController {
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName,
       requestEnrollment: () => this.requestEnrollment(), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
       joinFromLocation: (raw: string) => this.joinFromLocation(raw), startDurableMesh: () => this.startDurableMesh(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
+      fetchBlob: (workspaceId: string, descriptor: BlobDescriptor) => this.fetchBlob(workspaceId, descriptor),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),
       setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)),

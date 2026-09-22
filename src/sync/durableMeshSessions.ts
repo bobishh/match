@@ -7,6 +7,7 @@ import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { defaultProofStore } from "../domain/proofs"
+import { requestBlob, respondToBlobRequest, type BlobDescriptor } from "@meta-uber/mesh-blob"
 import { verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
@@ -110,7 +111,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
         value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported,
-        value.personId, value.ownerWorkspaceSupported, value.endpoint)
+        value.personId, value.ownerWorkspaceSupported, value.blobTransferSupported, value.endpoint)
       if (installed) await this.refreshWorkspaceGossip(peer.workspaceId)
       if (installed && value.ownerWorkspaceSupported) {
         const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
@@ -238,11 +239,19 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         ),
       }),
       legacy: input => liveWorkspaceSetSync(input.connection, input.secret,
-        workspaceSet(this.options.workspaceStore, [input.workspaceId]), { onGossipPacket: input.onGossipPacket }),
+        workspaceSet(this.options.workspaceStore, [input.workspaceId]), {
+          onGossipPacket: input.onGossipPacket,
+          onBlobRequest: input.blobTransferSupported
+            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, input.secret, stream, frame)
+            : undefined,
+        }),
       incremental: input => liveAutomergeWorkspaceSync(input.connection, input.secret, this.options.workspaceStore,
         input.workspaceId, input.localDeviceId, input.deviceId, input.engine, input.onDocumentStatus, {
           onOwnerWorkspaceOffer: input.onOwnerWorkspaceOffer,
           onGossipPacket: input.onGossipPacket,
+          onBlobRequest: input.blobTransferSupported
+            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, input.secret, stream, frame)
+            : undefined,
         }),
       ownerWorkspaceOffer: (bytes, remotePersonId) => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId),
       gossipPacket: (workspaceId, endpoint, packet) => this.receiveWorkspaceGossipPacket(workspaceId, endpoint, packet),
@@ -285,10 +294,63 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   protected async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
-    remotePersonId = "", ownerWorkspaceSupported = false, remoteEndpoint = "") {
+    remotePersonId = "", ownerWorkspaceSupported = false, blobTransferSupported = false, remoteEndpoint = "") {
     return this.browserSessions.install({ workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence,
       direction, connection, heartbeatSupported, incrementalSupported, connectionId, ownershipReceiptSupported,
-      remotePersonId, ownerWorkspaceSupported, remoteEndpoint })
+      remotePersonId, ownerWorkspaceSupported, blobTransferSupported, remoteEndpoint })
+  }
+
+  private async respondToBlobRequest(workspaceId: string, deviceId: string, secret: string,
+    stream: Parameters<typeof respondToBlobRequest>[0], frame: Uint8Array): Promise<void> {
+    const blob = this.options.workspaceStore.blob
+    if (!blob) throw new Error("Blob storage is unavailable")
+    const peer = await this.store.getPeer(workspaceId, deviceId)
+    const bundle = peer?.advertisement as WorkspaceMemberBundle | undefined
+    if (!peer || !bundle?.publicKey || !Array.isArray(bundle.certificates)) throw new Error("Blob requester is unavailable")
+    await respondToBlobRequest(stream, frame, {
+      secret,
+      scopeId: workspaceId,
+      identity: {
+        personId: peer.personId,
+        publicKey: bundle.publicKey,
+        displayName: bundle.advertisement?.payload?.deviceName ?? "Peer",
+      },
+      certificates: bundle.certificates,
+      descriptor: blobId => blob.resolve(workspaceId, blobId),
+      bytes: descriptor => blob.read(descriptor),
+    })
+  }
+
+  async fetchBlob(workspaceId: string, descriptor: BlobDescriptor): Promise<Uint8Array | undefined> {
+    const blob = this.options.workspaceStore.blob
+    if (!blob) return undefined
+    const local = await blob.read(descriptor)
+    if (local) return local
+    const credential = await this.store.getWorkspaceCredential(workspaceId)
+    if (!credential) throw new Error("Workspace mesh credential is unavailable")
+    const profile = await this.options.getProfile()
+    const deadline = Date.now() + 10_000
+    let lastError: unknown
+    while (Date.now() < deadline) {
+      const sessions = [...this.sessions.values()].filter(entry =>
+        entry.workspaceId === workspaceId && entry.blobTransferSupported)
+      if (sessions.length === 0) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+        continue
+      }
+      for (const entry of sessions) {
+        try {
+          const bytes = await requestBlob(entry.connection, credential.transportSecret, profile, workspaceId, descriptor)
+          await blob.write(descriptor, bytes)
+          return bytes
+        } catch (error) {
+          lastError = error
+        }
+      }
+      break
+    }
+    if (lastError) throw lastError
+    throw new Error("No connected peer can provide this file")
   }
 
   protected async publishRecoveredSession(key: string, entry: SessionEntry) {

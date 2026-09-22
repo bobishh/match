@@ -10,6 +10,14 @@ const blobs = new MeshBlobStore(
   new BrowserMeshStore("match-attachments-v1", ["blobs"]),
 )
 
+let fetchAttachment: ((descriptor: BlobDescriptor) => Promise<Uint8Array | undefined>) | undefined
+
+export function configureAttachmentFetcher(
+  fetcher: ((descriptor: BlobDescriptor) => Promise<Uint8Array | undefined>) | undefined,
+): void {
+  fetchAttachment = fetcher
+}
+
 export async function storeAttachment(file: File): Promise<FileReference> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   const descriptor = await createBlobDescriptor(
@@ -24,8 +32,27 @@ export async function storeAttachment(file: File): Promise<FileReference> {
 export async function readAttachment(
   reference: FileReference,
 ): Promise<Uint8Array | undefined> {
-  const descriptor = descriptorFromReference(reference)
-  return descriptor ? blobs.getVerified(descriptor) : undefined
+  const descriptor = blobDescriptor(reference)
+  if (!descriptor) return undefined
+  const local = await blobs.getVerified(descriptor)
+  if (local || !fetchAttachment) return local
+  const received = await fetchAttachment(descriptor)
+  if (!received) return undefined
+  await blobs.put(descriptor, received)
+  return received
+}
+
+export async function readStoredAttachment(
+  descriptor: BlobDescriptor,
+): Promise<Uint8Array | undefined> {
+  return blobs.getVerified(descriptor)
+}
+
+export async function writeStoredAttachment(
+  descriptor: BlobDescriptor,
+  bytes: Uint8Array,
+): Promise<void> {
+  await blobs.put(descriptor, bytes)
 }
 
 export function attachmentName(reference: FileReference): string {
@@ -55,7 +82,7 @@ function referenceFromDescriptor(descriptor: BlobDescriptor): FileReference {
   }
 }
 
-function descriptorFromReference(
+export function blobDescriptor(
   reference: FileReference,
 ): BlobDescriptor | undefined {
   if (reference.type !== "blob") return undefined

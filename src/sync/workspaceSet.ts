@@ -5,6 +5,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { AutomergeAntiEntropy, type AutomergeDocumentAdapter, type AutomergeSyncFrame } from "@meta-uber/mesh-replication/automerge"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
+import { BLOB_REQUEST_FRAME, type BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
 
 export type WorkspaceReplica = {
@@ -31,6 +32,18 @@ export type WorkspaceSetStore = {
   mergeChat?: (id: string, value: unknown, history: boolean) => Promise<void>
   readMesh?: (id: string) => Promise<unknown>
   mergeMesh?: (id: string, value: unknown) => Promise<void>
+  blob?: {
+    resolve: (workspaceId: string, blobId: string) => Promise<BlobDescriptor | undefined>
+    read: (descriptor: BlobDescriptor) => Promise<Uint8Array | undefined>
+    write: (descriptor: BlobDescriptor, bytes: Uint8Array) => Promise<void>
+  }
+}
+
+type LiveWorkspaceOptions = {
+  onHandoffRequest?: (stream: DuplexStream) => Promise<void>
+  onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
+  onGossipPacket?: (packet: Uint8Array) => Promise<void>
+  onBlobRequest?: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
 }
 
 export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
@@ -148,10 +161,7 @@ export function liveWorkspaceSetSync(
   connection: SyncConnection,
   secret: string,
   replica: ReturnType<typeof workspaceSet>,
-  options: {
-    onHandoffRequest?: (stream: DuplexStream) => Promise<void>
-    onGossipPacket?: (packet: Uint8Array) => Promise<void>
-  } = {},
+  options: LiveWorkspaceOptions = {},
 ): LiveWorkspaceSync {
   let stopped = false
   let lastSent = ""
@@ -184,6 +194,10 @@ export function liveWorkspaceSetSync(
         if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
         await options.onGossipPacket(packet)
         await stream.closeSend()
+        continue
+      }
+      if (type === BLOB_REQUEST_FRAME && options.onBlobRequest) {
+        await options.onBlobRequest(stream, frame)
         continue
       }
       await replica.receive(decodePairingFrame(frame, "sync-update", secret), false)
@@ -222,7 +236,7 @@ type AutomergeIncomingOptions = {
   replica: ReturnType<typeof workspaceSet>
   workspaceId: string
   store: WorkspaceSetStore
-  options: { onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>; onGossipPacket?: (packet: Uint8Array) => Promise<void> }
+  options: LiveWorkspaceOptions
   isStopped: () => boolean
   receiveControl: (bytes: Uint8Array) => Promise<void>
   receiveSync: (frame: Uint8Array) => Promise<void>
@@ -245,6 +259,9 @@ async function receiveAutomergeFrame(stream: DuplexStream, frame: Uint8Array, in
     const packet = decodePairingFrame(frame, "mesh-iroh-gossip", input.secret)
     if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
     await input.options.onGossipPacket(packet)
+  } else if (type === BLOB_REQUEST_FRAME && input.options.onBlobRequest) {
+    await input.options.onBlobRequest(stream, frame)
+    return
   } else if (type === "mesh-automerge-sync") {
     await input.receiveSync(frame)
   } else {
@@ -270,10 +287,7 @@ export function liveAutomergeWorkspaceSync(
   remoteDeviceId: string,
   sharedEngine?: AutomergeAntiEntropy,
   onDocumentRejected?: (error: WorkspaceChangeRejected | null) => void,
-  options: {
-    onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
-    onGossipPacket?: (packet: Uint8Array) => Promise<void>
-  } = {},
+  options: LiveWorkspaceOptions = {},
 ): LiveWorkspaceSync {
   let stopped = false
   let lastRejection: string | undefined

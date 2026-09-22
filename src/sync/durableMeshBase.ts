@@ -79,6 +79,7 @@ export type SessionEntry = {
   connection: SyncConnection
   session: LiveWorkspaceSync
   ownershipReceiptSupported?: boolean
+  blobTransferSupported?: boolean
   runtimeGeneration?: number
   evict: (cause: string) => Promise<void>
 }

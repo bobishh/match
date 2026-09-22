@@ -11,6 +11,7 @@ import { useWorkspaceChat } from "../chat/useWorkspaceChat"
 import { defaultBoardFilters, type BoardFilters } from "../filters"
 import { useDeviceSync } from "../sync/useDeviceSync"
 import { useAppMesh } from "./useAppMesh"
+import { blobDescriptor, configureAttachmentFetcher, readStoredAttachment, writeStoredAttachment } from "../attachments"
 
 type ArchiveUndo =
   | { workspaceId: string; itemId: string; title: string; action: "restore" }
@@ -98,15 +99,49 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
     displayName: () => chat.displayName.value,
     identityChanged: match.refreshIdentity,
     workspace: { subscribe: listener => subscribeWorkspaceAndChat(match.subscribeLocalChanges, listener) },
-    workspaceStore: { read: match.readWorkspaceBytes, merge: match.mergeAuthorizedWorkspace, readAuthorization: exportAuthorizations, activate: match.switchWorkspace, readChat: exportChat, mergeChat: receiveChat },
+    workspaceStore: {
+      read: match.readWorkspaceBytes,
+      merge: match.mergeAuthorizedWorkspace,
+      readAuthorization: exportAuthorizations,
+      activate: match.switchWorkspace,
+      readChat: exportChat,
+      mergeChat: receiveChat,
+      blob: {
+        resolve: (workspaceId, blobId) => resolveWorkspaceBlob(match.readWorkspaceBytes, workspaceId, blobId),
+        read: readStoredAttachment,
+        write: writeStoredAttachment,
+      },
+    },
     origin: () => window.location.origin,
     availableWorkspaces: match.availableWorkspaces,
     activeWorkspaceId: () => match.activeWorkspace.id || "default",
     workspaceOwner: id => resolveWorkspaceOwner(match.readWorkspaceBytes, id),
   })
+  configureAttachmentFetcher(descriptor => sync.fetchBlob(match.activeWorkspace.id, descriptor))
   const policy = useWorkspacePolicy(match, ui, sync)
   const mesh = useAppMesh({ activeWorkspace: match.activeWorkspace, chat, sync, mergeAuthorizedWorkspace: match.mergeAuthorizedWorkspace, ...policy })
   return { chat, sync, ...policy, ...mesh }
+}
+
+async function resolveWorkspaceBlob(
+  readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"],
+  workspaceId: string,
+  blobId: string,
+) {
+  const doc = Automerge.load<WorkspaceDocumentV2>(await readWorkspaceBytes(workspaceId))
+  for (const entity of Object.values(doc.entities)) {
+    const references = entity.kind === "document"
+      ? [entity.file]
+      : entity.kind === "artifact"
+        ? [entity.pdf, entity.sourceMarkdown]
+        : []
+    for (const reference of references) {
+      if (!reference) continue
+      const descriptor = blobDescriptor(reference)
+      if (descriptor?.blobId === blobId) return descriptor
+    }
+  }
+  return undefined
 }
 
 async function chatRoomId(readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"], id: string) {
