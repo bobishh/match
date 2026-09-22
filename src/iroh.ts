@@ -9,10 +9,12 @@ import irohInit, {
   WasmGossipEngine,
   WasmMeshRuntimeState,
   WasmPairingCodec,
+  WasmWorkspaceJoinHandshake,
+  WasmWorkspaceJoinHandoff,
   WasmStateCore,
   setBrowserTransportDebugLogging,
 } from "@meta-uber/mesh-transport/wasm"
-export { WasmBlobEngine, WasmGossipEngine, WasmPairingCodec }
+export { WasmBlobEngine, WasmGossipEngine, WasmPairingCodec, WasmWorkspaceJoinHandshake, WasmWorkspaceJoinHandoff }
 
 let pairingCodecInstalled = false
 let rustRuntimeInstalled = false

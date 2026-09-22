@@ -103,6 +103,11 @@ const selectedIds = computed(() => {
 })
 
 const hasSelection = computed(() => selectedIds.value.length > 0)
+const invitationChoices = computed(() => (props.availableWorkspaces ?? []).map(workspace => {
+  const duplicate = props.availableWorkspaces!.filter(other => other.title === workspace.title).length > 1
+  const detail = duplicate ? `${workspace.id}${workspace.id === props.activeWorkspaceId ? " · Current board" : ""}` : ""
+  return { ...workspace, detail, label: detail ? `${workspace.title} (${detail})` : workspace.title }
+}))
 const isEnrollmentHost = computed(
   () => props.step === "enroll-host" || props.step === "enroll-host-pending",
 )
@@ -294,18 +299,18 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         <p class="dialog-copy">Invite another person. Choose workspaces; select their role when they request access.</p>
         <div class="sync-workspace-list">
           <label
-            v-for="ws in (availableWorkspaces || [])"
+            v-for="ws in invitationChoices"
             :key="ws.id"
             class="sync-checkbox-item"
           >
             <input
               type="checkbox"
-              :aria-label="ws.title"
+              :aria-label="ws.label"
               :value="ws.id"
               :checked="isWorkspaceSelected(ws.id)"
               @change="toggleWorkspace(ws.id)"
             />
-            <span>{{ ws.title }}</span>
+            <span>{{ ws.title }}<small v-if="ws.detail" class="sync-workspace-detail">{{ ws.detail }}</small></span>
           </label>
         </div>
 
@@ -426,7 +431,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       </template>
 
       <template v-else-if="step === 'workspace-reconnecting'">
-        <p class="dialog-copy" role="status">Reconnecting automatically… Your changes are saved on this device.</p>
+        <p class="dialog-copy" role="status">Connection interrupted. Retrying automatically…</p>
         <div class="dialog-actions">
           <button class="button button-quiet" type="button" @click="emit('dismiss')">Keep working</button>
           <button class="button button-quiet" type="button" @click="emit('stop')">Stop sync</button>
@@ -493,6 +498,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-device-ua code { display: block; margin-top: 6px; overflow-wrap: anywhere; white-space: normal; font-size: .68rem; }
 .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 750; }
 .sync-checkbox-item:has(input:checked) { background: var(--yellow); }
+.sync-workspace-detail { display: block; overflow-wrap: anywhere; font-size: 0.75rem; font-weight: 400; }
 .sync-primary-actions { justify-content: flex-start; margin-top: 16px; }
 .sync-section { display: grid; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 2px solid var(--line); }
 .sync-section-copy { margin: 0; color: var(--muted); font: 800 .68rem/1.45 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }

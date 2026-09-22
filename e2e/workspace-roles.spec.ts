@@ -101,3 +101,39 @@ test("Given a pending access request, when the owner declines, then no shared wo
     await expect(dialog.getByText(/Connected to/)).toHaveCount(0)
   } finally { await context.close() }
 })
+
+test("Given snapshot preparation fails, when an editor is approved, then both devices see one terminal cause", async ({ page, browser }) => {
+  test.setTimeout(60_000)
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const host = page.getByRole("dialog", { name: "Device sync" })
+  await host.getByRole("button", { name: "Add someone" }).click()
+  await host.getByRole("button", { name: "Generate link" }).click()
+  const invite = await host.getByLabel("Pairing link").inputValue()
+
+  await page.evaluate(() => {
+    ;(window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__ =
+      "E2E snapshot preparation failure"
+  })
+
+  const context = await browser.newContext()
+  try {
+    const guest = await context.newPage()
+    await guest.goto(invite)
+    const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await guestDialog.getByRole("button", { name: "Accept and join" }).click()
+    await expect(host.getByLabel("Participant role")).toHaveValue("visitor")
+    await host.getByLabel("Participant role").selectOption("editor")
+    await host.getByRole("button", { name: "Approve access" }).click()
+
+    const snapshotError = /E2E snapshot preparation failure/i
+    await expect(guestDialog.getByRole("alert")).toContainText(snapshotError, { timeout: 25_000 })
+    await expect(host.getByRole("alert")).toContainText(snapshotError, { timeout: 25_000 })
+    await expect(guestDialog.getByText(/Connected to/)).toHaveCount(0)
+    await expect(page.getByLabel("Participant role")).toHaveCount(0)
+    await page.waitForTimeout(1_000)
+    await expect(guestDialog.getByRole("alert")).toHaveCount(1)
+    await expect(guest).toHaveURL(invite)
+  } finally { await context.close() }
+})

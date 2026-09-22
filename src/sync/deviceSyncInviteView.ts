@@ -12,3 +12,23 @@ export async function showInviteQr(
     errorCorrectionLevel: "M",
   })
 }
+
+export async function copyInviteLink(state: DeviceSyncState, targetUrl?: string): Promise<void> {
+  const url = targetUrl || state.inviteUrl.value
+  if (!url) return
+  try {
+    await navigator.clipboard.writeText(url)
+    state.copyNotice.value = "Pairing link copied."
+  } catch {
+    state.copyNotice.value = "Clipboard unavailable. Select the pairing link and copy it manually."
+  }
+}
+
+export function clearPairingLocation(): void {
+  if (typeof window === "undefined") return
+  const url = new URL(window.location.href)
+  if (url.pathname.replace(/\/$/, "") !== "/pair") return
+  url.pathname = "/"
+  url.hash = ""
+  window.history.replaceState(window.history.state, "", url)
+}

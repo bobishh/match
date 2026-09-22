@@ -297,10 +297,15 @@ test("Given an existing editor, when the owner enrolls another device, then the 
     await phone.getByRole("button", { name: "Settings" }).click()
     const phoneSettings = phone.getByRole("dialog", { name: "Settings" })
     await phoneSettings.getByRole("tab", { name: "Identity" }).click()
-    await phoneSettings.getByRole("textbox", { name: "Your name", exact: true }).fill("Enrolled owner")
+    await phoneSettings.getByRole("textbox", { name: "Name", exact: true }).fill("Enrolled owner")
     await phoneSettings.getByRole("button", { name: "Save name", exact: true }).click()
-    await expect(phoneSettings.locator(".effective-value")).toHaveText("Enrolled owner")
+    await expect(phoneSettings.getByRole("button", { name: "Save name", exact: true })).toBeEnabled()
     await expect(phoneSettings.getByRole("alert")).toHaveCount(0)
+    await phoneSettings.getByRole("button", { name: "Dismiss", exact: true }).click()
+    await phone.reload()
+    await phone.getByRole("button", { name: "Settings" }).click()
+    await phoneSettings.getByRole("tab", { name: "Identity" }).click()
+    await expect(phoneSettings.getByRole("textbox", { name: "Name", exact: true })).toHaveValue("Enrolled owner")
     await phoneSettings.getByRole("button", { name: "Dismiss", exact: true }).click()
     await addLead(editor, "Editor after owner enrollment")
     await expect(phone.getByRole("button", { name: "Open Editor after owner enrollment — Engineer" })).toBeVisible({ timeout: 20_000 })
@@ -420,27 +425,34 @@ test("Given owner introduced two editors, when owner goes offline, then editors 
   }
 })
 
-test("Given an editor is trusted, when owner removes access, then UI marks revocation and peer cannot reconnect", async ({ browser, page }) => {
+test("Given an editor has synced changes, when owner removes access, then writes stop and a new peer retains accepted history", async ({ browser, page }) => {
   test.setTimeout(100_000)
   await page.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
   const guestContext = await isolatedContext(browser)
+  const freshContext = await isolatedContext(browser)
   const guest = await guestContext.newPage()
   try {
     await Promise.all([page.goto("/"), guest.goto("/")])
     await pairWorkspace(page, guest)
+    await addLead(guest, "Accepted editor history")
+    await expect(page.getByRole("button", { name: "Open Accepted editor history — Engineer" })).toBeVisible({ timeout: 20_000 })
     await page.getByRole("button", { name: "Settings" }).click()
     const settings = page.getByRole("dialog")
-    await settings.getByRole("tab", { name: "Identity" }).click()
-    await expect(settings.getByText("Trusted peer devices")).toBeVisible()
+    await settings.getByRole("tab", { name: "Participants" }).click()
     const remove = settings.getByRole("button", { name: "Remove access" }).first()
     await remove.click()
     await expect(settings.getByText("Revoked")).toBeVisible()
     await expect(guest.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
 
     await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
-    await expect(page.getByRole("button", { name: "Open Revoked write — Engineer" })).toHaveCount(0)
+    await settings.getByRole("button", { name: "Dismiss", exact: true }).click()
+    const fresh = await freshContext.newPage()
+    await pairWorkspace(page, fresh)
+    await expect(fresh.getByRole("button", { name: "Open Accepted editor history — Engineer" })).toBeVisible()
+    await addLead(fresh, "New editor after revocation")
+    await expect(page.getByRole("button", { name: "Open New editor after revocation — Engineer" })).toBeVisible({ timeout: 20_000 })
   } finally {
-    await guestContext.close()
+    await Promise.all([guestContext.close(), freshContext.close()])
   }
 })
 
@@ -493,18 +505,25 @@ test("Given an online editor, when owner selects them in mesh members and transf
     await guest.getByRole("button", { name: "Settings" }).click()
     const profile = guest.getByRole("dialog", { name: "Settings" })
     await profile.getByRole("tab", { name: "Identity" }).click()
-    await profile.getByRole("textbox", { name: "Your name", exact: true }).fill("Successor owner")
+    await profile.getByRole("textbox", { name: "Name", exact: true }).fill("Successor owner")
     await profile.getByRole("button", { name: "Save name", exact: true }).click()
-    await expect(profile.locator(".effective-value")).toHaveText("Successor owner")
+    await expect(profile.getByRole("button", { name: "Save name", exact: true })).toBeEnabled()
     await expect(profile.getByRole("alert")).toHaveCount(0)
 
     await page.getByRole("button", { name: "Settings" }).click()
     const formerOwnerProfile = page.getByRole("dialog", { name: "Settings" })
     await formerOwnerProfile.getByRole("tab", { name: "Identity" }).click()
-    await formerOwnerProfile.getByRole("textbox", { name: "Your name", exact: true }).fill("Former owner editor")
+    await formerOwnerProfile.getByRole("textbox", { name: "Name", exact: true }).fill("Former owner editor")
     await formerOwnerProfile.getByRole("button", { name: "Save name", exact: true }).click()
-    await expect(formerOwnerProfile.locator(".effective-value")).toHaveText("Former owner editor")
+    await expect(formerOwnerProfile.getByRole("button", { name: "Save name", exact: true })).toBeEnabled()
     await expect(formerOwnerProfile.getByRole("alert")).toHaveCount(0)
+    await Promise.all([page.reload(), guest.reload()])
+    for (const [device, name] of [[page, "Former owner editor"], [guest, "Successor owner"]] as const) {
+      await device.getByRole("button", { name: "Settings" }).click()
+      const identity = device.getByRole("dialog", { name: "Settings" })
+      await identity.getByRole("tab", { name: "Identity" }).click()
+      await expect(identity.getByRole("textbox", { name: "Name", exact: true })).toHaveValue(name)
+    }
   } finally {
     await guestContext.close()
   }

@@ -336,7 +336,7 @@ async function approveEnrollment(
   const active = selectActiveWorkspace(context, ids)
   await context.durableMesh?.forgetEnrolledDevice(ids, guest.deviceId)
   await context.durableMesh?.ensureOwnerWorkspaces(transfer.ownerIds, node.endpointId, profile)
-  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
+  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, workspaces)
   const payload = await enrollmentPayload(invite, profile, result.certificate, root, workspaces, active,
     await context.durableMesh!.invitationPayload(ids), transfer.grants, await replica.snapshot())
   await stream.send(encodePairingFrame("enroll-approved", secret, payload))
@@ -456,7 +456,7 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   try {
     prepared = await preflightEnrollment(response, invite, profile)
     ids = prepared.payload.workspaces.map(item => item.id)
-    replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, ids)
+    replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, prepared.payload.workspaces)
     await replica.validate(fromBase64Url(prepared.payload.snapshot))
     await context.durableMesh!.validateInvitation(prepared.payload.meshWorkspaces, ids, prepared.profile, prepared.payload.grants)
   } catch (error) {

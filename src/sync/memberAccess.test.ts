@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { readFile } from "node:fs/promises"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import * as Automerge from "@automerge/automerge/slim"
+import { initializeAutomerge } from "../crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceDeparture, verifyWorkspaceDeparture, createPeerAdvertisement, createWorkspaceDeviceRevocation, verifyWorkspaceDeviceRevocation } from "./meshRecords"
@@ -6,10 +9,17 @@ import { DurableMesh } from "./durableMesh"
 import { hasLeftWorkspace, isDeviceRevoked } from "./durableMeshBase"
 import { mergePeerRecords } from "@meta-uber/mesh-peer-store"
 
+beforeAll(async () => {
+  const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
+  await initializeAutomerge()
+})
 beforeEach(() => resetIdentityStorageForTest())
 async function identity(name: string) { resetIdentityStorageForTest(); return bootstrapIdentity(name) }
 async function fixture() {
   const owner = await identity("Owner"), visitor = await identity("Visitor")
+  const doc = Automerge.change(Automerge.init(), draft => { (draft as any).value = "workspace" })
+  const bytes = Automerge.save(doc)
   const grant = await createWorkspaceGrant(owner, "board", visitor.identity.personId, "visitor")
   const bundle = await createPeerAdvertisement(visitor, { workspaceId: "board", endpoint: "endpoint", grant,
     ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate] })
@@ -22,7 +32,7 @@ async function fixture() {
     getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [credential],
     putWorkspaceCredential: async (value: any) => { credential = value },
     upsertPeer: async (value: any) => { peer = mergePeerRecords(peer, value); return peer } }
-  const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+  const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: { read: async () => bytes } as never,
     store, getProfile: async () => owner })
   vi.spyOn(mesh as any, "notify").mockResolvedValue(undefined)
   vi.spyOn(mesh as any, "publishAll").mockResolvedValue(undefined)
@@ -56,10 +66,10 @@ describe("member access", () => {
   })
   it("accepts a self-issued device removal but rejects a stranger, a changed scope, or a forged signature", async () => {
     const owner = await identity("Owner"), member = await identity("Member"), stranger = await identity("Stranger")
-    const removal = await createWorkspaceDeviceRevocation(member, "board", member.identity.personId, "old-device", [member.certificate])
+    const removal = await createWorkspaceDeviceRevocation(member, "board", member.identity.personId, "old-device", ["head"], [member.certificate])
     expect(verifyWorkspaceDeviceRevocation(removal, "board", owner.identity.personId)).toEqual(removal)
     expect(() => verifyWorkspaceDeviceRevocation(removal, "other-board", owner.identity.personId)).toThrow()
-    const unauthorized = await createWorkspaceDeviceRevocation(stranger, "board", member.identity.personId, "old-device", [stranger.certificate])
+    const unauthorized = await createWorkspaceDeviceRevocation(stranger, "board", member.identity.personId, "old-device", ["head"], [stranger.certificate])
     expect(() => verifyWorkspaceDeviceRevocation(unauthorized, "board", owner.identity.personId)).toThrow()
     const forged = structuredClone(removal)
     forged.record.payload.deviceId = "another-device"
@@ -78,7 +88,7 @@ describe("leaving membership", () => {
 
   it("a signed departure removes person membership until a newer owner-approved grant", async () => {
     const f = await fixture()
-    const departure = await createWorkspaceDeparture(f.visitor, "board", 1, [f.visitor.certificate])
+    const departure = await createWorkspaceDeparture(f.visitor, "board", 1, ["head"], [f.visitor.certificate])
     expect(verifyWorkspaceDeparture(departure, "board")).toEqual(departure)
     await (f.mesh as any).mergeDepartures(f.credential(), [departure])
     expect(hasLeftWorkspace(f.credential(), f.visitor.identity.personId, f.bundle.grant)).toBe(true)
@@ -118,8 +128,8 @@ it("limits removal of another person's device to owned boards, while own devices
 
 it("retains removals for both identities when the same device key was enrolled into another person", async () => {
   const f = await fixture()
-  const first = await createWorkspaceDeviceRevocation(f.owner, "board", f.visitor.identity.personId, f.visitor.device.deviceId, [f.owner.certificate])
-  const second = await createWorkspaceDeviceRevocation(f.owner, "board", "another-person", f.visitor.device.deviceId, [f.owner.certificate])
+  const first = await createWorkspaceDeviceRevocation(f.owner, "board", f.visitor.identity.personId, f.visitor.device.deviceId, ["head"], [f.owner.certificate])
+  const second = await createWorkspaceDeviceRevocation(f.owner, "board", "another-person", f.visitor.device.deviceId, ["head"], [f.owner.certificate])
   await (f.mesh as any).mergeDeviceRevocations(f.credential(), [first, second])
   expect(isDeviceRevoked(f.credential(), f.visitor.identity.personId, f.visitor.device.deviceId)).toBe(true)
   expect(isDeviceRevoked(f.credential(), "another-person", f.visitor.device.deviceId)).toBe(true)

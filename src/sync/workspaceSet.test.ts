@@ -46,6 +46,35 @@ describe("Confirmed ownership delivery", () => {
 })
 
 describe("workspace invitation scope", () => {
+  it("keeps the failure reason visible when the board has a long title", async () => {
+    const replica = workspaceSet({
+      read: async () => { throw new Error("Workspace storage is unavailable") },
+      merge: vi.fn(), activate: vi.fn(),
+    }, [{ id: "default", title: "Long board title ".repeat(100) }])
+    const error = await replica.snapshot().catch(error => error) as Error
+    expect(error.message.length).toBeLessThan(512)
+    expect(error.message).toContain("Workspace storage is unavailable")
+  })
+
+  it("identifies the exact workspace when a multi-workspace snapshot member fails", async () => {
+    const failure = new Error("Workspace storage is unavailable")
+    const read = vi.fn(async (id: string) => {
+      if (id === "second-board") throw failure
+      return new Uint8Array([1])
+    })
+    const replica = workspaceSet({ read, merge: vi.fn(), activate: vi.fn() }, [
+      { id: "first-board", title: "Job search" },
+      { id: "second-board", title: "Job search" },
+    ])
+
+    await expect(replica.snapshot()).rejects.toMatchObject({
+      message: expect.stringContaining("Workspace second-board (Job search) snapshot failed: Workspace storage is unavailable"),
+      cause: failure,
+    })
+    expect(read).toHaveBeenCalledWith("first-board")
+    expect(read).toHaveBeenCalledWith("second-board")
+  })
+
   it.each([
     [{ id: "a", bytes: "AA" }, { id: "private", bytes: "AA" }],
     [{ id: "a", bytes: "AA" }, { id: "a", bytes: "AA" }],

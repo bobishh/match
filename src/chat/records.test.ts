@@ -703,7 +703,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Invalid root certificate signature")
+      ).rejects.toThrow("Invalid signature")
     })
 
     it("rejects record when signer certificate is missing from certificates pool", async () => {
@@ -768,7 +768,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Missing issuer certificate")
+      ).rejects.toThrow("Invalid certificate chain")
     })
 
     it("rejects record when delegated certificate signature is invalid", async () => {
@@ -821,7 +821,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Invalid delegated certificate signature")
+      ).rejects.toThrow("Invalid signature")
     })
 
     it("rejects record when delegating cert lacks canEnrollDevices capability", async () => {
@@ -883,7 +883,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Issuer certificate lacks canEnrollDevices capability")
+      ).rejects.toThrow("Invalid certificate chain")
     })
 
     it("rejects certificate with mismatched personId", async () => {
@@ -922,7 +922,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Invalid device certificate payload")
+      ).rejects.toThrow("Invalid device certificate")
     })
 
     it("rejects certificate where devicePublicKey does not match deviceId", async () => {
@@ -959,10 +959,10 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
 
       await expect(
         verifyChatRecord(record, workspaceId, owner.identity.personId)
-      ).rejects.toThrow("Device key does not match deviceId")
+      ).rejects.toThrow("Invalid device certificate")
     })
 
-    it("accepts a device certificate renewed by the same already trusted device", async () => {
+    it("rejects a device certificate chain renewed by the same already trusted device", async () => {
       const owner = await createProfile("Owner Alice")
 
       const cert1Hash = await certHashDefault(owner.certificate)
@@ -1001,7 +1001,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
         authority: makeOwnerAuthority(owner),
       }
 
-      await expect(verifyChatRecord(record, workspaceId, owner.identity.personId)).resolves.toEqual(record)
+      await expect(verifyChatRecord(record, workspaceId, owner.identity.personId)).rejects.toThrow("Invalid device certificate")
     })
 
     it("rejects certificate chain exceeding maximum length 32", async () => {

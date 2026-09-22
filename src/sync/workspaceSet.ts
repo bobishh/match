@@ -42,31 +42,45 @@ export type WorkspaceSetStore = {
 }
 
 type LiveWorkspaceOptions = {
-  onHandoffRequest?: (stream: DuplexStream) => Promise<void>
+  onHandoffRequest?: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
   ownerWorkspaceOfferFrame?: OwnerWorkspaceOfferFrame
   onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
   onGossipPacket?: (packet: Uint8Array) => Promise<void>
   onBlobRequest?: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
 }
 
-export function workspaceSet(store: WorkspaceSetStore, workspaceIds: string[]) {
-  const ids = [...new Set(workspaceIds)].sort()
+export type WorkspaceSetWorkspace = string | { id: string; title?: string }
+
+export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: WorkspaceSetWorkspace[]) {
+  const titles = new Map(workspaceEntries.flatMap(entry => typeof entry === "string" || !entry.title ? [] : [[entry.id, entry.title] as const]))
+  const ids = [...new Set(workspaceEntries.map(entry => typeof entry === "string" ? entry : entry.id))].sort()
+  const label = (id: string) => {
+    const title = titles.get(id)
+    return title ? `${id} (${title.length > 80 ? `${title.slice(0, 80)}…` : title})` : id
+  }
   const receiveStage = async (stage: string, id: string, action: () => Promise<void>) => {
     try { await action() } catch (error) {
-      throw new Error(`${stage} ${id}: ${error instanceof Error ? error.message : String(error)}${safeDiagnostic(error)}`, { cause: error })
+      throw new Error(`${stage} ${label(id)}: ${error instanceof Error ? error.message : String(error)}${safeDiagnostic(error)}`, { cause: error })
     }
   }
   return {
     async snapshot(knownChat?: Map<string, Set<string>>) {
-      const entries = await Promise.all(ids.map(async id => { const bytes = await store.read(id); return { id, bytes: toBase64Url(bytes),
-        ...(store.readAuthorization ? { authorization: await store.readAuthorization(bytes) } : {}),
-        ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
-          const known = knownChat.get(id) ?? new Set<string>()
-          knownChat.set(id, known)
-          return known
-        })() : undefined) } : {}),
-        ...(store.readMesh ? { mesh: await store.readMesh(id) } : {}),
-      }}))
+      const entries = await Promise.all(ids.map(async id => {
+        try {
+          const bytes = await store.read(id)
+          return { id, bytes: toBase64Url(bytes),
+            ...(store.readAuthorization ? { authorization: await store.readAuthorization(bytes) } : {}),
+            ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
+              const known = knownChat.get(id) ?? new Set<string>()
+              knownChat.set(id, known)
+              return known
+            })() : undefined) } : {}),
+            ...(store.readMesh ? { mesh: await store.readMesh(id) } : {}),
+          }
+        } catch (error) {
+          throw new Error(`Workspace ${label(id)} snapshot failed: ${error instanceof Error ? error.message : String(error)}${safeDiagnostic(error)}`, { cause: error })
+        }
+      }))
       return new TextEncoder().encode(JSON.stringify(entries))
     },
     async validate(bytes: Uint8Array) {
@@ -218,7 +232,7 @@ export function liveWorkspaceSetSync(
       }
       if (type === "mesh-handoff-request" && options.onHandoffRequest) {
         decodePairingFrame(frame, "mesh-handoff-request", secret)
-        await options.onHandoffRequest(stream)
+        await options.onHandoffRequest(stream, frame)
         continue
       }
       if (type === "mesh-iroh-gossip" && options.onGossipPacket) {

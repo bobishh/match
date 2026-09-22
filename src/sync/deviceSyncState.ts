@@ -4,6 +4,8 @@ import { isMeshDialNetworkFailure } from "@meta-uber/mesh-runtime"
 import type { MeshPeerView, MeshSuccessionView } from "./durableMesh"
 import type { WorkspaceGrant } from "../domain/model"
 
+const MAX_SYNC_ERROR_LENGTH = 512
+
 export type SyncStep =
   | "idle" | "members" | "chooser" | "workspace-select" | "enroll-host"
   | "enroll-host-preparing" | "enroll-host-pending" | "enroll-host-done" | "enroll-syncing"
@@ -71,8 +73,15 @@ export function createDeviceSyncState() {
 
 export type DeviceSyncState = ReturnType<typeof createDeviceSyncState>
 
-export function userMessage(err: unknown, fallback: string) {
+export function formatSyncError(err: unknown, fallback: string) {
   const message = err instanceof Error ? err.message : String(err)
+  return (message || fallback).slice(0, MAX_SYNC_ERROR_LENGTH)
+}
+
+export function userMessage(err: unknown, fallback: string) {
+  const message = formatSyncError(err, fallback)
+  if (/break-glass authority|legacy workspace authority/i.test(message)) return `This board has unsupported legacy ownership. Invite only an independent imported copy of the board. Details: ${message}`
+  if (/Workspace was deleted in another tab/i.test(message)) return `This board was deleted on this device. Rejoining cannot restore that local copy yet. Use a new board or a fresh browser profile. Details: ${message}`
   if (message === "Invalid pairing link" || message === "This pairing link is invalid.") return "This pairing link is invalid."
   if (/This invitation has expired/i.test(message)) return "This invitation has expired."
   if (/older version of Match/i.test(message)) return "This sync link was created by an older version of Match. Please create a new invitation."

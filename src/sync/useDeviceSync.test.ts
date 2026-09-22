@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest"
 import { userMessage, useDeviceSync } from "./useDeviceSync"
+import { formatSyncError } from "./deviceSyncState"
 
 describe("device sync errors", () => {
+  it("explains a deleted local copy without blaming another open tab", () => {
+    const cause = "Workspace issues: Workspace was deleted in another tab"
+    expect(userMessage(new Error(cause), "Try again.")).toBe(
+      `This board was deleted on this device. Rejoining cannot restore that local copy yet. Use a new board or a fresh browser profile. Details: ${cause}`,
+    )
+  })
+
+  it("preserves the bounded root cause for live-session diagnostics", () => {
+    const error = new Error("Workspace board (Job search) snapshot failed: Workspace storage is unavailable")
+    expect(formatSyncError(error, "Live sync stopped.")).toBe(error.message)
+    expect(formatSyncError(new Error("x".repeat(600)), "Live sync stopped.")).toHaveLength(512)
+  })
+
   it("Given a CRDT merge failure, when pairing reports it, then the UI does not blame the QR code", () => {
     expect(userMessage(new RangeError("Attempting to change an outdated document"), "Generate a new QR and try again.")).toBe(
       "Couldn’t merge workspace changes. Keep this tab open and try pairing again.",

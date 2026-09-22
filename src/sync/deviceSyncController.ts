@@ -7,11 +7,13 @@ import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
 import type { SyncNode, SyncTransport } from "./transport"
 import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
-import { createDeviceSyncState, userMessage } from "./deviceSyncState"
+import { createDeviceSyncState, formatSyncError, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
-import { acceptWorkspaceInvitation } from "./deviceSyncWorkspaceGuest"
 import { generateWorkspaceInvite as generateHostInvite } from "./deviceSyncHost"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
+import { meshTrace } from "./meshTrace"
+import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
+import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
 
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
@@ -267,9 +269,10 @@ class DeviceSyncController {
 
   private liveSessionFailed(syncError: unknown, currentRun: number) {
     if (currentRun !== this.run) return
-    console.error("Match live sync failed", syncError)
+    const reason = formatSyncError(syncError, "Live sync stopped.")
+    meshTrace("live.session.failed", { runId: currentRun, reason })
     this.state.step.value = "error"
-    this.state.error.value = "Live sync stopped. Pair again."
+    this.state.error.value = userMessage(syncError, "Live sync stopped.")
     void this.stopNode("Live sync failed")
   }
 
@@ -296,7 +299,7 @@ class DeviceSyncController {
 
   private async dismiss() {
     if (this.state.step.value !== "error") { this.state.isOpen.value = false; return }
-    this.clearPairingLocation()
+    clearPairingLocation()
     await this.close()
   }
 
@@ -430,7 +433,7 @@ class DeviceSyncController {
     )
     if (!local || !known) return false
     await this.workspaceStore?.activate(ids[0]!)
-    this.clearPairingLocation()
+    clearPairingLocation()
     this.state.isOpen.value = false
     await this.startDurableMesh()
     return true
@@ -452,15 +455,6 @@ class DeviceSyncController {
     this.state.invitationWorkspaceTitle.value = this.state.invitationWorkspaces.value.map(item => item.title).join(", ")
     const local = this.state.invitationWorkspaces.value.some(item => this.availableWorkspaces.value.some(workspace => workspace.id === item.id))
     this.state.step.value = local ? "workspace-merge-confirm" : "workspace-guest"
-  }
-
-  private clearPairingLocation() {
-    if (typeof window === "undefined") return
-    const url = new URL(window.location.href)
-    if (url.pathname.replace(/\/$/, "") !== "/pair") return
-    url.pathname = "/"
-    url.hash = ""
-    window.history.replaceState(window.history.state, "", url)
   }
 
   private async requestEnrollment(replaceIdentity = false) {
@@ -494,30 +488,32 @@ class DeviceSyncController {
     const invite = this.state.parsedInvite.value
     if (!invite || invite.kind !== "workspace-join" || this.state.step.value === "workspace-guest-waiting") return
     await this.ensureDurableMesh()
-    await acceptWorkspaceInvitation({
-      state: this.state, workspace: this.workspace, workspaceStore: this.workspaceStore, meshWorkspaceStore: this.meshWorkspaceStore,
-      durableMesh: this.durableMesh, transport: this.transport, getProfile: () => this.getProfile(), displayName: this.displayName,
-      nextRun: () => ++this.run, currentRun: () => this.run, pauseMesh: () => this.pauseDurableMesh(),
-      waitToReconnect: milliseconds => this.waitToReconnect(milliseconds), setNode: node => { this.node = node },
-      setLiveSession: session => { this.liveSession = session }, setStopWatching: stop => { this.stopWatchingWorkspace = stop },
-      clearPairingLocation: () => this.clearPairingLocation(),
-    }, invite)
-  }
-
-  private joinFromLocation(rawUrl: string) {
-    const url = new URL(rawUrl)
-    if (url.pathname.replace(/\/$/, "") !== "/pair" || !url.hash) return false
-    void this.prepareJoin(rawUrl)
-    return true
-  }
-
-  private async copyInvite(targetUrl?: string) {
-    const url = targetUrl || this.state.inviteUrl.value
-    if (!url) return
+    const run = ++this.run
+    await this.pauseDurableMesh()
+    this.state.step.value = "workspace-guest-waiting"
+    this.state.error.value = ""
     try {
-      await navigator.clipboard.writeText(url)
-      this.state.copyNotice.value = "Pairing link copied."
-    } catch { this.state.copyNotice.value = "Clipboard unavailable. Select the pairing link and copy it manually." }
+      if (!this.workspaceStore) throw new Error("Workspace sync is unavailable.")
+      if (Date.parse(invite.expiresAt) <= Date.now()) throw new Error("This invitation has expired.")
+      await connectWorkspaceJoin({
+        state: this.state,
+        workspace: this.workspace,
+        workspaceStore: this.workspaceStore,
+        meshWorkspaceStore: this.meshWorkspaceStore,
+        durableMesh: this.durableMesh,
+        transport: this.transport,
+        getProfile: () => this.getProfile(),
+        displayName: this.displayName,
+        currentRun: () => this.run,
+        waitToReconnect: milliseconds => this.waitToReconnect(milliseconds),
+        setNode: node => { this.node = node },
+        setLiveSession: session => { this.liveSession = session },
+        setStopWatching: stop => { this.stopWatchingWorkspace = stop },
+        clearPairingLocation,
+      }, run, invite)
+    } catch (error) {
+      reportWorkspaceJoinFailure(this.state, this.run, run, invite, error)
+    }
   }
 
   api() {
@@ -534,7 +530,7 @@ class DeviceSyncController {
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
       requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
-      joinFromLocation: (raw: string) => this.joinFromLocation(raw), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
+      joinFromLocation: (raw: string) => isWorkspacePairingLocation(raw, url => { void this.prepareJoin(url) }), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
       fetchBlob: (workspaceId: string, descriptor: BlobDescriptor) => this.fetchBlob(workspaceId, descriptor),
       ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
       promotePeer: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.promotePerson(id, personId), true),
@@ -544,7 +540,7 @@ class DeviceSyncController {
       voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),
       claimSuccession: () => this.withActiveWorkspace((id, mesh) => mesh.claimSuccession(id), true),
       leaveMesh: () => this.leaveMesh(), leaveWorkspace: (workspaceId: string) => this.leaveWorkspace(workspaceId),
-      copyInvite: (target?: string) => this.copyInvite(target), close: () => this.close(), dismiss: () => this.dismiss(),
+      copyInvite: (target?: string) => copyInviteLink(state, target), close: () => this.close(), dismiss: () => this.dismiss(),
     }
   }
 }

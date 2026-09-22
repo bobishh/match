@@ -1,5 +1,24 @@
 import { expect, test } from "@playwright/test"
-import { ensureJobSearchWorkspace } from "./support/workspaces"
+import { createJobSearchWorkspace, ensureJobSearchWorkspace } from "./support/workspaces"
+
+test("Given boards with identical names, when choosing an invitation scope, then the current board is distinct and an empty selection cannot generate a link", async ({ page }) => {
+  await page.goto("/")
+  await createJobSearchWorkspace(page, "Job search")
+  await createJobSearchWorkspace(page, "Job search")
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add someone" }).click()
+  const current = dialog.getByRole("checkbox", { name: /Job search.*Current board/ })
+  await expect(current).toBeChecked()
+  const names = await dialog.getByRole("checkbox", { name: /Job search/ }).evaluateAll(inputs => inputs.map(input => input.getAttribute("aria-label")))
+  expect(names).toHaveLength(2)
+  expect(new Set(names).size).toBe(2)
+  await current.uncheck()
+  await expect(dialog.getByRole("button", { name: "Generate link" })).toBeDisabled()
+  await dialog.getByRole("checkbox", { name: names.find(name => !name?.includes("Current board"))!, exact: true }).check()
+  await expect(current).not.toBeChecked()
+  await expect(dialog.getByRole("button", { name: "Generate link" })).toBeEnabled()
+})
 
 test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
   test("Given a new profile, when Match opens, then it starts with a collision-safe blank Untitled workspace", async ({ page }) => {

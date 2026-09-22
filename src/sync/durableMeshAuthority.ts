@@ -159,7 +159,12 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       return { personId: profile.identity.personId, profile }
     },
     credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
-    createRevocation: (owner, workspaceId, personId, epoch) => createWorkspaceRevocation(owner.profile, workspaceId, personId, epoch),
+    createRevocation: async (owner, workspaceId, personId, epoch) => {
+      const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
+      try {
+        return await createWorkspaceRevocation(owner.profile, workspaceId, personId, epoch, Automerge.getHeads(doc))
+      } finally { Automerge.free(doc) }
+    },
     epoch: credential => credential.epoch,
     mergeRevocations: (credential, records, disconnect) => this.mergeRevocations(credential, records, disconnect),
     refreshSuccessionPolicy: workspaceId => this.refreshSuccessionPolicy(workspaceId),
@@ -326,40 +331,39 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
 
   protected async mergeDepartures(credential: WorkspaceMeshCredential, records: WorkspaceDeparture[], disconnect = true): Promise<void> {
     if (!records.length) return
-    const merged = new Map(departures(credential).map(value => [value.record.payload.personId, value]))
+    const merged = new Map(departures(credential).map(value => [JSON.stringify(value), value]))
     for (const raw of records) {
       const value = verifyWorkspaceDeparture(raw, credential.workspaceId)
-      const p = value.record.payload
-      const previous = merged.get(p.personId)
-      if (!previous || previous.record.payload.accessEpoch < p.accessEpoch) merged.set(p.personId, value)
+      merged.set(JSON.stringify(value), value)
     }
     if (merged.size > 512) throw new Error("Too many workspace departures")
     const next = { ...credential, epoch: Math.max(credential.epoch, ...[...merged.values()].map(value => value.record.payload.accessEpoch)),
-      catalog: { ...meshCatalog(credential), departures: [...merged.values()].sort((a, b) => a.record.payload.personId.localeCompare(b.record.payload.personId)) } }
+      catalog: { ...meshCatalog(credential), departures: [...merged.values()].sort((a, b) =>
+        a.record.payload.personId.localeCompare(b.record.payload.personId) || a.record.payload.accessEpoch - b.record.payload.accessEpoch) } }
     await this.store.putWorkspaceCredential(next)
     if (!disconnect) return
     for (const peer of await this.store.listPeers(credential.workspaceId)) {
       if (!hasLeftWorkspace(next, peer.personId, (peer.advertisement as WorkspaceMemberBundle | undefined)?.grant)) continue
-      await this.store.upsertPeer({ ...peer, revokedAt: merged.get(peer.personId)!.record.payload.leftAt })
+      const departure = [...merged.values()].filter(value => value.record.payload.personId === peer.personId)
+        .sort((a, b) => b.record.payload.accessEpoch - a.record.payload.accessEpoch)[0]!
+      await this.store.upsertPeer({ ...peer, revokedAt: departure.record.payload.leftAt })
       for (const session of [...this.sessions.values()]) if (session.workspaceId === credential.workspaceId && session.remotePersonId === peer.personId) await session.evict("member left workspace")
     }
   }
 
   protected async mergeDeviceRevocations(credential: WorkspaceMeshCredential, records: WorkspaceDeviceRevocation[], disconnect = true): Promise<void> {
     if (!records.length) return
-    const merged = new Map(deviceRevocations(credential).map(value => [JSON.stringify([value.record.payload.personId, value.record.payload.deviceId]), value]))
+    const merged = new Map(deviceRevocations(credential).map(value => [JSON.stringify(value), value]))
     for (const raw of records) {
       const value = verifyWorkspaceDeviceRevocation(raw, credential.workspaceId, credential.ownerPersonId)
-      const key = JSON.stringify([value.record.payload.personId, value.record.payload.deviceId])
-      const previous = merged.get(key)
-      if (!previous || value.record.payload.revokedAt < previous.record.payload.revokedAt) merged.set(key, value)
+      merged.set(JSON.stringify(value), value)
     }
     if (merged.size > 512) throw new Error("Too many device revocations")
     const next = { ...credential, catalog: { ...meshCatalog(credential), deviceRevocations: [...merged.values()].sort((a, b) => a.record.payload.deviceId.localeCompare(b.record.payload.deviceId)) } }
     await this.store.putWorkspaceCredential(next)
     for (const peer of await this.store.listPeers(credential.workspaceId)) {
       if (!isDeviceRevoked(next, peer.personId, peer.deviceId)) continue
-      const revokedAt = merged.get(JSON.stringify([peer.personId, peer.deviceId]))!.record.payload.revokedAt
+      const revokedAt = [...merged.values()].find(value => value.record.payload.personId === peer.personId && value.record.payload.deviceId === peer.deviceId)!.record.payload.revokedAt
       await this.store.upsertPeer({ ...peer, revokedAt })
       if (disconnect) for (const session of [...this.sessions.values()]) {
         if (session.workspaceId === credential.workspaceId && session.deviceId === peer.deviceId) await session.evict("device revoked")
@@ -391,7 +395,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (const workspaceId of new Set(workspaceIds)) {
       const credential = (await this.store.getWorkspaceCredential(workspaceId))!
-      const record = await createWorkspaceDeviceRevocation(profile, workspaceId, personId, deviceId, certificates)
+      const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
+      let heads: string[]
+      try { heads = Automerge.getHeads(doc) } finally { Automerge.free(doc) }
+      const record = await createWorkspaceDeviceRevocation(profile, workspaceId, personId, deviceId, heads, certificates)
       await this.mergeDeviceRevocations(credential, [record], false)
     }
     await this.publishAll()
@@ -437,7 +444,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     if (!credential) throw new Error("No workspace membership")
     if (credential.ownerPersonId === profile.identity.personId) throw new Error("Transfer ownership before leaving this workspace")
     if (![...this.sessions.values()].some(session => session.workspaceId === workspaceId)) throw new Error("Connect to another workspace device before leaving so your departure can be delivered")
+    const workspaceDoc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
+    let workspaceHeads: string[]
+    try { workspaceHeads = Automerge.getHeads(workspaceDoc) } finally { Automerge.free(workspaceDoc) }
     const departure = await createWorkspaceDeparture(profile, workspaceId, (credential.localGrant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1,
+      workspaceHeads,
       uniqueCertificates(profile, await defaultProofStore.listCertificates()))
     await this.mergeDepartures(credential, [departure], false)
     await this.publishAll()
