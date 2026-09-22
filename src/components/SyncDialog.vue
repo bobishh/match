@@ -341,6 +341,11 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
         </section>
       </template>
 
+      <template v-else-if="step === 'enroll-host-preparing'">
+        <p class="dialog-copy sync-step-title" role="status">Preparing secure enrollment link…</p>
+        <p class="dialog-copy">Keep this tab open while Match starts a temporary encrypted listener.</p>
+      </template>
+
       <!-- Enrollment and workspace invitation display -->
       <template v-else-if="isEnrollmentHost || step === 'workspace-host'">
         <p class="dialog-copy sync-step-title">{{ isEnrollmentHost ? "Add your second device" : "Invite someone" }}</p>

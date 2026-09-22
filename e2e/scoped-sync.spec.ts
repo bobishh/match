@@ -329,6 +329,7 @@ test("Given a real pending device request, when declined, then guest sees refusa
   try {
     const guest = await context.newPage()
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
+    await expect.poll(() => guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).not.toBeNull()
     const profile = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add this device" }).click()

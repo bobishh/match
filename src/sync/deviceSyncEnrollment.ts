@@ -7,6 +7,8 @@ import {
   invitationUrl,
   type DeviceEnrollmentInvitation,
 } from "@meta-uber/mesh-pairing"
+import { MeshReconnectPolicy } from "@meta-uber/mesh-runtime"
+import { isMeshNetworkFailure } from "@meta-uber/mesh-transport"
 import { defaultInvitationService, deriveTranscriptAuthCode } from "./invitations"
 import { createEnrollmentRequest, enrollmentPayload, installEnrollment, readEnrollmentRequest } from "./enrollment"
 import { defaultProofStore, certHashDefault } from "../domain/proofs"
@@ -19,6 +21,7 @@ import type { SyncConnection, SyncNode } from "./transport"
 import { userMessage } from "./deviceSyncState"
 import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
+import { meshTrace, type MeshTraceLevel } from "./meshTrace"
 
 type EnrollmentContext = PairingContext & {
   activeWorkspaceId?: () => string
@@ -31,6 +34,15 @@ type EnrollmentContext = PairingContext & {
 
 function isCurrent(context: EnrollmentContext, run: number) {
   return context.currentRun() === run
+}
+
+function traceEnrollment(role: "host" | "guest", event: string, run: number,
+  detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info") {
+  meshTrace(`enrollment.${role}.${event}`, { runId: run, ...detail }, level)
+}
+
+function errorReason(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function pairingNode(context: EnrollmentContext) {
@@ -49,6 +61,8 @@ function enrollmentError(context: EnrollmentContext, run: number, err: unknown, 
 
 export async function selectDeviceEnrollment(context: EnrollmentContext) {
   const run = context.nextRun()
+  context.state.step.value = "enroll-host-preparing"
+  traceEnrollment("host", "started", run)
   await context.pauseMesh()
   await context.stopNode("Starting device enrollment")
   context.state.copyNotice.value = ""
@@ -61,6 +75,7 @@ export async function selectDeviceEnrollment(context: EnrollmentContext) {
     const node = await pairingNode(context)
     if (!isCurrent(context, run)) return void node.close("Replaced")
     context.setNode(node)
+    traceEnrollment("host", "node.started", run, { endpoint: node.endpointId.slice(0, 8) })
     const secret = createPairingSecret()
     const invite = createDeviceEnrollmentInvite(node.endpointId, secret, profile)
     await defaultInvitationService.saveIssuedInvitation(invite)
@@ -68,12 +83,14 @@ export async function selectDeviceEnrollment(context: EnrollmentContext) {
     context.state.step.value = "enroll-host"
     await hostEnrollment(context, run, node, secret, invite, profile)
   } catch (err) {
+    traceEnrollment("host", "failed", run, { reason: errorReason(err) }, "warn")
     enrollmentError(context, run, err, "Couldn’t start device sync.")
   }
 }
 
 async function hostEnrollment(context: EnrollmentContext, run: number, node: SyncNode, secret: string, invite: DeviceEnrollmentInvitation, profile: LocalProfile) {
   const acceptor = await node.accept()
+  traceEnrollment("host", "listening", run)
   void receiveEnrollment(context, run, node, acceptor, secret, invite, profile)
 }
 
@@ -87,14 +104,17 @@ async function receiveEnrollment(context: EnrollmentContext, run: number, node: 
     while (isCurrent(context, run)) {
       connection = await acceptor.accept()
       if (!connection) throw new Error("Device enrollment connection closed. Create a new link.")
+      traceEnrollment("host", "connection.accepted", run)
       const stream = await connection.acceptStream()
       const raw = await stream.read()
       const header = inspectPairingFrame(raw)
       if (header.type !== "enroll-request" || header.secret !== secret) {
+        traceEnrollment("host", "frame.rejected", run, { type: header.type }, "warn")
         await connection.close()
         continue
       }
       const guest = await readEnrollmentRequest(decodePairingFrame(raw, "enroll-request", secret), invite)
+      traceEnrollment("host", "request.verified", run, { deviceId: guest.deviceId.slice(0, 8) })
       const claim = await defaultInvitationService.claimInvitation(invite.invitationId, guest.deviceId)
       if (!claim.ok) throw new Error(claim.error)
       context.state.authCode.value = await deriveTranscriptAuthCode(secret, invite.invitationId, guest.publicKey)
@@ -103,15 +123,19 @@ async function receiveEnrollment(context: EnrollmentContext, run: number, node: 
       context.state.isOpen.value = true
       const approved = await waitForApproval(context, run)
       if (!approved) {
+        traceEnrollment("host", "declined", run, { deviceId: guest.deviceId.slice(0, 8) })
         await rejectEnrollment(stream, secret)
         await awaitEnrollmentDeclineAcknowledgement(connection, secret).catch(() => undefined)
         throw new Error("Device enrollment was declined or cancelled.")
       }
       context.state.step.value = "enroll-syncing"
+      traceEnrollment("host", "approved", run, { deviceId: guest.deviceId.slice(0, 8) })
       await approveEnrollment(context, node, stream, connection, secret, invite, profile, guest)
+      traceEnrollment("host", "completed", run, { deviceId: guest.deviceId.slice(0, 8) })
       return
     }
   } catch (err) {
+    traceEnrollment("host", "failed", run, { reason: errorReason(err) }, "warn")
     if (isCurrent(context, run)) console.error("Device enrollment host failed", err)
     enrollmentError(context, run, err, "Couldn’t add this device.")
   } finally {
@@ -212,6 +236,7 @@ export async function requestDeviceEnrollment(context: EnrollmentContext, invite
   let handedOff = false
   context.state.step.value = "enroll-guest-waiting"
   context.state.error.value = ""
+  traceEnrollment("guest", "started", run, { endpoint: invite.issuerEndpoint.slice(0, 8) })
   try {
     if (!context.workspaceStore || !context.durableMesh) throw new Error("Device sync is unavailable.")
     await context.pauseMesh()
@@ -221,12 +246,15 @@ export async function requestDeviceEnrollment(context: EnrollmentContext, invite
     const node = await startPersistentNode(context.transport)
     if (!isCurrent(context, run)) return void node.close("Replaced")
     context.setNode(node)
+    traceEnrollment("guest", "node.started", run, { endpoint: node.endpointId.slice(0, 8) })
     connection = await dialEnrollmentPeer(context, run, node, invite)
     if (!connection || !isCurrent(context, run)) return
+    traceEnrollment("guest", "connected", run)
     await receiveEnrollmentApproval(context, run, node, connection, invite, profile)
     connection = undefined
     handedOff = true
   } catch (err) {
+    traceEnrollment("guest", "failed", run, { reason: errorReason(err) }, "warn")
     if (isCurrent(context, run)) console.error("Device enrollment guest failed", err)
     enrollmentError(context, run, err, "Couldn’t add this device. Create a new link and try again.")
   } finally {
@@ -235,14 +263,27 @@ export async function requestDeviceEnrollment(context: EnrollmentContext, invite
   }
 }
 
-async function dialEnrollmentPeer(context: EnrollmentContext, run: number, node: SyncNode, invite: DeviceEnrollmentInvitation) {
-  for (let attempt = 0; isCurrent(context, run); attempt++) {
-    try {
-      return await (node.dialRelay ? node.dialRelay(invite.issuerEndpoint) : node.dial(invite.issuerEndpoint))
-    } catch (err) {
-      if (attempt >= 4) throw err
-      await context.waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
+export async function dialEnrollmentPeer(context: EnrollmentContext, run: number, node: SyncNode, invite: DeviceEnrollmentInvitation) {
+  const reconnect = new MeshReconnectPolicy()
+  const peerKey = `enrollment:${invite.issuerEndpoint}`
+  try {
+    for (let attempt = 0; isCurrent(context, run); attempt++) {
+      const mode = reconnect.mode(node, peerKey)
+      traceEnrollment("guest", "dial.started", run, { attempt: attempt + 1, mode })
+      try {
+        const connection = await reconnect.dial(node, peerKey, invite.issuerEndpoint)
+        traceEnrollment("guest", "dial.connected", run, { attempt: attempt + 1, plannedMode: mode })
+        return connection
+      } catch (err) {
+        traceEnrollment("guest", "dial.failed", run, { attempt: attempt + 1, plannedMode: mode,
+          reason: errorReason(err) }, "warn")
+        reconnect.recordFailure(peerKey, isMeshNetworkFailure(err))
+        if (attempt >= 4) throw err
+        await context.waitToReconnect(Math.min(1000 * 2 ** attempt, 5000))
+      }
     }
+  } finally {
+    reconnect.free()
   }
 }
 
@@ -250,6 +291,7 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   const stream = await connection.openStream()
   await stream.send(encodePairingFrame("enroll-request", invite.secret, await createEnrollmentRequest(invite, profile)))
   await stream.closeSend()
+  traceEnrollment("guest", "request.sent", run)
   const response = decodePairingFrame(await stream.read(), "enroll-approved", invite.secret)
   const declined = enrollmentDecline(response)
   if (declined) {
@@ -258,6 +300,7 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   }
   if (!isCurrent(context, run)) return
   context.state.step.value = "enroll-syncing"
+  traceEnrollment("guest", "approved", run)
   const enrolled = await installEnrollment(response, invite, profile)
   await context.identityChanged?.()
   const ids = enrolled.workspaces.map(item => item.id)
@@ -276,6 +319,7 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   await confirmation.send(encodePairingFrame("mesh-handoff-confirmed", invite.secret, new Uint8Array()))
   await confirmation.closeSend()
   context.state.step.value = "enroll-guest-done"
+  traceEnrollment("guest", "completed", run, { workspaces: ids.length })
   if (typeof window !== "undefined") window.history.replaceState(window.history.state, "", "/")
 }
 

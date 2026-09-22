@@ -1,11 +1,12 @@
 import { computed, ref } from "vue"
 import type { ScopedInvitation } from "@meta-uber/mesh-pairing"
+import { isMeshNetworkFailure } from "@meta-uber/mesh-transport"
 import type { MeshPeerView, MeshSuccessionView } from "./durableMesh"
 import type { WorkspaceGrant } from "../domain/model"
 
 export type SyncStep =
   | "idle" | "members" | "chooser" | "workspace-select" | "enroll-host"
-  | "enroll-host-pending" | "enroll-host-done" | "enroll-syncing"
+  | "enroll-host-preparing" | "enroll-host-pending" | "enroll-host-done" | "enroll-syncing"
   | "workspace-host-select" | "workspace-host" | "enroll-guest"
   | "enroll-guest-waiting" | "enroll-guest-done" | "workspace-guest"
   | "workspace-merge-confirm" | "workspace-reconnecting" | "workspace-guest-waiting"
@@ -74,7 +75,7 @@ export function userMessage(err: unknown, fallback: string) {
   if (/older version of Match/i.test(message)) return "This sync link was created by an older version of Match. Please create a new invitation."
   if (/Pairing cancelled/i.test(message)) return "Pairing was cancelled on the other device. Generate a new QR and try again."
   if (/out of date document|outdated document/i.test(message)) return "Couldn’t merge workspace changes. Keep this tab open and try pairing again."
-  if (/bootstrap|connection|relay|network/i.test(message)) return "Couldn’t reach the other device. Check both connections and try again."
+  if (isMeshNetworkFailure(err)) return "Couldn’t reach the other device. Check both connections and try again."
   return message || fallback
 }
 
