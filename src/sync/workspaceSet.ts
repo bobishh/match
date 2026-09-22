@@ -22,8 +22,7 @@ export type LiveWorkspaceSync = {
 const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
 const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
 const MAX_GOSSIP_PACKET_BYTES = 256 * 1024
-const OWNER_WORKSPACE_OFFER_FRAME = "mesh-owner-workspace-offer"
-export type OwnerWorkspaceOfferFrame = typeof OWNER_WORKSPACE_OFFER_FRAME
+export type OwnerWorkspaceOfferFrame = "mesh-owner-workspace-offer"
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>

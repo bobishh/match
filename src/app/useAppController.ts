@@ -1,34 +1,112 @@
 import { onBeforeUnmount, onMounted, watch } from "vue"
 import { hydrate } from "../state"
-import { isArchiveColumn } from "../domain/archive"
 import { registerWebMcp } from "../webmcp"
 import { sendChatMessage } from "../chat/service"
+import { runAppStartup, startupFailureMessage } from "./startup"
 import { useAppActions } from "./useAppActions"
-import { useAppBoard } from "./useAppBoard"
+import { useAppBoard, type AppBoardContext } from "./useAppBoard"
 import { useAppCore } from "./useAppCore"
 
 export function useAppController() {
   const core = useAppCore()
-  const board = useAppBoard(core)
+  const board = useAppBoard(boardContext(core))
   const actions = useAppActions(core, board)
   useAppLifecycle(core, board, actions)
-  return { ...core.match, ...core, ...board, ...actions, isArchiveColumn }
+  return {
+    workspace: core.match,
+    ui: appUi(core),
+    board,
+    actions,
+    collaboration: appCollaboration(core),
+  }
+}
+
+function boardContext(core: ReturnType<typeof useAppCore>): AppBoardContext {
+  const {
+    match, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex,
+    boardRef, movedItemId, movedColumnId, onlineWorkspaceDevices, canEditItems, canEditBoard,
+    notice, archiveUndo, boardRenderKey, selectedItemId, editingItemId, itemToMove,
+    selectedLeadId, detailDialog, quickNoteDraft, quickNoteError,
+  } = core
+  return {
+    match, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex,
+    boardRef, movedItemId, movedColumnId, onlineWorkspaceDevices, canEditItems, canEditBoard,
+    notice, archiveUndo, boardRenderKey, selectedItemId, editingItemId, itemToMove,
+    selectedLeadId, detailDialog, quickNoteDraft, quickNoteError,
+  }
+}
+
+function appUi(core: ReturnType<typeof useAppCore>) {
+  const {
+    detailDialog, importInput, showArtifactForm, search, filters, notice, archiveUndo, undoSaving,
+    archiveError, historyRestoreSaving, historyRestoreError, historyRestoreNotice, isArchiveOpen,
+    artifactError, showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
+    newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId,
+    activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
+    selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError, quickNoteDraft,
+    quickNoteSaving, quickNoteError, hasExperimentalMcp, showMobileMenu, menuButtonRef,
+    showLoading, startupError, artifactDraft,
+  } = core
+  return { state: {
+    detailDialog, importInput, showArtifactForm, search, filters, notice, archiveUndo, undoSaving,
+    archiveError, historyRestoreSaving, historyRestoreError, historyRestoreNotice, isArchiveOpen,
+    artifactError, showWorkspaces, showBoardSettings, showEntitySettings, isEditingBoard,
+    newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId,
+    activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
+    selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError, quickNoteDraft,
+    quickNoteSaving, quickNoteError, hasExperimentalMcp, showMobileMenu, menuButtonRef,
+    showLoading, startupError, artifactDraft,
+  }, controls: { toggleMobileMenu: core.toggleMobileMenu, closeMobileMenu: core.closeMobileMenu } }
+}
+
+function appCollaboration(core: ReturnType<typeof useAppCore>) {
+  const {
+    sync, chat, currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
+    canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel, activeMeshRetryAt,
+    meshMembers, meshParticipantDevices, activeSuccession, canClaimSuccession,
+    canBreakGlassOwnership, transferringOwnership, revokingPeer, peerAccessError,
+    repairableHistory, repairHistory, transferWorkspaceOwnership, leaveWorkspaceMesh,
+    setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession,
+    breakGlassWorkspaceOwnership, revokeWorkspacePeer,
+  } = core
+  return {
+    device: { sync, chat },
+    permissions: { currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
+    mesh: {
+      meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers, meshParticipantDevices,
+      activeSuccession, canClaimSuccession, canBreakGlassOwnership, transferringOwnership,
+      revokingPeer, peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
+      leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
+      claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer,
+    },
+  }
 }
 
 function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, actions: ReturnType<typeof useAppActions>) {
   let loadingTimer: ReturnType<typeof setTimeout> | undefined
   onMounted(async () => {
     loadingTimer = setTimeout(() => { core.showLoading.value = true }, 200)
-    try {
-      const { initializeIrohBrowserRuntime } = await import("../iroh")
-      await initializeIrohBrowserRuntime()
-      await hydrate()
+    const startup = await runAppStartup({
+      loadRuntime: async () => {
+        const { initializeIrohBrowserRuntime } = await import("../iroh")
+        await initializeIrohBrowserRuntime()
+      },
+      hydrate,
+      setupLocalBoard: async () => {
+        await board.setupBoardSortables()
+        void registerWebMcpForApp(core, actions)
+      },
+      startSync: async () => {
+        if (!core.sync.joinFromLocation(window.location.href)) await core.sync.startDurableMesh()
+      },
+    })
+    clearTimeout(loadingTimer)
+    core.showLoading.value = false
+    if (startup.status === "fatal") {
+      core.startupError.value = startupFailureMessage(startup.stage)
+    } else if (startup.syncError) {
+      core.sync.error.value = "Sync could not start. Your local board is still available."
     }
-    catch { core.startupError.value = "Could not open your local data. Reload to try again."; return }
-    finally { clearTimeout(loadingTimer); core.showLoading.value = false }
-    if (!core.sync.joinFromLocation(window.location.href)) await core.sync.startDurableMesh()
-    await registerWebMcpForApp(core, actions)
-    await board.setupBoardSortables()
   })
   watchBoardSortables(core, board)
   const noticeTimer = watchNotice(core)

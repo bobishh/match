@@ -1,6 +1,7 @@
 <!-- Workspace role gates are enforced again at command and sync boundaries. -->
 <script setup lang="ts">
 import { useAppController } from "./app/useAppController"
+import { isArchiveColumn } from "./domain/archive"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, statusLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
@@ -11,6 +12,7 @@ import ColumnDialog from "./components/ColumnDialog.vue"
 import SchemaEditorDialog from "./components/SchemaEditorDialog.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
 import WorkspaceNameSettings from "./components/WorkspaceNameSettings.vue"
+import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
 import QuickNoteForm from "./components/QuickNoteForm.vue"
@@ -19,9 +21,13 @@ import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
 
+const app = useAppController()
 const {
   workspace, ready, saveState, availableWorkspaces, activeWorkspace, activeBoard,
-  isBlankBoard, genericColumns, boardFields, getActiveDoc,
+  isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor,
+} = app.workspace
+const { state: ui, controls: uiControls } = app.ui
+const {
   detailDialog, importInput, showArtifactForm, search, filters,
   notice, archiveUndo, undoSaving, archiveError, historyRestoreSaving,
   historyRestoreError, historyRestoreNotice, isArchiveOpen, artifactError,
@@ -30,22 +36,35 @@ const {
   activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
   selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError,
   quickNoteDraft, quickNoteSaving, quickNoteError, hasExperimentalMcp,
-  showMobileMenu, menuButtonRef, workspaceLabel, entityName, addItemLabel,
-  itemFormColumns, itemFormParentValue, computedItemFieldIds, itemFormOptionValues,
-  toggleMobileMenu, closeMobileMenu, showLoading, startupError, sync, chat,
+  showMobileMenu, menuButtonRef, showLoading, startupError,
+  artifactDraft,
+} = ui
+const { toggleMobileMenu, closeMobileMenu } = uiControls
+const {
+  workspaceLabel, entityName, addItemLabel, itemFormColumns, itemFormParentValue,
+  computedItemFieldIds, itemFormOptionValues, visibleItems, hasFilters, workspacePresenceSummary,
+  visibleColumns, clearFilters, leadForItem, cardNotes, cardFields, columnStatus, itemsForColumn,
+  updateMobileColumnIndex, moveMobileColumn, selectedItem, subitemsForSelectedItem,
+  selectedItemHistory, editingItem, candidateParentsForMove,
+} = app.board
+const {
+  sync, chat,
+} = app.collaboration.device
+const {
   currentRole, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
-  canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel,
+  canImportWorkspace, canRenameWorkspace,
+} = app.collaboration.permissions
+const {
+  meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
   canClaimSuccession, canBreakGlassOwnership, transferringOwnership, revokingPeer,
   peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
   claimWorkspaceSuccession, breakGlassWorkspaceOwnership, revokeWorkspacePeer,
-  artifactDraft, selectedLead, selectedLeadItem, selectedDocuments,
-  selectedArtifacts, availableArtifactTemplates, documentsFor, visibleItems, hasFilters,
-  workspacePresenceSummary, visibleColumns, clearFilters, reloadPage, leadForItem,
-  cardNotes, cardFields, columnStatus, itemsForColumn, isArchiveColumn,
-  updateMobileColumnIndex, moveMobileColumn, openBoardItem, selectedItem,
-  subitemsForSelectedItem, selectedItemHistory, editingItem, candidateParentsForMove,
+} = app.collaboration.mesh
+const {
+  selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates,
+  reloadPage, openBoardItem,
   restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate,
   openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
@@ -54,7 +73,7 @@ const {
   handleDeleteItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
   handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn,
   addBoardColumn,
-} = useAppController()
+} = app.actions
 
 function saveSelectedItemDocument(document: Omit<DocumentInput, "leadId">) {
   const item = selectedItem.value
@@ -267,23 +286,17 @@ function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
       <template #profile>
         <WorkspaceNameSettings :name="chat.ownName.value" :display-name="chat.displayName.value" :saving="chat.savingName.value" :error="chat.nameError.value"
           @save="chat.rename" @randomize="chat.randomize" />
-        <section class="chat-members" aria-label="Known workspace participants">
-          <h3>Participants</h3>
-          <p>{{ canManageAccess ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
-          <ul><li v-for="member in chat.members.value" :key="member.personId"><strong>{{ member.name }}</strong><span>{{ member.personId === currentWorkspaceOwnerId ? "Owner" : member.personId === chat.personId.value ? currentRole : meshParticipantDevices.find(peer => peer.personId === member.personId)?.role ?? "Member" }}{{ member.personId === chat.personId.value ? ' · You' : '' }}</span></li></ul>
-          <template v-if="canManageAccess && meshParticipantDevices.length">
-            <h4>Trusted peer devices</h4>
-            <ul>
-              <li v-for="peer in meshParticipantDevices" :key="peer.deviceId" class="peer-device-row">
-                <span><strong>{{ peer.name }}</strong><small>{{ peer.online ? 'Online' : 'Offline' }} · {{ peer.role }}</small></span>
-                <button v-if="!peer.revokedAt" class="button button-danger" type="button" :disabled="Boolean(revokingPeer)"
-                  @click="revokeWorkspacePeer(peer.personId)">Remove access</button>
-                <span v-else>Revoked</span>
-              </li>
-            </ul>
-          </template>
-          <p v-if="peerAccessError" class="form-error" role="alert">{{ peerAccessError }}</p>
-        </section>
+        <WorkspaceParticipants
+          :members="chat.members.value"
+          :current-person-id="chat.personId.value"
+          :current-role="currentRole"
+          :owner-person-id="currentWorkspaceOwnerId"
+          :peers="meshParticipantDevices"
+          :can-manage-access="canManageAccess"
+          :revoking-person-id="revokingPeer"
+          :error="peerAccessError"
+          @revoke="revokeWorkspacePeer"
+        />
       </template>
     </SchemaEditorDialog>
 

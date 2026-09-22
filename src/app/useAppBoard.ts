@@ -8,14 +8,23 @@ import { isItem, type Item } from "../domain/model"
 import type { LeadStatus } from "../types"
 import { orderItemsByPriority } from "../domain/priority"
 
-export function useAppBoard(core: ReturnType<typeof useAppCore>) {
+export type AppBoardContext = Pick<ReturnType<typeof useAppCore>,
+  | "match"
+  | "search" | "filters" | "isEditingBoard" | "itemFormParentId" | "activeMobileColumnIndex"
+  | "boardRef" | "movedItemId" | "movedColumnId" | "onlineWorkspaceDevices"
+  | "canEditItems" | "canEditBoard" | "notice" | "archiveUndo" | "boardRenderKey"
+  | "selectedItemId" | "editingItemId" | "itemToMove" | "selectedLeadId" | "detailDialog"
+  | "quickNoteDraft" | "quickNoteError"
+>
+
+export function useAppBoard(core: AppBoardContext) {
   const presentation = useBoardPresentation(core)
   const sortable = useBoardSortables(core, presentation)
   const selection = useBoardSelection(core)
   return { ...presentation, ...sortable, ...selection }
 }
 
-function useBoardPresentation(core: ReturnType<typeof useAppCore>) {
+function useBoardPresentation(core: AppBoardContext) {
   const { match, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex, boardRef, movedItemId, movedColumnId } = core
   const workspaceLabel = computed(() => match.activeWorkspace.title.toLowerCase() === "job search" ? "jobs" : match.activeWorkspace.title)
   const entityName = computed(() => match.activeBoard.value?.entityName || (match.activeBoard.value?.preset?.key === "job-search" ? "lead" : "item"))
@@ -98,7 +107,7 @@ function moveBoardColumn(board: HTMLElement | null, columns: unknown[], index: {
   index.value = target
 }
 
-function useBoardSortables(core: ReturnType<typeof useAppCore>, presentation: ReturnType<typeof useBoardPresentation>) {
+function useBoardSortables(core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>) {
   let columnSortable: Sortable | null = null
   let cardSortables: Sortable[] = []
   let touchPoint: { x: number; y: number } | null = null
@@ -124,7 +133,7 @@ function useBoardSortables(core: ReturnType<typeof useAppCore>, presentation: Re
   return { destroyBoardSortables, setupBoardSortables }
 }
 
-function setupColumnSortable(board: HTMLElement, core: ReturnType<typeof useAppCore>, presentation: ReturnType<typeof useBoardPresentation>, setSortable: (sortable: Sortable) => void) {
+function setupColumnSortable(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, setSortable: (sortable: Sortable) => void) {
   if (!core.canEditBoard.value) return
   setSortable(Sortable.create(board, {
     animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180, direction: "horizontal", draggable: ".column", handle: ".column-drag-handle", filter: "button, input, select, textarea", ghostClass: "column-sortable-ghost", chosenClass: "column-sortable-chosen", dragClass: "column-sortable-drag", forceFallback: true, fallbackTolerance: 4,
@@ -149,14 +158,14 @@ function addTouchTracking(board: HTMLElement, update: (point: { x: number; y: nu
   return () => { board.removeEventListener("touchstart", reset); board.removeEventListener("touchmove", track); board.removeEventListener("touchend", track) }
 }
 
-function setupCardSortables(board: HTMLElement, core: ReturnType<typeof useAppCore>, presentation: ReturnType<typeof useBoardPresentation>, readTouchPoint: () => { x: number; y: number } | null, clearTouchPoint: () => void) {
+function setupCardSortables(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, readTouchPoint: () => { x: number; y: number } | null, clearTouchPoint: () => void) {
   return [...board.querySelectorAll<HTMLElement>(".card-stack[data-column-id]")].map(stack => Sortable.create(stack, {
     group: "board-cards", animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180, draggable: ".lead-card[data-item-id]", ghostClass: "card-sortable-ghost", chosenClass: "card-sortable-chosen", dragClass: "card-sortable-drag", emptyInsertThreshold: 48, forceFallback: true, delay: 180, delayOnTouchOnly: true, touchStartThreshold: 8, fallbackTolerance: 4, fallbackOnBody: true, scroll: true, bubbleScroll: true, scrollSensitivity: 96, scrollSpeed: 16,
     onEnd(event) { moveSortableCard(event, board, core, presentation, readTouchPoint(), clearTouchPoint) },
   }))
 }
 
-function moveSortableCard(event: Sortable.SortableEvent, board: HTMLElement, core: ReturnType<typeof useAppCore>, presentation: ReturnType<typeof useBoardPresentation>, touchPoint: { x: number; y: number } | null, clearTouchPoint: () => void) {
+function moveSortableCard(event: Sortable.SortableEvent, board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, touchPoint: { x: number; y: number } | null, clearTouchPoint: () => void) {
   const item = event.item as HTMLElement
   const itemId = item.dataset.itemId
   const target = cardDropTarget(event.to as HTMLElement, board, touchPoint)
@@ -187,7 +196,7 @@ function cardDropTarget(target: HTMLElement, board: HTMLElement, touchPoint: { x
   return column?.querySelector<HTMLElement>(".card-stack[data-column-id]") ?? target
 }
 
-function useBoardSelection(core: ReturnType<typeof useAppCore>) {
+function useBoardSelection(core: AppBoardContext) {
   const selectedItem = computed(() => readSelectedItem(core))
   const subitemsForSelectedItem = computed(() => selectedItem.value ? readSubitems(core, selectedItem.value.id) : [])
   const selectedItemHistory = computed(() => {
@@ -202,22 +211,22 @@ function useBoardSelection(core: ReturnType<typeof useAppCore>) {
   return { selectedItem, subitemsForSelectedItem, selectedItemHistory, editingItem, candidateParentsForMove }
 }
 
-function readSelectedItem(core: ReturnType<typeof useAppCore>) {
+function readSelectedItem(core: AppBoardContext) {
   void core.match.docVersion.value
   return core.selectedItemId.value ? readItem(core, core.selectedItemId.value) : null
 }
 
-function readItem(core: ReturnType<typeof useAppCore>, id: string) {
+function readItem(core: AppBoardContext, id: string) {
   const entity = core.match.getActiveDoc()?.entities[id]
   return isItem(entity) ? entity : null
 }
 
-function readSubitems(core: ReturnType<typeof useAppCore>, parentId: string) {
+function readSubitems(core: AppBoardContext, parentId: string) {
   const doc = core.match.getActiveDoc()
   return doc ? Object.values(doc.entities).filter((entity): entity is Item => isItem(entity) && entity.placement.parentId === parentId && !entity.deleted) : []
 }
 
-function itemParents(core: ReturnType<typeof useAppCore>) {
+function itemParents(core: AppBoardContext) {
   const current = core.itemToMove.value
   const doc = core.match.getActiveDoc()
   return current && doc ? Object.values(doc.entities).filter((entity): entity is Item => isItem(entity) && entity.id !== current.id && !entity.deleted).map(item => ({ id: item.id, title: item.title })) : []

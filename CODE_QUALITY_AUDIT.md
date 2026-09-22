@@ -1,6 +1,11 @@
 # Code quality audit
 
-Snapshot: 2026-09-21.
+Historical snapshot: 2026-09-21.
+
+This records the checks and structure at that checkpoint, not the current result.
+See [current architecture](docs/architecture.md) and CI for the present state.
+The startup description below was corrected on 2026-09-22 after Rust policy
+initialization became a prerequisite for local hydration.
 
 Goal: make code-quality checks deterministic and keep every gate at zero without
 rule suppression, threshold weakening, generated baselines, or compressed code.
@@ -117,16 +122,16 @@ A losing/superseded route cannot overwrite a healthy incoming session diagnostic
 When every route is offline, UI remains in reconnecting state instead of presenting
 a hard sync-integrity failure.
 
-### Local hydration before mesh runtime
+### Startup correction (2026-09-22)
 
-`state.ts` no longer statically imports Iroh or durable mesh. Local IndexedDB state
-hydrates first. Durable mesh and Iroh load through dynamic imports only when sync
-starts. This removed the static/dynamic import conflict and reduced initial JS from
-220.58 to 206.74 kB Brotli.
+The earlier version of this report claimed that local hydration preceded all mesh
+runtime loading. That is no longer true: `useAppController` initializes the bundled
+Rust/WASM policy runtime before hydration because local authority/state reads use
+it. Starting the transport node remains a later step.
 
-Local authority checks no longer call the Rust runtime before mesh startup.
-Ownership-transfer conflict detection is pure TypeScript with the same key:
-`(epoch, fromOwnerPersonId) -> distinct toOwnerPersonId`.
+The previous bundle measurements above are historical. Do not use them as evidence
+that the current runtime is lazy-loaded or that the current build meets its budgets;
+run `npm run quality:size` for that evidence.
 
 ## Commands
 
@@ -158,7 +163,7 @@ regression test passes again. Proof-only changes still notify the live mesh.
 
 ## Remaining budget risk
 
-No gate is failing. Two budgets remain intentionally tight and should be ratcheted
+At the recorded checkpoint no gate was failing. Two budgets were intentionally tight and should be ratcheted
 only after real dependency/runtime work:
 
 - CSS: 9.17 of 10 kB Brotli;
