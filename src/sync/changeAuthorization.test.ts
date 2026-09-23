@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
+import type { WorkspaceOwnershipTransfer } from "@meta-uber/mesh-workspace"
 import { initializeAutomerge } from "../crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, signEnvelope, type LocalProfile } from "../domain/identity"
 import { createWorkspaceDoc } from "../domain/seeds"
@@ -50,7 +51,7 @@ function authorizationBundle(doc: Automerge.Doc<WorkspaceDocumentV2>, records: u
   return { version: 1, records, authority: { genesisOwner: authority, genesisEpoch: 1, currentOwner: current === owner
     ? authority : { personId: current.identity.personId, publicKey: current.identity.publicKey, certificates: [current.certificate] },
   currentEpoch: 1,
-  ownershipTransfers: [], successionClaims: [], revocations: [], deviceRevocations: [], departures: [] } }
+  ownershipTransfers: [] as WorkspaceOwnershipTransfer[], successionClaims: [], revocations: [], deviceRevocations: [], departures: [] } }
 }
 it("rejects visitor writes even with a valid device signature and owner-issued visitor grant", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
@@ -198,6 +199,20 @@ it("keeps a later local owner boundary when admitting a peer's older history", a
   }, owner.device.deviceId)
   await expect(validateIncomingChanges(doc, doc, authorizationBundle(doc, [{ signed,
     publicKey: owner.identity.publicKey, certificates: [owner.certificate] }]))).resolves.toBeUndefined()
+  const stalePeer = authorizationBundle(doc, [{ signed,
+    publicKey: owner.identity.publicKey, certificates: [owner.certificate] }])
+  stalePeer.authority.currentEpoch = 2
+  await expect(validateIncomingChanges(doc, doc, stalePeer)).resolves.toBeUndefined()
+  stalePeer.authority.ownershipTransfers = [transfer]
+  await expect(validateIncomingChanges(doc, doc, stalePeer)).resolves.toBeUndefined()
+  peerStoreState.authority = { ...peerStoreState.authority,
+    ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [owner.certificate], ownerHistory: [], catalog: {} }
+  const transferredPeer = authorizationBundle(doc, [{ signed,
+    publicKey: owner.identity.publicKey, certificates: [owner.certificate] }], successor)
+  transferredPeer.authority.currentEpoch = 2
+  transferredPeer.authority.ownershipTransfers = [transfer]
+  await expect(validateIncomingChanges(doc, doc, transferredPeer)).resolves.toBeUndefined()
 })
 it("does not persist a proof while validating an incoming workspace", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Pure" }), "editor")

@@ -1,10 +1,12 @@
 import { type LocalProfile} from "../domain/identity"
+import * as Automerge from "@automerge/automerge/slim"
 import type { DeviceCertificate } from "../domain/model"
 import type { WorkspaceGrant } from "../domain/model"
 import { BrowserMeshHandshake, BrowserMeshLifecycle, MeshHandshakeCodec, type MeshHandshakePayload } from "@meta-uber/mesh-runtime"
 import { defaultProofStore } from "../domain/proofs"
 import { startPersistentNode } from "./persistentNode"
 import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection } from "@meta-uber/mesh-transport"
+import { meshRustRuntime, type RustMeshAuthenticatedSessions } from "@meta-uber/mesh-replication/runtime"
 import { createPeerAdvertisement,
   verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
@@ -43,6 +45,37 @@ type IncomingPeer = {
 
 export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   private offlineHandler: (() => void) | undefined
+  private authenticatedSessions: RustMeshAuthenticatedSessions | undefined
+
+  protected rustAuthenticatedSessions(): RustMeshAuthenticatedSessions {
+    return this.authenticatedSessions ??= meshRustRuntime().createMeshAuthenticatedSessions()
+  }
+
+  protected removeAuthenticatedPeer(workspaceId: string, endpoint: string): void {
+    if (endpoint) this.authenticatedSessions?.remove(workspaceId, endpoint)
+  }
+
+  protected async admitSignedPeer(credential: WorkspaceMeshCredential, handshake: MeshHandshakePayload, remoteEndpointId: string) {
+    const bytes = await this.options.workspaceStore.read(credential.workspaceId)
+    const doc = Automerge.load<{ id: string; ownerPersonId: string }>(bytes)
+    let genesisOwnerPersonId: string
+    try {
+      if (doc.id !== credential.workspaceId) throw new Error("Mesh document does not match workspace")
+      genesisOwnerPersonId = doc.ownerPersonId
+    } finally { Automerge.free(doc) }
+    const genesisOwner = ownerAuthorities(credential).find(owner => owner.personId === genesisOwnerPersonId)
+    if (!genesisOwner) throw new Error("Workspace genesis owner is unavailable")
+    return this.rustAuthenticatedSessions().admit(handshake, {
+      workspaceId: credential.workspaceId, genesisOwner, genesisEpoch: 1,
+      expectedCurrentOwner: { personId: credential.ownerPersonId, publicKey: credential.ownerPublicKey,
+        certificates: credential.ownerCertificates },
+      document: Array.from(bytes),
+      ownershipTransfers: ownershipTransfers(credential), successionClaims: successionClaims(credential),
+      revocations: revocations(credential),
+      deviceRevocations: deviceRevocations(credential).map(value => ({ record: value.record, signer: value.authority })),
+      departures: departures(credential),
+    }, remoteEndpointId, Date.now())
+  }
 
   constructor(options: DurableMeshOptions) {
     super(options)
@@ -97,6 +130,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     this.node = undefined
     this.gossip.closeAll()
     await this.dropSessions()
+    this.authenticatedSessions?.clear()
     this.runtimeState?.stop()
     await this.gossip.waitForRefreshes()
     this.gossip.closeAll()
@@ -185,6 +219,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     workspaceId: credential => credential.workspaceId,
     mergeAuthority: (credential, request) => this.mergeIncomingAuthority(credential, request),
     verifyPeer: (credential, bundle) => this.verifyIncomingPeer(credential, bundle),
+    admit: (credential, request, remoteEndpointId) => this.admitSignedPeer(credential, request, remoteEndpointId),
     revoked: (credential, personId, grant, deviceId) => isDeviceRevoked(credential, personId, deviceId) || isGrantRevoked(credential, personId, grant as WorkspaceGrant | undefined),
     revocations: credential => revocations(credential),
     ownBundle: credential => this.ownBundle(credential),

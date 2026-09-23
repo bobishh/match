@@ -38,6 +38,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     request: (credential, peer) => this.outgoingRequest(credential, peer),
     mergeAuthority: (credential, response) => this.mergeIncomingAuthority(credential, response),
     verifyPeer: (credential, bundle) => this.verifyOutgoingHandshakePeer(credential, bundle),
+    admit: (credential, response, remoteEndpointId) => this.admitSignedPeer(credential, response, remoteEndpointId),
     putVerifiedBundle: (credential, bundle) => this.putVerifiedBundle(credential, bundle),
     trace: (event, detail, level) => this.trace(event, detail, level),
   }, this.handshakeCodec)
@@ -277,6 +278,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       }
     },
     currentRemoved: async entry => {
+      this.removeAuthenticatedPeer(entry.workspaceId, entry.endpoint)
       await this.refreshWorkspaceGossip(entry.workspaceId)
       if (!this.stopped) queueMicrotask(() => { void this.publishAll() })
       await this.notify()

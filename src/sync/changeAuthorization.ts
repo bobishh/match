@@ -382,8 +382,10 @@ function mergeEvidence<T>(left: T[], right: T[]): T[] {
 function mergedAuthorityEvidence(remote: Automerge.Doc<WorkspaceDocumentV2>, local: Automerge.Doc<WorkspaceDocumentV2> | undefined,
   incoming: WorkspaceWriteAuthorityEvidence, localAuthority: StoredWorkspaceAuthority | null): WorkspaceWriteAuthorityEvidence {
   const known = local && workspaceWriteAuthorityEvidence(local, localAuthority)
-  if (!known) return incoming
-  return {
+  if (!known) return ownerFromSignedTransitions(incoming)
+  const knownTransitions = known.ownershipTransfers.length + known.successionClaims.length
+  const incomingTransitions = incoming.ownershipTransfers.length + incoming.successionClaims.length
+  return ownerFromSignedTransitions({
     ...incoming,
     genesisOwner: { ...incoming.genesisOwner, certificates: mergeCertificates(incoming.genesisOwner.certificates, known.genesisOwner.certificates) },
     ownershipTransfers: mergeEvidence(incoming.ownershipTransfers, known.ownershipTransfers),
@@ -391,11 +393,21 @@ function mergedAuthorityEvidence(remote: Automerge.Doc<WorkspaceDocumentV2>, loc
     revocations: mergeEvidence(incoming.revocations, known.revocations),
     deviceRevocations: mergeEvidence(incoming.deviceRevocations, known.deviceRevocations),
     departures: mergeEvidence(incoming.departures ?? [], known.departures ?? []),
-    ...(known.currentEpoch > incoming.currentEpoch ? {
+    ...(knownTransitions > incomingTransitions || (knownTransitions === incomingTransitions && known.currentEpoch > incoming.currentEpoch) ? {
       currentOwner: known.currentOwner,
       currentEpoch: known.currentEpoch,
     } : {}),
-  }
+  })
+}
+
+function ownerFromSignedTransitions(authority: WorkspaceWriteAuthorityEvidence): WorkspaceWriteAuthorityEvidence {
+  const last = [...authority.ownershipTransfers, ...authority.successionClaims]
+    .sort((a, b) => a.payload.epoch - b.payload.epoch).at(-1)
+  if (!last) return authority
+  // Candidate only. Rust verifies the complete signed chain against genesis.
+  return { ...authority, currentOwner: { personId: last.payload.toOwnerPersonId,
+    publicKey: last.payload.toOwnerPublicKey, certificates: last.payload.toOwnerCertificates },
+    currentEpoch: Math.max(authority.currentEpoch, last.payload.epoch) }
 }
 
 function enrichAuthorityCertificates(authority: WorkspaceWriteAuthorityEvidence, records: unknown[]): WorkspaceWriteAuthorityEvidence {

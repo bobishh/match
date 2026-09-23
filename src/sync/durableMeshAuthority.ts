@@ -106,6 +106,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   protected ownershipTransferHost(): OwnershipTransferHost<WorkspaceMeshCredential> {
     return {
       getProfile: this.options.getProfile, transfers: ownershipTransfers, catalog: credential => meshCatalog(credential),
+      ownershipEpoch: credential => Math.max(1, ...[...ownershipTransfers(credential), ...successionClaims(credential)]
+        .filter(record => record.payload.toOwnerPersonId === credential.ownerPersonId).map(record => record.payload.epoch)),
       authorities: ownerAuthorities, revokedPeople: revokedPersonIds,
       putCredential: credential => this.store.putWorkspaceCredential(credential),
       transferCredential: (previousOwner, credential) => this.store.transferWorkspaceCredential(previousOwner, credential),

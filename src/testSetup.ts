@@ -8,6 +8,7 @@ import {
   WasmDeviceRouteCatalog,
   WasmMeshRuntimeState,
   WasmMeshHandshakeFlow,
+  WasmMeshAuthenticatedSessions,
   WasmPairingCodec,
   WasmStateCore,
 } from "@meta-uber/mesh-transport/wasm"
@@ -21,6 +22,7 @@ installMeshRustRuntime({
     new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
   createMeshRuntimeState: () => new WasmMeshRuntimeState(),
   createMeshHandshakeFlow: direction => new WasmMeshHandshakeFlow(direction),
+  createMeshAuthenticatedSessions: () => new WasmMeshAuthenticatedSessions(),
 })
 
 installPairingCodec(new WasmPairingCodec())

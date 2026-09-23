@@ -7,6 +7,7 @@ export type DuplexStream = {
 }
 
 export type SyncConnection = {
+  readonly remoteEndpointId?: string
   openStream: () => Promise<DuplexStream>
   acceptStream: () => Promise<DuplexStream>
   close: () => Promise<void>

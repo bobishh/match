@@ -9,6 +9,7 @@ import irohInit, {
   WasmGossipEngine,
   WasmMeshRuntimeState,
   WasmMeshHandshakeFlow,
+  WasmMeshAuthenticatedSessions,
   WasmPairingCodec,
   WasmWorkspaceJoinHandshake,
   WasmWorkspaceJoinHandoff,
@@ -63,6 +64,7 @@ async function installIrohBrowserRuntime(): Promise<void> {
         new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
       createMeshRuntimeState: () => new WasmMeshRuntimeState(),
       createMeshHandshakeFlow: direction => new WasmMeshHandshakeFlow(direction),
+      createMeshAuthenticatedSessions: () => new WasmMeshAuthenticatedSessions(),
     })
     rustRuntimeInstalled = true
   }
