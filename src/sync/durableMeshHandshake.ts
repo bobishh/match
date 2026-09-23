@@ -23,7 +23,6 @@ type InstallSessionArguments = [
   direction: "incoming" | "outgoing",
   connection: SyncConnection,
   heartbeatSupported?: boolean,
-  incrementalSupported?: boolean,
   connectionId?: string,
   ownershipReceiptSupported?: boolean,
   remotePersonId?: string,
@@ -193,7 +192,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     putVerifiedBundle: (credential, bundle) => this.putVerifiedBundle(credential, bundle),
     install: ({ credential, remote, connection, features, connectionId }) => this.installSession(
       credential.workspaceId, remote.deviceId, remote.instanceId, remote.issuedAt, remote.routeSequence,
-      "incoming", connection as SyncConnection, features.heartbeatSupported, features.incrementalSupported,
+      "incoming", connection as SyncConnection, features.heartbeatSupported,
       connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported, features.ownerWorkspaceOfferFrame,
       features.blobTransferSupported, remote.endpoint),
     afterInstalled: ({ credential, remote, request, connection, features }) => this.afterIncomingInstall(

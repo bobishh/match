@@ -12,7 +12,7 @@ import { requestBlob, respondToBlobRequest, type BlobDescriptor } from "@meta-ub
 import { verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection} from "./transport"
-import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, type LiveWorkspaceSync} from "./workspaceSet"
+import { liveAutomergeWorkspaceSync, type LiveWorkspaceSync} from "./workspaceSet"
 import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revocations, isGrantRevoked,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
@@ -111,7 +111,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       const value = connected.value
       const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
-        value.heartbeatSupported, value.incrementalSupported, value.connectionId, value.ownershipReceiptSupported,
+        value.heartbeatSupported, value.connectionId, value.ownershipReceiptSupported,
         value.personId, value.ownerWorkspaceSupported, value.ownerWorkspaceOfferFrame, value.blobTransferSupported, value.endpoint)
       if (installed) await this.refreshWorkspaceGossip(peer.workspaceId)
       if (installed && value.ownerWorkspaceOfferFrame) {
@@ -240,13 +240,6 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           await this.options.workspaceStore.read(workspaceId),
         ),
       }),
-      legacy: input => liveWorkspaceSetSync(input.connection, input.secret,
-        workspaceSet(this.options.workspaceStore, [input.workspaceId]), {
-          onGossipPacket: input.onGossipPacket,
-          onBlobRequest: input.blobTransferSupported
-            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, input.secret, stream, frame)
-            : undefined,
-        }),
       incremental: input => liveAutomergeWorkspaceSync(input.connection, input.secret, this.options.workspaceStore,
         input.workspaceId, input.localDeviceId, input.deviceId, input.engine, input.onDocumentStatus, {
           ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
@@ -297,11 +290,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
 
   protected async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
-    incrementalSupported = false, connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
+    connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
     remotePersonId = "", ownerWorkspaceSupported = false, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined = undefined,
     blobTransferSupported = false, remoteEndpoint = "") {
     return this.browserSessions.install({ workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence,
-      direction, connection, heartbeatSupported, incrementalSupported, connectionId, ownershipReceiptSupported,
+      direction, connection, heartbeatSupported, connectionId, ownershipReceiptSupported,
       remotePersonId, ownerWorkspaceSupported, ownerWorkspaceOfferFrame, blobTransferSupported, remoteEndpoint })
   }
 

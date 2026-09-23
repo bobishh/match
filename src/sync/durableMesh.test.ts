@@ -37,6 +37,8 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "automerge-sync-v1"]))
       .toThrow("Peer does not support required iroh gossip")
     expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "iroh-gossip-v1"]))
+      .toThrow("Peer does not support required Automerge sync")
+    expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1"]))
       .not.toThrow()
   })
 
@@ -337,7 +339,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const internal = mesh as any
     await internal.installSession("workspace-1", "remote-device", "instance-1",
       "2026-09-16T09:00:00.000Z", 1, "incoming", oldConnection,
-      false, false, "incoming-test", false, "", false, "remote-endpoint")
+      false, "incoming-test", false, "", false, "remote-endpoint")
     expect(internal.sessions.size).toBe(1)
     const publish = internal.publishAll()
     rejectSnapshot(new Error("publish failed"))
@@ -348,7 +350,7 @@ describe("DurableMesh peer catalog gossip", () => {
     snapshot = Promise.resolve(new Uint8Array([1]))
     await internal.installSession("workspace-1", "remote-device", "instance-1",
       "2026-09-16T09:00:00.000Z", 1, "incoming", replacementConnection,
-      false, false, "incoming-replacement", false, "", false, "remote-endpoint")
+      false, "incoming-replacement", false, "", false, "remote-endpoint")
     const replacement = internal.sessions.get("workspace-1:remote-device:instance-1").session
     resolveOldAccept(undefined as never)
     await Promise.resolve()
