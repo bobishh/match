@@ -232,7 +232,7 @@ class DeviceSyncController {
       await this.stopNode("Leaving workspace mesh")
       for (const session of this.directPeerSessions.values()) await session.close().catch(() => {})
       this.directPeerSessions.clear()
-      void this.startDurableMesh()
+      await this.startDurableMesh()
     } finally { this.leavingWorkspaceIds.delete(workspaceId) }
   }
 

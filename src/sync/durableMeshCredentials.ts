@@ -10,7 +10,7 @@ import { createPeerAdvertisement, verifyDeviceChain, verifyWorkspaceGrant,
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
-import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revokedPersonIds,
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, isGrantRevoked, uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
   type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
 
@@ -244,7 +244,8 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       const credential = await this.store.getWorkspaceCredential(id)
       const issuer = await this.store.getPeer(id, deviceId)
       if (!credential || credential.ownerPersonId !== personId || !issuer?.advertisement ||
-        issuer.personId !== personId || issuer.revokedAt || revokedPersonIds(credential).has(profile.identity.personId)) return false
+        issuer.personId !== personId || issuer.revokedAt || isGrantRevoked(credential, profile.identity.personId,
+          credential.localGrant as WorkspaceGrant | undefined) || isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId)) return false
       if (profile.identity.personId !== personId &&
         (credential.localGrant as WorkspaceGrant | undefined)?.payload.personId !== profile.identity.personId) return false
     }

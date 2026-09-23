@@ -1,5 +1,5 @@
 import { preferNewerMemberGrant, persistLocalMemberGrant } from "./memberGrant"
-import type { LocalProfile } from "../domain/identity"
+import { fromBase64Url, type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
@@ -338,7 +338,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       merged.set(JSON.stringify(value), value)
     }
     if (merged.size > 512) throw new Error("Too many workspace departures")
-    const next = { ...credential,
+    const next = { ...credential, updatedAt: new Date().toISOString(),
       catalog: { ...meshCatalog(credential), departures: [...merged.values()].sort((a, b) =>
         a.record.payload.personId.localeCompare(b.record.payload.personId) || a.record.payload.accessEpoch - b.record.payload.accessEpoch) } }
     await this.store.putWorkspaceCredential(next)
@@ -360,7 +360,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       merged.set(JSON.stringify(value), value)
     }
     if (merged.size > 512) throw new Error("Too many device revocations")
-    const next = { ...credential, catalog: { ...meshCatalog(credential), deviceRevocations: [...merged.values()].sort((a, b) => a.record.payload.deviceId.localeCompare(b.record.payload.deviceId)) } }
+    const next = { ...credential, updatedAt: new Date().toISOString(), catalog: { ...meshCatalog(credential), deviceRevocations: [...merged.values()].sort((a, b) => a.record.payload.deviceId.localeCompare(b.record.payload.deviceId)) } }
     await this.store.putWorkspaceCredential(next)
     for (const peer of await this.store.listPeers(credential.workspaceId)) {
       if (!isDeviceRevoked(next, peer.personId, peer.deviceId)) continue
@@ -450,12 +450,20 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (Date.now() >= deadline) throw new Error("No verified workspace connection. Keep another device online, then retry leaving.")
       await new Promise(resolve => setTimeout(resolve, 100))
     }
-    const owners = [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
-      session.remotePersonId === credential.ownerPersonId && session.ownershipReceiptSupported)
-    if (!owners.length) throw new Error("No connected owner can confirm the workspace before leaving. Keep an owner device online, then retry.")
     const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
-    await Promise.all(owners.map(session => publishConfirmedWorkspace(session.connection, credential.transportSecret, snapshot)))
-    const workspaceDoc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
+    while (true) {
+      const owners = [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
+        session.remotePersonId === credential.ownerPersonId && session.ownershipReceiptSupported)
+      const receipts = await Promise.allSettled(owners.map(session =>
+        publishConfirmedWorkspace(session.connection, credential.transportSecret, snapshot)))
+      await Promise.all(owners.flatMap((session, index) => receipts[index]?.status === "rejected"
+        ? [session.evict("workspace delivery unconfirmed")] : []))
+      if (receipts.some(result => result.status === "fulfilled")) break
+      if (Date.now() >= deadline) throw new Error("No owner confirmed the workspace before leaving. Keep an owner device online, then retry.")
+      await new Promise(resolve => setTimeout(resolve, 200))
+    }
+    const [{ bytes }] = JSON.parse(new TextDecoder().decode(snapshot)) as Array<{ bytes: string }>
+    const workspaceDoc = Automerge.load(fromBase64Url(bytes))
     let workspaceHeads: string[]
     try { workspaceHeads = Automerge.getHeads(workspaceDoc) } finally { Automerge.free(workspaceDoc) }
     const departure = await createWorkspaceDeparture(profile, workspaceId, (credential.localGrant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1,
