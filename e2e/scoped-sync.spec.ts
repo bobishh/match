@@ -563,6 +563,7 @@ test("Given a delegated owner device, when it grants an editor access twice, the
 
     const inviteEditor = async () => {
       await owner2.getByRole("button", { name: "Sync", exact: true }).click()
+      await expect(owner2Dialog.getByRole("button", { name: "Add someone" })).toBeVisible({ timeout: 15_000 })
       await owner2Dialog.getByRole("button", { name: "Add someone" }).click()
       await owner2Dialog.getByRole("button", { name: "Generate link" }).click()
       await editor.goto(await owner2Dialog.getByLabel("Pairing link").inputValue())
@@ -587,7 +588,13 @@ test("Given a delegated owner device, when it grants an editor access twice, the
     const editorDialog = editor.getByRole("dialog", { name: "Device sync" })
     await editorDialog.getByRole("button", { name: "Leave mesh" }).click()
     await editorDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
-    await editorDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    const closeEditorSync = editorDialog.getByRole("button", { name: "Close", exact: true }).first()
+    await expect.poll(async () => await closeEditorSync.isDisabled() ||
+      await editor.getByLabel("Workspace role: visitor").isVisible()).toBe(true)
+    await expect(editor.getByLabel("Workspace role: visitor")).toBeVisible({ timeout: 30_000 })
+    await expect(editor.getByLabel("Mesh connected")).toHaveCount(0)
+    await expect(closeEditorSync).toBeEnabled()
+    await closeEditorSync.click()
     await inviteEditor()
     await expect(editor.getByLabel("Workspace role: editor")).toBeVisible()
     // This scenario owns its Playwright project. Worker teardown closes both

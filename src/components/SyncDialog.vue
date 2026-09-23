@@ -57,6 +57,7 @@ const props = defineProps<{
   canClaimSuccession?: boolean
   canManageMesh?: boolean
   transferringOwnership?: string
+  leavingMesh?: boolean
   meshActionError?: string
   workspaceConnected?: boolean
   meshDiagnostic?: string
@@ -174,14 +175,14 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 </script>
 
 <template>
-  <ModalLayer class="overlay" @close="emit('dismiss')">
+  <ModalLayer class="overlay" :busy="leavingMesh" @close="emit('dismiss')">
     <section class="dialog sync-dialog" role="dialog" aria-modal="true" aria-label="Device sync">
       <div class="dialog-head">
         <div>
           <span class="eyebrow">Device sync</span>
           <h2>{{ title }}</h2>
         </div>
-        <button class="icon-button" type="button" aria-label="Close" @click="emit('dismiss')">×</button>
+        <button class="icon-button" type="button" aria-label="Close" :disabled="leavingMesh" @click="emit('dismiss')">×</button>
       </div>
 
       <section v-for="request in pendingJoins" :key="request.id" class="join-request" aria-label="Access request">
@@ -278,12 +279,13 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <button v-if="canClaimSuccession && !succession?.conflicted" class="button button-danger" type="button" @click="emit('claimSuccession')">Claim ownership</button>
         </section>
         <p v-if="meshActionError" class="sync-error" role="alert">{{ meshActionError }}</p>
-        <section v-if="confirmingLeave" class="mesh-member-action" aria-label="Leave mesh confirmation">
+        <p v-if="leavingMesh" class="dialog-copy" role="status">Leaving workspace mesh…</p>
+        <section v-if="confirmingLeave && hasMesh" class="mesh-member-action" aria-label="Leave mesh confirmation">
           <strong>Leave this workspace mesh?</strong>
           <p class="dialog-copy">Your identity leaves this workspace on all its devices. Your identity and other workspaces are kept. Local data stays as a read-only copy. An owner must transfer ownership first; another workspace device must be connected.</p>
           <div class="dialog-actions">
-            <button class="button button-danger" type="button" @click="emit('leaveMesh'); confirmingLeave = false">Leave mesh, keep copy</button>
-            <button class="button button-quiet" type="button" @click="confirmingLeave = false">Cancel</button>
+            <button class="button button-danger" type="button" :disabled="leavingMesh" @click="emit('leaveMesh')">{{ leavingMesh ? 'Leaving workspace…' : 'Leave mesh, keep copy' }}</button>
+            <button class="button button-quiet" type="button" :disabled="leavingMesh" @click="confirmingLeave = false">Cancel</button>
           </div>
         </section>
         <div class="dialog-actions sync-primary-actions">

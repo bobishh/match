@@ -125,6 +125,14 @@ test("Given a joined workspace with local data, when an editor leaves the mesh, 
     await addLead(page, "Kept locally")
     await pairWorkspace(page, guest)
 
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const ownerDialog = page.getByRole("dialog", { name: "Device sync" })
+    await ownerDialog.getByRole("button", { name: "Leave mesh" }).click()
+    await ownerDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
+    await expect(ownerDialog.getByRole("alert")).toContainText("Transfer ownership before leaving")
+    await expect(ownerDialog.getByRole("button", { name: "Close", exact: true }).first()).toBeEnabled()
+    await ownerDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+
     await guest.getByRole("button", { name: "Sync", exact: true }).click()
     const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
     await guestDialog.getByRole("button", { name: "Leave mesh" }).click()

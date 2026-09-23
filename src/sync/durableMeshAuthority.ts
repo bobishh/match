@@ -445,7 +445,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     if (!credential) throw new Error("No workspace membership")
     if (credential.ownerPersonId === profile.identity.personId) throw new Error("Transfer ownership before leaving this workspace")
-    if (![...this.sessions.values()].some(session => session.workspaceId === workspaceId)) throw new Error("Connect to another workspace device before leaving so your departure can be delivered")
+    const deadline = Date.now() + 20_000
+    while (![...this.sessions.values()].some(session => session.workspaceId === workspaceId)) {
+      if (Date.now() >= deadline) throw new Error("No verified workspace connection. Keep another device online, then retry leaving.")
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
     const workspaceDoc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
     let workspaceHeads: string[]
     try { workspaceHeads = Automerge.getHeads(workspaceDoc) } finally { Automerge.free(workspaceDoc) }

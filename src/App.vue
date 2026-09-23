@@ -69,7 +69,7 @@ const {
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
 const { meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
-  canClaimSuccession, transferringOwnership, revokingPeer,
+  canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
   peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
   claimWorkspaceSuccession, revokeWorkspacePeer, promoteWorkspacePeer,
@@ -429,7 +429,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       :succession="activeSuccession"
       :can-claim-succession="canClaimSuccession"
       :can-manage-mesh="canManageAccess"
-      :transferring-ownership="transferringOwnership"
+      :transferring-ownership="transferringOwnership" :leaving-mesh="leavingMesh"
       :mesh-action-error="peerAccessError"
       :workspace-connected="meshPresence === 'connected'"
       :mesh-diagnostic="sync.meshDiagnostic.value"
