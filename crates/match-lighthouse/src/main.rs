@@ -11,9 +11,11 @@ use meta_mesh_native::{
 use serde::Deserialize;
 use tokio::sync::Mutex;
 
-#[derive(Deserialize)]
+mod join;
+
+#[derive(Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Config {
+pub(crate) struct Config {
     workspace_id: String,
     transport_secret: String,
     device_id: String,
@@ -23,13 +25,32 @@ struct Config {
     genesis_person_id: String,
     state_path: PathBuf,
     initial_state: MatchLighthouseState,
+    #[serde(default)]
+    identity_seed: Vec<u8>,
+    #[serde(default)]
+    device_seed: Vec<u8>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let path = std::env::args()
-        .nth(1)
-        .ok_or("Usage: match-lighthouse CONFIG.json")?;
+    let mut args = std::env::args().skip(1);
+    let path = args.next().ok_or(
+        "Usage: match-lighthouse CONFIG.json | match-lighthouse join INVITE_URL STATE_DIR",
+    )?;
+    if path == "join" {
+        let invite = args
+            .next()
+            .ok_or("Missing Match workspace invitation URL")?;
+        let directory = args.next().ok_or("Missing lighthouse state directory")?;
+        if args.next().is_some() {
+            return Err("Too many join arguments".into());
+        }
+        join::join(&invite, PathBuf::from(directory)).await?;
+        return Ok(());
+    }
+    if args.next().is_some() {
+        return Err("Too many arguments".into());
+    }
     let config: Config = serde_json::from_slice(&fs::read(path)?)?;
     let secret: [u8; 32] = config
         .iroh_secret
