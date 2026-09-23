@@ -17,7 +17,7 @@
         "scripts/**/*.mjs",
         "*.config.ts"
       ],
-      "ignoreUnresolved": ["^/src/", "^/@id/"],
+      "ignoreUnresolved": ["^/src/", "^/vendor/meta-mesh/", "^/@id/"],
       "ignoreIssues": {
         "*.config.ts": ["exports"]
       }
