@@ -10,17 +10,23 @@ test("Given an unreadable authority on one board, when creating and importing an
     const { peerStore } = await import("/src/sync/peerStore.ts")
     const { useMatch } = await import("/src/state.ts")
     const { createWorkspaceRevocation } = await import("/src/sync/meshRecords.ts")
+    const { workspaceRole } = await import("/src/sync/changeAuthorization.ts")
     const { getHeads } = await import("/@id/@automerge/automerge/slim")
     const profile = await bootstrapIdentity("Owner")
     const workspaceId = useMatch().activeWorkspace.id
+    await workspaceRole(useMatch().getActiveDoc()!, profile)
+    const authority = await peerStore.getWorkspaceAuthority(workspaceId)
+    if (!authority) throw new Error("Missing workspace authority")
     const revocation = await createWorkspaceRevocation(profile, workspaceId, "former-member", 2, getHeads(useMatch().getActiveDoc()!))
     Reflect.deleteProperty(revocation.payload, "workspaceHeads")
-    await peerStore.putWorkspaceAuthority({ version: 1, workspaceId,
-      genesisOwnerPersonId: profile.identity.personId, ownerPersonId: profile.identity.personId,
-      ownerPublicKey: profile.identity.publicKey, ownerCertificates: [profile.certificate],
-      ownerHistory: [], epoch: 1, updatedAt: new Date().toISOString(),
-      catalog: { revocations: [revocation] },
+    await peerStore.putWorkspaceAuthority({ ...authority,
+      updatedAt: new Date(Date.parse(authority.updatedAt) + 1_000).toISOString(),
+      catalog: { ...authority.catalog, revocations: [revocation] },
     })
+    const stored = await peerStore.getWorkspaceAuthority(workspaceId)
+    if (!(stored?.catalog as { revocations?: unknown[] } | undefined)?.revocations?.length) {
+      throw new Error("Malformed revocation was not stored")
+    }
   })
   await page.reload()
   await expect(page.getByRole("alert").filter({ hasText: "permissions could not be verified" })).toBeVisible()

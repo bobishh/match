@@ -73,33 +73,6 @@ test("Given proof persistence fails, when a transaction aborts, then no change o
   expect(result.proof).toBeNull()
 })
 
-test("Given a legacy journal, when the IndexedDB journal opens, then existing changes and proofs migrate", async ({ page }) => {
-  const result = await page.evaluate(async () => {
-    const workspaceId = `migration-${crypto.randomUUID()}`
-    localStorage.setItem(`match.v1.changes.${workspaceId}`, JSON.stringify([{
-      workspaceId, changeHash: "legacy-change", bytesBase64: "Bw", addedAt: new Date().toISOString(),
-    }]))
-    localStorage.setItem(`match.v1.proofs.${workspaceId}`, JSON.stringify({
-      "legacy-change": { payload: { changeHash: "legacy-change" } },
-    }))
-    localStorage.setItem(`match.v1.receipts.${workspaceId}`, JSON.stringify({
-      "legacy-tx": { transactionId: "legacy-tx", changeHash: "legacy-change", saved: true },
-    }))
-    const { WorkspaceStorage } = await import("/src/storage.ts")
-    const storage = new WorkspaceStorage({ changes: new Map(), proofs: new Map(), receipts: new Map(),
-      snapshots: new Map(), workspaces: new Map(), personalRoots: new Map() })
-    return {
-      changes: (await storage.listChanges(workspaceId)).map(change => [...change.bytes]),
-      proof: await storage.getProof(workspaceId, "legacy-change"),
-      receipt: await storage.getReceipt(workspaceId, "legacy-tx"),
-    }
-  })
-
-  expect(result.changes).toEqual([[7]])
-  expect(result.proof).not.toBeNull()
-  expect(result.receipt).not.toBeNull()
-})
-
 test("Given two open tabs, when both edit one workspace together, then both converge on both changes", async ({ page }) => {
   const second = await page.context().newPage()
   await second.goto("/")

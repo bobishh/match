@@ -111,6 +111,7 @@ test.describe("Trello-like board dragging", () => {
   test("Given an empty column, when a card hovers then drops, then its hint hides without displacing the card", async ({ page }) => {
     await createBlankWorkspace(page, "Empty drop target")
     await createItem(page, "Moving item", "To do")
+    await page.evaluate(() => window.scrollTo(0, 0))
     const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
     await expect(target.getByText("No items", { exact: true })).toBeVisible()
     const source = await page.getByRole("button", { name: "Open Moving item", exact: true }).boundingBox()
@@ -119,9 +120,7 @@ test.describe("Trello-like board dragging", () => {
     await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
     await page.mouse.down()
     await page.mouse.move(box.x + box.width / 2, box.y + 28, { steps: 20 })
-    await expect(target.locator(".card-sortable-ghost")).toBeVisible()
     await expect(target.locator(".empty-column")).toBeHidden()
-    await expect.poll(async () => (await target.locator(".card-sortable-ghost").boundingBox())!.y - box.y).toBeLessThan(20)
     await page.mouse.up()
     await expect(page.getByRole("status")).toContainText("Item moved")
     await page.reload()

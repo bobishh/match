@@ -12,15 +12,17 @@ async function createBoardAndItem(page: Page) {
   const item = page.getByRole("dialog", { name: "Item details" })
   await item.getByLabel("Title *").fill("Reversible item")
   await item.getByRole("button", { name: "Save item" }).click()
+  await expect(item).toBeHidden()
 }
 
 async function moveToDoing(page: Page) {
-  const source = await page.getByRole("button", { name: "Open Reversible item" }).boundingBox()
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const source = await page.locator('.lead-card[data-item-id]:has-text("Reversible item")').boundingBox()
   const target = await page.getByRole("region", { name: "Doing" }).locator(".card-stack").boundingBox()
   if (!source || !target) throw new Error("Missing drag bounds")
   await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
   await page.mouse.down()
-  await page.mouse.move(target.x + target.width / 2, target.y + 24, { steps: 16 })
+  await page.mouse.move(target.x + target.width / 2, target.y + Math.min(28, target.height / 2), { steps: 12 })
   await page.mouse.up()
   await expect(page.getByRole("region", { name: "Doing" }).getByText("Reversible item")).toBeVisible()
 }
