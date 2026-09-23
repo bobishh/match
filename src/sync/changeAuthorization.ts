@@ -233,18 +233,10 @@ export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerP
   return (await storedWorkspaceAuthority(workspaceId)).authority?.ownerPersonId ?? genesisOwnerPersonId
 }
 
-function hasAuthorityConflict(credential: StoredWorkspaceAuthority | null) {
-  const claims = ((credential?.catalog as { successionClaims?: WorkspaceSuccessionClaim[] } | undefined)?.successionClaims ?? [])
-    .filter(claim => claim?.payload?.epoch === credential?.epoch)
-  const transfers = ((credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[] } | undefined)?.ownershipTransfers ?? [])
-  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 ||
-    meshRustRuntime().state.hasConflictingOwnershipTransfers(transfers)
-}
-
 export async function workspaceWritesBlocked(workspaceId: string) {
   if (typeof indexedDB === "undefined") return false
   const stored = await storedWorkspaceAuthority(workspaceId)
-  return stored.invalid || hasAuthorityConflict(stored.authority)
+  return stored.invalid || Boolean(stored.authority && meshRustRuntime().state.hasAuthorityConflict(stored.authority))
 }
 
 function authorities(credential: StoredWorkspaceAuthority | null) {
@@ -405,7 +397,7 @@ export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocu
 export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<WorkspaceDocumentV2> | undefined,
   remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown): Promise<Authorization[]> {
   const credential = await incomingCredential(remote.id)
-  if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
+  if (credential && meshRustRuntime().state.hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
   const authority = meshRustRuntime().state.prepareWriteEvidence({ incoming: bundle.authority,

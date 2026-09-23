@@ -207,6 +207,8 @@ export abstract class DurableMeshBase {
       .filter(entry => entry.workspaceId === workspaceId && entry.endpoint)
       .map(entry => entry.endpoint))].sort(),
     setEndpoints: (workspaceId, endpoints) => this.runtime().setGossipEndpoints(workspaceId, endpoints),
+    observeNeighbors: (workspaceId, count) => this.runtime().observeGossipNeighbors(workspaceId, count),
+    clearNeighbors: workspaceId => this.runtime().clearGossipNeighbors(workspaceId),
     encodeWorkspaceUpdate: (workspaceId, nonce) => this.runtime().encodeWorkspaceUpdate(workspaceId, nonce),
     isWorkspaceUpdate: (payload, workspaceId) => this.runtime().isWorkspaceUpdate(payload, workspaceId),
     transportSecret: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId))?.transportSecret,
