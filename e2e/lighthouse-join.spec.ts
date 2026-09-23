@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Automerge from "@automerge/automerge"
 import { expect, test, type Page } from "@playwright/test"
+import { validateWorkspaceDoc } from "../src/domain/model"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 const manifest = "crates/match-lighthouse/Cargo.toml"
@@ -64,7 +65,7 @@ async function stop(process: ChildProcessWithoutNullStreams | undefined) {
   await exited
 }
 
-test("Given a Match invitation, when native lighthouse joins and restarts, then it retains and receives board changes", async ({ page }) => {
+test("Given a Match invitation, when native lighthouse joins and restarts, then it exchanges board changes both ways", async ({ page }) => {
   test.setTimeout(180_000)
   const temporary = await mkdtemp(join(tmpdir(), "match-lighthouse-e2e-"))
   const directory = join(temporary, "node")
@@ -106,6 +107,28 @@ test("Given a Match invitation, when native lighthouse joins and restarts, then 
     await output(server, /Lighthouse .* listening/, 30_000)
     await expect.poll(() => stateContains(state, "After lighthouse restart"), { timeout: 30_000 }).toBe(true)
       .catch(error => { throw new Error(`${error}\nNative errors: ${serverErrors}`) })
+
+    await stop(server)
+    server = undefined
+    joining = lighthouse("create-lead", join(directory, "config.json"), "From lighthouse", "Engineer")
+    await output(joining, /Created lead/, 30_000)
+    joining = undefined
+    await expect.poll(() => stateContains(state, "From lighthouse")).toBe(true)
+    const nativeState = JSON.parse(await readFile(state, "utf8")) as { document: number[] }
+    const nativeDocument = Automerge.load(Uint8Array.from(nativeState.document))
+    const nativeValidation = validateWorkspaceDoc(Automerge.toJS(nativeDocument))
+    const nativeView = Automerge.toJS(nativeDocument) as { entities: Record<string, unknown> }
+    const nativeLead = Object.entries(nativeView.entities).find(([id]) => id.startsWith("item-"))
+    expect(nativeValidation.ok, JSON.stringify({ nativeValidation, nativeLead })).toBe(true)
+    server = lighthouse(join(directory, "config.json"))
+    server.stderr.on("data", chunk => { serverErrors += String(chunk) })
+    await output(server, /Lighthouse .* listening/, 30_000)
+    await expect(page.getByText("From lighthouse", { exact: false }).first()).toBeVisible({ timeout: 30_000 })
+      .catch(async error => {
+        await page.getByRole("button", { name: "Sync", exact: true }).click()
+        const diagnostic = await page.getByRole("dialog", { name: "Device sync" }).innerText()
+        throw new Error(`${error}\nNative errors: ${serverErrors}\nBrowser sync: ${diagnostic}`)
+      })
   } finally {
     await stop(joining)
     await stop(server)

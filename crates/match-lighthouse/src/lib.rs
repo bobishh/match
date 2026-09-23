@@ -5,9 +5,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use automerge::AutoCommit;
+use automerge::{
+    ActorId, AutoCommit, AutoSerde, ObjId, ObjType, ROOT, ReadDoc,
+    transaction::{CommitOptions, Transactable},
+};
 use match_authority::{admit_match_candidate, prepare_match_write_authority};
-use meta_mesh_core::{MeshHandshake, MeshPeerAdmission, WorkspaceWriteAuthorizationSnapshot, validate_mesh_catalog};
+use meta_mesh_core::{
+    DEFAULT_SIGNATURE_DOMAIN, MeshHandshake, MeshPeerAdmission, VerifyWorkspaceMemberOptions,
+    WorkspaceChangeAuthorizationPayload, WorkspaceWriteAuthorizationSnapshot, sign_json_envelope,
+    validate_mesh_catalog, verify_workspace_member_bundle,
+};
 use meta_mesh_native::{
     FileScopeStore, NativeScopeCredential, NativeScopeHost, NativeScopeServiceHost,
     NativeScopeSnapshot,
@@ -96,6 +103,148 @@ impl MatchScopeStore {
             .map(|(snapshot, _)| snapshot)
     }
 
+    /// Author one Match lead with the lighthouse's own editor credential.
+    /// Call while the service is stopped; the running process owns its in-memory state.
+    pub fn create_lead(
+        &mut self,
+        peer: &Value,
+        device_seed: &[u8; 32],
+        company: &str,
+        role: &str,
+    ) -> Result<String, String> {
+        let company = company.trim();
+        let role = role.trim();
+        if company.is_empty() || role.is_empty() || company.len() > 256 || role.len() > 256 {
+            return Err("Lead needs company and role (up to 256 characters each)".into());
+        }
+        let authority = self.authority()?;
+        let member = verify_workspace_member_bundle(
+            peer.clone(),
+            VerifyWorkspaceMemberOptions {
+                workspace_id: Some(self.workspace_id.clone()),
+                owner_person_id: Some(authority.expected_current_owner.person_id.clone()),
+                owner_public_key: Some(authority.expected_current_owner.public_key.clone()),
+                owner_certificates: authority.expected_current_owner.certificates.clone(),
+                owner_history: vec![authority.genesis_owner.clone()],
+                ..Default::default()
+            },
+            now_ms()?,
+        )?;
+        if member.role != meta_mesh_core::WorkspaceRole::Editor {
+            return Err("Lighthouse needs an editor grant to create leads".into());
+        }
+        let state = self.snapshot()?;
+        let mut document = AutoCommit::load(&state.document)
+            .map_err(|error| format!("Invalid Match document: {error}"))?;
+        document.set_actor(ActorId::from(member.payload.device_id.as_bytes().to_vec()));
+        let view =
+            serde_json::to_value(AutoSerde::from(&document)).map_err(|error| error.to_string())?;
+        let entities = view
+            .get("entities")
+            .and_then(Value::as_object)
+            .ok_or("Invalid Match entities")?;
+        let board = entities
+            .values()
+            .find(|entity| {
+                entity.get("kind").and_then(Value::as_str) == Some("board")
+                    && entity.pointer("/preset/key").and_then(Value::as_str) == Some("job-search")
+            })
+            .ok_or("No job-search board in workspace")?;
+        let bindings = board
+            .pointer("/preset/bindings")
+            .and_then(Value::as_object)
+            .ok_or("Missing job-search bindings")?;
+        let binding = |key: &str| {
+            bindings
+                .get(key)
+                .and_then(Value::as_str)
+                .ok_or("Missing job-search binding")
+        };
+        let column_id = binding("status.lead")?;
+        let company_field = binding("field.company")?;
+        let role_field = binding("field.role")?;
+        if entities
+            .get(column_id)
+            .and_then(|entity| entity.get("kind"))
+            .and_then(Value::as_str)
+            != Some("column")
+        {
+            return Err("Lead column is missing".into());
+        }
+        let (_, entities_object) = document
+            .get(ROOT, "entities")
+            .map_err(|error| error.to_string())?
+            .ok_or("Missing Match entities")?;
+        let id = format!("item-{:032x}", rand::random::<u128>());
+        let now = time::OffsetDateTime::from_unix_timestamp_nanos(now_ms()? * 1_000_000)
+            .map_err(|error| error.to_string())?
+            .format(time::macros::format_description!(
+                "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"
+            ))
+            .map_err(|error| error.to_string())?;
+        let item = document
+            .put_object(&entities_object, &id, ObjType::Map)
+            .map_err(|error| error.to_string())?;
+        put_text(&mut document, &item, "id", &id)?;
+        put_text(
+            &mut document,
+            &item,
+            "title",
+            &format!("{company} — {role}"),
+        )?;
+        put_text(&mut document, &item, "body", "")?;
+        document
+            .put(&item, "deleted", false)
+            .map_err(|error| error.to_string())?;
+        put_text(&mut document, &item, "createdAt", &now)?;
+        put_text(&mut document, &item, "updatedAt", &now)?;
+        let placement = document
+            .put_object(&item, "placement", ObjType::Map)
+            .map_err(|error| error.to_string())?;
+        put_text(&mut document, &placement, "parentId", column_id)?;
+        put_text(
+            &mut document,
+            &placement,
+            "rank",
+            &format!("{}/1", now_ms()?),
+        )?;
+        let values = document
+            .put_object(&item, "values", ObjType::Map)
+            .map_err(|error| error.to_string())?;
+        put_text(&mut document, &values, company_field, company)?;
+        put_text(&mut document, &values, role_field, role)?;
+        let message = json!({"version":1,"transactionId":id,"action":"createItem","entityIds":[id],
+            "personId":member.payload.person_id,"deviceId":member.payload.device_id})
+        .to_string();
+        let hash = document
+            .commit_with(CommitOptions::default().with_message(message))
+            .ok_or("Automerge produced no lead change")?
+            .to_string();
+        let signed = sign_json_envelope(
+            device_seed,
+            serde_json::to_value(WorkspaceChangeAuthorizationPayload {
+                kind: "workspace-changes".into(),
+                version: 1,
+                workspace_id: self.workspace_id.clone(),
+                hashes: vec![hash.clone()],
+                person_id: member.payload.person_id.clone(),
+                device_id: member.payload.device_id.clone(),
+            })
+            .map_err(|error| error.to_string())?,
+            &member.payload.device_id,
+            DEFAULT_SIGNATURE_DOMAIN,
+        )?;
+        let mut proof = state
+            .authorization
+            .ok_or("Missing Match write authorization")?;
+        proof.get_mut("records").and_then(Value::as_array_mut)
+            .ok_or("Missing Match write authorizations")?
+            .push(json!({"signed":signed,"publicKey":member.public_key,"certificates":member.certificates,
+                "grant":member.grant}));
+        self.persist_document(&document.save(), Some(&proof), &[hash])?;
+        Ok(id)
+    }
+
     fn authority_for(
         &self,
         state: &MatchLighthouseState,
@@ -128,6 +277,20 @@ impl MatchScopeStore {
         guard.state = next;
         Ok(())
     }
+}
+
+fn put_text(
+    document: &mut AutoCommit,
+    object: &ObjId,
+    key: &str,
+    text: &str,
+) -> Result<(), String> {
+    let value = document
+        .put_object(object, key, ObjType::Text)
+        .map_err(|error| error.to_string())?;
+    document
+        .splice_text(&value, 0, 0, text)
+        .map_err(|error| error.to_string())
 }
 
 impl NativeScopeHost for MatchScopeStore {
@@ -246,10 +409,19 @@ impl NativeScopeHost for MatchScopeStore {
         if !catalog.device_revocations.is_empty()
             || !catalog.departures.is_empty()
             || !catalog.revocations.is_empty()
-            || catalog.ownership_transfers.as_ref().is_some_and(|records| !records.is_empty())
+            || catalog
+                .ownership_transfers
+                .as_ref()
+                .is_some_and(|records| !records.is_empty())
             || catalog.succession_policy.is_some()
-            || catalog.succession_votes.as_ref().is_some_and(|records| !records.is_empty())
-            || catalog.succession_claims.as_ref().is_some_and(|records| !records.is_empty())
+            || catalog
+                .succession_votes
+                .as_ref()
+                .is_some_and(|records| !records.is_empty())
+            || catalog
+                .succession_claims
+                .as_ref()
+                .is_some_and(|records| !records.is_empty())
         {
             return Err("Lighthouse cannot apply mesh authority changes yet".into());
         }
