@@ -67,6 +67,7 @@ jobs:
       max-parallel: 1
       matrix:
         project:
+          - scoped-delegated-owner
           - chat
           - durable-mesh
           - member-access
@@ -77,7 +78,6 @@ jobs:
           - scoped-enrollment
           - scoped-existing-board
           - scoped-existing-identity
-          - scoped-delegated-owner
           - succession-named
           - succession-quorum
     steps:
@@ -92,6 +92,12 @@ jobs:
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --project=${{ matrix.project }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-${{ matrix.project }}-failure
+          path: test-results/
+          retention-days: 3
 
   browser-native:
     name: Browser (native Rust peer)

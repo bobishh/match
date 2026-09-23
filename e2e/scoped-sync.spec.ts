@@ -562,8 +562,15 @@ test("Given a delegated owner device, when it grants an editor access twice, the
     await owner2Dialog.getByRole("button", { name: "Close", exact: true }).first().click()
 
     const inviteEditor = async () => {
+      await expect(owner2.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 15_000 })
       await owner2.getByRole("button", { name: "Sync", exact: true }).click()
-      await expect(owner2Dialog.getByRole("button", { name: "Add someone" })).toBeVisible({ timeout: 15_000 })
+      try {
+        await expect(owner2Dialog.getByRole("button", { name: "Add someone" })).toBeVisible({ timeout: 15_000 })
+      } catch (error) {
+        console.error("Delegated owner sync dialog:", await owner2Dialog.ariaSnapshot())
+        console.error("Delegated owner role:", await owner2.locator('[aria-label^="Workspace role:"]').getAttribute("aria-label"))
+        throw error
+      }
       await owner2Dialog.getByRole("button", { name: "Add someone" }).click()
       await owner2Dialog.getByRole("button", { name: "Generate link" }).click()
       await editor.goto(await owner2Dialog.getByLabel("Pairing link").inputValue())
