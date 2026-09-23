@@ -602,6 +602,7 @@ test("Given a delegated owner device, when it grants an editor access twice, the
     await expect(editor.getByLabel("Mesh connected")).toHaveCount(0)
     await expect(closeEditorSync).toBeEnabled()
     await closeEditorSync.click()
+    await expect(owner2.getByRole("button", { name: "Open Offline editor history — Engineer" })).toBeVisible({ timeout: 30_000 })
     await inviteEditor()
     await expect(editor.getByLabel("Workspace role: editor")).toBeVisible()
     // This scenario owns its Playwright project. Worker teardown closes both

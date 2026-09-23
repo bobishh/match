@@ -450,6 +450,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (Date.now() >= deadline) throw new Error("No verified workspace connection. Keep another device online, then retry leaving.")
       await new Promise(resolve => setTimeout(resolve, 100))
     }
+    const owners = [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
+      session.remotePersonId === credential.ownerPersonId && session.ownershipReceiptSupported)
+    if (!owners.length) throw new Error("No connected owner can confirm the workspace before leaving. Keep an owner device online, then retry.")
+    const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
+    await Promise.all(owners.map(session => publishConfirmedWorkspace(session.connection, credential.transportSecret, snapshot)))
     const workspaceDoc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
     let workspaceHeads: string[]
     try { workspaceHeads = Automerge.getHeads(workspaceDoc) } finally { Automerge.free(workspaceDoc) }

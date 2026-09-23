@@ -169,8 +169,8 @@ async function installReceivedInvitation(context: WorkspaceJoinBrowserContext, r
   await replica.validate(snapshot)
   await context.durableMesh?.validateInvitation(received.meshWorkspaces, workspaceIds, profile, received.grants)
   for (const grant of received.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
-  await replica.receive(snapshot)
   await context.durableMesh?.receiveInvitation(received.meshWorkspaces, workspaceIds, profile, received.grants)
+  await replica.receive(snapshot)
   await context.workspaceStore.activate(invite.workspaces[0]!.id)
   return { value: received, acknowledgement: await replica.snapshot() }
 }
