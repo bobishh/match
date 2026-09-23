@@ -43,7 +43,7 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
         ownerCertificates: [owner.certificate], instanceId: "browser-tab",
       })
       const payload = { workspaceId, peer, revocations: [], ownershipTransfers: [], successionVotes: [], successionClaims: [],
-        capabilities: ["iroh-gossip-v1", "automerge-sync-v1"] }
+        capabilities: ["iroh-gossip-v1", "automerge-sync-v1", "device-revocation-v1"] }
       return { frame: Array.from(encodePairingFrame("mesh-handshake-request", secret,
         new TextEncoder().encode(JSON.stringify(payload)))), payload }
     })
