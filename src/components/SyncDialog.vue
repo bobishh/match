@@ -27,6 +27,7 @@ const props = defineProps<{
     name: string
     role: "owner" | "editor" | "visitor"
     online: boolean
+    reconnecting: boolean
     onlineDevices: number
     devices: number
     self: boolean
@@ -34,6 +35,7 @@ const props = defineProps<{
       deviceId: string
       name: string
       online: boolean
+      reconnecting: boolean
       lastSeen: string
       userAgent?: string
       description: string
@@ -60,6 +62,7 @@ const props = defineProps<{
   leavingMesh?: boolean
   meshActionError?: string
   workspaceConnected?: boolean
+  workspaceReconnecting?: boolean
   meshDiagnostic?: string
   retryAt?: number
   networkOnline?: boolean
@@ -133,8 +136,9 @@ onMounted(() => { clock = setInterval(() => { now.value = Date.now() }, 500) })
 onBeforeUnmount(() => clearInterval(clock))
 const retrySeconds = computed(() => Math.max(1, Math.ceil(((props.retryAt ?? now.value) - now.value) / 1_000)))
 const connectionSummary = computed(() => {
-  if (props.workspaceConnected) return "Live channel active."
+  if (props.workspaceConnected) return "Channel open on this device."
   if (props.networkOnline === false) return "Waiting for internet. Changes stay saved on this device."
+  if (props.workspaceReconnecting) return "Checking live channel. Changes stay saved on this device."
   if (props.retryAt) return `No live channel. Retrying in ${retrySeconds.value}s.`
   return "No live channel. Reconnecting automatically."
 })
@@ -193,7 +197,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
       </section>
       <template v-if="step === 'members'">
         <p class="dialog-copy mesh-connection-summary" role="status">
-          <strong>{{ workspaceConnected ? "Connected" : "Offline" }}</strong>
+          <strong>{{ workspaceConnected ? "Connected here" : workspaceReconnecting ? "Reconnecting" : "Offline" }}</strong>
           · {{ connectionSummary }}
         </p>
         <p v-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
@@ -212,8 +216,8 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             :aria-pressed="selectedMemberId === member.personId"
             @click="selectedMemberId = member.personId"
           >
-            <span class="mesh-member-presence" :class="member.online ? 'is-online' : 'is-offline'" aria-hidden="true"></span>
-            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }} · {{ member.onlineDevices }} online{{ member.self ? ' · You' : '' }}</small></span>
+            <span class="mesh-member-presence" :class="member.online ? 'is-online' : member.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
+            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }} · {{ member.reconnecting ? 'reconnecting' : `${member.onlineDevices} online` }}{{ member.self ? ' · You' : '' }}</small></span>
             <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
           <p v-if="!(meshMembers || []).length" class="mesh-member-empty">No mesh members yet.</p>
@@ -224,7 +228,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <ul class="mesh-device-list" role="list" :aria-label="`Devices for ${selectedMember.name}`">
             <li v-for="device in selectedMember.deviceList" :key="device.deviceId" class="mesh-device">
               <div class="mesh-device-head">
-                <span class="mesh-device-presence" :class="device.online ? 'is-online' : 'is-offline'" aria-hidden="true"></span>
+                <span class="mesh-device-presence" :class="device.online ? 'is-online' : device.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
                 <strong>{{ device.name }}</strong>
                 <code>{{ device.deviceId.slice(0, 8) }}</code>
               </div>
@@ -233,7 +237,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
                 :person-id="selectedMember.personId" :device-id="device.deviceId" :name="device.name" :active-workspace-id="activeWorkspaceId"
                 :removable-device-workspaces="removableDeviceWorkspaces" :remove-device="removeDevice" />
               <small>{{ device.tabs }} {{ device.tabs === 1 ? 'tab' : 'tabs' }}</small>
-              <small>{{ device.online ? 'Online now' : `Last seen ${new Date(device.lastSeen).toLocaleString()}` }}</small>
+              <small>{{ device.online ? 'Online now' : device.reconnecting ? 'Checking channel…' : `Last seen ${new Date(device.lastSeen).toLocaleString()}` }}</small>
               <details v-if="device.userAgent" class="mesh-device-ua">
                 <summary>User agent</summary>
                 <code>{{ device.userAgent }}</code>
@@ -481,6 +485,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-member.is-selected { background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); transform: translate(-2px, -2px); }
 .mesh-member-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
 .mesh-member-presence.is-online { background: var(--green); }
+.mesh-member-presence.is-reconnecting { background: var(--yellow); }
 .mesh-member-name { min-width: 0; display: grid; gap: 4px; }
 .mesh-member-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-member-name small, .mesh-member-role { color: var(--muted); font: 800 .64rem/1.2 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
@@ -492,6 +497,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-device { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--soft); background: white; min-width: 0; }
 .mesh-device-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
 .mesh-device-presence.is-online { background: var(--green); }
+.mesh-device-presence.is-reconnecting { background: var(--yellow); }
 .mesh-device-head { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-width: 0; }
 .mesh-device-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-device-head code, .mesh-device small { color: var(--muted); }

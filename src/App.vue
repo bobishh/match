@@ -431,7 +431,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       :can-manage-mesh="canManageAccess"
       :transferring-ownership="transferringOwnership" :leaving-mesh="leavingMesh"
       :mesh-action-error="peerAccessError"
-      :workspace-connected="meshPresence === 'connected'"
+      :workspace-connected="meshPresence === 'connected'" :workspace-reconnecting="meshPresence === 'reconnecting'"
       :mesh-diagnostic="sync.meshDiagnostic.value"
       :retry-at="activeMeshRetryAt"
       :network-online="sync.networkOnline.value"

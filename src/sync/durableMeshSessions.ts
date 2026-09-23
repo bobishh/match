@@ -348,8 +348,9 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     try {
       await entry.session.publish()
     } catch (error) {
-      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-      this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+      const networkFailure = isMeshNetworkFailure(error)
+      this.reconnectPolicy.recordFailure(key, networkFailure)
+      if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("recovery publish failed")
     }
   }
@@ -363,8 +364,9 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         }, "warn")
       }
     }, async (key, entry, error) => {
-      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-      this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+      const networkFailure = isMeshNetworkFailure(error)
+      this.reconnectPolicy.recordFailure(key, networkFailure)
+      if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("publish failed")
     })
   }

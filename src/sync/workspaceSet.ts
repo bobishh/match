@@ -385,12 +385,17 @@ export function liveAutomergeWorkspaceSync(
     done,
     async publish() {
       if (stopped) return
-      await scope.publish(sendFrame)
+      try { await scope.publish(sendFrame) }
+      catch (error) { if (!stopped) throw error }
     },
     heartbeat() {
       heartbeatQueue = enqueueHeartbeat(heartbeatQueue, () => stopped, connection, secret)
       return heartbeatQueue
     },
-    async close() { stopped = true; await connection.close(); scope.free() },
+    async close() {
+      stopped = true
+      try { await connection.close() }
+      finally { await scope.close() }
+    },
   }
 }

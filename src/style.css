@@ -72,6 +72,7 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .brand-presence { position: relative; width: 18px; height: 18px; flex: 0 0 18px; }
 .brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--yellow); }
 .brand-mark.is-connected { background: var(--green); }
+.brand-mark.is-reconnecting { background: var(--yellow); }
 .brand-mark.is-offline { background: var(--red); }
 .brand-mark.is-empty { background: var(--yellow); }
 .owner-crown { position: absolute; z-index: 1; top: -12px; left: 50%; color: var(--ink); font: 900 12px/1 Georgia, serif; transform: translateX(-50%); }

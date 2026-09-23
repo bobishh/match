@@ -257,6 +257,25 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given publish loses its stream, when the session is evicted, then UI reconnects without a persistent sync error", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+    const internal = mesh as any
+    const evict = vi.fn(async () => {})
+    internal.browserSessions.publishAll = vi.fn(async (_broadcast: unknown, onFailure: (key: string, entry: unknown, error: unknown) => Promise<void>) => {
+      await onFailure("workspace:remote", { deviceId: "remote-device", evict },
+        new MeshNetworkError("closed by peer: browser connection closed (code 0)"))
+    })
+
+    await internal.publishAll()
+
+    expect(evict).toHaveBeenCalledWith("publish failed")
+    expect(onDiagnostic).not.toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
   it("Given simultaneous same-peer handshakes, when credentials load concurrently, then only one session owns the receive loop", async () => {
     const credential = { workspaceId: "workspace", transportSecret: "secret" }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
