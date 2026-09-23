@@ -89,5 +89,3 @@ export async function putRecords(workspaceId: string, incoming: WorkspaceChangeA
     transaction.onabort = () => reject(transaction.error)
   })
 }
-
-export { mergeCertificates }

@@ -11,7 +11,7 @@ import { createPeerAdvertisement,
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
-import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, isGrantRevoked, uniqueCertificates, isEnvelope, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
   type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
 
@@ -266,16 +266,19 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
 
   private async mergeInvitationCatalog(credential: WorkspaceMeshCredential, envelope: MeshWorkspaceEnvelope) {
     const workspaceId = credential.workspaceId
+    const effects: Record<string, () => Promise<void>> = {
+      deviceRevocations: () => this.mergeDeviceRevocations(credential, envelope.deviceRevocations ?? []),
+      departures: () => this.mergeDepartures(credential, envelope.departures ?? []),
+      revocations: () => this.mergeRevocations(credential, envelope.revocations ?? []),
+      succession: async () => { await this.mergeSuccessionState(credential, envelope.successionPolicy,
+        envelope.successionVotes ?? [], envelope.successionClaims ?? []) },
+      refreshCredential: async () => { credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential },
+      peers: () => this.mergePeerBundles(credential, envelope.peers),
+    }
     for (const action of meshRustRuntime().state.planAuthorityImport("invitation", Boolean(envelope.revocations), false)) {
-      switch (action) {
-        case "deviceRevocations": await this.mergeDeviceRevocations(credential, envelope.deviceRevocations ?? []); break
-        case "departures": await this.mergeDepartures(credential, envelope.departures ?? []); break
-        case "revocations": await this.mergeRevocations(credential, envelope.revocations ?? []); break
-        case "succession": await this.mergeSuccessionState(credential, envelope.successionPolicy,
-          envelope.successionVotes ?? [], envelope.successionClaims ?? []); break
-        case "refreshCredential": credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential; break
-        case "peers": await this.mergePeerBundles(credential, envelope.peers); break
-      }
+      const effect = effects[action]
+      if (!effect) throw new Error(`Unexpected invitation authority action: ${action}`)
+      await effect()
     }
   }
 

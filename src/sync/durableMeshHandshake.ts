@@ -259,17 +259,20 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   }): Promise<WorkspaceMeshCredential> {
     const workspaceId = credential.workspaceId
+    const effects: Record<string, () => Promise<void>> = {
+      validateCapabilities: async () => { meshRustRuntime().state.validateMeshCapabilities(request.capabilities) },
+      deviceRevocations: () => this.mergeDeviceRevocations(credential, request.deviceRevocations ?? []),
+      departures: () => this.mergeDepartures(credential, request.departures ?? []),
+      ownershipTransfers: async () => { credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers ?? []) },
+      succession: async () => { await this.mergeSuccessionState(credential, request.successionPolicy,
+        request.successionVotes ?? [], request.successionClaims ?? []) },
+      refreshCredential: async () => { credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential },
+    }
     for (const action of meshRustRuntime().state.planAuthorityImport("handshake", false,
       Array.isArray(request.ownershipTransfers))) {
-      switch (action) {
-        case "validateCapabilities": meshRustRuntime().state.validateMeshCapabilities(request.capabilities); break
-        case "deviceRevocations": await this.mergeDeviceRevocations(credential, request.deviceRevocations ?? []); break
-        case "departures": await this.mergeDepartures(credential, request.departures ?? []); break
-        case "ownershipTransfers": credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers ?? []); break
-        case "succession": await this.mergeSuccessionState(credential, request.successionPolicy,
-          request.successionVotes ?? [], request.successionClaims ?? []); break
-        case "refreshCredential": credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential; break
-      }
+      const effect = effects[action]
+      if (!effect) throw new Error(`Unexpected handshake authority action: ${action}`)
+      await effect()
     }
     return await this.store.getWorkspaceCredential(workspaceId) ?? credential
   }
@@ -318,10 +321,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
 
   protected async refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
     endpoint: string, certificates: DeviceCertificate[]) {
-    const peerInstances = await this.peerInstances(credential.workspaceId)
-    let current = peerInstances.find(peer => peer.deviceId === profile.device.deviceId && peer.instanceId === this.instanceId) ??
-      peerInstances.find(peer => peer.deviceId === profile.device.deviceId && !peer.instanceId) ??
-      await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
+    let current = await this.localPeerInstance(credential.workspaceId, profile.device.deviceId)
     // Device enrollment keeps the browser's device key while replacing its person identity.
     // Never let the old identity win PeerStore's timestamp merge for the same device key.
     if (current && current.personId !== profile.identity.personId) {
@@ -370,6 +370,13 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     })
     await this.putVerifiedBundle(credential, next)
     return next
+  }
+
+  private async localPeerInstance(workspaceId: string, deviceId: string): Promise<WorkspacePeerRecord | null> {
+    const peers = await this.peerInstances(workspaceId)
+    return peers.find(peer => peer.deviceId === deviceId && peer.instanceId === this.instanceId) ??
+      peers.find(peer => peer.deviceId === deviceId && !peer.instanceId) ??
+      this.store.getPeer(workspaceId, deviceId)
   }
 
   protected async pruneInvalidStoredPeers(credential: WorkspaceMeshCredential, localDeviceId: string) {
