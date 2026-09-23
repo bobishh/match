@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge/slim"
-import { bootstrapIdentity, canonicalizeJson, publicKeyId, signEnvelope, type LocalProfile } from "../domain/identity"
+import { bootstrapIdentity, publicKeyId, signEnvelope, type LocalProfile } from "../domain/identity"
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore, type WorkspaceAuthorityRecord, type WorkspaceMeshCredential } from "./peerStore"
@@ -8,7 +8,7 @@ import type { ChatRecord } from "../chat/records"
 import { verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import { mergeCertificates, putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
+import { putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
 import { isDiscriminatorCleanup } from "./workspaceHistoryRepair"
 
 import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
@@ -362,72 +362,6 @@ function normalizeAuthorityDepartures(authority: WorkspaceWriteAuthorityEvidence
   return authority
 }
 
-function assertAuthorityAnchor(remote: Automerge.Doc<WorkspaceDocumentV2>, local: Automerge.Doc<WorkspaceDocumentV2> | undefined,
-  incoming: WorkspaceWriteAuthorityEvidence, localAuthority: StoredWorkspaceAuthority | null) {
-  const genesisOwner = local?.ownerPersonId ?? remote.ownerPersonId
-  if (!genesisOwner || remote.ownerPersonId !== genesisOwner || incoming.genesisOwner.personId !== genesisOwner) {
-    throw new Error("Untrusted workspace owner")
-  }
-  const known = local && workspaceWriteAuthorityEvidence(local, localAuthority)
-  if (known && (known.genesisOwner.personId !== incoming.genesisOwner.personId ||
-    known.genesisOwner.publicKey !== incoming.genesisOwner.publicKey)) {
-    throw new Error("Workspace authority conflicts with this device's trusted genesis anchor")
-  }
-}
-
-function mergeEvidence<T>(left: T[], right: T[]): T[] {
-  return [...new Map([...left, ...right].map(value => [canonicalizeJson(value), value])).values()]
-}
-
-function mergedAuthorityEvidence(remote: Automerge.Doc<WorkspaceDocumentV2>, local: Automerge.Doc<WorkspaceDocumentV2> | undefined,
-  incoming: WorkspaceWriteAuthorityEvidence, localAuthority: StoredWorkspaceAuthority | null): WorkspaceWriteAuthorityEvidence {
-  const known = local && workspaceWriteAuthorityEvidence(local, localAuthority)
-  if (!known) return ownerFromSignedTransitions(incoming)
-  const knownTransitions = known.ownershipTransfers.length + known.successionClaims.length
-  const incomingTransitions = incoming.ownershipTransfers.length + incoming.successionClaims.length
-  return ownerFromSignedTransitions({
-    ...incoming,
-    genesisOwner: { ...incoming.genesisOwner, certificates: mergeCertificates(incoming.genesisOwner.certificates, known.genesisOwner.certificates) },
-    ownershipTransfers: mergeEvidence(incoming.ownershipTransfers, known.ownershipTransfers),
-    successionClaims: mergeEvidence(incoming.successionClaims, known.successionClaims),
-    revocations: mergeEvidence(incoming.revocations, known.revocations),
-    deviceRevocations: mergeEvidence(incoming.deviceRevocations, known.deviceRevocations),
-    departures: mergeEvidence(incoming.departures ?? [], known.departures ?? []),
-    ...(knownTransitions > incomingTransitions || (knownTransitions === incomingTransitions && known.currentEpoch > incoming.currentEpoch) ? {
-      currentOwner: known.currentOwner,
-      currentEpoch: known.currentEpoch,
-    } : {}),
-  })
-}
-
-function ownerFromSignedTransitions(authority: WorkspaceWriteAuthorityEvidence): WorkspaceWriteAuthorityEvidence {
-  const last = [...authority.ownershipTransfers, ...authority.successionClaims]
-    .sort((a, b) => a.payload.epoch - b.payload.epoch).at(-1)
-  if (!last) return authority
-  // Candidate only. Rust verifies the complete signed chain against genesis.
-  return { ...authority, currentOwner: { personId: last.payload.toOwnerPersonId,
-    publicKey: last.payload.toOwnerPublicKey, certificates: last.payload.toOwnerCertificates },
-    currentEpoch: Math.max(authority.currentEpoch, last.payload.epoch) }
-}
-
-function enrichAuthorityCertificates(authority: WorkspaceWriteAuthorityEvidence, records: unknown[]): WorkspaceWriteAuthorityEvidence {
-  let genesisOwner = authority.genesisOwner
-  let currentOwner = authority.currentOwner
-  for (const value of records) {
-    const record = value as Partial<Authorization>
-    if (!Array.isArray(record.ownerCertificates) || record.ownerCertificates.length > 32) continue
-    // Certificates are untrusted transport evidence. They can only augment an
-    // already anchored key; Rust verifies every chain before accepting a grant.
-    if (record.ownerPublicKey === genesisOwner.publicKey) {
-      genesisOwner = { ...genesisOwner, certificates: mergeCertificates(genesisOwner.certificates, record.ownerCertificates) }
-    }
-    if (record.ownerPublicKey === currentOwner.publicKey) {
-      currentOwner = { ...currentOwner, certificates: mergeCertificates(currentOwner.certificates, record.ownerCertificates) }
-    }
-  }
-  return { ...authority, genesisOwner, currentOwner }
-}
-
 function collectIncomingAuthorizations(raw: unknown[], snapshot: unknown, needed: string[]): {
   allowed: Map<string, WorkspaceRole>; verified: Authorization[]
 } {
@@ -474,10 +408,10 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   if (hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
-  assertAuthorityAnchor(remote, local, bundle.authority, credential)
-  const authority = enrichAuthorityCertificates(
-    mergedAuthorityEvidence(remote, local, bundle.authority, credential), bundle.records,
-  )
+  const authority = meshRustRuntime().state.prepareWriteEvidence({ incoming: bundle.authority,
+    known: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
+    records: bundle.records, genesisPersonId: local?.ownerPersonId ?? remote.ownerPersonId,
+    remoteOwnerPersonId: remote.ownerPersonId }) as WorkspaceWriteAuthorityEvidence
   if (bundle.records.length > 20000 || new TextEncoder().encode(JSON.stringify(bundle)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const known = new Set(local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : [])
   const changes = Automerge.getAllChanges(remote).filter(change => !known.has(Automerge.decodeChange(change).hash))
