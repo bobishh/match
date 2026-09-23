@@ -45,6 +45,7 @@ test("Given a saved base CV, when a generated PDF is attached to a lead, then it
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Settings" }).click()
   const templates = page.getByRole("dialog", { name: "Settings" })
+  await templates.getByRole("tab", { name: "Document templates" }).click()
   await templates.getByLabel("Name").fill("General software CV")
   await templates.getByLabel("Markdown").fill("# Candidate\n\nExperience")
   await templates.getByRole("button", { name: "Save template" }).click()
