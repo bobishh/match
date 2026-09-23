@@ -1,4 +1,5 @@
 import { createLiveWorkspaceSession, type RustLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
@@ -77,7 +78,7 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
           throw new Error(`Workspace ${label(id)} snapshot failed: ${error instanceof Error ? error.message : String(error)}${safeDiagnostic(error)}`, { cause: error })
         }
       }))
-      return new TextEncoder().encode(JSON.stringify(entries))
+      return meshRustRuntime().state.encodeWorkspaceSet(entries)
     },
     async validate(bytes: Uint8Array) {
       const entries = parseEntries(bytes, ids)
@@ -105,13 +106,7 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
 }
 
 function parseEntries(bytes: Uint8Array, ids: string[]) {
-  const entries: Array<{ id: string; bytes: string; authorization?: unknown; chat?: unknown; mesh?: unknown }> = JSON.parse(new TextDecoder().decode(bytes))
-  if (!Array.isArray(entries) || entries.length !== ids.length ||
-    new Set(entries.map(e => e?.id)).size !== ids.length ||
-    entries.some(e => !ids.includes(e?.id) || typeof e?.bytes !== "string")) {
-    throw new Error("The peer sent a different set of workspaces than the invitation allows.")
-  }
-  return entries
+  return meshRustRuntime().state.decodeWorkspaceSet(bytes, ids)
 }
 
 function safeDiagnostic(error: unknown): string {
@@ -351,18 +346,13 @@ export function liveAutomergeWorkspaceSync(
     await stream.send(frame)
     await stream.closeSend()
   }
-  const controlSnapshot = async () => new TextEncoder().encode(JSON.stringify({
-    version: 1,
-    workspaceId,
-    ...(store.readAuthorization ? { authorization: await store.readAuthorization(await store.read(workspaceId)) } : {}),
-    ...(store.readChat ? { chat: await store.readChat(workspaceId, knownChat) } : {}),
-    ...(store.readMesh ? { mesh: await store.readMesh(workspaceId) } : {}),
-  }))
+  const controlSnapshot = async () => protocol.encodeControl(
+    store.readAuthorization ? await store.readAuthorization(await store.read(workspaceId)) : undefined,
+    store.readChat ? await store.readChat(workspaceId, knownChat) : undefined,
+    store.readMesh ? await store.readMesh(workspaceId) : undefined,
+  )
   const receiveControl = async (bytes: Uint8Array) => {
-    const value = JSON.parse(new TextDecoder().decode(bytes)) as {
-      version?: unknown; workspaceId?: unknown; authorization?: unknown; chat?: unknown; mesh?: unknown
-    }
-    if (value.version !== 1 || value.workspaceId !== workspaceId) throw new Error("Invalid mesh control frame")
+    const value = protocol.decodeControl(bytes)
     if (value.authorization !== undefined) {
       await store.merge(workspaceId, await store.read(workspaceId), value.authorization)
       // Authorization changes the admission result for already exchanged

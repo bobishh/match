@@ -228,6 +228,8 @@ export abstract class DurableMeshBase {
       .filter(entry => entry.workspaceId === workspaceId && entry.endpoint)
       .map(entry => entry.endpoint))].sort(),
     setEndpoints: (workspaceId, endpoints) => this.runtime().setGossipEndpoints(workspaceId, endpoints),
+    encodeWorkspaceUpdate: (workspaceId, nonce) => this.runtime().encodeWorkspaceUpdate(workspaceId, nonce),
+    isWorkspaceUpdate: (payload, workspaceId) => this.runtime().isWorkspaceUpdate(payload, workspaceId),
     transportSecret: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId))?.transportSecret,
     session: (workspaceId, endpoint) => {
       const entry = [...this.sessions.values()].find(candidate => candidate.workspaceId === workspaceId && candidate.endpoint === endpoint)
