@@ -7,7 +7,7 @@ use std::{
 
 use automerge::AutoCommit;
 use match_authority::{admit_match_candidate, prepare_match_write_authority};
-use meta_mesh_core::{MeshHandshake, MeshPeerAdmission, WorkspaceWriteAuthorizationSnapshot};
+use meta_mesh_core::{MeshHandshake, MeshPeerAdmission, WorkspaceWriteAuthorizationSnapshot, validate_mesh_catalog};
 use meta_mesh_native::{
     FileScopeStore, NativeScopeCredential, NativeScopeHost, NativeScopeServiceHost,
     NativeScopeSnapshot,
@@ -241,8 +241,21 @@ impl NativeScopeHost for MatchScopeStore {
         self.save(&mut guard, next)
     }
 
-    fn merge_mesh(&mut self, _: &Value) -> Result<(), String> {
-        Err("Match lighthouse does not accept mesh metadata controls".into())
+    fn merge_mesh(&mut self, incoming: &Value) -> Result<(), String> {
+        let catalog = validate_mesh_catalog(incoming.clone())?;
+        if !catalog.device_revocations.is_empty()
+            || !catalog.departures.is_empty()
+            || !catalog.revocations.is_empty()
+            || catalog.ownership_transfers.as_ref().is_some_and(|records| !records.is_empty())
+            || catalog.succession_policy.is_some()
+            || catalog.succession_votes.as_ref().is_some_and(|records| !records.is_empty())
+            || catalog.succession_claims.as_ref().is_some_and(|records| !records.is_empty())
+        {
+            return Err("Lighthouse cannot apply mesh authority changes yet".into());
+        }
+        // Peer advertisements are hints. The signed handshake admits the connected peer;
+        // this storage node does not dial or authorize peers from a received catalog.
+        Ok(())
     }
 
     fn merge_durable_batch(&mut self, _: &[u8]) -> Result<(), String> {

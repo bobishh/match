@@ -6,7 +6,8 @@ use meta_mesh_core::{
     MeshHandshake, VerifyWorkspaceMemberOptions, WorkspaceRole, verify_workspace_member_bundle,
 };
 use meta_mesh_native::{
-    NativeNode, NativeNodeOptions, NativeScopeService, publish_scope_to, serve_scope_request,
+    NativeBrowserConnection, NativeNode, NativeNodeOptions, NativeScopeService, publish_scope_to,
+    serve_scope_connection, serve_scope_request,
 };
 use serde::Deserialize;
 use tokio::sync::Mutex;
@@ -120,22 +121,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         config.workspace_id
     );
     let owner = EndpointAddr::new(owner_id);
+    let mut browser: Option<Arc<NativeBrowserConnection>> = None;
+    let mut receiver: Option<tokio::task::JoinHandle<Result<(), String>>> = None;
     let mut tick = tokio::time::interval(Duration::from_secs(5));
     loop {
         tick.tick().await;
-        if !service
-            .lock()
-            .await
-            .has_peer(&config.workspace_id, &owner_id.to_string())
-        {
+        if receiver.as_ref().is_some_and(|task| task.is_finished()) {
+            if let Some(task) = receiver.take() {
+                if let Ok(Err(error)) = task.await {
+                    eprintln!("Lighthouse receive: {error}");
+                }
+            }
+            if let Some(connection) = browser.take() {
+                connection.close();
+            }
+            service
+                .lock()
+                .await
+                .forget_peer(&config.workspace_id, &owner_id.to_string());
+        }
+        if browser.is_none() {
+            let connection = match node
+                .connect_browser(owner.clone(), Duration::from_secs(12))
+                .await
+            {
+                Ok(connection) => Arc::new(connection),
+                Err(error) => {
+                    eprintln!("Lighthouse connect: {error}");
+                    continue;
+                }
+            };
             let request = service
                 .lock()
                 .await
                 .prepare_connect(&config.workspace_id, &config.transport_secret)?;
-            match node
-                .request(owner.clone(), &request, Duration::from_secs(12))
-                .await
-            {
+            match connection.exchange(&request, Duration::from_secs(12)).await {
                 Ok(response) => {
                     let peer = service.lock().await.complete_connect(
                         &config.workspace_id,
@@ -145,7 +165,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         now_ms()?,
                     );
                     match peer {
-                        Ok(peer) if peer.role == WorkspaceRole::Owner => {}
+                        Ok(peer) if peer.role == WorkspaceRole::Owner => {
+                            let incoming_connection = Arc::clone(&connection);
+                            let incoming_service = Arc::clone(&service);
+                            let remote_id = owner_id.to_string();
+                            receiver = Some(tokio::spawn(async move {
+                                serve_scope_connection(
+                                    &incoming_connection,
+                                    &incoming_service,
+                                    &remote_id,
+                                    || now_ms().map_err(|error| error.to_string()),
+                                )
+                                .await
+                            }));
+                            browser = Some(connection);
+                        }
                         Ok(_) => {
                             return Err(
                                 "Configured lighthouse peer is not the workspace owner".into()
@@ -158,11 +192,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
             continue;
         }
+        let connection = browser.as_ref().expect("connected above");
         match publish_scope_to(
-            &node,
+            connection,
             &service,
             &config.workspace_id,
-            owner.clone(),
+            &owner_id.to_string(),
             now_ms()?,
             Duration::from_secs(12),
         )
@@ -170,7 +205,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         {
             Ok(()) => {}
             Err(error) if error == "Unauthenticated mesh peer" => {}
-            Err(error) => eprintln!("Lighthouse publish: {error}"),
+            Err(error) => {
+                eprintln!("Lighthouse publish: {error}");
+                connection.close();
+                browser = None;
+                if let Some(task) = receiver.take() {
+                    task.abort();
+                }
+                service
+                    .lock()
+                    .await
+                    .forget_peer(&config.workspace_id, &owner_id.to_string());
+            }
         }
     }
 }

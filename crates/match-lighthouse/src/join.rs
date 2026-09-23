@@ -13,7 +13,7 @@ use meta_mesh_core::{
 use meta_mesh_native::{NativeNode, NativeNodeOptions};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{OffsetDateTime, macros::format_description};
 
 use crate::Config;
 
@@ -147,7 +147,8 @@ fn guest_bundle(
             "kind": "peer-advertisement", "version": 1,
             "workspaceId": workspace_id, "personId": person_id,
             "deviceId": device_id, "endpoint": endpoint,
-            "issuedAt": OffsetDateTime::now_utc().format(&Rfc3339)?,
+            "issuedAt": OffsetDateTime::from_unix_timestamp_nanos(now_ms()? * 1_000_000)?
+                .format(format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:3]Z"))?,
             "deviceName": "mesh-lighthouse",
         }),
         device_id,
