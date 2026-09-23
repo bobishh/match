@@ -4,6 +4,7 @@ import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
+import { meshTrace } from "./meshTrace"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
 
@@ -333,11 +334,34 @@ export function liveAutomergeWorkspaceSync(
     onHandoffRequest: options.onHandoffRequest,
   })
   scope.startDocumentSync(localDeviceId, remoteDeviceId)
-  const sendFrame = async (frame: Uint8Array): Promise<boolean> => {
+  const responseStream: DuplexStream = {
+    async send(frame) {
+      if (stopped) return
+      const stream = await connection.openStream()
+      await stream.send(frame)
+      await stream.closeSend()
+      void consumeResponse(stream)
+    },
+    async read() { throw new Error("Response stream cannot be read directly") },
+    async closeSend() {},
+  }
+  const consumeResponse = async (stream: DuplexStream): Promise<void> => {
+    try {
+      const frame = await stream.read()
+      if (!stopped && frame.length > 0) await receive(responseStream, frame)
+    } catch (error) {
+      if (!stopped) meshTrace("document.response.failed", {
+        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8),
+        reason: error instanceof Error ? error.message : String(error),
+      }, "warn")
+    }
+  }
+  const sendFrame = async (frame: Uint8Array, kind: "document" | "control"): Promise<boolean> => {
     if (stopped) return false
     const stream = await connection.openStream()
     await stream.send(frame)
     await stream.closeSend()
+    if (kind === "document") void consumeResponse(stream)
     return true
   }
   const receive = async (stream: DuplexStream, frame: Uint8Array): Promise<void> => {
