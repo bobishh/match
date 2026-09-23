@@ -31,6 +31,13 @@ export type MeshWorkspaceEnvelope = {
   successionPolicy?: WorkspaceSuccessionPolicy
   successionVotes?: WorkspaceSuccessionVote[]
   successionClaims?: WorkspaceSuccessionClaim[]
+  scopeAuthoritySnapshot?: {
+    genesis: unknown
+    grants: unknown[]
+    grantIssuers: unknown[]
+    revocations: unknown[]
+    controlTransfers: unknown[]
+  }
 }
 
 export type MeshExport = {
@@ -69,6 +76,7 @@ export type MeshSuccessionView = {
 }
 
 export type SessionEntry = {
+  connectionId: string
   workspaceId: string
   deviceId: string
   instanceId: string
@@ -84,24 +92,6 @@ export type SessionEntry = {
   blobTransferSupported?: boolean
   runtimeGeneration?: number
   evict: (cause: string) => Promise<void>
-}
-
-export type SessionDirection = SessionEntry["direction"]
-
-export function shouldReplaceMeshSession(
-  previous: Pick<SessionEntry, "remoteIssuedAt" | "remoteRouteSequence" | "direction"> | undefined,
-  candidate: Pick<SessionEntry, "remoteIssuedAt" | "remoteRouteSequence" | "direction">,
-  preferred: SessionDirection,
-) {
-  if (!previous) return true
-  const runtime = createMeshRuntime()
-  try {
-    const key = { workspaceId: "comparison", deviceId: "comparison", instanceId: "comparison" }
-    runtime.admitSession({ key, connectionId: "previous", ...previous }, previous.direction)
-    return runtime.admitSession({ key, connectionId: "candidate", ...candidate }, preferred).decision === "accepted"
-  } finally {
-    runtime.free?.()
-  }
 }
 
 export type DurableMeshOptions = {
@@ -206,9 +196,6 @@ export abstract class DurableMeshBase {
     endpoints: workspaceId => [...new Set([...this.sessions.values()]
       .filter(entry => entry.workspaceId === workspaceId && entry.endpoint)
       .map(entry => entry.endpoint))].sort(),
-    setEndpoints: (workspaceId, endpoints) => this.runtime().setGossipEndpoints(workspaceId, endpoints),
-    observeNeighbors: (workspaceId, count) => this.runtime().observeGossipNeighbors(workspaceId, count),
-    clearNeighbors: workspaceId => this.runtime().clearGossipNeighbors(workspaceId),
     encodeWorkspaceUpdate: (workspaceId, nonce) => this.runtime().encodeWorkspaceUpdate(workspaceId, nonce),
     isWorkspaceUpdate: (payload, workspaceId) => this.runtime().isWorkspaceUpdate(payload, workspaceId),
     transportSecret: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId))?.transportSecret,

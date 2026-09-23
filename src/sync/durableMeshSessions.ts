@@ -204,7 +204,6 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
     const payload = verified.advertisement.payload
-    if (hasLeftWorkspace(credential, payload.personId, bundle.grant) || isDeviceRevoked(credential, payload.personId, payload.deviceId)) throw new Error("Device access revoked")
     return { deviceId: payload.deviceId, instanceId: payload.instanceId ?? "legacy", issuedAt: payload.issuedAt,
       routeSequence: payload.routeSequence, personId: payload.personId, endpoint: payload.endpoint }
   }
@@ -389,7 +388,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     const profile = await this.options.getProfile()
     const result: string[] = []
     for (const credential of await this.store.listWorkspaceCredentials()) {
-      if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || (deviceRevocations(credential).length > 0 && isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId)) || isGrantRevoked(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined)) result.push(credential.workspaceId)
+      if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId) || isGrantRevoked(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined)) result.push(credential.workspaceId)
     }
     return result
   }

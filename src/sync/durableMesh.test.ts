@@ -2,14 +2,28 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError } from "@meta-uber/mesh-transport"
+import { createMeshRuntime } from "@meta-uber/mesh-runtime"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
-import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure, shouldReplaceMeshSession } from "./durableMesh"
+import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
 import { isEnvelope, isGrantRevoked } from "./durableMeshBase"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
+
+function rustReplacesSession(
+  previous: { remoteIssuedAt: string; remoteRouteSequence?: number; direction: "incoming" | "outgoing" },
+  candidate: { remoteIssuedAt: string; remoteRouteSequence?: number; direction: "incoming" | "outgoing" },
+  preferred: "incoming" | "outgoing",
+) {
+  const runtime = createMeshRuntime()
+  const key = { workspaceId: "comparison", deviceId: "comparison", instanceId: "comparison" }
+  try {
+    runtime.admitSession({ key, connectionId: "previous", ...previous }, previous.direction)
+    return runtime.admitSession({ key, connectionId: "candidate", ...candidate }, preferred).decision === "accepted"
+  } finally { runtime.free?.() }
+}
 
 describe("DurableMesh peer catalog gossip", () => {
   it("rejects a removed person's stale grant but accepts their newly approved generation", () => {
@@ -381,24 +395,24 @@ describe("DurableMesh peer catalog gossip", () => {
   it("Given simultaneous dials converge, when the same session arrives again, then only the preferred direction replaces its duplicate", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", direction: "incoming" as const }
 
-    expect(shouldReplaceMeshSession(current, { ...current }, "incoming")).toBe(false)
-    expect(shouldReplaceMeshSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
-    expect(shouldReplaceMeshSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
+    expect(rustReplacesSession(current, { ...current }, "incoming")).toBe(false)
+    expect(rustReplacesSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
+    expect(rustReplacesSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
   })
 
   it("Given a renewed route for one instance, when both sessions arrive, then route sequence beats wall-clock skew", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:05:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
     const renewed = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 5, direction: "incoming" as const }
 
-    expect(shouldReplaceMeshSession(current, renewed, "incoming")).toBe(true)
-    expect(shouldReplaceMeshSession(renewed, current, "incoming")).toBe(false)
+    expect(rustReplacesSession(current, renewed, "incoming")).toBe(true)
+    expect(rustReplacesSession(renewed, current, "incoming")).toBe(false)
   })
 
   it("Given equal route sequence with skewed clocks, when duplicate sessions arrive, then time cannot replace the preferred direction", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
     const future = { ...current, remoteIssuedAt: "2099-09-14T12:00:00.000Z", direction: "outgoing" as const }
 
-    expect(shouldReplaceMeshSession(current, future, "incoming")).toBe(false)
+    expect(rustReplacesSession(current, future, "incoming")).toBe(false)
   })
 
   it("Given a newer browser instance closed, when an older live instance has no session, then it still dials the known peer", async () => {

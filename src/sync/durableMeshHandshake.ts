@@ -13,7 +13,7 @@ import { createPeerAdvertisement,
   type WorkspaceDeparture, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection, SyncNode, DuplexStream } from "./transport"
-import { DurableMeshBase, MeshNodeRestart, departures, deviceRevocations, isDeviceRevoked, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, isGrantRevoked, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
+import { DurableMeshBase, MeshNodeRestart, departures, deviceRevocations, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
 import { DurableMeshAuthority } from "./durableMeshAuthority"
 
 type InstallSessionArguments = [
@@ -220,7 +220,6 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     mergeAuthority: (credential, request) => this.mergeIncomingAuthority(credential, request),
     verifyPeer: (credential, bundle) => this.verifyIncomingPeer(credential, bundle),
     admit: (credential, request, remoteEndpointId) => this.admitSignedPeer(credential, request, remoteEndpointId),
-    revoked: (credential, personId, grant, deviceId) => isDeviceRevoked(credential, personId, deviceId) || isGrantRevoked(credential, personId, grant as WorkspaceGrant | undefined),
     revocations: credential => revocations(credential),
     ownBundle: credential => this.ownBundle(credential),
     response: (credential, remotePersonId) => this.incomingResponse(credential, remotePersonId),
@@ -268,8 +267,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
         request.successionVotes ?? [], request.successionClaims ?? []) },
       refreshCredential: async () => { credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential },
     }
-    for (const action of meshRustRuntime().state.planAuthorityImport("handshake", false,
-      Array.isArray(request.ownershipTransfers))) {
+    for (const action of meshRustRuntime().state.planMeshHandshakeAuthorityImport()) {
       const effect = effects[action]
       if (!effect) throw new Error(`Unexpected handshake authority action: ${action}`)
       await effect()
@@ -288,7 +286,8 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
 
   protected async incomingResponse(credential: WorkspaceMeshCredential, remotePersonId: string): Promise<MeshHandshakePayload> {
     const profile = await this.options.getProfile()
-    const ownerWorkspaceIds = credential.ownerPersonId === profile.identity.personId && remotePersonId === profile.identity.personId
+    const ownerWorkspaceIds = meshRustRuntime().state.shouldAdvertiseOwnerWorkspaceIds(
+      credential.ownerPersonId, profile.identity.personId, remotePersonId)
       ? await this.ownerWorkspaceIds(profile) : undefined
     return this.validateHandshake({ workspaceId: credential.workspaceId, peer: await this.ownBundle(credential),
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
@@ -312,9 +311,11 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   protected async ownBundle(credential: WorkspaceMeshCredential) {
     const profile = await this.options.getProfile()
     const peers = await this.peerInstances(credential.workspaceId)
-    const own = peers.find(peer => peer.deviceId === profile.device.deviceId && peer.instanceId === this.instanceId) ??
-      peers.find(peer => peer.deviceId === profile.device.deviceId && !peer.instanceId) ??
-      await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
+    let own = this.selectLocalHandshakePeer(peers, profile.device.deviceId)
+    if (!own) {
+      const fallback = await this.store.getPeer(credential.workspaceId, profile.device.deviceId)
+      own = fallback ? this.selectLocalHandshakePeer([fallback], profile.device.deviceId) : undefined
+    }
     if (!own?.advertisement) throw new Error("Missing local peer advertisement")
     return own.advertisement as WorkspaceMemberBundle
   }
@@ -374,9 +375,12 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
 
   private async localPeerInstance(workspaceId: string, deviceId: string): Promise<WorkspacePeerRecord | null> {
     const peers = await this.peerInstances(workspaceId)
-    return peers.find(peer => peer.deviceId === deviceId && peer.instanceId === this.instanceId) ??
-      peers.find(peer => peer.deviceId === deviceId && !peer.instanceId) ??
-      this.store.getPeer(workspaceId, deviceId)
+    return this.selectLocalHandshakePeer(peers, deviceId) ?? this.store.getPeer(workspaceId, deviceId)
+  }
+
+  private selectLocalHandshakePeer(peers: WorkspacePeerRecord[], deviceId: string): WorkspacePeerRecord | undefined {
+    const index = meshRustRuntime().state.selectMeshHandshakeBundle(peers, deviceId, this.instanceId)
+    return index === null ? undefined : peers[index]
   }
 
   protected async pruneInvalidStoredPeers(credential: WorkspaceMeshCredential, localDeviceId: string) {

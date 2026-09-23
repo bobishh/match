@@ -3,7 +3,6 @@ import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import { BrowserMeshCredentials, BrowserMeshInvitations } from "@meta-uber/mesh-runtime"
 import { createPeerAdvertisement,
   type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
@@ -18,40 +17,6 @@ import { DurableMeshBase } from "./durableMeshBase"
 export abstract class DurableMeshCredentials extends DurableMeshBase {
   protected abstract mergeDepartures(credential: WorkspaceMeshCredential, records: WorkspaceDeparture[], disconnect?: boolean): Promise<void>
   protected abstract mergeDeviceRevocations(credential: WorkspaceMeshCredential, records: WorkspaceDeviceRevocation[]): Promise<void>
-  private readonly ownerCredentials = new BrowserMeshCredentials<WorkspaceMeshCredential, { personId: string; publicKey: string; profile: LocalProfile }, DeviceCertificate>({
-    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
-    putCredential: credential => this.store.putWorkspaceCredential(credential),
-    createCredential: (workspaceId, owner, certificates) => ({ version: 1, workspaceId, ownerPersonId: owner.personId,
-      ownerPublicKey: owner.publicKey, ownerCertificates: certificates, transportSecret: createPairingSecret(), epoch: 1, updatedAt: new Date().toISOString() }),
-    refreshOwnerCertificates: (credential, owner, certificates) => this.refreshOwnerCertificates(credential, owner.profile, certificates),
-  })
-  private readonly invitations = new BrowserMeshInvitations<WorkspaceMeshCredential, MeshWorkspaceEnvelope, WorkspaceGrant, WorkspaceMemberBundle, LocalProfile>({
-    credential: async workspaceId => (await this.store.getWorkspaceCredential(workspaceId)) ?? undefined,
-    peers: async workspaceId => (await this.peerInstances(workspaceId))
-      .filter(peer => !peer.revokedAt && peer.advertisement)
-      .map(peer => peer.advertisement as WorkspaceMemberBundle),
-    createEnvelope: (credential, peers) => ({
-      version: 1,
-      workspaceId: credential.workspaceId,
-      ownerPersonId: credential.ownerPersonId,
-      ownerPublicKey: credential.ownerPublicKey,
-      ownerCertificates: credential.ownerCertificates,
-      transportSecret: credential.transportSecret,
-      epoch: credential.epoch,
-      peers,
-      revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
-      ownerHistory: ownerAuthorities(credential).slice(1),
-      ownershipTransfers: ownershipTransfers(credential),
-      successionPolicy: successionPolicy(credential),
-      successionVotes: successionVotes(credential),
-      successionClaims: successionClaims(credential),
-    }),
-    isEnvelope,
-    validate: async (workspaceId, envelope, profile, grant) => {
-      await this.verifyInvitationAuthority(workspaceId, envelope, profile, grant)
-    },
-    install: (workspaceId, envelope, profile, grant) => this.installInvitationWorkspace(workspaceId, envelope, profile, grant),
-  })
 
   protected abstract refreshOwnBundle(credential: WorkspaceMeshCredential, profile: LocalProfile,
     endpoint: string, certificates: DeviceCertificate[]): Promise<WorkspaceMemberBundle | undefined>
@@ -111,9 +76,15 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   private async ensureOwnerCredential(workspaceId: string, profile: LocalProfile, certificates: DeviceCertificate[]): Promise<WorkspaceMeshCredential> {
-    return this.ownerCredentials.ensureOwnerCredential(workspaceId, {
-      personId: profile.identity.personId, publicKey: profile.identity.publicKey, profile,
-    }, certificates)
+    const existing = await this.store.getWorkspaceCredential(workspaceId)
+    const action = meshRustRuntime().state.decideOwnerCredential(existing?.ownerPersonId, profile.identity.personId)
+    if (action === "refresh") return this.refreshOwnerCertificates(existing!, profile, certificates)
+    if (action !== "create") throw new Error("Invalid owner credential decision")
+    const credential: WorkspaceMeshCredential = { version: 1, workspaceId, ownerPersonId: profile.identity.personId,
+      ownerPublicKey: profile.identity.publicKey, ownerCertificates: certificates, transportSecret: createPairingSecret(),
+      epoch: 1, updatedAt: new Date().toISOString() }
+    await this.store.putWorkspaceCredential(credential)
+    return credential
   }
 
   protected async ownerWorkspaceIds(profile: LocalProfile) {
@@ -230,7 +201,22 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   async invitationPayload(workspaceIds: string[]): Promise<MeshWorkspaceEnvelope[]> {
-    return this.invitations.payload(workspaceIds)
+    const envelopes: MeshWorkspaceEnvelope[] = []
+    for (const workspaceId of workspaceIds) {
+      const credential = await this.store.getWorkspaceCredential(workspaceId)
+      if (!credential) throw new Error("Missing workspace mesh credential")
+      const peers = (await this.peerInstances(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
+        .map(peer => peer.advertisement as WorkspaceMemberBundle)
+      const authority = await this.store.getWorkspaceAuthority(workspaceId)
+      envelopes.push({ version: 1, workspaceId: credential.workspaceId, ownerPersonId: credential.ownerPersonId,
+        ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates,
+        transportSecret: credential.transportSecret, epoch: credential.epoch, peers,
+        revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
+        ownerHistory: ownerAuthorities(credential).slice(1), ownershipTransfers: ownershipTransfers(credential),
+        successionPolicy: successionPolicy(credential), successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
+        scopeAuthoritySnapshot: authority?.scopeAuthoritySnapshot })
+    }
+    return envelopes
   }
 
   /** Returns a real signed grant only when this identity still verifies for it. */
@@ -261,6 +247,12 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       localPersonId: profile.identity.personId, localGrant: localGrant ?? null,
       updatedAt: new Date().toISOString() }) as WorkspaceMeshCredential
     await this.store.putWorkspaceCredential(credential)
+    if (envelope.scopeAuthoritySnapshot) {
+      meshRustRuntime().state.validateScopeAuthority(envelope.scopeAuthoritySnapshot)
+      const authority = await this.store.getWorkspaceAuthority(workspaceId)
+      if (!authority) throw new Error("Workspace authority disappeared during invitation install")
+      await this.store.putWorkspaceAuthority({ ...authority, scopeAuthoritySnapshot: envelope.scopeAuthoritySnapshot })
+    }
     await this.mergeInvitationCatalog(credential, envelope)
   }
 
@@ -283,12 +275,29 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   async receiveInvitation(raw: unknown, workspaceIds: string[], profile: LocalProfile, grants: WorkspaceGrant[]): Promise<void> {
-    await this.invitations.receive(raw, workspaceIds, profile, grants, grant => grant.payload.workspaceId)
+    const entries = await this.prepareInvitation(raw, workspaceIds, profile, grants)
+    for (const entry of entries) await this.installInvitationWorkspace(entry.workspaceId, entry.envelope, profile, entry.grant)
     await this.notify()
   }
 
   async validateInvitation(raw: unknown, workspaceIds: string[], profile: LocalProfile, grants: WorkspaceGrant[]): Promise<void> {
-    await this.invitations.validate(raw, workspaceIds, profile, grants, grant => grant.payload.workspaceId)
+    await this.prepareInvitation(raw, workspaceIds, profile, grants)
+  }
+
+  private async prepareInvitation(raw: unknown, workspaceIds: string[], profile: LocalProfile, grants: WorkspaceGrant[]) {
+    const existing = await Promise.all(workspaceIds.map(workspaceId => this.store.getWorkspaceCredential(workspaceId)))
+    const plan = meshRustRuntime().state.planInvitation({ raw, workspaceIds,
+      grantWorkspaceIds: grants.map(grant => grant.payload.workspaceId),
+      existingOwnerPersonIds: existing.map(credential => credential?.ownerPersonId ?? null) })
+    const entries: Array<{ workspaceId: string; envelope: MeshWorkspaceEnvelope; grant: WorkspaceGrant | undefined }> = []
+    for (const item of plan) {
+      const envelope = (raw as unknown[])[item.envelopeIndex]
+      if (!isEnvelope(envelope)) throw new Error("Invalid mesh invitation")
+      const grant = item.grantIndex === null ? undefined : grants[item.grantIndex]
+      await this.verifyInvitationAuthority(item.workspaceId, envelope, profile, grant)
+      entries.push({ workspaceId: item.workspaceId, envelope, grant })
+    }
+    return entries
   }
 
   async nextAccessEpoch(workspaceId: string): Promise<number> {
