@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import * as Automerge from "@automerge/automerge"
 import { expect, test } from "@playwright/test"
-import { profileFromIdentitySeedForDevice } from "@meta-uber/mesh-identity"
+import { profileFromIdentitySeedForDevice, signEnvelope } from "@meta-uber/mesh-identity"
 import { encodePairingFrame } from "@meta-uber/mesh-pairing"
 import { createPeerAdvertisement, createWorkspaceDeviceRevocation, createWorkspaceGrant } from "@meta-uber/mesh-workspace"
 import "../src/testSetup"
@@ -47,6 +47,8 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
       return { frame: Array.from(encodePairingFrame("mesh-handshake-request", secret,
         new TextEncoder().encode(JSON.stringify(payload)))), payload }
     })
+    await page.exposeFunction("syncFrameHasChanges", (message: number[]) =>
+      Automerge.decodeSyncMessage(Uint8Array.from(message)).changes.length > 0)
     await page.exposeFunction("revokeEditor", async (documentBytes: number[]) => {
       const document = Automerge.load(Uint8Array.from(documentBytes))
       const revocation = await createWorkspaceDeviceRevocation(owner, workspaceId,
@@ -69,8 +71,15 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
       return updated
     })
     await page.goto("/")
-    const source = Automerge.save(Automerge.from({ browser: "from-wasm" }))
-    const result = await page.evaluate(async ({ remote, bytes, localDeviceId, snapshot }) => {
+    const browserDocument = Automerge.from({ browser: "from-wasm" })
+    const source = Automerge.save(browserDocument)
+    const hashes = Automerge.getAllChanges(browserDocument).map(change => Automerge.decodeChange(change).hash)
+    const signed = await signEnvelope(editor.privateKeys.devicePrivateKey, {
+      kind: "workspace-changes", version: 1, workspaceId, hashes,
+      personId: editor.identity.personId, deviceId: editor.device.deviceId,
+    }, editor.device.deviceId)
+    const proof = [{ signed, publicKey: editor.identity.publicKey, certificates: [editor.certificate], grant }]
+    const result = await page.evaluate(async ({ remote, bytes, localDeviceId, snapshot, proof }) => {
       const { startIrohBrowserNode } = await import("/src/iroh.ts")
       const { meshRustRuntime } = await import("/vendor/meta-mesh/packages/mesh-replication/src/runtime.ts")
       const { WasmMeshAuthenticatedSessions } = await import("/vendor/meta-mesh/packages/mesh-transport/wasm/meta_mesh.js")
@@ -80,6 +89,9 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
       const revokeEditor = (globalThis as typeof globalThis & {
         revokeEditor: (documentBytes: number[]) => Promise<unknown>
       }).revokeEditor
+      const syncFrameHasChanges = (globalThis as typeof globalThis & {
+        syncFrameHasChanges: (message: number[]) => Promise<boolean>
+      }).syncFrameHasChanges
       const node = await startIrohBrowserNode()
       const sessions = new WasmMeshAuthenticatedSessions()
       const engine = meshRustRuntime().createAutomergeSyncEngine(localDeviceId)
@@ -111,21 +123,29 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
         if (sessions.peer("browser-native-e2e", node.endpointId)?.deviceId !== localDeviceId) throw new Error("WASM session registry lost admitted peer")
         const admission = await rpc({ kind: "handshake", frame: signed.frame })
         if (admission.deviceId !== localDeviceId) throw new Error("Wrong admitted device")
-        let frame = engine.generate("document", remote, true, null)
+        let frame = engine.generate("document", remote, true, proof)
         if (!frame) throw new Error("Missing initial sync frame")
         const forged = { ...frame, fromDeviceId: "forged-device", message: Array.from(frame.message) }
         const forgedReply = await rpc({ kind: "sync", frame: forged }).then(() => "accepted", error => String(error.message))
         if (forgedReply !== "Mesh document sender does not match admitted peer") throw new Error(`Forged frame: ${forgedReply}`)
         let converged = false
+        let unsignedDenied = false
         for (let round = 0; round < 16; round += 1) {
+          if (!unsignedDenied && await syncFrameHasChanges(Array.from(frame.message))) {
+            const unsignedFrame = { ...frame, proof: null, message: Array.from(frame.message) }
+            const denied = await rpc({ kind: "sync", frame: unsignedFrame }).then(() => "accepted", error => String(error.message))
+            if (denied !== "Missing workspace change authorization") throw new Error(`Unsigned native change: ${denied}`)
+            unsignedDenied = true
+          }
           const response = await rpc({ kind: "sync", frame: { ...frame, message: Array.from(frame.message) } })
           const next = response.response
-            ? engine.receive(remote, { ...response.response, message: Uint8Array.from(response.response.message) }, true, null).response
-            : engine.generate("document", remote, true, null)
+            ? engine.receive(remote, { ...response.response, message: Uint8Array.from(response.response.message) }, true, proof).response
+            : engine.generate("document", remote, true, proof)
           if (!next) { converged = true; break }
           frame = next
         }
         if (!converged) throw new Error("Automerge sync did not converge")
+        if (!unsignedDenied) throw new Error("Native peer did not exercise unsigned change rejection")
         const native = await rpc({ kind: "read" })
         const revokedSnapshot = await revokeEditor(native.document)
         const evicted = sessions.refresh(revokedSnapshot, Date.now())
@@ -146,7 +166,7 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
       } finally {
         await node.close("probe complete")
       }
-    }, { remote: endpoint, bytes: Array.from(source), localDeviceId: editor.device.deviceId, snapshot })
+    }, { remote: endpoint, bytes: Array.from(source), localDeviceId: editor.device.deviceId, snapshot, proof })
     for (const [side, bytes] of Object.entries(result)) {
       const doc = Automerge.load(Uint8Array.from(bytes))
       expect(String(doc.browser), `${side} browser content`).toBe("from-wasm")
