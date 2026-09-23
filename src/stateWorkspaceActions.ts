@@ -5,7 +5,7 @@ import { createWorkspaceDoc } from "./domain/seeds";
 import type { WorkspaceDocumentV2 } from "./domain/model";
 import { forkWorkspaceDocumentV2 } from "./domain/workspaceBundle";
 import { registerWorkspaceInRoot } from "./domain/personalRoot";
-import { workspaceRole } from "./sync/changeAuthorization";
+import { recordGenesisAuthority, workspaceRole } from "./sync/changeAuthorization";
 import { defaultStorage, type WorkspaceStorage } from "./storage";
 import {
   commitAndPersist,
@@ -38,6 +38,7 @@ async function createWorkspaceAsync(
   const doc = Automerge.from<WorkspaceDocumentV2>(
     createWorkspaceDoc(id, cleanTitle, profile.identity.personId, presetKey),
   );
+  await recordGenesisAuthority(doc, profile);
   await storage.saveSnapshot(id, doc, Automerge.save(doc));
   await storage.registerWorkspace(id, cleanTitle);
   await addWorkspaceToPersonalRoot(id, "genesis", storage);
@@ -60,6 +61,7 @@ async function importWorkspaceAsNew(
   );
   if (!copied.ok) throw new Error(copied.error.message);
   const doc = copied.value;
+  await recordGenesisAuthority(doc, profile);
   await storage.saveSnapshot(doc.id, doc, Automerge.save(doc));
   await storage.registerWorkspace(doc.id, doc.title);
   await addWorkspaceToPersonalRoot(doc.id, "genesis", storage);

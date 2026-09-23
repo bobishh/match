@@ -19,6 +19,7 @@ import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command } from "./domain/commands";
 import {
   authorizeLocalChanges,
+  recordGenesisAuthority,
   workspaceRole,
   workspaceWritesBlocked,
 } from "./sync/changeAuthorization";
@@ -205,7 +206,7 @@ async function loadInitialWorkspace(
   if (loaded) return loaded.doc;
   const doc = await initializeFirstWorkspace(
     storage,
-    profile.identity.personId,
+    profile,
   );
   if (!doc) throw new Error("Workspace initialization failed");
   return doc;
@@ -227,7 +228,7 @@ async function loadPreferredWorkspace(
 
 async function initializeFirstWorkspace(
   storage: WorkspaceStorage,
-  ownerPersonId: string,
+  profile: LocalProfile,
 ) {
   const initialize = async () => {
     const existing = await storage.listWorkspaces();
@@ -235,8 +236,9 @@ async function initializeFirstWorkspace(
     if (first) return (await storage.loadWorkspaceDoc(first.id))?.doc ?? null;
     const workspaceId = crypto.randomUUID();
     const doc = Automerge.from<WorkspaceDocumentV2>(
-      createWorkspaceDoc(workspaceId, "Untitled", ownerPersonId, "blank"),
+      createWorkspaceDoc(workspaceId, "Untitled", profile.identity.personId, "blank"),
     );
+    await recordGenesisAuthority(doc, profile);
     await storage.saveSnapshot(workspaceId, doc, Automerge.save(doc));
     await storage.registerWorkspace(workspaceId, "Untitled");
     await writeLocal("match.active_workspace_id", workspaceId);
