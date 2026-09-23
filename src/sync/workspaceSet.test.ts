@@ -1,9 +1,19 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
+import { readFile } from "node:fs/promises"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishOwnerWorkspaceOffer } from "./workspaceSet"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { sha256Base64Url } from "../domain/identity"
+import * as Automerge from "@automerge/automerge/slim"
+import { createLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
+import { initializeAutomerge } from "../crdt"
+
+beforeAll(async () => {
+  const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
+  await initializeAutomerge()
+})
 
 describe("Confirmed ownership delivery", () => {
   it("waits for a matching receipt instead of treating a sent frame as a durable save", async () => {
@@ -178,15 +188,16 @@ describe("incremental workspace control plane", () => {
   it("Given control history exceeds 256 KiB, when published, then bounded frames deliver the complete state once", async () => {
     const sent: Uint8Array[] = []
     const authorization = [{ hash: "history", signature: "s".repeat(300_000) }]
-    const bytes = new Uint8Array([1])
+    const bytes = Automerge.save(Automerge.from({ id: "workspace" }))
     const sender = liveAutomergeWorkspaceSync({
       openStream: async () => ({ send: async frame => { sent.push(frame) }, closeSend: async () => {}, read: vi.fn() }),
       acceptStream: () => new Promise(() => {}), close: vi.fn(),
     }, "secret", { read: async () => bytes, merge: vi.fn(), activate: vi.fn(), readAuthorization: async () => authorization },
-    "workspace", "a", "b", { generate: async () => null } as never)
+    "workspace", "a", "b")
     await expect(sender.publish()).resolves.toBeUndefined()
-    expect(sent.length).toBeGreaterThan(1)
-    for (const frame of sent) expect(decodePairingFrame(frame, "mesh-control-sync", "secret").length).toBeLessThanOrEqual(256 * 1024)
+    const control = sent.filter(frame => inspectPairingFrame(frame).type === "mesh-control-sync")
+    expect(control.length).toBeGreaterThan(1)
+    for (const frame of control) expect(decodePairingFrame(frame, "mesh-control-sync", "secret").length).toBeLessThanOrEqual(256 * 1024)
     const count = sent.length
     await sender.publish()
     expect(sent).toHaveLength(count)
@@ -194,11 +205,11 @@ describe("incremental workspace control plane", () => {
     let index = 0
     const receiver = liveAutomergeWorkspaceSync({
       openStream: vi.fn(), close: vi.fn(),
-      acceptStream: async () => index < sent.length
-        ? { read: async () => sent[index++]!, send: vi.fn(), closeSend: vi.fn() }
+      acceptStream: async () => index < control.length
+        ? { read: async () => control[index++]!, send: vi.fn(), closeSend: vi.fn() }
         : new Promise(() => {}),
     }, "secret", { read: async () => bytes, merge, activate: vi.fn() },
-    "workspace", "b", "a", { reset: vi.fn() } as never)
+    "workspace", "b", "a")
     await vi.waitFor(() => expect(merge).toHaveBeenCalledExactlyOnceWith("workspace", bytes, authorization))
     await sender.close()
     await receiver.close()
@@ -222,28 +233,25 @@ describe("incremental workspace control plane", () => {
       close: vi.fn(async () => {}),
     }
     const bytes = new Uint8Array([1, 2, 3])
-    const engine = { generate: vi.fn(async () => null), reset: vi.fn() }
     const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
       read: async () => bytes, merge, activate: vi.fn(),
-    }, "workspace", "local", "remote", engine as never)
+    }, "workspace", "local", "remote")
 
     await vi.waitFor(() => expect(merge).toHaveBeenCalledWith("workspace", bytes, authorization))
-    expect(engine.reset).toHaveBeenCalledWith("workspace", "remote")
     await session.close()
   })
 
   it("Given an authorization-only update, when the session publishes, then it sends the proof in a control frame", async () => {
     const sent: Uint8Array[] = []
-    const bytes = new Uint8Array([1, 2, 3])
+    const bytes = Automerge.save(Automerge.from({ id: "workspace" }))
     const authorization = [{ hash: "cleanup", signature: "signed" }]
     const connection: SyncConnection = {
       openStream: vi.fn(async () => ({ send: async (frame: Uint8Array) => { sent.push(frame) }, closeSend: async () => {}, read: async () => new Uint8Array() })),
       acceptStream: () => new Promise(() => {}), close: vi.fn(async () => {}),
     }
-    const engine = { generate: vi.fn(async () => null) }
     const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
       read: async () => bytes, merge: vi.fn(), activate: vi.fn(), readAuthorization: async () => authorization,
-    }, "workspace", "local", "remote", engine as never)
+    }, "workspace", "local", "remote")
 
     await session.publish()
 
@@ -298,7 +306,7 @@ describe("incremental workspace control plane", () => {
     }
     const session = liveAutomergeWorkspaceSync(connection, "mesh-secret", {
       read: async () => new Uint8Array(), merge: vi.fn(), activate: vi.fn(),
-    }, "workspace", "local", "remote", undefined, undefined, {
+    }, "workspace", "local", "remote", undefined, {
       ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer",
       onOwnerWorkspaceOffer: accepted,
     })
@@ -323,30 +331,47 @@ describe("incremental workspace control plane", () => {
 describe("rejected document isolation", () => {
   it("keeps heartbeat and control alive after a rejected document and can accept a later corrected frame", async () => {
     const error = new WorkspaceChangeRejected("Unsigned workspace change rejected")
-    const receive = vi.fn().mockRejectedValueOnce(error).mockResolvedValue({ response: null, acceptedChanges: 1 })
-    const engine = { receive, generate: vi.fn(async () => null), reset: vi.fn() }
+    const current = Automerge.save(Automerge.from({ id: "workspace" }))
+    const changed = Automerge.save(Automerge.from({ id: "workspace", title: "from remote" }))
+    const remote = createLiveWorkspaceSession("workspace", "secret")
+    remote.startDocumentSync("remote", "local")
+    const local = createLiveWorkspaceSession("workspace", "secret")
+    local.startDocumentSync("local", "remote")
+    let syncFrame = remote.generateDocument(changed, undefined)!
+    for (let round = 0; round < 12; round += 1) {
+      const incoming = local.receive(syncFrame)!
+      if (incoming.kind !== "automergeSync") throw new Error("Expected Automerge frame")
+      const prepared = local.prepareDocument(Uint8Array.from(incoming.payload ?? []), current, undefined)
+      if (prepared.acceptedChanges > 0) { local.abortDocument(); break }
+      local.commitDocument()
+      if (!prepared.response) throw new Error("Automerge exchange ended before changes")
+      const response = remote.receive(Uint8Array.from(prepared.response))!
+      if (response.kind !== "automergeSync") throw new Error("Expected Automerge response")
+      const source = remote.prepareDocument(Uint8Array.from(response.payload ?? []), changed, undefined)
+      remote.commitDocument()
+      syncFrame = source.response ? Uint8Array.from(source.response) : remote.generateDocument(changed, undefined)!
+    }
+    local.free?.()
     const reject = vi.fn()
     const mergeMesh = vi.fn()
-    const sync = () => encodePairingFrame("mesh-automerge-sync", "secret", new TextEncoder().encode(JSON.stringify({
-      version: 1, scopeId: "workspace", documentId: "workspace", fromDeviceId: "remote", toDeviceId: "local", message: "AA",
-    })))
-    const frames = [sync(), encodePairingFrame("sync-heartbeat", "secret", new Uint8Array()),
-      encodePairingFrame("mesh-control-sync", "secret", new TextEncoder().encode(JSON.stringify({version:1,workspaceId:"workspace",mesh:{epoch:2}}))), sync()]
+    const frames = [syncFrame, encodePairingFrame("sync-heartbeat", "secret", new Uint8Array()),
+      encodePairingFrame("mesh-control-sync", "secret", new TextEncoder().encode(JSON.stringify({version:1,workspaceId:"workspace",mesh:{epoch:2}}))), syncFrame]
     const streams = frames.map(frame => ({ read: async () => frame, send: vi.fn(), closeSend: vi.fn() }))
     let index = 0
     const connection = { acceptStream: async () => streams[index++] ?? new Promise<never>(() => {}), close: vi.fn(), openStream: vi.fn(async () => ({send:vi.fn(), closeSend:vi.fn(), read:vi.fn(async () => new Uint8Array())})) }
-    const session = liveAutomergeWorkspaceSync(connection, "secret", {read:vi.fn(),merge:vi.fn(),activate:vi.fn(),mergeMesh},
-      "workspace","local","remote",engine as never,reject)
+    const merge = vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined)
+    const session = liveAutomergeWorkspaceSync(connection, "secret", {read:async () => current,merge,activate:vi.fn(),mergeMesh},
+      "workspace","local","remote",reject)
     let ended = false
     void session.done.then(() => { ended = true }, () => { ended = true })
-    await vi.waitFor(() => expect(receive).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(merge).toHaveBeenCalledTimes(2))
     expect(reject).toHaveBeenCalledWith(error)
-    expect(engine.reset).toHaveBeenCalledWith("workspace", "remote")
     expect(ended).toBe(false)
     expect(connection.close).not.toHaveBeenCalled()
     expect(inspectPairingFrame(streams[1]!.send.mock.calls[0]![0]).type).toBe("sync-heartbeat-ack")
     expect(mergeMesh).toHaveBeenCalledWith("workspace",{epoch:2})
     await expect(session.publish()).resolves.toBeUndefined()
     await session.close()
+    remote.free?.()
   })
 })

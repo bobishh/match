@@ -1,10 +1,8 @@
 import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked } from "./durableMeshBase"
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import * as Automerge from "@automerge/automerge/slim"
 import { isMeshNetworkFailure, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
-import { BrowserMeshDialScheduler, BrowserMeshDocumentSessions, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
-import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { BrowserMeshDialScheduler, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { defaultProofStore } from "../domain/proofs"
@@ -231,42 +229,35 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       await stale?.close("Mesh runtime closed").catch(() => {})
     }
   }
-  private readonly documentSessions = new BrowserMeshDocumentSessions<SyncConnection, LiveWorkspaceSync,
-    WorkspaceMeshCredential, LocalProfile, AutomergeAntiEntropy>({
-      localDeviceId: profile => profile.device.deviceId,
-      localPersonId: profile => profile.identity.personId,
-      secret: credential => credential.transportSecret,
-      createEngine: ({ localDeviceId, workspaceId }) => new AutomergeAntiEntropy(localDeviceId, Automerge, {
-        proof: async () => this.options.workspaceStore.readAuthorization?.(
-          await this.options.workspaceStore.read(workspaceId),
-        ),
-      }),
-      incremental: input => liveAutomergeWorkspaceSync(input.connection, input.secret, this.options.workspaceStore,
-        input.workspaceId, input.localDeviceId, input.deviceId, input.engine, input.onDocumentStatus, {
-          ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
-          onOwnerWorkspaceOffer: input.onOwnerWorkspaceOffer,
-          onGossipPacket: input.onGossipPacket,
-          onBlobRequest: input.blobTransferSupported
-            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, input.secret, stream, frame)
-            : undefined,
-        }),
-      ownerWorkspaceOffer: (bytes, remotePersonId) => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId),
-      gossipPacket: (workspaceId, endpoint, packet) => this.receiveWorkspaceGossipPacket(workspaceId, endpoint, packet),
-      rejected: (stage, error) => this.report(stage, error),
-      cleared: stage => {
-        if (this.lastDiagnostic.startsWith(`${stage}:`)) {
-          this.lastDiagnostic = ""
-          this.options.onDiagnostic?.("")
-        }
-      },
-      trace: (event, detail, level) => this.trace(event, detail, level),
-    })
-
   private readonly browserSessions = new BrowserMeshSessions<SyncConnection, LiveWorkspaceSync, LocalProfile>({
     profile: this.options.getProfile,
     deviceId: profile => profile.device.deviceId,
     credential: workspaceId => this.store.getWorkspaceCredential(workspaceId),
-    create: input => this.documentSessions.create({ ...input, credential: input.credential as WorkspaceMeshCredential }),
+    create: input => {
+      const credential = input.credential as WorkspaceMeshCredential
+      const stage = `Workspace ${input.workspaceId.slice(0, 8)} from ${input.deviceId.slice(0, 8)}`
+      const session = liveAutomergeWorkspaceSync(input.connection, credential.transportSecret, this.options.workspaceStore,
+        input.workspaceId, input.profile.device.deviceId, input.deviceId, error => {
+          if (error) {
+            this.trace("document.rejected", { connectionId: input.connectionId, workspaceId: input.workspaceId,
+              peerId: input.deviceId, instanceId: input.instanceId, reason: error.message }, "warn")
+            this.report(stage, error)
+          } else if (this.lastDiagnostic.startsWith(`${stage}:`)) {
+            this.lastDiagnostic = ""
+            this.options.onDiagnostic?.("")
+          }
+        }, {
+          ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
+          onOwnerWorkspaceOffer: input.ownerWorkspaceOfferFrame && input.remotePersonId === input.profile.identity.personId
+            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId) : undefined,
+          onGossipPacket: input.remoteEndpoint
+            ? packet => this.receiveWorkspaceGossipPacket(input.workspaceId, input.remoteEndpoint, packet) : undefined,
+          onBlobRequest: input.blobTransferSupported
+            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, credential.transportSecret, stream, frame)
+            : undefined,
+        })
+      return { session }
+    },
     runtime: () => this.runtime(),
     key: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     stopped: () => this.stopped,

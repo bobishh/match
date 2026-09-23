@@ -2,7 +2,6 @@ import { createLiveWorkspaceSession, type RustLiveWorkspaceSession } from "@meta
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
-import { AutomergeAntiEntropy, type AutomergeDocumentAdapter, type AutomergeSyncFrame } from "@meta-uber/mesh-replication/automerge"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
@@ -336,7 +335,6 @@ export function liveAutomergeWorkspaceSync(
   workspaceId: string,
   localDeviceId: string,
   remoteDeviceId: string,
-  sharedEngine?: AutomergeAntiEntropy,
   onDocumentRejected?: (error: WorkspaceChangeRejected | null) => void,
   options: LiveWorkspaceOptions = {},
 ): LiveWorkspaceSync {
@@ -345,26 +343,12 @@ export function liveAutomergeWorkspaceSync(
   let syncQueue = Promise.resolve()
   let heartbeatQueue = Promise.resolve()
   const protocol = createLiveWorkspaceSession(workspaceId, secret)
+  protocol.startDocumentSync(localDeviceId, remoteDeviceId)
   const knownChat = new Set<string>()
-  const engine = sharedEngine ?? new AutomergeAntiEntropy(localDeviceId, Automerge, {
-    proof: async () => store.readAuthorization?.(await store.read(workspaceId)),
-  })
-  const adapter: AutomergeDocumentAdapter<Record<string, unknown>> = {
-    scopeId: workspaceId,
-    documentId: workspaceId,
-    async current() { return Automerge.load<Record<string, unknown>>(await store.read(workspaceId)) },
-    async authorize(deviceId) { return deviceId === remoteDeviceId },
-    async validateCandidate({ candidate }) {
-      if ((candidate as { id?: unknown }).id !== workspaceId) throw new Error("Wrong workspace document")
-    },
-    async commit({ candidate, proof }) { await store.merge(workspaceId, Automerge.save(candidate), proof) },
-  }
-  const encodeFrame = (frame: AutomergeSyncFrame) => protocol.encodeAutomergeFrame(frame)
-  const decodeFrame = (bytes: Uint8Array): AutomergeSyncFrame => protocol.decodeAutomergePayload(bytes) as AutomergeSyncFrame
-  const sendFrame = async (frame: AutomergeSyncFrame) => {
+  const sendFrame = async (frame: Uint8Array) => {
     if (stopped) return
     const stream = await connection.openStream()
-    await stream.send(encodeFrame(frame))
+    await stream.send(frame)
     await stream.closeSend()
   }
   const controlSnapshot = async () => new TextEncoder().encode(JSON.stringify({
@@ -384,7 +368,7 @@ export function liveAutomergeWorkspaceSync(
       // Authorization changes the admission result for already exchanged
       // Automerge heads. Re-negotiate instead of retaining a state that only
       // remembers the pre-proof rejection.
-      engine.reset(workspaceId, remoteDeviceId)
+      protocol.resetDocument()
     }
     if (value.chat !== undefined && store.mergeChat) await store.mergeChat(workspaceId, value.chat, false)
     if (value.mesh !== undefined && store.mergeMesh) await store.mergeMesh(workspaceId, value.mesh)
@@ -396,20 +380,29 @@ export function liveAutomergeWorkspaceSync(
   const receiveSync = async (frame: Uint8Array) => {
     try {
       await enqueue(async () => {
-        const decoded = decodeFrame(frame)
-        const result = await engine.receive(adapter, remoteDeviceId, decoded)
-        if (result.acceptedChanges === 0 && store.readAuthorization && decoded.proof !== undefined) {
-          await store.merge(workspaceId, await store.read(workspaceId), decoded.proof)
+        const current = await store.read(workspaceId)
+        const responseProof = await store.readAuthorization?.(current)
+        const result = protocol.prepareDocument(frame, current, responseProof)
+        try {
+          if (result.acceptedChanges > 0) {
+            const candidate = new Uint8Array(result.document)
+            const document = Automerge.load<{ id?: unknown }>(candidate)
+            if (document.id !== workspaceId) throw new Error("Wrong workspace document")
+            await store.merge(workspaceId, candidate, result.proof)
+          } else if (store.readAuthorization && result.proof !== undefined) {
+            await store.merge(workspaceId, current, result.proof)
+          }
+          protocol.commitDocument()
+        } catch (error) {
+          protocol.abortDocument()
+          throw error
         }
-        if (result.response) await sendFrame(result.response)
+        if (result.response) await sendFrame(new Uint8Array(result.response))
         if (lastRejection && result.acceptedChanges > 0) { lastRejection = undefined; onDocumentRejected?.(null) }
       })
     } catch (error) {
       if (!(error instanceof WorkspaceChangeRejected)) throw error
-      // Rust sync state advances before our admission policy validates and
-      // commits the candidate. Forget that optimistic state: a later proof
-      // control frame must make the remote peer offer this change again.
-      engine.reset(workspaceId, remoteDeviceId)
+      protocol.resetDocument()
       if (lastRejection !== error.message) onDocumentRejected?.(error)
       lastRejection = error.message
     }
@@ -420,7 +413,8 @@ export function liveAutomergeWorkspaceSync(
     done,
     publish() {
       return enqueue(async () => {
-        const frame = await engine.generate(adapter, remoteDeviceId)
+        const current = await store.read(workspaceId)
+        const frame = protocol.generateDocument(current, await store.readAuthorization?.(current))
         if (frame) await sendFrame(frame)
         const control = await controlSnapshot()
         if (protocol.controlChanged(control)) {
