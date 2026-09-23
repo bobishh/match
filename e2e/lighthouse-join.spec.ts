@@ -135,3 +135,68 @@ test("Given a Match invitation, when native lighthouse joins and restarts, then 
     await rm(temporary, { recursive: true, force: true })
   }
 })
+
+test("Given owner and editor share a fresh board, when owner closes, then editor syncs with lighthouse", async ({ browser, page }) => {
+  test.setTimeout(150_000)
+  const temporary = await mkdtemp(join(tmpdir(), "match-keeper-e2e-"))
+  const directory = join(temporary, "node")
+  const guestContext = await browser.newContext()
+  await guestContext.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
+  const guest = await guestContext.newPage()
+  let server: ChildProcessWithoutNullStreams | undefined
+  let joining: ChildProcessWithoutNullStreams | undefined
+  let serverErrors = ""
+  try {
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const ownerDialog = page.getByRole("dialog", { name: "Device sync" })
+    await ownerDialog.getByRole("button", { name: "Add someone" }).click()
+    await ownerDialog.getByRole("button", { name: "Generate link" }).click()
+    joining = lighthouse("join", await ownerDialog.getByLabel("Pairing link").inputValue(), directory)
+    const joined = output(joining, /Lighthouse joined/, 90_000)
+    await page.getByLabel("Participant role").selectOption("editor")
+    await page.getByRole("button", { name: "Approve access" }).click()
+    await joined
+    joining = undefined
+    await ownerDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    server = lighthouse(join(directory, "config.json"))
+    server.stderr.on("data", chunk => { serverErrors += String(chunk) })
+    await output(server, /Lighthouse .* listening/, 30_000)
+    await addLead(page, "Owner online")
+    const state = join(directory, "state.json")
+    await expect.poll(() => stateContains(state, "Owner online"), { timeout: 25_000 }).toBe(true)
+
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    await ownerDialog.getByRole("button", { name: "Add someone" }).click()
+    await ownerDialog.getByRole("button", { name: "Generate link" }).click()
+    await guest.goto(await ownerDialog.getByLabel("Pairing link").inputValue())
+    const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
+    await guestDialog.getByRole("button", { name: "Accept and join" }).click()
+    await page.getByLabel("Participant role").selectOption("editor")
+    await page.getByRole("button", { name: "Approve access" }).click()
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+      .catch(async error => {
+        throw new Error(`${error}\nOwner sync: ${await ownerDialog.innerText()}\nGuest sync: ${await guestDialog.innerText()}\nNative errors: ${serverErrors}`)
+      })
+    await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+    await expect(guest.getByRole("button", { name: "Open Owner online — Engineer" })).toBeVisible({ timeout: 30_000 })
+    await page.close()
+    await addLead(guest, "Owner offline")
+    await expect.poll(() => stateContains(state, "Owner offline"), { timeout: 40_000 }).toBe(true)
+      .catch(error => { throw new Error(`${error}\nNative errors: ${serverErrors}`) })
+    await stop(server)
+    server = undefined
+    await addLead(guest, "Lighthouse offline")
+    server = lighthouse(join(directory, "config.json"))
+    server.stderr.on("data", chunk => { serverErrors += String(chunk) })
+    await output(server, /Lighthouse .* listening/, 30_000)
+    await expect.poll(() => stateContains(state, "Lighthouse offline"), { timeout: 40_000 }).toBe(true)
+      .catch(error => { throw new Error(`${error}\nNative errors: ${serverErrors}`) })
+  } finally {
+    await stop(joining)
+    await stop(server)
+    await guestContext.close()
+    await rm(temporary, { recursive: true, force: true })
+  }
+})
