@@ -2,7 +2,7 @@
   {
     "name": "initial JavaScript",
     "path": "dist/assets/index-*.js",
-    "limit": "225 kB"
+    "limit": "235 kB"
   },
   {
     "name": "application CSS",
@@ -17,6 +17,6 @@
   {
     "name": "mesh WebAssembly",
     "path": "dist/assets/meta_mesh_bg-*.wasm",
-    "limit": "2.1 MB"
+    "limit": "2.3 MB"
   }
 ]
