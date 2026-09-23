@@ -304,11 +304,17 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     localGrant: WorkspaceGrant | undefined): Promise<void> {
     const ownerCertificates = await this.verifyInvitationAuthority(workspaceId, envelope, profile, localGrant)
     const previous = await this.store.getWorkspaceCredential(workspaceId)
+    const previousAuthority = await this.store.getWorkspaceAuthority(workspaceId)
+    if (previousAuthority && (previousAuthority.ownerPersonId !== envelope.ownerPersonId || previousAuthority.ownerPublicKey !== envelope.ownerPublicKey)) {
+      throw new Error("Workspace authority conflict: this device and the invitation name different owners. Existing permissions were preserved.")
+    }
+    const retained = previous ?? previousAuthority
     const credential: WorkspaceMeshCredential = {
       version: 1, workspaceId, ownerPersonId: envelope.ownerPersonId, ownerPublicKey: envelope.ownerPublicKey,
-      ownerCertificates, ownerHistory: envelope.ownerHistory, transportSecret: envelope.transportSecret, epoch: Math.max(previous?.epoch ?? 1, envelope.epoch),
+      ownerCertificates, ownerHistory: envelope.ownerHistory, transportSecret: envelope.transportSecret,
+      epoch: Math.max(retained?.epoch ?? 1, envelope.epoch, localGrant?.payload.accessEpoch ?? 1),
       updatedAt: new Date().toISOString(), ...(localGrant ? { localGrant } : {}),
-      catalog: { ...meshCatalog(previous ?? {} as WorkspaceMeshCredential), revocations: previous ? revocations(previous) : [], ownershipTransfers: envelope.ownershipTransfers ?? [], successionPolicy: undefined,
+      catalog: { ...(retained ? meshCatalog(retained) : {}), revocations: retained ? revocations(retained) : [], ownershipTransfers: envelope.ownershipTransfers ?? [], successionPolicy: undefined,
         successionVotes: [], successionClaims: [] },
     }
     await this.store.putWorkspaceCredential(credential)
@@ -339,7 +345,13 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
 
   async nextAccessEpoch(workspaceId: string): Promise<number> {
     const credential = await this.store.getWorkspaceCredential(workspaceId)
-    return (credential?.epoch ?? 0) + 1
+    const issued = await defaultProofStore.listGrants(workspaceId)
+    return Math.max(
+      credential?.epoch ?? 0,
+      ...issued.map(grant => grant.payload.accessEpoch ?? 1),
+      ...(credential ? departures(credential).map(value => value.record.payload.accessEpoch) : []),
+      ...(credential ? revocations(credential).map(value => value.payload.epoch) : []),
+    ) + 1
   }
 
   async exportWorkspace(workspaceId: string): Promise<MeshExport> {

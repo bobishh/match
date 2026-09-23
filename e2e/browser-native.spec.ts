@@ -3,10 +3,10 @@ import * as Automerge from "@automerge/automerge"
 import { expect, test } from "@playwright/test"
 import { profileFromIdentitySeedForDevice } from "@meta-uber/mesh-identity"
 import { encodePairingFrame } from "@meta-uber/mesh-pairing"
-import { createPeerAdvertisement, createWorkspaceGrant } from "@meta-uber/mesh-workspace"
+import { createPeerAdvertisement, createWorkspaceDeviceRevocation, createWorkspaceGrant } from "@meta-uber/mesh-workspace"
 import "../src/testSetup"
 
-test("Given a signed editor and native Rust peer, when they sync, then documents converge and unknown or forged peers are denied", async ({ page }) => {
+test("Given a signed editor and native Rust peer, when they sync and revoke access, then documents converge and further access is denied", async ({ page }) => {
   test.setTimeout(180_000)
   const workspaceId = "browser-native-e2e"
   const secret = "browser-native-e2e-secret"
@@ -47,15 +47,41 @@ test("Given a signed editor and native Rust peer, when they sync, then documents
       return { frame: Array.from(encodePairingFrame("mesh-handshake-request", secret,
         new TextEncoder().encode(JSON.stringify(payload)))), payload }
     })
+    await page.exposeFunction("revokeEditor", async (documentBytes: number[]) => {
+      const document = Automerge.load(Uint8Array.from(documentBytes))
+      const revocation = await createWorkspaceDeviceRevocation(owner, workspaceId,
+        editor.identity.personId, editor.device.deviceId, Automerge.getHeads(document), [owner.certificate])
+      const updated = { ...snapshot, document: documentBytes,
+        deviceRevocations: [{ record: revocation.record, signer: revocation.authority }] }
+      const acknowledgement = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("Native authority update timed out")), 10_000)
+        const onData = (chunk: Uint8Array) => {
+          if (String(chunk).includes("authority-updated")) {
+            clearTimeout(timer)
+            native.stdout.off("data", onData)
+            resolve()
+          }
+        }
+        native.stdout.on("data", onData)
+      })
+      native.stdin.write(`${JSON.stringify(updated)}\n`)
+      await acknowledgement
+      return updated
+    })
     await page.goto("/")
     const source = Automerge.save(Automerge.from({ browser: "from-wasm" }))
     const result = await page.evaluate(async ({ remote, bytes, localDeviceId, snapshot }) => {
       const { startIrohBrowserNode } = await import("/src/iroh.ts")
       const { meshRustRuntime } = await import("/vendor/meta-mesh/packages/mesh-replication/src/runtime.ts")
+      const { WasmMeshAuthenticatedSessions } = await import("/vendor/meta-mesh/packages/mesh-transport/wasm/meta_mesh.js")
       const signedHandshake = (globalThis as typeof globalThis & {
         signedHandshake: (endpoint: string, withGrant: boolean) => Promise<{ frame: number[]; payload: unknown }>
       }).signedHandshake
+      const revokeEditor = (globalThis as typeof globalThis & {
+        revokeEditor: (documentBytes: number[]) => Promise<unknown>
+      }).revokeEditor
       const node = await startIrohBrowserNode()
+      const sessions = new WasmMeshAuthenticatedSessions()
       const engine = meshRustRuntime().createAutomergeSyncEngine(localDeviceId)
       engine.loadDocument("browser-native-e2e", "document", Uint8Array.from(bytes))
       try {
@@ -81,6 +107,8 @@ test("Given a signed editor and native Rust peer, when they sync, then documents
         const signed = await signedHandshake(node.endpointId, true)
         const wasmAdmission = meshRustRuntime().state.admitMeshPeer(signed.payload, snapshot, node.endpointId, Date.now())
         if (wasmAdmission.deviceId !== localDeviceId || wasmAdmission.role !== "editor") throw new Error("WASM admission diverged")
+        sessions.admit(signed.payload, snapshot, node.endpointId, Date.now())
+        if (sessions.peer("browser-native-e2e", node.endpointId)?.deviceId !== localDeviceId) throw new Error("WASM session registry lost admitted peer")
         const admission = await rpc({ kind: "handshake", frame: signed.frame })
         if (admission.deviceId !== localDeviceId) throw new Error("Wrong admitted device")
         let frame = engine.generate("document", remote, true, null)
@@ -99,6 +127,20 @@ test("Given a signed editor and native Rust peer, when they sync, then documents
         }
         if (!converged) throw new Error("Automerge sync did not converge")
         const native = await rpc({ kind: "read" })
+        const revokedSnapshot = await revokeEditor(native.document)
+        const evicted = sessions.refresh(revokedSnapshot, Date.now())
+        if (evicted.length !== 1 || evicted[0] !== node.endpointId || sessions.peer("browser-native-e2e", node.endpointId) !== null) {
+          throw new Error("WASM session registry retained revoked device")
+        }
+        let wasmRevoked = false
+        try { meshRustRuntime().state.admitMeshPeer(signed.payload, revokedSnapshot, node.endpointId, Date.now()) }
+        catch { wasmRevoked = true }
+        if (!wasmRevoked) throw new Error("WASM retained revoked device")
+        const deniedAfterRevocation = await rpc({ kind: "read" }).then(() => "accepted", error => String(error.message))
+        if (deniedAfterRevocation !== "Unauthenticated mesh peer") throw new Error(`Revoked peer: ${deniedAfterRevocation}`)
+        const revokedHandshake = await rpc({ kind: "handshake", frame: signed.frame })
+          .then(() => "accepted", error => String(error.message))
+        if (revokedHandshake !== "Mesh peer access is revoked") throw new Error(`Revoked handshake: ${revokedHandshake}`)
         await connection.close()
         return { browser: Array.from(engine.saveDocument("document")), native: native.document }
       } finally {

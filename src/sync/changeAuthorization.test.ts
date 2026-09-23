@@ -352,7 +352,7 @@ it("lets only the owner sign verified discriminator cleanup, without accepting a
   expect(pendingHistoryRepair(local.id)).toBe(1)
   await expect(repairPendingHistory(local.id, member)).rejects.toThrow(/owner/i)
   const repaired = await repairPendingHistory(local.id, owner)
-  await expect(validateIncomingChanges(local, Automerge.load(repaired.bytes), authorizationBundle(local, repaired.authorization))).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(local, Automerge.load(repaired.bytes), repaired.authorization)).resolves.toBeUndefined()
   expect(Automerge.getHeads(Automerge.load(repaired.bytes))).toEqual(Automerge.getHeads(remote))
   const malicious = Automerge.change(Automerge.clone(local), {message:"Remove item discriminators"}, d => {
     delete (Object.values(d.entities).find(isItem) as any).kind

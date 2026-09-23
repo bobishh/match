@@ -169,6 +169,8 @@ test("Given signed workspace authority, when transport state disappears, then ow
     await expect(guest.getByLabel("Mesh empty")).toBeVisible()
 
     await guest.evaluate(async () => {
+      const workspaceId = await (await import("/src/localDb.ts")).readLocal("match.active_workspace_id")
+      if (!workspaceId) throw new Error("Active workspace missing")
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open("match-peer-catalog-v1")
         request.onsuccess = () => resolve(request.result)
@@ -176,7 +178,6 @@ test("Given signed workspace authority, when transport state disappears, then ow
       })
       const transaction = db.transaction("authority", "readwrite")
       const store = transaction.objectStore("authority")
-      const workspaceId = localStorage.getItem("match.active_workspace_id")!
       const authority = await new Promise<any>((resolve, reject) => {
         const request = store.get(workspaceId)
         request.onsuccess = () => resolve(request.result)
@@ -203,13 +204,13 @@ test("Given a paired editor, when the invitation tab reloads repeatedly, then tr
   try {
     await Promise.all([page.goto("/"), guest.goto("/")])
     const invite = await pairWorkspace(page, guest)
-    const identity = await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)
+    const identity = await guest.evaluate(async () => JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)
     for (let i = 0; i < 2; i++) {
       await guest.reload()
       await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
       await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
       await expect(guest.getByRole("dialog", { name: "Device sync" })).toHaveCount(0)
-      expect(await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)).toBe(identity)
+      expect(await guest.evaluate(async () => JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)).toBe(identity)
       await addLead(guest, `Reload ${i}`)
       await expect(page.getByRole("button", { name: `Open Reload ${i} — Engineer` })).toBeVisible({ timeout: 20_000 })
       await addLead(page, `Host after reload ${i}`)
@@ -647,23 +648,29 @@ test("Given chat history exceeds one control frame, when paired peers reconnect,
   try {
     await page.goto("/")
     await ensureJobSearchWorkspace(page)
-    const size = await page.evaluate(async () => {
+    const before = await page.evaluate(async () => {
       const { useMatch } = await import("/src/state.ts")
-      const { sendChatMessage, exportChat } = await import("/src/chat/service.ts")
+      const { sendChatMessage, exportChat, loadChat } = await import("/src/chat/service.ts")
       const id = useMatch().getActiveDoc()!.id
       for (let i = 0; i < 40; i++) await sendChatMessage(id, `${i}: ${"x".repeat(7500)}`)
-      return new TextEncoder().encode(JSON.stringify(await exportChat(id))).length
+      const exported = await exportChat(id)
+      return { id, size: new TextEncoder().encode(JSON.stringify(exported)).length,
+        count: (await loadChat(id)).messages.length }
     })
-    expect(size).toBeGreaterThan(256 * 1024)
+    expect(before.size).toBeGreaterThan(256 * 1024)
+    expect(before.count).toBe(40)
     await guest.goto("/")
     await pairWorkspace(page, guest)
-    await guest.reload()
-    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
-    await expect.poll(() => guest.evaluate(async () => {
+    expect(await page.evaluate(async () => (await import("/src/state.ts")).useMatch().getActiveDoc()!.id)).toBe(before.id)
+    const chatCount = () => guest.evaluate(async () => {
       const { useMatch } = await import("/src/state.ts")
       const { loadChat } = await import("/src/chat/service.ts")
       return (await loadChat(useMatch().getActiveDoc()!.id)).messages.length
-    })).toBe(40)
+    })
+    await expect.poll(chatCount, { timeout: 20_000 }).toBe(40)
+    await guest.reload()
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect.poll(chatCount, { timeout: 20_000 }).toBe(40)
     await addLead(guest, "After large control")
     await expect(page.getByRole("button", { name: "Open After large control — Engineer" })).toBeVisible({ timeout: 20_000 })
     expect(failures).toEqual([])

@@ -173,7 +173,10 @@ export async function repairPendingHistory(workspaceId: string, profile: LocalPr
     for (let offset = 0; offset < pending.hashes.length; offset += 256) {
       await authorizeLocalChanges(doc, profile, pending.hashes.slice(offset, offset + 256))
     }
-    return { bytes: pending.bytes, authorization: [...pending.authorization, ...await records(workspaceId)] }
+    const bundle = await exportAuthorizationBundle(pending.bytes, profile)
+    return { bytes: pending.bytes, authorization: {
+      ...bundle, records: [...pending.authorization, ...bundle.records],
+    } }
   } finally { Automerge.free(doc) }
 }
 
@@ -285,10 +288,10 @@ export async function exportAuthorizations(bytes: Uint8Array) {
  * them. The receiver verifies this evidence before it uses any of it and does
  * not store it as a side effect of validation.
  */
-export async function exportAuthorizationBundle(bytes: Uint8Array): Promise<IncomingAuthorizationBundle> {
+export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<IncomingAuthorizationBundle> {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
   const authority = (await storedWorkspaceAuthority(doc.id)).authority
-  const profile = await bootstrapIdentity("My Device")
+  const profile = knownProfile ?? await bootstrapIdentity("My Device")
   const evidence = workspaceWriteAuthorityEvidence(doc, authority) ??
     (profile.identity.personId === doc.ownerPersonId ? {
       genesisOwner: { personId: profile.identity.personId, publicKey: profile.identity.publicKey, certificates: [profile.certificate] },

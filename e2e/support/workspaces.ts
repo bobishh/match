@@ -18,6 +18,7 @@ export async function ensureJobSearchWorkspace(page: Page): Promise<void> {
   const existing = workspaces.getByRole("button", { name: /^jobs(?: Active)?$/ })
   if (await existing.count()) {
     await existing.click()
+    await page.getByRole("button", { name: /Add lead to/ }).first().waitFor()
     return
   }
 
@@ -26,4 +27,5 @@ export async function ensureJobSearchWorkspace(page: Page): Promise<void> {
   await create.getByLabel("Title", { exact: true }).fill("Job search")
   await create.getByRole("radio", { name: "Job search" }).check()
   await create.getByRole("button", { name: "Create", exact: true }).click()
+  await page.getByRole("button", { name: /Add lead to/ }).first().waitFor()
 }

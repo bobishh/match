@@ -1,5 +1,13 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
+
+function stored(page: Page, key = "match.local_profile.v1") {
+  return page.evaluate(async name => (await import("/src/localDb.ts")).readLocal(name), key)
+}
+
+async function profile(page: Page) {
+  return JSON.parse((await stored(page))!) as { identity: { personId: string }; device: { deviceId: string } }
+}
 
 test.describe("Scoped Sync Outer Scenarios", () => {
   test("Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment", async ({ browser, page }) => {
@@ -67,7 +75,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
       await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toBeVisible()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
-      const identity = (target: typeof page) => target.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)
+      const identity = async (target: Page) => (await profile(target)).identity.personId
       expect(await identity(secondPage)).toBe(await identity(page))
       await secondPage.reload()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
@@ -273,7 +281,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await expect(hostDialog.getByText("Device enrolled")).toBeVisible()
       await expect(secondDialog.getByText("Device enrolled")).toBeVisible()
 
-      const identity = await secondPage.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)
+      const identity = (await profile(secondPage)).identity.personId
       await secondPage.reload()
       await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
@@ -286,7 +294,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondContext.setOffline(false)
       await secondPage.evaluate(() => window.dispatchEvent(new Event("online")))
       await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
-      expect(await secondPage.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId)).toBe(identity)
+      expect((await profile(secondPage)).identity.personId).toBe(identity)
     } finally {
       await secondContext.close()
     }
@@ -397,8 +405,8 @@ test("Given a real pending device request, when declined, then guest sees refusa
   try {
     const guest = await context.newPage()
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
-    await expect.poll(() => guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).not.toBeNull()
-    const profile = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
+    await expect.poll(() => stored(guest)).not.toBeNull()
+    const originalProfile = await stored(guest)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add this device" }).waitFor({ state: "visible" })
     if (await dialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).count()) await dialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).check()
@@ -406,7 +414,7 @@ test("Given a real pending device request, when declined, then guest sees refusa
     await host.getByRole("button", { name: "Decline device" }).click()
     await expect(dialog.getByRole("alert")).toContainText("declined")
     await expect(host.getByRole("alert")).toContainText("declined")
-    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(profile)
+    expect(await stored(guest)).toBe(originalProfile)
     await expect(dialog.getByText("Device enrolled", { exact: true })).toHaveCount(0)
   } finally { await context.close() }
 })
@@ -423,7 +431,7 @@ test("Given approved enrollment but failed storage, when receiving identity, the
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await expect(dialog.getByRole("button", { name: "Add this device" })).toBeVisible()
-    const original = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
+    const original = await stored(guest)
     await guest.evaluate(async () => {
       const { setStorageFailureHookForTest } = await import('/src/storage.ts')
       setStorageFailureHookForTest(true)
@@ -435,7 +443,7 @@ test("Given approved enrollment but failed storage, when receiving identity, the
     await expect(dialog.getByRole("alert")).toContainText(/storage|save|injected/i)
     await expect(host.getByRole("alert")).toBeVisible()
     await expect(host.getByText("Device enrolled", { exact: true })).toHaveCount(0)
-    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(original)
+    expect(await stored(guest)).toBe(original)
   } finally { await context.close() }
 })
 
@@ -463,7 +471,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
     await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
     await host.getByRole("button", { name: "Close", exact: true }).first().click()
     await expect(guest.getByLabel("Workspace role: visitor")).toBeVisible()
-    const deviceId = await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).device.deviceId)
+    const deviceId = (await profile(guest)).device.deviceId
     await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     await host.getByRole("button", { name: "Add someone", exact: true }).click()
@@ -478,7 +486,7 @@ test("Given a visitor already has the owner's board, when the same device is enr
     await expect(guest.getByLabel("Workspace role: owner")).toBeVisible()
     await expect(guest.getByRole("button", { name: "Open Existing shared board — Engineer" })).toBeVisible()
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
-    expect(await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).device.deviceId)).toBe(deviceId)
+    expect((await profile(guest)).device.deviceId).toBe(deviceId)
   } finally { await context.close() }
 })
 
@@ -505,25 +513,25 @@ test("Given existing data under another identity, when enrollment is approved, t
     await oldIdentityDialog.getByRole("button", { name: "Add someone" }).click()
     await oldIdentityDialog.getByRole("button", { name: "Generate link" }).click()
     await expect(oldIdentityDialog.getByLabel("Pairing link")).toHaveValue(/workspace-join/)
-    const original = await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))
+    const original = await stored(guest)
     await guest.goto(await host.getByLabel("Pairing link").inputValue())
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add this device" }).waitFor({ state: "visible" })
     await expect(dialog.getByRole("alert")).toContainText("Identity conflict")
     await expect(dialog.getByRole("button", { name: "Add this device" })).toBeDisabled()
-    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(original)
+    expect(await stored(guest)).toBe(original)
     if (await dialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).count()) await dialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).check()
     await dialog.getByRole("button", { name: "Add this device" }).click()
     await expect(host.getByRole("button", { name: "Approve device" })).toBeVisible()
-    expect(await guest.evaluate(() => localStorage.getItem("match.local_profile.v1"))).toBe(original)
+    expect(await stored(guest)).toBe(original)
     await host.getByRole("button", { name: "Approve device" }).click()
     await expect(dialog.getByText("Device enrolled", { exact: true })).toBeVisible()
     await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
     await expect(guest.getByLabel("Workspace role: owner")).toBeVisible()
-    const enrolled = await guest.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!))
+    const enrolled = await profile(guest)
     expect(enrolled.device.deviceId).toBe(JSON.parse(original!).device.deviceId)
-    expect(enrolled.identity.personId).toBe(await page.evaluate(() => JSON.parse(localStorage.getItem("match.local_profile.v1")!).identity.personId))
-    expect(await guest.evaluate(personId => localStorage.getItem(`match.local_profile.v1.backup.${personId}`), JSON.parse(original!).identity.personId)).toBe(original)
+    expect(enrolled.identity.personId).toBe((await profile(page)).identity.personId)
+    expect(await stored(guest, `match.local_profile.v1.backup.${JSON.parse(original!).identity.personId}`)).toBe(original)
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await expect(guest.getByText(/Invalid workspace grant signature/)).toHaveCount(0)
     await guest.getByRole("button", { name: "Open workspaces" }).click()

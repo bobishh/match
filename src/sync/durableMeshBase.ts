@@ -163,11 +163,11 @@ export function assertRequiredMeshCapabilities(capabilities: unknown): asserts c
   meshRustRuntime().state.validateMeshCapabilities(capabilities)
 }
 
-export function meshCatalog(credential: WorkspaceMeshCredential): MeshCatalog {
+export function meshCatalog(credential: Pick<WorkspaceMeshCredential, "catalog">): MeshCatalog {
   return (credential.catalog as MeshCatalog | undefined) ?? {}
 }
 
-export function revocations(credential: WorkspaceMeshCredential): WorkspaceRevocation[] {
+export function revocations(credential: Pick<WorkspaceMeshCredential, "catalog">): WorkspaceRevocation[] {
   const value = meshCatalog(credential)
   return Array.isArray(value?.revocations) ? value.revocations : []
 }
