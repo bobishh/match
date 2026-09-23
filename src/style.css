@@ -13,7 +13,7 @@
   --panel: #fffdf7;
   --soft: #e9e5db;
   --shadow: 6px 6px 0 var(--ink);
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--site-font-sans);
   color: var(--ink);
   background: var(--paper);
   font-synthesis: none;
@@ -65,7 +65,7 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .boot-column .column-header { min-height: 56px; background: var(--soft); border-color: var(--soft); }
 .boot-card { height: 108px; margin: 14px; background: var(--paper); }
 .startup-error { display: flex; align-items: center; gap: 16px; }
-.topbar { position: sticky; top: 0; z-index: 20; min-height: 76px; padding: 0 clamp(18px, 4vw, 56px); border-bottom: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(243, 240, 232, .96); }
+.topbar { position: sticky; top: 0; z-index: 20; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(243, 240, 232, .96); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-button { min-height: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
 .brand-button:hover { transform: none; box-shadow: none; }
@@ -77,11 +77,11 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .owner-crown { position: absolute; z-index: 1; top: -12px; left: 50%; color: var(--ink); font: 900 12px/1 Georgia, serif; transform: translateX(-50%); }
 .workspace-role-icon { position: absolute; z-index: 1; top: -14px; left: 50%; width: 13px; height: 13px; color: var(--ink); transform: translateX(-50%); }
 .workspace-role-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: square; stroke-linejoin: miter; }
-.brand h1 { font-size: clamp(1rem, 4vw, 2rem); font-weight: 950; line-height: 1; letter-spacing: -.06em; }
+.brand h1 { margin: 0; font-size: var(--site-brand-size); font-weight: var(--site-brand-weight); line-height: 1; letter-spacing: var(--site-brand-tracking); }
 .brand-separator { margin: 0 .12em; color: var(--muted); font-weight: 500; }.workspace-heading { color: var(--muted); font-weight: 750; letter-spacing: -.035em; }
 .brand p { display: none; }
 .top-actions, .toolbar, .card-meta, .card-docs, .dialog-actions, .section-heading, .column-actions { display: flex; align-items: center; gap: 10px; }
-.button { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; color: inherit; background: white; font-weight: 800; text-decoration: none; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; color: inherit; background: white; font-weight: var(--site-ui-weight); text-decoration: none; }
 .button:hover { transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--ink); }
 .button-primary { color: white; background: var(--ink); }
 .button-danger { color: white; background: #9d2f21; }
@@ -97,7 +97,7 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .sync-success { margin: 14px 0 0; padding: 10px; border: 2px solid var(--green); color: var(--ink); background: #e7f8eb; font: 12px ui-monospace, monospace; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-.toolbar { width: min(1480px, 100%); margin: 0 auto; padding: 12px clamp(16px, 4vw, 56px); border-bottom: 2px solid var(--line); display: grid; grid-template-columns: minmax(240px, 360px) minmax(0, 1fr) auto; align-items: end; gap: 18px; background: var(--paper); }
+.toolbar { width: min(var(--site-content-max), 100%); margin: 0 auto; padding: 12px var(--site-gutter); border-bottom: 2px solid var(--line); display: grid; grid-template-columns: minmax(240px, 360px) minmax(0, 1fr) auto; align-items: end; gap: 18px; background: var(--paper); }
 .toolbar-spacer { display: none; }
 .search-field { display: flex; align-items: center; gap: 9px; width: 100%; min-width: 0; padding: 0 11px; border: 2px solid var(--line); background: white; }
 .search-field span { font-size: 20px; line-height: 1; }

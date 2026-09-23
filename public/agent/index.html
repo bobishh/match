@@ -6,15 +6,18 @@
     <meta name="description" content="Match is a local-first workspace board and item kernel with Automerge durability, scoped sync, and WebMCP tools." />
     <link rel="canonical" href="/agent/" />
     <title>Match — agent guide</title>
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/assets/site-foundation.css" />
     <style>
       :root { --paper: #f3f0e8; --ink: #171717; --muted: #6b675f; --line: #171717; --yellow: #ffd43b; --blue: #1f6feb; --red: #ff5a36; --green: #69db7c; --panel: #fffdf7; --soft: #e9e5db; }
       * { box-sizing: border-box; }
       html { min-width: 320px; background: var(--paper); }
-      body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--paper); font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-synthesis: none; text-rendering: optimizeLegibility; }
+      body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--paper); font-family: var(--site-font-sans); font-synthesis: none; text-rendering: optimizeLegibility; }
       a { color: inherit; }
       code, .eyebrow, .route, .badge, .tool-name, .pipeline span { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-      .topbar { position: sticky; top: 0; z-index: 5; min-height: 76px; padding: 0 clamp(18px, 4vw, 56px); border-bottom: 2px solid var(--line); display: flex; align-items: center; background: rgba(243, 240, 232, .96); }
-      .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: clamp(1rem, 4vw, 2rem); font-weight: 950; letter-spacing: -.06em; line-height: 1; text-decoration: none; }
+      .topbar { position: sticky; top: 0; z-index: 5; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; background: rgba(243, 240, 232, .96); }
+      .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: var(--site-brand-size); font-weight: var(--site-brand-weight); letter-spacing: var(--site-brand-tracking); line-height: 1; text-decoration: none; }
       .brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--red); }
       main { width: min(1080px, 100%); margin: 0 auto; padding: clamp(34px, 7vw, 82px) clamp(16px, 4vw, 56px) 80px; }
       .hero { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 28px; align-items: end; margin-bottom: 34px; }
@@ -44,7 +47,7 @@
       footer { width: min(1080px, 100%); margin: 0 auto; padding: 0 clamp(16px, 4vw, 56px) 52px; }
       footer a { color: var(--blue); font-weight: 900; text-decoration-thickness: 2px; text-underline-offset: 4px; }
       @media (max-width: 720px) { .hero { grid-template-columns: 1fr; }.hero-card { max-width: 300px; } }
-      @media (max-width: 500px) { .topbar { min-height: 64px; }.brand { font-size: 1.35rem; } h1 { font-size: 3.3rem; }.guide-card { box-shadow: 4px 4px 0 var(--ink); } }
+      @media (max-width: 500px) { .topbar { min-height: 64px; } h1 { font-size: 3.3rem; }.guide-card { box-shadow: 4px 4px 0 var(--ink); } }
     </style>
   </head>
   <body>
