@@ -312,7 +312,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     const credential: WorkspaceMeshCredential = {
       version: 1, workspaceId, ownerPersonId: envelope.ownerPersonId, ownerPublicKey: envelope.ownerPublicKey,
       ownerCertificates, ownerHistory: envelope.ownerHistory, transportSecret: envelope.transportSecret,
-      epoch: Math.max(retained?.epoch ?? 1, envelope.epoch, localGrant?.payload.accessEpoch ?? 1),
+      epoch: Math.max(retained?.epoch ?? 1, envelope.epoch),
       updatedAt: new Date().toISOString(), ...(localGrant ? { localGrant } : {}),
       catalog: { ...(retained ? meshCatalog(retained) : {}), revocations: retained ? revocations(retained) : [], ownershipTransfers: envelope.ownershipTransfers ?? [], successionPolicy: undefined,
         successionVotes: [], successionClaims: [] },

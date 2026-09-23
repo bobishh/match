@@ -167,7 +167,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
         return await createWorkspaceRevocation(owner.profile, workspaceId, personId, epoch, Automerge.getHeads(doc))
       } finally { Automerge.free(doc) }
     },
-    epoch: credential => credential.epoch,
+    nextAccessEpoch: workspaceId => this.nextAccessEpoch(workspaceId),
     mergeRevocations: (credential, records, disconnect) => this.mergeRevocations(credential, records, disconnect),
     refreshSuccessionPolicy: workspaceId => this.refreshSuccessionPolicy(workspaceId),
     publishAll: () => this.publishAll(),
@@ -322,12 +322,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       current.push(record)
     }
     const merged = meshRustRuntime().state.canonicalRevocations(current) as WorkspaceRevocation[]
-    const epoch = Math.max(credential.epoch, ...merged.map(record => record.payload.epoch))
-    await this.store.putWorkspaceCredential({ ...credential, epoch, updatedAt: new Date().toISOString(),
+    await this.store.putWorkspaceCredential({ ...credential, updatedAt: new Date().toISOString(),
       catalog: { ...meshCatalog(credential), revocations: merged } })
     await this.applyRevocationsToPeers({ ...credential, catalog: { ...meshCatalog(credential), revocations: merged } }, new Map(merged.map(record => [record.payload.personId, record])), disconnect)
     const localGrant = credential.localGrant as WorkspaceGrant | undefined
-    if (localGrant && isGrantRevoked({ ...credential, epoch, catalog: { ...meshCatalog(credential), revocations: merged } },
+    if (localGrant && isGrantRevoked({ ...credential, catalog: { ...meshCatalog(credential), revocations: merged } },
       localGrant.payload.personId, localGrant)) throw new Error("Workspace access revoked")
   }
 
@@ -339,7 +338,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       merged.set(JSON.stringify(value), value)
     }
     if (merged.size > 512) throw new Error("Too many workspace departures")
-    const next = { ...credential, epoch: Math.max(credential.epoch, ...[...merged.values()].map(value => value.record.payload.accessEpoch)),
+    const next = { ...credential,
       catalog: { ...meshCatalog(credential), departures: [...merged.values()].sort((a, b) =>
         a.record.payload.personId.localeCompare(b.record.payload.personId) || a.record.payload.accessEpoch - b.record.payload.accessEpoch) } }
     await this.store.putWorkspaceCredential(next)
@@ -419,12 +418,13 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const peers = (await this.peerInstances(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt && peer.advertisement)
     if (!peers.length) throw new Error("No active membership found for this person")
     credential.ownerCertificates = uniqueCertificates(profile, [...credential.ownerCertificates as DeviceCertificate[], ...await defaultProofStore.listCertificates()])
-    const epoch = Math.max(credential.epoch, ...peers.map(peer => ((peer.advertisement as WorkspaceMemberBundle).grant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1)) + 1
+    const epoch = await this.nextAccessEpoch(workspaceId)
     const grant = await createWorkspaceGrant(profile, workspaceId, personId, "editor", epoch)
-    await this.store.putWorkspaceCredential({ ...credential, epoch })
+    await defaultProofStore.putGrant(grant.payload.grantId, grant)
+    await this.store.putWorkspaceCredential(credential)
     for (const peer of peers) {
       const bundle = { ...peer.advertisement as WorkspaceMemberBundle, grant, ownerPublicKey: credential.ownerPublicKey, ownerCertificates: credential.ownerCertificates as DeviceCertificate[] }
-      await this.putVerifiedBundle({ ...credential, epoch }, bundle)
+      await this.putVerifiedBundle(credential, bundle)
     }
     await this.refreshSuccessionPolicy(workspaceId)
     await this.notify()
