@@ -5,7 +5,17 @@ import {
   nameKey,
   randomDisplayName,
   resolveDisplayNames,
+  resolveDisplayNamesWithIdentity,
 } from "./names"
+
+it("uses identity name when this workspace still stores an older chat announcement", () => {
+  const names = resolveDisplayNamesWithIdentity([
+    { personId: "self", name: "Swift Mimosa" },
+    { personId: "peer", name: "Bo" },
+  ], { personId: "self", name: "Bo" })
+  expect(names.self).toBe("Bo")
+  expect(names.peer).toMatch(/^Bo · /)
+})
 
 describe("normalizeDisplayName", () => {
   it("trims leading and trailing whitespace", () => {

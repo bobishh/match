@@ -7,5 +7,7 @@ export async function saveIdentityName(name: string, workspaceId: string, refres
   const root = await defaultStorage.loadPersonalRoot()
   if (root) await defaultStorage.savePersonalRoot({ ...root, identity: { ...root.identity, displayName: profile.identity.displayName } })
   await refreshIdentity()
-  await ensureChatProfile(workspaceId)
+  const workspaces = await defaultStorage.listWorkspaces()
+  const ids = [workspaceId, ...workspaces.map(workspace => workspace.id)].filter((id, index, all) => id && all.indexOf(id) === index)
+  await Promise.allSettled(ids.map(id => ensureChatProfile(id)))
 }

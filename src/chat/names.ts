@@ -242,3 +242,17 @@ export function resolveDisplayNames(
   for (const group of groupByName(collectDistinctPeople(people))) assignGroupNames(group, result)
   return result
 }
+
+/** Local identity name wins over any older per-workspace name announcement. */
+export function resolveDisplayNamesWithIdentity(
+  people: readonly { personId: string; name: string }[],
+  identity: { personId: string; name: string },
+): Record<string, string> {
+  if (!identity.personId) return resolveDisplayNames(people)
+  const names = resolveDisplayNames([
+    ...people.filter(person => person.personId !== identity.personId),
+    identity,
+  ])
+  names[identity.personId] = identity.name
+  return names
+}

@@ -1,8 +1,7 @@
-import { bootstrapIdentity, renameIdentity, type LocalProfile } from "../domain/identity"
+import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
 import { defaultProofStore } from "../domain/proofs"
 import { chatStore, type StoredChatMessage, type StoredChatProfile } from "./store"
 import { createChatRecord, verifyChatRecord, type ChatRecord, type ChatAuthority } from "./records"
-import { normalizeDisplayName, validateDisplayName } from "./names"
 import { peerStore } from "../sync/peerStore"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 
@@ -111,14 +110,6 @@ export async function ensureChatProfile(workspaceId: string) {
     publish({ workspaceId, added: [], remote: false, history: true })
     return value
   })
-}
-
-export async function renameChatProfile(workspaceId: string, name: string) {
-  name = normalizeDisplayName(name)
-  const error = validateDisplayName(name)
-  if (error) throw new Error(error)
-  await renameIdentity(name)
-  await ensureChatProfile(workspaceId)
 }
 
 export async function sendChatMessage(workspaceId: string, body: string) {

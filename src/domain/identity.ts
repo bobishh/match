@@ -65,8 +65,8 @@ export function resetIdentityStorageForTest(): void {
 
 export async function bootstrapIdentity(displayName?: string): Promise<LocalProfile> {
   const bootstrap = async () => {
-    const profile = await identityStore.bootstrap(displayName ?? randomDisplayName()) as LocalProfile
-    return profile.identity.displayName === "Match User"
+    const profile = await identityStore.bootstrap(normalizeDisplayName(displayName ?? "") || randomDisplayName()) as LocalProfile
+    return !normalizeDisplayName(profile.identity.displayName) || profile.identity.displayName === "Match User"
       ? await identityStore.rename(randomDisplayName()) as LocalProfile
       : profile
   }

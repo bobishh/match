@@ -93,9 +93,10 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
   )
   const chatWorkspaceId = computed(() => match.ready.value ? match.activeWorkspace.id : "")
   const chatOwnerId = computed(() => { void match.docVersion.value; return match.getActiveDoc()?.ownerPersonId ?? "" })
-  const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId)
+  const identityName = computed(() => { void match.docVersion.value; return match.getCurrentProfile()?.identity.displayName ?? "" })
+  const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId, identityName)
   const sync = useDeviceSync({
-    displayName: () => chat.displayName.value,
+    displayName: () => identityName.value,
     identityChanged: match.refreshIdentity,
     workspace: { subscribe: listener => subscribeWorkspaceAndChat(match.subscribeLocalChanges, listener) },
     workspaceStore: {

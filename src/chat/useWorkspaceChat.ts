@@ -1,11 +1,10 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue"
 import { bootstrapIdentity } from "../domain/identity"
 import { messageOrderKey, type ChatSnapshot } from "./store"
-import { resolveDisplayNames, randomDisplayName } from "./names"
+import { resolveDisplayNamesWithIdentity } from "./names"
 import { readLocal, writeLocal } from "../localDb"
 import {
   ensureChatProfile,
-  renameChatProfile,
   sendChatMessage,
   sendChatTyping,
   subscribeChat,
@@ -30,20 +29,28 @@ type SubscriptionOptions = {
 
 function createChatViews(
   snapshot: Ref<ChatSnapshot>,
-  suggestedName: Ref<string | null>,
+  identityName: Ref<string>,
   personId: Ref<string>,
   ownerId: Ref<string>,
   cursor: Ref<string | null>,
   typing: Ref<ChatTyping[]>
 ) {
-  const names = computed(() => resolveDisplayNames(snapshot.value.profiles.map((profile) => ({ personId: profile.personId, name: profile.name }))))
-  const ownName = computed(() => suggestedName.value ?? snapshot.value.profiles.find((profile) => profile.personId === personId.value)?.name ?? "")
-  const displayName = computed(() => names.value[personId.value] ?? ownName.value)
-  const members = computed(() => snapshot.value.profiles.map((profile) => ({
+  const names = computed(() => resolveDisplayNamesWithIdentity(
+    snapshot.value.profiles.map(profile => ({ personId: profile.personId, name: profile.name })),
+    { personId: personId.value, name: identityName.value },
+  ))
+  const displayName = computed(() => identityName.value)
+  const members = computed(() => {
+    const profiles = snapshot.value.profiles.map(profile => ({ personId: profile.personId, name: profile.name }))
+    if (personId.value && !profiles.some(profile => profile.personId === personId.value)) {
+      profiles.push({ personId: personId.value, name: identityName.value })
+    }
+    return profiles.map((profile) => ({
     personId: profile.personId,
     name: names.value[profile.personId] ?? profile.name,
     role: profile.personId === ownerId.value ? "Owner" : "Member",
-  })).sort((left, right) => left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0))
+    })).sort((left, right) => left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0)
+  })
   const messages = computed(() => snapshot.value.messages.map((message) => ({
     ...message,
     name: names.value[message.personId] ?? `Participant · ${message.personId.slice(0, 6)}`,
@@ -52,7 +59,7 @@ function createChatViews(
     message.personId !== personId.value && (!cursor.value || messageOrderKey(message) > cursor.value)).length)
   const typingPeople = computed(() => [...new Set(typing.value.filter((item) => item.personId !== personId.value)
     .map((item) => item.personId))].map((id) => names.value[id] ?? `Participant · ${id.slice(0, 6)}`))
-  return { names, ownName, displayName, members, messages, unread, typingPeople }
+  return { names, displayName, members, messages, unread, typingPeople }
 }
 
 function subscribeWorkspaceChat(options: SubscriptionOptions): () => void {
@@ -94,14 +101,13 @@ function subscribeWorkspaceChat(options: SubscriptionOptions): () => void {
   }
 }
 
-export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>) {
-  const open = ref(false), loading = ref(false), sending = ref(false), savingName = ref(false)
+export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>, identityName: Ref<string>) {
+  const open = ref(false), loading = ref(false), sending = ref(false)
   const error = ref("")
   const nameError = ref("")
   const personId = ref("")
   const cursor = ref<string | null>(null)
   const snapshot = ref<ChatSnapshot>({ messages: [], profiles: [] })
-  const suggestedName = ref<string | null>(null)
   const toast = ref<{ workspaceId: string; text: string } | null>(null)
   const typing = ref<ChatTyping[]>([])
   let typingExpiryTimer: ReturnType<typeof setTimeout> | undefined
@@ -109,8 +115,8 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
   let typingAnnounced = false
   let lastTypingPublished = 0
   let generation = 0
-  const { names, ownName, displayName, members, messages, unread, typingPeople } = createChatViews(
-    snapshot, suggestedName, personId, ownerId, cursor, typing
+  const { names, displayName, members, messages, unread, typingPeople } = createChatViews(
+    snapshot, identityName, personId, ownerId, cursor, typing
   )
 
   function refreshTyping() {
@@ -166,7 +172,6 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
   watch([workspaceId, ownerId], async () => {
     setTyping(false)
     generation++
-    suggestedName.value = null
     snapshot.value = { messages: [], profiles: [] }
     error.value = ""
     nameError.value = ""
@@ -211,14 +216,6 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>)
     catch (err) { error.value = err instanceof Error ? err.message : "Could not save message. Try again." }
     finally { sending.value = false }
   }
-  async function rename(name: string) {
-    if (savingName.value) return
-    savingName.value = true
-    nameError.value = ""
-    try { await renameChatProfile(workspaceId.value, name); suggestedName.value = null; await refresh() }
-    catch (err) { nameError.value = err instanceof Error ? err.message : "Could not save name" }
-    finally { savingName.value = false }
-  }
-  return { open, loading, sending, savingName, error, nameError, personId, ownName, displayName, members, messages, unread, toast,
-    typingPeople, setTyping, send, rename, randomize: () => { suggestedName.value = randomDisplayName() } }
+  return { open, loading, sending, error, nameError, personId, displayName, members, messages, unread, toast,
+    typingPeople, setTyping, send }
 }
