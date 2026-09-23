@@ -6,7 +6,6 @@ import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createMeshRuntime, type MeshRuntimeState } from "@meta-uber/mesh-runtime"
 import type { defaultProofStore } from "../domain/proofs"
 import {
-  MAX_SUCCESSION_EDITORS,
   type WorkspaceDeparture, type WorkspaceDeviceRevocation, type WorkspaceAuthority, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { acquireMeshInstanceLease } from "./meshInstanceLease"
@@ -134,27 +133,8 @@ export function uniqueCertificates(profile: LocalProfile, certificates: Awaited<
   })
 }
 
-function nonEmptyText(value: unknown): value is string { return typeof value === "string" && value.length > 0 }
-function boundedArray(value: unknown, maximum: number): boolean { return Array.isArray(value) && value.length <= maximum }
-function optionalArray(value: unknown, maximum = Number.MAX_SAFE_INTEGER): boolean {
-  return value === undefined || boundedArray(value, maximum)
-}
-
 export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
-  const item = value as Partial<MeshWorkspaceEnvelope>
-  const required = item.version === 1 && nonEmptyText(item.workspaceId) && nonEmptyText(item.ownerPersonId) &&
-    nonEmptyText(item.ownerPublicKey) && nonEmptyText(item.transportSecret) && Number.isSafeInteger(item.epoch) && item.epoch! >= 1
-  const collections = boundedArray(item.ownerCertificates, 32) && boundedArray(item.peers, 512)
-  assertNoUnsupportedAuthorityEvidence(item)
-  const optional = optionalArray(item.ownerHistory) && optionalArray(item.ownershipTransfers) &&
-    optionalArray(item.successionVotes, MAX_SUCCESSION_EDITORS) &&
-    optionalArray(item.successionClaims, 32)
-  return required && collections && optional
-}
-
-function assertNoUnsupportedAuthorityEvidence(item: Partial<MeshWorkspaceEnvelope>) {
-  if ("breakGlassClaims" in item && (!Array.isArray(item.breakGlassClaims) || item.breakGlassClaims.length > 0))
-    throw new Error("Unsupported legacy break-glass authority evidence")
+  return meshRustRuntime().state.isWorkspaceEnvelope(value)
 }
 
 export type MeshCatalog = { departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
@@ -194,8 +174,7 @@ export function revokedPersonIds(credential: WorkspaceMeshCredential) {
  * grants are generation 1, so old persisted documents still verify normally. */
 export function isGrantRevoked(credential: WorkspaceMeshCredential, personId: string,
   grant: { payload?: { accessEpoch?: unknown } } | undefined): boolean {
-  const accessEpoch = typeof grant?.payload?.accessEpoch === "number" ? grant.payload.accessEpoch : 1
-  return hasLeftWorkspace(credential, personId, grant as WorkspaceGrant | undefined) || revocations(credential).some(record => record.payload.personId === personId && record.payload.epoch >= accessEpoch)
+  return meshRustRuntime().state.isGrantRevoked(credential, personId, grant ?? null)
 }
 
 export abstract class DurableMeshBase {
@@ -384,11 +363,10 @@ export function deviceRevocations(credential: WorkspaceMeshCredential): Workspac
   return meshCatalog(credential).deviceRevocations ?? []
 }
 export function isDeviceRevoked(credential: WorkspaceMeshCredential, personId: string, deviceId: string): boolean {
-  return deviceRevocations(credential).some(value => value.record.payload.personId === personId && value.record.payload.deviceId === deviceId)
+  return meshRustRuntime().state.isDeviceRevoked(credential, personId, deviceId)
 }
 
 export function departures(credential: WorkspaceMeshCredential): WorkspaceDeparture[] { return meshCatalog(credential).departures ?? [] }
 export function hasLeftWorkspace(credential: WorkspaceMeshCredential, personId: string, grant?: WorkspaceGrant): boolean {
-  if (credential.ownerPersonId === personId) return false
-  return departures(credential).some(value => value.record.payload.personId === personId && value.record.payload.accessEpoch >= (grant?.payload.accessEpoch ?? 1))
+  return meshRustRuntime().state.hasLeftWorkspace(credential, personId, grant ?? null)
 }

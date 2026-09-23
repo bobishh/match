@@ -258,19 +258,20 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     ownershipTransfers?: WorkspaceOwnershipTransfer[];
     successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[]
   }): Promise<WorkspaceMeshCredential> {
-    credential = await this.mergeHandshakeAccess(credential, request)
-    if (Array.isArray(request.ownershipTransfers)) credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers)
-    await this.mergeSuccessionState(credential, request.successionPolicy, request.successionVotes ?? [], request.successionClaims ?? [])
-    return await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
-  }
-
-  private async mergeHandshakeAccess(credential: WorkspaceMeshCredential, request: { deviceRevocations?: WorkspaceDeviceRevocation[]; departures?: WorkspaceDeparture[]; capabilities?: string[] }) {
-    if (!request.capabilities?.includes("device-revocation-v1")) throw new Error("Reload Match to support device removals")
-    await this.mergeDeviceRevocations(credential, request.deviceRevocations ?? [])
-    credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
-    await this.mergeDepartures(credential, request.departures ?? [])
-    credential = await this.store.getWorkspaceCredential(credential.workspaceId) ?? credential
-    return credential
+    const workspaceId = credential.workspaceId
+    for (const action of meshRustRuntime().state.planAuthorityImport("handshake", false,
+      Array.isArray(request.ownershipTransfers))) {
+      switch (action) {
+        case "validateCapabilities": meshRustRuntime().state.validateMeshCapabilities(request.capabilities); break
+        case "deviceRevocations": await this.mergeDeviceRevocations(credential, request.deviceRevocations ?? []); break
+        case "departures": await this.mergeDepartures(credential, request.departures ?? []); break
+        case "ownershipTransfers": credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers ?? []); break
+        case "succession": await this.mergeSuccessionState(credential, request.successionPolicy,
+          request.successionVotes ?? [], request.successionClaims ?? []); break
+        case "refreshCredential": credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential; break
+      }
+    }
+    return await this.store.getWorkspaceCredential(workspaceId) ?? credential
   }
 
   protected async verifyIncomingPeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle): Promise<IncomingPeer> {
@@ -290,7 +291,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
-      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, credential.workspaceId)
+      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, credential.workspaceId)
   }
 
   protected async afterIncomingInstall(credential: WorkspaceMeshCredential, remote: IncomingPeer,
@@ -343,7 +344,12 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       }
     }
     const localGrant = credential.localGrant as WorkspaceGrant | undefined
-    const reusable = this.isReusableOwnBundle(bundle, current, credential, profile, endpoint, certificates, localGrant)
+    const agent = (typeof navigator !== "undefined" ? navigator.userAgent : "").trim().slice(0, 256) || null
+    const reusable = meshRustRuntime().state.canReuseMemberBundle({ bundle: bundle ?? null,
+      currentPeer: current ?? null, credential, localPersonId: profile.identity.personId,
+      localPublicKey: profile.identity.publicKey, expectedDeviceName: profile.device.displayName.slice(0, 256),
+      expectedUserAgent: agent, endpoint, instanceId: this.instanceId, certificates,
+      localGrant: localGrant ?? null, nowMs: Date.now(), renewMs: DurableMeshBase.ROUTE_RENEW_MS })
     if (reusable) return bundle
     const sequenceStore = this.store as PeerStore & {
       nextInstanceAdvertisementSequence?: (instanceId: string) => Promise<number>
@@ -364,42 +370,6 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     })
     await this.putVerifiedBundle(credential, next)
     return next
-  }
-
-  protected certificateSignatures(items: DeviceCertificate[] | undefined): string {
-    return (items ?? []).map(item => item.signature).sort().join("\0")
-  }
-
-  protected isReusableOwnBundle(bundle: WorkspaceMemberBundle | undefined, current: WorkspacePeerRecord | null | undefined,
-    credential: WorkspaceMeshCredential, profile: LocalProfile, endpoint: string, certificates: DeviceCertificate[],
-    localGrant: WorkspaceGrant | undefined): boolean {
-    if (!bundle || !bundle.advertisement.payload.issuedAt || !bundle.advertisement.payload.expiresAt) return false
-    const payload = bundle.advertisement.payload
-    const role = credential.ownerPersonId === profile.identity.personId ? "owner" : localGrant?.payload.role
-    return this.bundleRouteMatches(payload, current, endpoint, role) &&
-      this.bundleIdentityMatches(bundle, payload, credential, profile) &&
-      this.bundleProofsMatch(bundle, credential, certificates, localGrant)
-  }
-
-  protected bundleRouteMatches(payload: WorkspaceMemberBundle["advertisement"]["payload"], current: WorkspacePeerRecord | null | undefined,
-    endpoint: string, role: WorkspacePeerRecord["role"] | undefined): boolean {
-    if (!payload.expiresAt) return false
-    return Date.parse(payload.expiresAt) > Date.now() + DurableMeshBase.ROUTE_RENEW_MS && current?.endpoint === endpoint &&
-      current.role === role && (!this.instanceId || payload.instanceId === this.instanceId)
-  }
-
-  protected bundleIdentityMatches(bundle: WorkspaceMemberBundle, payload: WorkspaceMemberBundle["advertisement"]["payload"],
-    credential: WorkspaceMeshCredential, profile: LocalProfile): boolean {
-    const agent = (typeof navigator !== "undefined" ? navigator.userAgent : "").trim().slice(0, 256) || undefined
-    return payload.deviceName === profile.device.displayName.slice(0, 256) && payload.userAgent === agent &&
-      bundle.publicKey === profile.identity.publicKey && bundle.ownerPublicKey === credential.ownerPublicKey
-  }
-
-  protected bundleProofsMatch(bundle: WorkspaceMemberBundle, credential: WorkspaceMeshCredential,
-    certificates: DeviceCertificate[], localGrant: WorkspaceGrant | undefined): boolean {
-    return bundle.grant?.signature === localGrant?.signature &&
-      this.certificateSignatures(bundle.certificates) === this.certificateSignatures(certificates) &&
-      this.certificateSignatures(bundle.ownerCertificates) === this.certificateSignatures(credential.ownerCertificates as DeviceCertificate[])
   }
 
   protected async pruneInvalidStoredPeers(credential: WorkspaceMeshCredential, localDeviceId: string) {

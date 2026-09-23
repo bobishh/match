@@ -17,9 +17,9 @@ import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
+    deviceKey: (workspaceId, deviceId) => this.deviceKey(workspaceId, deviceId),
     peers: () => this.peerInstances(),
     hasSession: (workspaceId, deviceId) => this.hasDeviceSession(workspaceId, deviceId),
-    deviceKey: (workspaceId, deviceId) => this.deviceKey(workspaceId, deviceId),
     peerKey: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     routeFailures: key => this.routeFailures(key),
     retryAt: (key, fallback) => this.runtimeState?.reconnectState(key)?.retryAtMs ?? fallback,
@@ -196,7 +196,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
-      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, peer.workspaceId)
+      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
   }
 
   protected async verifyOutgoingHandshakePeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle) {

@@ -38,7 +38,7 @@ describe("DurableMesh peer catalog gossip", () => {
       .toThrow("Peer does not support required iroh gossip")
     expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "iroh-gossip-v1"]))
       .toThrow("Peer does not support required Automerge sync")
-    expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1"]))
+    expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1", "device-revocation-v1"]))
       .not.toThrow()
   })
 
@@ -54,7 +54,7 @@ describe("DurableMesh peer catalog gossip", () => {
       store: { removeWorkspaceMeshData, listWorkspaceCredentials: async () => [credential], listPeers: async () => [] } as never })
 
     await expect((mesh as any).activeCredentialsForProfile([credential],
-      { identity: { personId: "current-person", publicKey: "current-key" } })).resolves.toEqual([])
+      { identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } })).resolves.toEqual([])
     expect(removeWorkspaceMeshData).not.toHaveBeenCalled()
     await mesh.dispose()
   })
@@ -69,7 +69,7 @@ describe("DurableMesh peer catalog gossip", () => {
       store: { listWorkspaceCredentials: async () => [credential], listPeers: async () => [{ workspaceId: "stale-workspace", deviceId: "old-device" }] } as never })
     const internal = mesh as any
 
-    await internal.activeCredentialsForProfile([credential], { identity: { personId: "current-person", publicKey: "current-key" } })
+    await internal.activeCredentialsForProfile([credential], { identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } })
 
     await expect(internal.peerInstances()).resolves.toEqual([])
     await mesh.dispose()
@@ -265,7 +265,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const internal = mesh as any
     const publish = vi.fn(async () => {})
     internal.lifecycle = { stopped: false }
-    internal.documentSessions.create = vi.fn(() => ({
+    internal.browserSessions.host.create = vi.fn(() => ({
       session: { publish, close: async () => {}, done: new Promise<never>(() => {}) },
     }))
     const connection = { close: vi.fn(async () => {}), acceptStream: vi.fn(), openStream: vi.fn() }
@@ -292,8 +292,8 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(first.close).not.toHaveBeenCalled()
     expect(sibling.close).not.toHaveBeenCalled()
     expect(internal.sessions.size).toBe(2)
-    expect(internal.documentSessions.engine("workspace", "remote", "slot-0", "local"))
-      .not.toBe(internal.documentSessions.engine("workspace", "remote", "slot-1", "local"))
+    expect(internal.sessions.get("workspace:remote:slot-0").session)
+      .not.toBe(internal.sessions.get("workspace:remote:slot-1").session)
     await internal.sessions.get("workspace:remote:slot-0").evict("remote closed")
     expect(internal.sessions.get("workspace:remote:slot-1").connection).toBe(sibling)
     expect(sibling.close).not.toHaveBeenCalled()
@@ -688,6 +688,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const imported: string[] = []
     const internal = mesh as any
     internal.mergeOwnershipTransfers = async () => credential
+    internal.mergeSuccessionState = async () => credential
     internal.mergeRevocations = async () => {}
     internal.putVerifiedBundle = vi.fn(async (_credential: unknown, bundle: { id: string }) => {
       if (bundle.id === "poisoned") throw new Error("Invalid workspace grant signature")

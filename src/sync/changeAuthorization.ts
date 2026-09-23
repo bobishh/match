@@ -7,7 +7,6 @@ import { loadChat } from "../chat/service"
 import type { ChatRecord } from "../chat/records"
 import { verifyWorkspaceGrant, type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim, type WorkspaceDeviceRevocation } from "./meshRecords"
-import { hasConflictingOwnershipTransfers } from "./ownershipConflicts"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { mergeCertificates, putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
 import { isDiscriminatorCleanup } from "./workspaceHistoryRepair"
@@ -238,7 +237,8 @@ function hasAuthorityConflict(credential: StoredWorkspaceAuthority | null) {
   const claims = ((credential?.catalog as { successionClaims?: WorkspaceSuccessionClaim[] } | undefined)?.successionClaims ?? [])
     .filter(claim => claim?.payload?.epoch === credential?.epoch)
   const transfers = ((credential?.catalog as { ownershipTransfers?: WorkspaceOwnershipTransfer[] } | undefined)?.ownershipTransfers ?? [])
-  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 || hasConflictingOwnershipTransfers(transfers)
+  return new Set(claims.map(claim => claim.payload.toOwnerPersonId)).size > 1 ||
+    meshRustRuntime().state.hasConflictingOwnershipTransfers(transfers)
 }
 
 export async function workspaceWritesBlocked(workspaceId: string) {
