@@ -7,6 +7,7 @@ import {
   WasmAutomergeSyncEngine,
   WasmDeviceRouteCatalog,
   WasmMeshRuntimeState,
+  WasmLiveWorkspaceSession,
   WasmMeshHandshakeFlow,
   WasmMeshAuthenticatedSessions,
   WasmPairingCodec,
@@ -21,6 +22,7 @@ installMeshRustRuntime({
   createAutomergeSyncEngine: (localDeviceId, maximumFrameBytes) =>
     new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
   createMeshRuntimeState: () => new WasmMeshRuntimeState(),
+  createLiveWorkspaceSession: (workspaceId, secret) => new WasmLiveWorkspaceSession(workspaceId, secret),
   createMeshHandshakeFlow: direction => new WasmMeshHandshakeFlow(direction),
   createMeshAuthenticatedSessions: () => new WasmMeshAuthenticatedSessions(),
 })

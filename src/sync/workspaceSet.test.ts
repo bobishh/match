@@ -327,7 +327,9 @@ describe("rejected document isolation", () => {
     const engine = { receive, generate: vi.fn(async () => null), reset: vi.fn() }
     const reject = vi.fn()
     const mergeMesh = vi.fn()
-    const sync = () => encodePairingFrame("mesh-automerge-sync", "secret", new TextEncoder().encode(JSON.stringify({message:"AA"})))
+    const sync = () => encodePairingFrame("mesh-automerge-sync", "secret", new TextEncoder().encode(JSON.stringify({
+      version: 1, scopeId: "workspace", documentId: "workspace", fromDeviceId: "remote", toDeviceId: "local", message: "AA",
+    })))
     const frames = [sync(), encodePairingFrame("sync-heartbeat", "secret", new Uint8Array()),
       encodePairingFrame("mesh-control-sync", "secret", new TextEncoder().encode(JSON.stringify({version:1,workspaceId:"workspace",mesh:{epoch:2}}))), sync()]
     const streams = frames.map(frame => ({ read: async () => frame, send: vi.fn(), closeSend: vi.fn() }))

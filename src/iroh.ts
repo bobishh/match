@@ -8,6 +8,7 @@ import irohInit, {
   WasmDeviceRouteCatalog,
   WasmGossipEngine,
   WasmMeshRuntimeState,
+  WasmLiveWorkspaceSession,
   WasmMeshHandshakeFlow,
   WasmMeshAuthenticatedSessions,
   WasmPairingCodec,
@@ -63,6 +64,7 @@ async function installIrohBrowserRuntime(): Promise<void> {
       createAutomergeSyncEngine: (localDeviceId, maximumFrameBytes) =>
         new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
       createMeshRuntimeState: () => new WasmMeshRuntimeState(),
+      createLiveWorkspaceSession: (workspaceId, secret) => new WasmLiveWorkspaceSession(workspaceId, secret),
       createMeshHandshakeFlow: direction => new WasmMeshHandshakeFlow(direction),
       createMeshAuthenticatedSessions: () => new WasmMeshAuthenticatedSessions(),
     })

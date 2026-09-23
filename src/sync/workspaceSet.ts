@@ -1,11 +1,10 @@
-import { controlFrames, ControlFrameReceiver } from "./controlFrames"
+import { createLiveWorkspaceSession, type RustLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
-import { fromBase64Url, toBase64Url, sha256Base64Url } from "../domain/identity"
+import { fromBase64Url, toBase64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
 import { AutomergeAntiEntropy, type AutomergeDocumentAdapter, type AutomergeSyncFrame } from "@meta-uber/mesh-replication/automerge"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
-import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
-import { BLOB_REQUEST_FRAME, type BlobDescriptor } from "@meta-uber/mesh-blob"
+import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
 
 export type WorkspaceReplica = {
@@ -20,8 +19,6 @@ export type LiveWorkspaceSync = {
 }
 
 const MESH_HEARTBEAT_TIMEOUT_MS = 12_000
-const MAX_OWNER_WORKSPACE_OFFER_BYTES = 24 * 1024 * 1024
-const MAX_GOSSIP_PACKET_BYTES = 256 * 1024
 export type OwnerWorkspaceOfferFrame = "mesh-owner-workspace-offer"
 
 export type WorkspaceSetStore = {
@@ -130,50 +127,49 @@ function safeDiagnostic(error: unknown): string {
 // Receipt is bound to the exact document, proofs and ownership catalog on this
 // authenticated peer stream. A timeout is an unknown outcome, never a rollback.
 export async function publishConfirmedWorkspace(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
+  const protocol = createLiveWorkspaceSession("confirmed-delivery", secret)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     await Promise.race([
       (async () => {
         const stream = await connection.openStream()
-        await stream.send(encodePairingFrame("mesh-durable-batch", secret, bytes))
+        await stream.send(protocol.encode("mesh-durable-batch", bytes))
         await stream.closeSend()
-        const receipt = decodePairingFrame(await stream.read(), "mesh-durable-ack", secret)
-        if (new TextDecoder().decode(receipt) !== await sha256Base64Url(bytes)) throw new Error("Ownership receipt does not match the saved data")
+        protocol.verifySavedReceipt(await stream.read(), bytes)
       })(),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("Ownership delivery is unconfirmed. Reconnect and retry the same transfer.")), MESH_HEARTBEAT_TIMEOUT_MS)
       }),
     ])
-  } finally { clearTimeout(timer) }
+  } finally { clearTimeout(timer); protocol.free?.() }
 }
 
 export async function publishOwnerWorkspaceOffer(connection: SyncConnection, secret: string, bytes: Uint8Array,
   frame: OwnerWorkspaceOfferFrame): Promise<void> {
-  if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
-  const stream = await connection.openStream()
-  await stream.send(encodePairingFrame(frame, secret, bytes))
-  await stream.closeSend()
-  const receipt = decodePairingFrame(await stream.read(), "mesh-durable-ack", secret)
-  if (new TextDecoder().decode(receipt) !== await sha256Base64Url(bytes)) throw new Error("Owner workspace receipt does not match")
+  const protocol = createLiveWorkspaceSession("owner-offer", secret)
+  try {
+    const encoded = protocol.encode(frame, bytes)
+    const stream = await connection.openStream()
+    await stream.send(encoded)
+    await stream.closeSend()
+    protocol.verifySavedReceipt(await stream.read(), bytes)
+  } finally { protocol.free?.() }
 }
 
 export async function publishGossipPacket(connection: SyncConnection, secret: string, packet: Uint8Array): Promise<void> {
-  if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
-  const stream = await connection.openStream()
-  await stream.send(encodePairingFrame("mesh-iroh-gossip", secret, packet))
-  await stream.closeSend()
-}
-
-async function receiveConfirmedWorkspace(stream: DuplexStream, frame: Uint8Array, secret: string, replica: ReturnType<typeof workspaceSet>) {
-  const bytes = decodePairingFrame(frame, "mesh-durable-batch", secret)
-  await replica.receive(bytes, false)
-  await stream.send(encodePairingFrame("mesh-durable-ack", secret, new TextEncoder().encode(await sha256Base64Url(bytes))))
-  await stream.closeSend()
+  const protocol = createLiveWorkspaceSession("gossip", secret)
+  try {
+    const frame = protocol.encode("mesh-iroh-gossip", packet)
+    const stream = await connection.openStream()
+    await stream.send(frame)
+    await stream.closeSend()
+  } finally { protocol.free?.() }
 }
 
 async function confirmHeartbeat(connection: SyncConnection, secret: string): Promise<void> {
+  const protocol = createLiveWorkspaceSession("heartbeat", secret)
   const stream = await connection.openStream()
-  await stream.send(encodePairingFrame("sync-heartbeat", secret, new Uint8Array()))
+  await stream.send(protocol.encode("sync-heartbeat", new Uint8Array()))
   await stream.closeSend()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -186,9 +182,10 @@ async function confirmHeartbeat(connection: SyncConnection, secret: string): Pro
         )
       }),
     ])
-    decodePairingFrame(frame, "sync-heartbeat-ack", secret)
+    protocol.verifyHeartbeatAck(frame)
   } finally {
     clearTimeout(timer)
+    protocol.free?.()
   }
 }
 
@@ -209,6 +206,7 @@ export function liveWorkspaceSetSync(
   replica: ReturnType<typeof workspaceSet>,
   options: LiveWorkspaceOptions = {},
 ): LiveWorkspaceSync {
+  const protocol = createLiveWorkspaceSession("workspace-set", secret)
   let stopped = false
   let lastSent = ""
   let queue = Promise.resolve()
@@ -219,34 +217,27 @@ export function liveWorkspaceSetSync(
       const stream = await connection.acceptStream()
       if (stopped) return
       const frame = await stream.read()
-      const type = inspectPairingFrame(frame).type
-      if (type === "mesh-durable-batch") {
-        await receiveConfirmedWorkspace(stream, frame, secret, replica)
-        continue
-      }
-      if (type === "sync-heartbeat") {
-        decodePairingFrame(frame, "sync-heartbeat", secret)
-        await stream.send(encodePairingFrame("sync-heartbeat-ack", secret, new Uint8Array()))
-        await stream.closeSend()
-        continue
-      }
-      if (type === "mesh-handoff-request" && options.onHandoffRequest) {
-        decodePairingFrame(frame, "mesh-handoff-request", secret)
+      const action = protocol.receive(frame)
+      if (!action) { await stream.closeSend(); continue }
+      const bytes = Uint8Array.from(action.payload ?? [])
+      if (action.kind === "durableBatch") {
+        await replica.receive(bytes, false)
+        await stream.send(protocol.acknowledgeSaved(bytes))
+      } else if (action.kind === "heartbeat") {
+        await stream.send(protocol.encode("sync-heartbeat-ack", new Uint8Array()))
+      } else if (action.kind === "handoffRequest" && options.onHandoffRequest) {
         await options.onHandoffRequest(stream, frame)
         continue
-      }
-      if (type === "mesh-iroh-gossip" && options.onGossipPacket) {
-        const packet = decodePairingFrame(frame, "mesh-iroh-gossip", secret)
-        if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
-        await options.onGossipPacket(packet)
-        await stream.closeSend()
-        continue
-      }
-      if (type === BLOB_REQUEST_FRAME && options.onBlobRequest) {
+      } else if (action.kind === "gossip" && options.onGossipPacket) {
+        await options.onGossipPacket(bytes)
+      } else if (action.kind === "blobRequest" && options.onBlobRequest) {
         await options.onBlobRequest(stream, frame)
         continue
+      } else if (action.kind === "snapshot") {
+        await replica.receive(bytes, false)
+      } else {
+        throw new Error(`Unsupported live workspace action: ${action.kind}`)
       }
-      await replica.receive(decodePairingFrame(frame, "sync-update", secret), false)
       await stream.closeSend()
     }
   })().catch(error => { if (!stopped) throw error })
@@ -259,7 +250,7 @@ export function liveWorkspaceSetSync(
         const content = toBase64Url(bytes)
         if (stopped || content === lastSent) return
         const stream = await connection.openStream()
-        await stream.send(encodePairingFrame("sync-update", secret, bytes))
+        await stream.send(protocol.encode("sync-update", bytes))
         await stream.closeSend()
         lastSent = content
       })
@@ -272,46 +263,60 @@ export function liveWorkspaceSetSync(
     async close() {
       stopped = true
       await connection.close()
+      protocol.free?.()
     },
   }
 }
 
 type AutomergeIncomingOptions = {
   connection: SyncConnection
-  secret: string
   replica: ReturnType<typeof workspaceSet>
-  workspaceId: string
-  store: WorkspaceSetStore
   options: LiveWorkspaceOptions
   isStopped: () => boolean
   receiveControl: (bytes: Uint8Array) => Promise<void>
   receiveSync: (frame: Uint8Array) => Promise<void>
+  protocol: RustLiveWorkspaceSession
+}
+
+function requiredHandler<T>(handler: T | undefined, message: string): T {
+  if (!handler) throw new Error(message)
+  return handler
 }
 
 async function receiveAutomergeFrame(stream: DuplexStream, frame: Uint8Array, input: AutomergeIncomingOptions): Promise<void> {
-  const type = inspectPairingFrame(frame).type
-  if (type === "mesh-durable-batch") return receiveConfirmedWorkspace(stream, frame, input.secret, input.replica)
-  if (type === "sync-heartbeat") {
-    decodePairingFrame(frame, "sync-heartbeat", input.secret)
-    await stream.send(encodePairingFrame("sync-heartbeat-ack", input.secret, new Uint8Array()))
-  } else if (type === "mesh-control-sync") {
-    await input.receiveControl(decodePairingFrame(frame, "mesh-control-sync", input.secret))
-  } else if (type === input.options.ownerWorkspaceOfferFrame && input.options.onOwnerWorkspaceOffer) {
-    const bytes = decodePairingFrame(frame, input.options.ownerWorkspaceOfferFrame, input.secret)
-    if (bytes.byteLength > MAX_OWNER_WORKSPACE_OFFER_BYTES) throw new Error("Owner workspace offer exceeds size limit")
-    await input.options.onOwnerWorkspaceOffer(bytes)
-    await stream.send(encodePairingFrame("mesh-durable-ack", input.secret, new TextEncoder().encode(await sha256Base64Url(bytes))))
-  } else if (type === "mesh-iroh-gossip" && input.options.onGossipPacket) {
-    const packet = decodePairingFrame(frame, "mesh-iroh-gossip", input.secret)
-    if (packet.byteLength > MAX_GOSSIP_PACKET_BYTES) throw new Error("Gossip packet exceeds size limit")
-    await input.options.onGossipPacket(packet)
-  } else if (type === BLOB_REQUEST_FRAME && input.options.onBlobRequest) {
-    await input.options.onBlobRequest(stream, frame)
-    return
-  } else if (type === "mesh-automerge-sync") {
-    await input.receiveSync(frame)
-  } else {
-    throw new Error(`Unsupported live workspace frame: ${type}`)
+  const action = input.protocol.receive(frame)
+  if (!action) { await stream.closeSend(); return }
+  const bytes = Uint8Array.from(action.payload ?? [])
+  switch (action.kind) {
+    case "durableBatch":
+      await input.replica.receive(bytes, false)
+      await stream.send(input.protocol.acknowledgeSaved(bytes))
+      break
+    case "heartbeat":
+      await stream.send(input.protocol.encode("sync-heartbeat-ack", new Uint8Array()))
+      break
+    case "control":
+      await input.receiveControl(bytes)
+      break
+    case "ownerWorkspaceOffer":
+      await requiredHandler(input.options.ownerWorkspaceOfferFrame === "mesh-owner-workspace-offer"
+        ? input.options.onOwnerWorkspaceOffer : undefined, "Unsupported owner workspace offer")(bytes)
+      await stream.send(input.protocol.acknowledgeSaved(bytes))
+      break
+    case "gossip":
+      await requiredHandler(input.options.onGossipPacket, "Unsupported gossip packet")(bytes)
+      break
+    case "blobRequest":
+      await requiredHandler(input.options.onBlobRequest, "Unsupported blob request")(stream, frame)
+      return
+    case "handoffRequest":
+      await requiredHandler(input.options.onHandoffRequest, "Unsupported handoff request")(stream, frame)
+      return
+    case "automergeSync":
+      await input.receiveSync(bytes)
+      break
+    case "snapshot":
+      throw new Error(`Unsupported live workspace action: ${action.kind}`)
   }
   await stream.closeSend()
 }
@@ -339,7 +344,7 @@ export function liveAutomergeWorkspaceSync(
   let lastRejection: string | undefined
   let syncQueue = Promise.resolve()
   let heartbeatQueue = Promise.resolve()
-  let lastControlSent = ""
+  const protocol = createLiveWorkspaceSession(workspaceId, secret)
   const knownChat = new Set<string>()
   const engine = sharedEngine ?? new AutomergeAntiEntropy(localDeviceId, Automerge, {
     proof: async () => store.readAuthorization?.(await store.read(workspaceId)),
@@ -354,12 +359,8 @@ export function liveAutomergeWorkspaceSync(
     },
     async commit({ candidate, proof }) { await store.merge(workspaceId, Automerge.save(candidate), proof) },
   }
-  const encodeFrame = (frame: AutomergeSyncFrame) => encodePairingFrame("mesh-automerge-sync", secret,
-    new TextEncoder().encode(JSON.stringify({ ...frame, message: toBase64Url(frame.message) })))
-  const decodeFrame = (bytes: Uint8Array): AutomergeSyncFrame => {
-    const value = JSON.parse(new TextDecoder().decode(decodePairingFrame(bytes, "mesh-automerge-sync", secret)))
-    return { ...value, message: fromBase64Url(value.message) }
-  }
+  const encodeFrame = (frame: AutomergeSyncFrame) => protocol.encodeAutomergeFrame(frame)
+  const decodeFrame = (bytes: Uint8Array): AutomergeSyncFrame => protocol.decodeAutomergePayload(bytes) as AutomergeSyncFrame
   const sendFrame = async (frame: AutomergeSyncFrame) => {
     if (stopped) return
     const stream = await connection.openStream()
@@ -373,10 +374,7 @@ export function liveAutomergeWorkspaceSync(
     ...(store.readChat ? { chat: await store.readChat(workspaceId, knownChat) } : {}),
     ...(store.readMesh ? { mesh: await store.readMesh(workspaceId) } : {}),
   }))
-  const controlReceiver = new ControlFrameReceiver(workspaceId)
-  const receiveControl = async (frame: Uint8Array) => {
-    const bytes = controlReceiver.receive(frame)
-    if (!bytes) return
+  const receiveControl = async (bytes: Uint8Array) => {
     const value = JSON.parse(new TextDecoder().decode(bytes)) as {
       version?: unknown; workspaceId?: unknown; authorization?: unknown; chat?: unknown; mesh?: unknown
     }
@@ -416,8 +414,8 @@ export function liveAutomergeWorkspaceSync(
       lastRejection = error.message
     }
   }
-  const done = runAutomergeReceiver({ connection, secret, replica: workspaceSet(store, [workspaceId]), workspaceId, store,
-    options, isStopped: () => stopped, receiveControl, receiveSync }).catch(error => { if (!stopped) throw error })
+  const done = runAutomergeReceiver({ connection, replica: workspaceSet(store, [workspaceId]),
+    options, isStopped: () => stopped, receiveControl, receiveSync, protocol }).catch(error => { if (!stopped) throw error })
   return {
     done,
     publish() {
@@ -425,14 +423,13 @@ export function liveAutomergeWorkspaceSync(
         const frame = await engine.generate(adapter, remoteDeviceId)
         if (frame) await sendFrame(frame)
         const control = await controlSnapshot()
-        const content = toBase64Url(control)
-        if (content !== lastControlSent) {
-          for (const part of controlFrames(workspaceId, control)) {
+        if (protocol.controlChanged(control)) {
+          for (const part of protocol.controlFrames(control)) {
             const stream = await connection.openStream()
-            await stream.send(encodePairingFrame("mesh-control-sync", secret, part))
+            await stream.send(part)
             await stream.closeSend()
           }
-          lastControlSent = content
+          protocol.markControlSent(control)
         }
       })
     },
@@ -440,6 +437,6 @@ export function liveAutomergeWorkspaceSync(
       heartbeatQueue = enqueueHeartbeat(heartbeatQueue, () => stopped, connection, secret)
       return heartbeatQueue
     },
-    async close() { stopped = true; await connection.close() },
+    async close() { stopped = true; await connection.close(); protocol.free?.() },
   }
 }
