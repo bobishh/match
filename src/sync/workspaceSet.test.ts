@@ -329,6 +329,34 @@ describe("incremental workspace control plane", () => {
 
 
 describe("rejected document isolation", () => {
+  it("keeps the peer session alive when one application control frame cannot be stored", async () => {
+    const authorization = [{ signed: { signature: "legacy-proof" } }]
+    const frames = [
+      encodePairingFrame("mesh-control-sync", "secret", new TextEncoder().encode(JSON.stringify({
+        version: 1, workspaceId: "workspace", authorization,
+      }))),
+      encodePairingFrame("sync-heartbeat", "secret", new Uint8Array()),
+    ]
+    const streams = frames.map(frame => ({ read: async () => frame, send: vi.fn(), closeSend: vi.fn(async () => {}) }))
+    let index = 0
+    const connection = {
+      acceptStream: async () => streams[index++] ?? new Promise<never>(() => {}),
+      close: vi.fn(), openStream: vi.fn(),
+    }
+    const merge = vi.fn().mockRejectedValueOnce(new TypeError("legacy proof cannot be merged"))
+    const session = liveAutomergeWorkspaceSync(connection as never, "secret", {
+      read: async () => new Uint8Array([1]), merge, activate: vi.fn(),
+    }, "workspace", "local", "remote")
+    let ended = false
+    void session.done.then(() => { ended = true }, () => { ended = true })
+
+    await vi.waitFor(() => expect(streams[1]!.send).toHaveBeenCalledOnce())
+    expect(ended).toBe(false)
+    expect(connection.close).not.toHaveBeenCalled()
+    expect(inspectPairingFrame(streams[1]!.send.mock.calls[0]![0]).type).toBe("sync-heartbeat-ack")
+    await session.close()
+  })
+
   it("keeps heartbeat and control alive after a rejected document and can accept a later corrected frame", async () => {
     const error = new WorkspaceChangeRejected("Unsigned workspace change rejected")
     const current = Automerge.save(Automerge.from({ id: "workspace" }))

@@ -377,7 +377,15 @@ export function liveAutomergeWorkspaceSync(
       while (!stopped) {
         const stream = await connection.acceptStream()
         if (stopped) return
-        await receive(stream, await stream.read())
+        const frame = await stream.read()
+        try { await receive(stream, frame) }
+        catch (error) {
+          meshTrace("workspace.frame.rejected", {
+            workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8),
+            reason: error instanceof Error ? error.message : String(error),
+          }, "warn")
+          await stream.closeSend().catch(() => {})
+        }
       }
     } catch (error) { if (!stopped) throw error }
   })()
