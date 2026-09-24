@@ -83,3 +83,21 @@ test("Given many devices on mobile, when their list is scrolled, then the list m
   await dialog.getByRole("button", { name: "Close", exact: true }).click()
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(backgroundScroll)
 })
+
+test("Lighthouse uses its client marker for a beacon while a browser with the same name stays a browser", async ({ page }, testInfo) => {
+  await page.goto("/")
+  await page.evaluate(async () => {
+    const { mountLighthouseDialog } = await import("/e2e/support/lighthouseDialog.ts")
+    mountLighthouseDialog()
+  })
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button").filter({ hasText: "Mesh participant" }).click()
+  const native = dialog.locator(".mesh-device").filter({ hasText: "Renamed worker" })
+  await expect(native.getByRole("img", { name: "Lighthouse", exact: true })).toBeVisible()
+  await expect(native).toContainText("No connection")
+  await expect(native).not.toContainText("browser session")
+  const browser = dialog.locator(".mesh-device").filter({ hasText: "Likely Chrome" })
+  await expect(browser.getByRole("img", { name: "Lighthouse", exact: true })).toHaveCount(0)
+  await expect(browser).toContainText("Connected to this tab")
+  await page.screenshot({ path: testInfo.outputPath("lighthouse-device.png") })
+})

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import LighthouseMark from "./LighthouseMark.vue"
+import { isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
 import ModalLayer from "./ModalLayer.vue"
@@ -22,26 +24,7 @@ const props = defineProps<{
   availableWorkspaces?: { id: string; title: string }[]
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
-  meshMembers?: Array<{
-    personId: string
-    name: string
-    role: "owner" | "editor" | "visitor"
-    online: boolean
-    reconnecting: boolean
-    onlineDevices: number
-    devices: number
-    self: boolean
-    deviceList: Array<{
-      deviceId: string
-      name: string
-      online: boolean
-      reconnecting: boolean
-      lastSeen: string
-      userAgent?: string
-      description: string
-      tabs: number
-    }>
-  }>
+  meshMembers?: MeshMemberView[]
   activeWorkspaceId?: string
   localDeviceId?: string
   removableDeviceWorkspaces?: (personId: string, deviceId: string) => Promise<{ id: string; title: string }[]>
@@ -219,7 +202,8 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
             :aria-pressed="selectedMemberId === member.personId"
             @click="selectedMemberId = member.personId"
           >
-            <span class="mesh-member-presence" :class="member.online ? 'is-online' : member.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
+            <LighthouseMark v-if="member.deviceList.length && member.deviceList.every(device => isLighthouse(device.userAgent))" :online="member.online" :reconnecting="member.reconnecting" />
+            <span v-else class="mesh-member-presence" :class="member.online ? 'is-online' : member.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
             <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} known {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
             <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
@@ -231,16 +215,17 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           <ul class="mesh-device-list" role="list" :aria-label="`Devices for ${selectedMember.name}`">
             <li v-for="device in selectedMember.deviceList" :key="device.deviceId" class="mesh-device">
               <div class="mesh-device-head">
-                <span class="mesh-device-presence" :class="device.online ? 'is-online' : device.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
+                <LighthouseMark v-if="isLighthouse(device.userAgent)" :online="device.online" :reconnecting="device.reconnecting" />
+                <span v-else class="mesh-device-presence" :class="device.online ? 'is-online' : device.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
                 <strong>{{ device.deviceId === localDeviceId ? 'This device' : device.name }}</strong>
                 <code>{{ device.deviceId.slice(0, 8) }}</code>
               </div>
-              <small class="mesh-device-platform">Browser / platform: {{ device.description }}</small>
+              <small class="mesh-device-platform">{{ device.description }}</small>
               <small class="mesh-device-status">{{ deviceConnectionLabel(device) }}</small>
               <DeviceRemovalControl v-if="device.deviceId !== localDeviceId && (canManageMesh || (selectedMember.self && currentRole === 'editor'))"
                 :person-id="selectedMember.personId" :device-id="device.deviceId" :name="device.name" :active-workspace-id="activeWorkspaceId"
                 :removable-device-workspaces="removableDeviceWorkspaces" :remove-device="removeDevice" />
-              <small>{{ device.tabs }} known {{ device.tabs === 1 ? 'browser session' : 'browser sessions' }} · session count may include tabs no longer open</small>
+              <small v-if="!isLighthouse(device.userAgent)">{{ device.tabs }} known {{ device.tabs === 1 ? 'browser session' : 'browser sessions' }} · session count may include tabs no longer open</small>
               <small v-if="!device.online && !device.reconnecting">Last seen {{ new Date(device.lastSeen).toLocaleString() }}</small>
               <details v-if="device.userAgent" class="mesh-device-ua">
                 <summary>User agent</summary>
@@ -504,6 +489,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
 .mesh-device-presence.is-online { background: var(--green); }
 .mesh-device-presence.is-reconnecting { background: var(--yellow); }
 .mesh-device-head { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-width: 0; }
+.mesh-member:has(> .lighthouse-mark), .mesh-device-head:has(> .lighthouse-mark) { grid-template-columns: 24px minmax(0, 1fr) auto; }
 .mesh-device-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-device-head code, .mesh-device small { color: var(--muted); }
 .mesh-device small { font: 700 .72rem/1.3 ui-monospace, monospace; }
