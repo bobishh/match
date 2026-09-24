@@ -395,6 +395,37 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given an established session drops, when its receive loop fails, then reconnect is backed off", async () => {
+    let rejectReceive!: (error: Error) => void
+    const done = new Promise<never>((_resolve, reject) => { rejectReceive = reject })
+    const mesh = new DurableMesh({
+      transport: {} as never,
+      workspace: {} as never,
+      workspaceStore: {} as never,
+      getProfile: async () => ({ device: { deviceId: "local-device" } } as never),
+      store: {
+        getWorkspaceCredential: async () => ({ workspaceId: "workspace", transportSecret: "secret" }),
+        listWorkspaceCredentials: async () => [],
+        listPeers: async () => [],
+      } as never,
+    })
+    const internal = mesh as any
+    internal.browserSessions.host.create = vi.fn(() => ({
+      session: { publish: async () => {}, close: async () => {}, done },
+    }))
+    const connection = { close: vi.fn(async () => {}) }
+
+    await internal.installSession("workspace", "remote-device", "slot-0", "2026-09-24", 1,
+      "outgoing", connection, false, "outgoing-test")
+    rejectReceive(new MeshNetworkError("connection lost"))
+
+    await vi.waitFor(() => expect(internal.sessions.size).toBe(0))
+    const reconnect = internal.runtime().reconnectState("workspace:remote-device:slot-0")
+    expect(reconnect).not.toBeNull()
+    expect(reconnect.retryAtMs).toBeGreaterThan(Date.now())
+    await mesh.dispose()
+  })
+
   it("Given a live session while Iroh gossip has no neighbour yet, when the workspace changes, then direct sync still publishes", async () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ device: { deviceId: "local" } } as never),

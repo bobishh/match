@@ -1,7 +1,7 @@
 import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked } from "./durableMeshBase"
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import { isMeshNetworkFailure, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
+import { isMeshNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
 import { BrowserMeshDialScheduler, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
@@ -215,12 +215,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       throw new MeshDialCancelled()
     }
-    this.reconnectPolicy.recordFailure(key, isNetworkFailure(error))
+    this.recordRouteFailure(key, error)
     this.trace("dial.failed", { connectionId, peerId: peer.deviceId.slice(0, 8),
       reason: error instanceof Error ? error.message : String(error) }, "warn")
     if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
     else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
-    this.runtime().scheduleReconnect(key, Date.now(), 1_000, 10_000)
     await connection?.close().catch(() => {})
     if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
       const stale = this.node
@@ -277,7 +276,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     publishRecovered: (key, entry) => this.publishRecoveredSession(key, entry as SessionEntry),
     stableSession: key => this.clearRouteReconnect(key),
     protocolFailure: (stage, error) => this.reportProtocolFailure(stage, error),
-    networkFailure: (key, error) => this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error)),
+    networkFailure: (key, error) => { this.recordRouteFailure(key, error) },
   }, this.sessions)
 
   protected async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
@@ -348,8 +347,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     try {
       await entry.session.publish()
     } catch (error) {
-      const networkFailure = isMeshNetworkFailure(error)
-      this.reconnectPolicy.recordFailure(key, networkFailure)
+      const networkFailure = this.recordRouteFailure(key, error)
       if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("recovery publish failed")
     }
@@ -364,11 +362,17 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         }, "warn")
       }
     }, async (key, entry, error) => {
-      const networkFailure = isMeshNetworkFailure(error)
-      this.reconnectPolicy.recordFailure(key, networkFailure)
+      const networkFailure = this.recordRouteFailure(key, error)
       if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("publish failed")
     })
+  }
+
+  protected recordRouteFailure(key: string, error: unknown): boolean {
+    const networkFailure = isMeshNetworkFailure(error)
+    this.reconnectPolicy.recordFailure(key, networkFailure)
+    this.runtime().scheduleReconnect(key, Date.now(), 1_000, 10_000)
+    return networkFailure
   }
 
   async views(workspaceId?: string): Promise<MeshPeerView[]> {
