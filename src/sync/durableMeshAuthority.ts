@@ -15,6 +15,19 @@ import { deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, re
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 
 type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
+type ScopeAuthoritySnapshot = {
+  genesis: unknown; grants: unknown[]; grantIssuers: unknown[]; revocations: unknown[]; controlTransfers: unknown[]
+}
+type OwnershipTransferState = {
+  profile: LocalProfile
+  credential: WorkspaceMeshCredential
+  sessions: SessionEntry[]
+  targetAdvertisement?: WorkspaceMemberBundle
+  target?: VerifiedWorkspaceMember
+  transfer?: WorkspaceOwnershipTransfer
+  current: WorkspaceMeshCredential
+  nextScopeAuthoritySnapshot?: ScopeAuthoritySnapshot
+}
 
 export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
@@ -217,12 +230,19 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       candidatePersonId, existingVoteFor: existing?.signed.payload.candidatePersonId ?? null })
     let vote!: WorkspaceSuccessionVote
     for (const action of actions) {
-      if (action === "createVote") vote = await createWorkspaceSuccessionVote(profile, policy!, candidatePersonId, grant!,
-        new Date().toISOString(), uniqueCertificates(profile, await defaultProofStore.listCertificates()))
-      if (action === "mergeVote") await this.mergeSuccessionState(credential!, policy!, [vote], [])
-      if (action === "notify") await this.notify()
-      if (action === "publish") await this.publishAll()
+      vote = await this.applySuccessionVoteAction(action, { profile, credential: credential!, policy: policy!, grant: grant!,
+        candidatePersonId, vote })
     }
+  }
+
+  private async applySuccessionVoteAction(action: string, input: { profile: LocalProfile; credential: WorkspaceMeshCredential;
+    policy: WorkspaceSuccessionPolicy; grant: WorkspaceGrant; candidatePersonId: string; vote?: WorkspaceSuccessionVote }) {
+    if (action === "createVote") return createWorkspaceSuccessionVote(input.profile, input.policy, input.candidatePersonId, input.grant,
+      new Date().toISOString(), uniqueCertificates(input.profile, await defaultProofStore.listCertificates()))
+    if (action === "mergeVote") await this.mergeSuccessionState(input.credential, input.policy, [input.vote!], [])
+    if (action === "notify") await this.notify()
+    if (action === "publish") await this.publishAll()
+    return input.vote!
   }
 
   async claimSuccession(workspaceId: string): Promise<void> {
@@ -397,56 +417,61 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       : advertisements[plan.selection.advertisementIndex] as WorkspaceMemberBundle | undefined
     const pending = credential && plan.selection.pendingIndex === null ? undefined
       : ownershipTransfers(credential!)[plan.selection.pendingIndex!]
-    let target!: VerifiedWorkspaceMember
-    let transfer: WorkspaceOwnershipTransfer = pending!
-    let current = credential!
-    let nextScopeAuthoritySnapshot: {
-      genesis: unknown; grants: unknown[]; grantIssuers: unknown[]; revocations: unknown[]; controlTransfers: unknown[]
-    } | undefined
+    const state: OwnershipTransferState = { profile, credential: credential!, sessions,
+      targetAdvertisement, transfer: pending, current: credential! }
     for (const action of plan.actions) {
-      if (action === "verifyTarget") target = await verifyWorkspaceMemberBundle(targetAdvertisement!, {
-        workspaceId, ownerPersonId: credential!.ownerPersonId, ownerPublicKey: credential!.ownerPublicKey,
-        ownerCertificates: credential!.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential!).slice(1),
-      })
-      if (action === "createTransfer") {
-        const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
-        try { transfer = await createWorkspaceOwnershipTransfer(profile, workspaceId, {
-          personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates,
-        }, Automerge.getHeads(doc), credential!.epoch + 1) } finally { Automerge.free(doc) }
-        const authority = await this.store.getWorkspaceAuthority(workspaceId)
-        const snapshot = authority?.scopeAuthoritySnapshot
-        if (snapshot) {
-          const payload = meshRustRuntime().state.createScopeControlTransferPayload({ snapshot,
-            toController: { personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates } }) as { kind: string }
-          const controlTransfer = await signEnvelope(profile.privateKeys.devicePrivateKey, payload, profile.device.deviceId)
-          nextScopeAuthoritySnapshot = { ...snapshot, controlTransfers: [...snapshot.controlTransfers, controlTransfer] }
-          meshRustRuntime().state.validateScopeAuthority(nextScopeAuthoritySnapshot)
-        }
-      }
-      if (action === "persistProposal") await this.store.putWorkspaceCredential({ ...credential!, updatedAt: new Date().toISOString(),
-        catalog: { ...meshCatalog(credential!), ownershipTransfers: [...ownershipTransfers(credential!), transfer] } })
-      if (action === "confirmDelivery") {
-        const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
-        const receipts = await Promise.allSettled(sessions.map(session =>
-          publishConfirmedWorkspace(session.connection, credential!.transportSecret, snapshot)))
-        await Promise.all(sessions.flatMap((session, index) => receipts[index]?.status === "rejected"
-          ? [session.evict("ownership delivery unconfirmed")] : []))
-        if (!receipts.some(receipt => receipt.status === "fulfilled")) {
-          throw new Error("Ownership delivery is unconfirmed. Keep both devices open and retry the same recipient.")
-        }
-      }
-      if (action === "mergeTransfer") {
-        current = await this.store.getWorkspaceCredential(workspaceId) ?? current
-        await this.mergeOwnershipTransfers(current, [transfer])
-        if (nextScopeAuthoritySnapshot) {
-          const authority = await this.store.getWorkspaceAuthority(workspaceId)
-          if (!authority) throw new Error("Workspace authority disappeared during ownership transfer")
-          await this.store.putWorkspaceAuthority({ ...authority, scopeAuthoritySnapshot: nextScopeAuthoritySnapshot })
-        }
-      }
-      if (action === "notify") await this.notify()
-      if (action === "publish") await this.publishAll()
+      await this.applyOwnershipTransferAction(action, workspaceId, state)
     }
+  }
+
+  private async applyOwnershipTransferAction(action: string, workspaceId: string, state: OwnershipTransferState): Promise<void> {
+    if (action === "verifyTarget") state.target = await verifyWorkspaceMemberBundle(state.targetAdvertisement!, {
+      workspaceId, ownerPersonId: state.credential.ownerPersonId, ownerPublicKey: state.credential.ownerPublicKey,
+      ownerCertificates: state.credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(state.credential).slice(1),
+    })
+    if (action === "createTransfer") await this.createOwnershipTransfer(workspaceId, state)
+    if (action === "persistProposal") await this.store.putWorkspaceCredential({ ...state.credential, updatedAt: new Date().toISOString(),
+      catalog: { ...meshCatalog(state.credential), ownershipTransfers: [...ownershipTransfers(state.credential), state.transfer!] } })
+    if (action === "confirmDelivery") await this.confirmOwnershipDelivery(workspaceId, state)
+    if (action === "mergeTransfer") await this.mergeConfirmedOwnershipTransfer(workspaceId, state)
+    if (action === "notify") await this.notify()
+    if (action === "publish") await this.publishAll()
+  }
+
+  private async createOwnershipTransfer(workspaceId: string, state: OwnershipTransferState): Promise<void> {
+    const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
+    try { state.transfer = await createWorkspaceOwnershipTransfer(state.profile, workspaceId, {
+      personId: state.target!.payload.personId, publicKey: state.target!.publicKey, certificates: state.target!.certificates,
+    }, Automerge.getHeads(doc), state.credential.epoch + 1) } finally { Automerge.free(doc) }
+    const authority = await this.store.getWorkspaceAuthority(workspaceId)
+    const snapshot = authority?.scopeAuthoritySnapshot
+    if (!snapshot) return
+    const payload = meshRustRuntime().state.createScopeControlTransferPayload({ snapshot,
+      toController: { personId: state.target!.payload.personId, publicKey: state.target!.publicKey,
+        certificates: state.target!.certificates } }) as { kind: string }
+    const controlTransfer = await signEnvelope(state.profile.privateKeys.devicePrivateKey, payload, state.profile.device.deviceId)
+    state.nextScopeAuthoritySnapshot = { ...snapshot, controlTransfers: [...snapshot.controlTransfers, controlTransfer] }
+    meshRustRuntime().state.validateScopeAuthority(state.nextScopeAuthoritySnapshot)
+  }
+
+  private async confirmOwnershipDelivery(workspaceId: string, state: OwnershipTransferState): Promise<void> {
+    const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
+    const receipts = await Promise.allSettled(state.sessions.map(session =>
+      publishConfirmedWorkspace(session.connection, state.credential.transportSecret, snapshot)))
+    await Promise.all(state.sessions.flatMap((session, index) => receipts[index]?.status === "rejected"
+      ? [session.evict("ownership delivery unconfirmed")] : []))
+    if (!receipts.some(receipt => receipt.status === "fulfilled")) {
+      throw new Error("Ownership delivery is unconfirmed. Keep both devices open and retry the same recipient.")
+    }
+  }
+
+  private async mergeConfirmedOwnershipTransfer(workspaceId: string, state: OwnershipTransferState): Promise<void> {
+    state.current = await this.store.getWorkspaceCredential(workspaceId) ?? state.current
+    await this.mergeOwnershipTransfers(state.current, [state.transfer!])
+    if (!state.nextScopeAuthoritySnapshot) return
+    const authority = await this.store.getWorkspaceAuthority(workspaceId)
+    if (!authority) throw new Error("Workspace authority disappeared during ownership transfer")
+    await this.store.putWorkspaceAuthority({ ...authority, scopeAuthoritySnapshot: state.nextScopeAuthoritySnapshot })
   }
 
 

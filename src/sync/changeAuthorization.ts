@@ -214,9 +214,17 @@ export async function exportAuthorizations(bytes: Uint8Array) {
  * them. The receiver verifies this evidence before it uses any of it and does
  * not store it as a side effect of validation.
  */
-export async function exportAuthorizationBundle(bytes: Uint8Array, _knownProfile?: LocalProfile): Promise<IncomingAuthorizationBundle> {
+export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<IncomingAuthorizationBundle> {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
-  const authority = (await storedWorkspaceAuthority(doc.id)).authority
+  let authority = (await storedWorkspaceAuthority(doc.id)).authority
+  if (!authority && typeof indexedDB === "undefined" && knownProfile?.identity.personId === doc.ownerPersonId) {
+    authority = {
+      version: 1, workspaceId: doc.id, genesisOwnerPersonId: knownProfile.identity.personId,
+      ownerPersonId: knownProfile.identity.personId, ownerPublicKey: knownProfile.identity.publicKey,
+      ownerCertificates: uniqueCertificates(knownProfile, await defaultProofStore.listCertificates()),
+      epoch: 1, updatedAt: new Date().toISOString(), catalog: {},
+    }
+  }
   const evidence = workspaceWriteAuthorityEvidence(doc, authority)
   if (!evidence) throw new Error("Workspace authority is unavailable for write authorization")
   return { version: 1, records: await exportAuthorizations(bytes), authority: evidence }
