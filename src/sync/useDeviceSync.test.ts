@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { userMessage, useDeviceSync } from "./useDeviceSync"
 import { formatSyncError } from "./deviceSyncState"
+import { DeviceSyncController } from "./deviceSyncController"
+
+const waitFor = async (predicate: () => boolean) => {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (predicate()) return
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+  throw new Error("Condition was not met")
+}
 
 describe("device sync errors", () => {
   it("explains a deleted local copy without blaming another open tab", () => {
@@ -37,6 +46,62 @@ describe("device sync errors", () => {
 })
 
 describe("useDeviceSync direct sync selection and custom workspace sets", () => {
+  it("Given the direct runtime node closes, when its live session fails, then durable mesh adopts the node and keeps reconnecting", async () => {
+    let rejectSession!: (error: unknown) => void
+    const session = {
+      done: new Promise<void>((_, reject) => { rejectSession = reject }),
+      publish: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    }
+    const node = { close: vi.fn(async () => undefined) }
+    const durableMesh = {
+      revokedWorkspaceIds: vi.fn(async () => []),
+      resumeAll: vi.fn(async () => undefined),
+    }
+    const controller = new DeviceSyncController({ workspace: {}, origin: () => "http://localhost:3000" })
+    const internal = controller as any
+    const sync = controller.api()
+    internal.node = node
+    internal.durableMesh = durableMesh
+    internal.attachLiveSession(session, 0)
+
+    rejectSession(new Error("browser runtime node is closed"))
+    await waitFor(() => durableMesh.resumeAll.mock.calls.length === 1)
+
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(durableMesh.resumeAll).toHaveBeenCalledWith(node)
+    expect(node.close).not.toHaveBeenCalled()
+    expect(sync.step.value).toBe("workspace-reconnecting")
+    expect(sync.error.value).toBe("")
+  })
+
+  it("Given one direct peer sends an invalid protocol record, when that session fails, then durable mesh keeps the runtime available", async () => {
+    let rejectSession!: (error: unknown) => void
+    const session = {
+      done: new Promise<void>((_, reject) => { rejectSession = reject }),
+      publish: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    }
+    const node = { close: vi.fn(async () => undefined) }
+    const durableMesh = {
+      revokedWorkspaceIds: vi.fn(async () => []),
+      resumeAll: vi.fn(async () => undefined),
+    }
+    const controller = new DeviceSyncController({ workspace: {}, origin: () => "http://localhost:3000" })
+    const internal = controller as any
+    const sync = controller.api()
+    internal.node = node
+    internal.durableMesh = durableMesh
+    internal.attachLiveSession(session, 0)
+
+    rejectSession(new Error("Invalid workspace grant signature"))
+    await waitFor(() => session.close.mock.calls.length === 1)
+
+    expect(durableMesh.resumeAll).toHaveBeenCalledWith(node)
+    expect(sync.step.value).toBe("workspace-reconnecting")
+    expect(sync.error.value).toBe("")
+  })
+
   it("keeps sync enabled while no peer session is connected, and only disables it when stopped", async () => {
     const sync = useDeviceSync({ workspace: {}, origin: () => "http://localhost:3000" } as never)
 

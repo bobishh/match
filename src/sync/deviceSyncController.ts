@@ -7,13 +7,13 @@ import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
 import type { SyncNode, SyncTransport } from "./transport"
 import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
-import { createDeviceSyncState, formatSyncError, userMessage } from "./deviceSyncState"
+import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
 import { generateWorkspaceInvite as generateHostInvite } from "./deviceSyncHost"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
-import { meshTrace } from "./meshTrace"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
+import { recoverLiveSession } from "./deviceSyncLiveRecovery"
 
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
@@ -31,7 +31,7 @@ export function createDeviceSyncController(options: DeviceSyncOptions) {
   return new DeviceSyncController(options).api()
 }
 
-class DeviceSyncController {
+export class DeviceSyncController {
   private readonly state = createDeviceSyncState()
   private readonly workspace: WorkspaceReplica
   private readonly workspaceStore?: WorkspaceSetStore
@@ -272,12 +272,9 @@ class DeviceSyncController {
   }
 
   private liveSessionFailed(syncError: unknown, currentRun: number) {
-    if (currentRun !== this.run) return
-    const reason = formatSyncError(syncError, "Live sync stopped.")
-    meshTrace("live.session.failed", { runId: currentRun, reason })
-    this.state.step.value = "error"
-    this.state.error.value = userMessage(syncError, "Live sync stopped.")
-    void this.stopNode("Live sync failed")
+    recoverLiveSession({ error: syncError, sessionRun: currentRun, currentRun: () => this.run,
+      supersede: () => ++this.run, state: this.state,
+      handoff: () => this.handoffDirectNode("Live sync interrupted") })
   }
 
   private detachLiveSession(session: LiveWorkspaceSync) {
