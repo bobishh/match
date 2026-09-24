@@ -2,6 +2,7 @@ node_modules/
 dist/
 iroh-wasm/target/
 crates/*/target/
+/target/
 *.tsbuildinfo
 coverage/
 test-results/
