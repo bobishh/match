@@ -44,8 +44,8 @@
 .chat-resize-handle:hover { color: var(--ink); }
 
 .chat-resize-handle:focus-visible {
-  outline: 3px solid var(--blue);
-  outline-offset: 2px;
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 .chat-head {

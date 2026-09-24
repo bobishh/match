@@ -8,7 +8,7 @@
       shadow.innerHTML = `<style>
         :host { display: inline-block; width: 30px; height: 45px; }
         button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
-        button:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; border-radius: 2px; }
+        button:focus-visible { outline: 3px solid var(--focus, #176b4d); outline-offset: 3px; }
         button > svg { display: block; width: 100%; height: 100%; overflow: visible; }
         svg { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: square; stroke-linejoin: miter; }
         [data-tower-base] { transform-origin: 32px 84px; }

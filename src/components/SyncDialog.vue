@@ -481,7 +481,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-member:not(:disabled) { cursor: pointer; }
 .mesh-member:disabled { opacity: 1; }
 .mesh-member:focus { outline: none; }
-.mesh-member:focus-visible { outline: 2px solid var(--blue); outline-offset: -4px; }
+.mesh-member:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
 .mesh-member.is-selected { background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); transform: translate(-2px, -2px); }
 .mesh-member-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
 .mesh-member-presence.is-online { background: var(--green); }
