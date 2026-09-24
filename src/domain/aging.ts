@@ -13,10 +13,11 @@ export function isCardAgingExemptColumn(column: { title: string; archive?: true;
 }
 
 export function cardAge(item: Item, policy: CardAgingPolicy | undefined, now = new Date()): CardAge | null {
-  const activity = new Date(item.lastActivityAt ?? item.createdAt)
+  const activity = new Date(item.lastActivityAt ?? item.updatedAt)
   if (Number.isNaN(activity.getTime()) || Number.isNaN(now.getTime())) return null
   const days = Math.max(0, Math.floor((now.getTime() - activity.getTime()) / 86_400_000))
   const thresholds = policy?.thresholds ?? defaultCardAgingPolicy.thresholds
   const level = days >= thresholds.overdue ? "overdue" : days >= thresholds.aged ? "aged" : days >= thresholds.watch ? "watch" : "fresh"
-  return { days, level, label: `No activity for ${days} ${days === 1 ? "day" : "days"}` }
+  const duration = `${days} ${days === 1 ? "day" : "days"}`
+  return { days, level, label: item.lastActivityAt ? `No activity for ${duration}` : `Last updated ${duration} ago` }
 }

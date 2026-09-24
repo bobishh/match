@@ -17,10 +17,16 @@ describe("card aging", () => {
     expect(cardAge(item("2026-02-12T00:00:00.000Z"), defaultCardAgingPolicy, new Date("2026-03-02T00:00:00.000Z"))).toMatchObject({ days: 18, level: "aged", label: "No activity for 18 days" })
   })
 
-  it("uses the configurable escalating thresholds and falls back safely for legacy cards", () => {
+  it("uses the configurable escalating thresholds", () => {
     const now = new Date("2026-01-31T00:00:00.000Z")
     expect(cardAge(item("2026-01-24T00:00:00.000Z"), { version: 1, thresholds: { watch: 3, aged: 5, overdue: 7 } }, now)?.level).toBe("overdue")
-    expect(cardAge(item(), defaultCardAgingPolicy, now)).toMatchObject({ days: 30, level: "overdue" })
+
+  })
+
+  it("estimates older cards from their last saved update rather than creation", () => {
+    expect(cardAge(item(), undefined, new Date("2026-03-16T00:00:00Z"))).toMatchObject({
+      days: 15, level: "aged", label: "Last updated 15 days ago",
+    })
   })
 
   it("exempts archive and completed columns from visual aging", () => {
