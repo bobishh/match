@@ -79,6 +79,32 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const patchedItem = queue.getDocument().entities[createdItemId] as Item
     expect(patchedItem.title).toBe("Patched Title")
     expect(patchedItem.body).toBe("Initial item description") // body preserved
+    expect(patchedItem.lastActivityAt).toBeTruthy()
+  })
+
+  it("records review and column-status changes as activity, but does not reset activity when reordering", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
+    const blankDoc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("aging", "Aging", profile.identity.personId, "blank"))
+    const queue = createCommandQueue(blankDoc, profile)
+    const columns = Object.values(blankDoc.entities).filter(entity => entity.kind === "column")
+    const created = await queue.transact({ kind: "createItem", parentId: columns[0].id, title: "First" })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const itemId = created.value.receipt.changedEntityIds[0]
+    const initialActivity = (queue.getDocument().entities[itemId] as Item).lastActivityAt
+
+    vi.setSystemTime(new Date("2026-01-02T00:00:00.000Z"))
+    await queue.transact({ kind: "moveEntity", entityId: itemId, parentId: columns[0].id, beforeId: null })
+    expect((queue.getDocument().entities[itemId] as Item).lastActivityAt).toBe(initialActivity)
+
+    await queue.transact({ kind: "moveEntity", entityId: itemId, parentId: columns[1].id, beforeId: null })
+    expect((queue.getDocument().entities[itemId] as Item).lastActivityAt).toBe("2026-01-02T00:00:00.000Z")
+
+    vi.setSystemTime(new Date("2026-01-03T00:00:00.000Z"))
+    await queue.transact({ kind: "reviewItem", entityId: itemId })
+    expect((queue.getDocument().entities[itemId] as Item).lastActivityAt).toBe("2026-01-03T00:00:00.000Z")
+    vi.useRealTimers()
   })
 
   it("preserves independent offline title and value edits when merged", async () => {

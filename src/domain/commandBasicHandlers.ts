@@ -73,7 +73,7 @@ function validateValues(doc: Automerge.Doc<WorkspaceDocumentV2>, boardId: string
 
 function createItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"createItem">, id: string, values: Record<string, FieldValue>, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string) {
   applyRenumbering(draft, insertion.renumbered)
-  draft.entities[id] = { id, title: command.title.trim(), body: command.body ?? "", placement: { parentId: command.parentId, rank: insertion.rank }, deleted: false, createdAt: nowIso, updatedAt: nowIso, values }
+  draft.entities[id] = { id, title: command.title.trim(), body: command.body ?? "", placement: { parentId: command.parentId, rank: insertion.rank }, deleted: false, createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso, values }
 }
 
 export const patchItem: CommandHandler<"patchItem"> = (doc, command, context) => {
@@ -97,6 +97,17 @@ function patchItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"pa
   if (command.body !== undefined) item.body = command.body
   Object.assign(item.values, command.values ?? {})
   item.updatedAt = nowIso
+  item.lastActivityAt = nowIso
+}
+
+export const reviewItem: CommandHandler<"reviewItem"> = (doc, command, context) => {
+  const item = doc.entities[command.entityId]
+  if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
+  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => {
+    const target = draft.entities[command.entityId] as Item
+    target.lastActivityAt = context.nowIso
+    target.updatedAt = context.nowIso
+  } } }
 }
 
 export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, command, context) => {
@@ -112,7 +123,7 @@ export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, co
 
 function restoreItemInDraft(draft: WorkspaceDocumentV2, id: string, restored: Item, nowIso: string) {
   const item = draft.entities[id] as Item
-  item.title = restored.title; item.body = restored.body; item.values = restored.values; item.placement = restored.placement; item.deleted = restored.deleted; item.updatedAt = nowIso
+  item.title = restored.title; item.body = restored.body; item.values = restored.values; item.placement = restored.placement; item.deleted = restored.deleted; item.updatedAt = nowIso; item.lastActivityAt = nowIso
 }
 
 export const moveEntity: CommandHandler<"moveEntity"> = (doc, command, context) => moveEntityResult(doc, command, context, false)
@@ -141,9 +152,11 @@ function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: Workspace
 function moveEntityInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"moveEntity"> | CommandByKind<"restoreAndMove">, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string, restore: boolean) {
   applyRenumbering(draft, insertion.renumbered)
   const entity = draft.entities[command.entityId]
+  const movedToNewParent = entity.placement.parentId !== command.parentId
   if (restore) entity.deleted = false
   entity.placement = { parentId: command.parentId, rank: insertion.rank }
   entity.updatedAt = nowIso
+  if (isItem(entity) && movedToNewParent) entity.lastActivityAt = nowIso
 }
 
 export const renameEntity: CommandHandler<"renameEntity"> = (doc, command, context) => {

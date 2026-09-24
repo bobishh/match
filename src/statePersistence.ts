@@ -52,6 +52,9 @@ export function resetStateForTest(): void {
   stateRuntime.pendingWrites = 0;
   stateRuntime.batchSaveFailed = false;
   stateRuntime.workspaceCommandQueues.clear();
+  stateRuntime.reconcilePromise = undefined;
+  stateRuntime.reconcileRequested = false;
+  stateRuntime.reconcileWorkspaceChanged = false;
   clearWorkspaceProjection();
   stateRuntime.availableWorkspaces.value = [];
   Object.assign(stateRuntime.activeWorkspaceMeta, {
@@ -161,14 +164,23 @@ export async function persistAuthorizedCommand(
   return result.value.newDoc;
 }
 
-export async function reconcile(storage = defaultStorage): Promise<void> {
-  if (
-    !stateRuntime.ready.value ||
-    stateRuntime.reconcilePromise ||
-    !stateRuntime.activeDoc
-  )
+export async function reconcile(storage = defaultStorage, workspaceChanged = false): Promise<void> {
+  if (!stateRuntime.ready.value || !stateRuntime.activeDoc)
+    return;
+  if (workspaceChanged)
+    stateRuntime.reconcileWorkspaceChanged = true;
+  if (stateRuntime.reconcilePromise) {
+    stateRuntime.reconcileRequested = true;
     return stateRuntime.reconcilePromise;
-  stateRuntime.reconcilePromise = reconcileWorkspace(storage).finally(() => {
+  }
+  stateRuntime.reconcilePromise = (async () => {
+    do {
+      stateRuntime.reconcileRequested = false;
+      const workspaceChanged = stateRuntime.reconcileWorkspaceChanged;
+      stateRuntime.reconcileWorkspaceChanged = false;
+      await reconcileWorkspace(storage, workspaceChanged);
+    } while (stateRuntime.reconcileRequested);
+  })().finally(() => {
     stateRuntime.reconcilePromise = undefined;
   });
   return stateRuntime.reconcilePromise;
@@ -429,18 +441,15 @@ function ensureContentWrite(role: WorkspaceRole): void {
   if (role === "visitor") assertWorkspaceCapability(role, "content.write");
 }
 
-async function reconcileWorkspace(storage: WorkspaceStorage): Promise<void> {
+async function reconcileWorkspace(storage: WorkspaceStorage, workspaceChanged = false): Promise<void> {
   const active = stateRuntime.activeDoc;
   if (!active) return;
   await refreshAvailableWorkspaces(storage);
   const loaded = await storage.loadWorkspaceDoc(active.id);
-  if (
-    !loaded ||
-    Automerge.getHeads(active).sort().join(",") === loaded.heads.join(",")
-  )
-    return;
-  updateReactiveState(loaded.doc);
-  notifyLocalChanges();
+  const activeChanged = loaded &&
+    Automerge.getHeads(active).sort().join(",") !== loaded.heads.join(",");
+  if (activeChanged) updateReactiveState(loaded.doc);
+  if (activeChanged || workspaceChanged) notifyLocalChanges();
 }
 
 function clearWorkspaceProjection(): void {
@@ -473,8 +482,9 @@ function replaceWorkspaceProjection(
   );
 }
 
-stateRuntime.storageChannel?.addEventListener("message", () => {
-  void reconcile();
+stateRuntime.storageChannel?.addEventListener("message", (event: MessageEvent<{ type?: unknown }>) => {
+  if (event.data?.type !== "workspace-persisted") return;
+  void reconcile(defaultStorage, true);
 });
 if (typeof window !== "undefined") {
   window.addEventListener("focus", () => {

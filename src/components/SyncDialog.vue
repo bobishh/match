@@ -176,6 +176,8 @@ const guestWorkspaces = computed(() => {
 function selectPairingLink(event: FocusEvent | MouseEvent) {
   ;(event.target as HTMLTextAreaElement).select()
 }
+
+function deviceConnectionLabel(device: { deviceId: string; online: boolean; reconnecting: boolean }) { return device.deviceId === props.localDeviceId ? "Open in this tab" : device.online ? "Connected to this tab" : device.reconnecting ? "Checking connection" : "No connection" }
 </script>
 
 <template>
@@ -205,7 +207,8 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
           <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
           <button class="button" type="button" @click="emit('repairHistory')">Sign verified cleanup</button>
         </section>
-        <p class="dialog-copy">People and devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
+        <p class="dialog-copy">People and their known devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
+        <p class="mesh-member-help">A person can have more than one device. Select a person to see the devices known here.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
           <button
             v-for="member in (meshMembers || [])"
@@ -217,7 +220,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             @click="selectedMemberId = member.personId"
           >
             <span class="mesh-member-presence" :class="member.online ? 'is-online' : member.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
-            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} {{ member.devices === 1 ? 'device' : 'devices' }} · {{ member.reconnecting ? 'reconnecting' : `${member.onlineDevices} online` }}{{ member.self ? ' · You' : '' }}</small></span>
+            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} known {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
             <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
           <p v-if="!(meshMembers || []).length" class="mesh-member-empty">No mesh members yet.</p>
@@ -229,15 +232,16 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
             <li v-for="device in selectedMember.deviceList" :key="device.deviceId" class="mesh-device">
               <div class="mesh-device-head">
                 <span class="mesh-device-presence" :class="device.online ? 'is-online' : device.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
-                <strong>{{ device.name }}</strong>
+                <strong>{{ device.deviceId === localDeviceId ? 'This device' : device.name }}</strong>
                 <code>{{ device.deviceId.slice(0, 8) }}</code>
               </div>
-              <small>{{ device.description }}</small>
+              <small class="mesh-device-platform">Browser / platform: {{ device.description }}</small>
+              <small class="mesh-device-status">{{ deviceConnectionLabel(device) }}</small>
               <DeviceRemovalControl v-if="device.deviceId !== localDeviceId && (canManageMesh || (selectedMember.self && currentRole === 'editor'))"
                 :person-id="selectedMember.personId" :device-id="device.deviceId" :name="device.name" :active-workspace-id="activeWorkspaceId"
                 :removable-device-workspaces="removableDeviceWorkspaces" :remove-device="removeDevice" />
-              <small>{{ device.tabs }} {{ device.tabs === 1 ? 'tab' : 'tabs' }}</small>
-              <small>{{ device.online ? 'Online now' : device.reconnecting ? 'Checking channel…' : `Last seen ${new Date(device.lastSeen).toLocaleString()}` }}</small>
+              <small>{{ device.tabs }} known {{ device.tabs === 1 ? 'browser session' : 'browser sessions' }} · session count may include tabs no longer open</small>
+              <small v-if="!device.online && !device.reconnecting">Last seen {{ new Date(device.lastSeen).toLocaleString() }}</small>
               <details v-if="device.userAgent" class="mesh-device-ua">
                 <summary>User agent</summary>
                 <code>{{ device.userAgent }}</code>
@@ -489,6 +493,7 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-member-name { min-width: 0; display: grid; gap: 4px; }
 .mesh-member-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-member-name small, .mesh-member-role { color: var(--muted); font: 800 .64rem/1.2 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.mesh-member-help { margin: -8px 0 12px; color: var(--muted); font-size: .78rem; }
 .mesh-member-action { display: grid; gap: 10px; padding: 14px; border: 2px solid var(--line); background: var(--panel); }
 .mesh-member-action p { margin: 0; }
 .mesh-member-action .button { justify-self: start; }
@@ -502,6 +507,8 @@ function selectPairingLink(event: FocusEvent | MouseEvent) {
 .mesh-device-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-device-head code, .mesh-device small { color: var(--muted); }
 .mesh-device small { font: 700 .72rem/1.3 ui-monospace, monospace; }
+.mesh-device-platform, .mesh-device-status { display: block; }
+.mesh-device-status { color: var(--ink) !important; font-weight: 850 !important; }
 .mesh-device-ua summary { cursor: pointer; color: var(--muted); font: 800 .68rem/1.3 ui-monospace, monospace; text-transform: uppercase; }
 .mesh-device-ua code { display: block; margin-top: 6px; overflow-wrap: anywhere; white-space: normal; font-size: .68rem; }
 .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 750; }

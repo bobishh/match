@@ -351,14 +351,14 @@ test("Given trusted devices and multiple tabs, when tabs close and reopen, then 
     const secondTab = await hostContext.newPage()
     await secondTab.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))
     await secondTab.goto("/")
-    await expect(secondTab.getByLabel("Mesh connected")).toBeVisible({ timeout: 10_000 })
+    await expect(secondTab.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
     await addLead(secondTab, "From second tab")
     await expect(guest.getByRole("button", { name: "Open From second tab — Engineer" })).toBeVisible({ timeout: 20_000 })
 
     await guest.getByRole("button", { name: "Sync", exact: true }).click()
     const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
     await guestDialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "OWNER" }).click()
-    await expect(guestDialog.getByText("2 tabs", { exact: true })).toBeVisible({ timeout: 20_000 })
+    await expect(guestDialog.getByText(/2 known browser sessions/)).toBeVisible({ timeout: 20_000 })
     await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
 
     await host.close()

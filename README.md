@@ -18,6 +18,16 @@ second device and keep working across both.
 Match is an experimental application. Keep an independent backup of important
 work. Browser storage is a local copy, not a hosted backup service.
 
+## Card aging
+
+Inactive cards gradually turn olive and then brown after 7, 14, and 30 days.
+Owners can change these thresholds under **Edit board → Edit item/lead**.
+Editing a card, adding a note, moving it to another column, or choosing
+**Reviewed** restarts its activity clock. Reordering within a column does not.
+Archived cards and columns named Done, Complete, or Completed are excluded.
+The display calculates age locally; the passage of time does not write to the
+shared document.
+
 ## Try sharing a board
 
 1. Open Match in two browsers or browser profiles. Give each profile a different

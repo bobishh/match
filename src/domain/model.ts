@@ -7,7 +7,7 @@ type IsoTime = string
 export type Hash = string
 export type Heads = Hash[]
 
-export type { Board, Column, FieldValue, PriorityRule, PriorityPolicy, Item, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2, EntityKind } from "./entitySchemas"
+export type { Board, Column, FieldValue, PriorityRule, PriorityPolicy, CardAgingPolicy, Item, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2, EntityKind } from "./entitySchemas"
 export { isItem, entityKind } from "./entitySchemas"
 export { isValidRank } from "./rank"
 export { validatePlacementParent, validateEntity, validateWorkspaceDoc } from "./validation"

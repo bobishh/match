@@ -48,6 +48,7 @@ export function applyBoardSchemaSettings(draft: WorkspaceDocumentV2, boardId: st
   board.entityName = schema.entityName.trim()
   if (schema.priorityPolicy) board.priorityPolicy = JSON.parse(JSON.stringify(schema.priorityPolicy))
   else delete board.priorityPolicy
+  board.cardAgingPolicy = JSON.parse(JSON.stringify(schema.cardAgingPolicy ?? { version: 1, thresholds: { watch: 7, aged: 14, overdue: 30 } }))
   board.updatedAt = nowIso
   changedIds.push(boardId)
   applyColumns(draft, boardId, schema, nowIso, changedIds)

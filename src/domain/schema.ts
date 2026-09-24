@@ -1,17 +1,18 @@
-import type { Board, Column, FieldDefinition, PriorityPolicy, WorkspaceDocumentV2 } from "./model"
+import type { Board, CardAgingPolicy, Column, FieldDefinition, PriorityPolicy, WorkspaceDocumentV2 } from "./model"
 import { getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
-import { priorityPolicySchema } from "./entitySchemas"
+import { cardAgingPolicySchema, priorityPolicySchema } from "./entitySchemas"
 import { validatePriorityPolicy } from "./priority"
 import { isItem } from "./model"
 
 type BoardSchemaColumn = { id?: string; title: string; archive?: true }
 type BoardSchemaSelectOption = { id?: string; title: string }
 type BoardSchemaField = { id?: string; title: string; valueType: "text" | "number" | "boolean" | "select" | "url" | "date" | "datetime"; required: boolean; min?: number | null; max?: number | null; options?: BoardSchemaSelectOption[] }
-export type BoardSchemaDraft = { boardId: string; boardTitle: string; entityName: string; columns: BoardSchemaColumn[]; fields: BoardSchemaField[]; priorityPolicy?: PriorityPolicy | null }
+export type BoardSchemaDraft = { boardId: string; boardTitle: string; entityName: string; columns: BoardSchemaColumn[]; fields: BoardSchemaField[]; priorityPolicy?: PriorityPolicy | null; cardAgingPolicy?: CardAgingPolicy }
 export type SchemaValidationError = { path: string; message: string }
 export type SchemaValidationResult = { valid: boolean; errors: SchemaValidationError[] }
 export type SchemaDiff = {
+  cardAgingChange?: { before: string; after: string }
   columnsRenamed: Array<{ id: string; oldTitle: string; newTitle: string }>; columnsReordered: boolean; columnsAdded: Array<{ title: string }>; columnsSoftDeleted: Array<{ id: string; title: string; retainedItemCount: number }>
   fieldsAdded: Array<{ title: string; valueType: string }>; fieldsModified: Array<{ id: string; title: string; changes: string[] }>; fieldsSoftDeleted: Array<{ id: string; title: string }>
   optionsAdded: Array<{ fieldId: string; title: string }>; optionsModified: Array<{ fieldId: string; optionId: string; oldTitle: string; newTitle: string }>; optionsSoftDeleted: Array<{ fieldId: string; optionId: string; title: string }>
@@ -30,6 +31,7 @@ export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): B
     priorityPolicy: board?.priorityPolicy
       ? { ...JSON.parse(JSON.stringify(board.priorityPolicy)), sort: board.priorityPolicy.sort ?? "fit_desc" }
       : null,
+    cardAgingPolicy: board?.cardAgingPolicy ?? { version: 1, thresholds: { watch: 7, aged: 14, overdue: 30 } },
   }
 }
 
@@ -49,8 +51,16 @@ export function validateBoardSchemaDraft(draft: unknown, doc?: WorkspaceDocument
   const errors: SchemaValidationError[] = []
   requiredText(draft.boardTitle, "/boardTitle", "Board title is required", errors)
   requiredText(draft.entityName, "/entityName", "Entity name is required", errors)
-  validateColumns(draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors)
+  validateColumns(draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
   return { valid: errors.length === 0, errors }
+}
+function validateAgingPolicy(draft: Record<string, unknown>, errors: SchemaValidationError[]): void {
+  if (draft.cardAgingPolicy === undefined) return
+  const parsed = cardAgingPolicySchema.safeParse(draft.cardAgingPolicy)
+  if (!parsed.success) {
+    errors.push(...parsed.error.issues.map(issue => ({ path: `/cardAgingPolicy/${issue.path.join("/")}`.replace(/\/$/, ""), message: issue.message })))
+    return
+  }
 }
 function validateColumns(value: unknown, errors: SchemaValidationError[]): void {
   if (!Array.isArray(value)) {
@@ -119,7 +129,9 @@ export function diffBoardSchema(doc: WorkspaceDocumentV2, boardId: string, draft
   const current = projectBoardSchema(doc, boardId)
   const columns = diffColumns(current.columns, draft.columns, doc)
   const fields = diffFields(current.fields, draft.fields)
-  return { ...columns, ...fields }
+  const format = (policy: CardAgingPolicy | undefined) => policy ? `${policy.thresholds.watch} / ${policy.thresholds.aged} / ${policy.thresholds.overdue}` : "default"
+  const before = format(current.cardAgingPolicy); const after = format(draft.cardAgingPolicy)
+  return { ...columns, ...fields, ...(before !== after ? { cardAgingChange: { before, after } } : {}) }
 }
 function diffColumns(current: BoardSchemaColumn[], draft: BoardSchemaColumn[], doc: WorkspaceDocumentV2): Pick<SchemaDiff, "columnsRenamed" | "columnsReordered" | "columnsAdded" | "columnsSoftDeleted"> {
   const known = byId(current); const incoming = byId(draft)

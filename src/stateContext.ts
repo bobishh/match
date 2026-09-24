@@ -26,6 +26,8 @@ export type StateRuntime = {
   localChangeListeners: Set<() => void>;
   storageChannel: BroadcastChannel | undefined;
   reconcilePromise: Promise<void> | undefined;
+  reconcileRequested: boolean;
+  reconcileWorkspaceChanged: boolean;
 };
 
 export const stateRuntime: StateRuntime = {
@@ -55,4 +57,6 @@ export const stateRuntime: StateRuntime = {
       ? undefined
       : new BroadcastChannel("match-workspace"),
   reconcilePromise: undefined,
+  reconcileRequested: false,
+  reconcileWorkspaceChanged: false,
 };

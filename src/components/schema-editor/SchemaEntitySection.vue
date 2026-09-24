@@ -54,6 +54,17 @@ function updateEntityName(event: Event) {
   emit("update:modelValue", { ...props.modelValue, entityName });
 }
 
+function updateAgingThreshold(name: "watch" | "aged" | "overdue", event: Event) {
+  const value = Number((event.target as HTMLInputElement).value);
+  emit("update:modelValue", {
+    ...props.modelValue,
+    cardAgingPolicy: {
+      version: 1,
+      thresholds: { ...(props.modelValue.cardAgingPolicy?.thresholds ?? { watch: 7, aged: 14, overdue: 30 }), [name]: value },
+    },
+  });
+}
+
 function selectOptions(): BoardSchemaField["options"] {
   if (newFieldValueType.value !== "select") return undefined;
   return newFieldOptions.value
@@ -84,6 +95,16 @@ function resetAddField() {
           @input="updateEntityName"
         />
       </label>
+    </section>
+
+    <section class="schema-section">
+      <header class="schema-section-head"><h3>Card aging</h3></header>
+      <p class="schema-help">Cards become tinted after this many days without a meaningful update. Archived cards and columns named Done, Complete, or Completed are excluded.</p>
+      <div class="schema-aging-fields">
+        <label><span>Watch after days</span><input :value="modelValue.cardAgingPolicy?.thresholds.watch ?? 7" min="1" type="number" @input="updateAgingThreshold('watch', $event)" /></label>
+        <label><span>Aged after days</span><input :value="modelValue.cardAgingPolicy?.thresholds.aged ?? 14" min="1" type="number" @input="updateAgingThreshold('aged', $event)" /></label>
+        <label><span>Stale after days</span><input :value="modelValue.cardAgingPolicy?.thresholds.overdue ?? 30" min="1" type="number" @input="updateAgingThreshold('overdue', $event)" /></label>
+      </div>
     </section>
 
     <section class="schema-section">

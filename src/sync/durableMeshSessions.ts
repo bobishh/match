@@ -17,9 +17,8 @@ import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
-    deviceKey: (workspaceId, deviceId) => this.deviceKey(workspaceId, deviceId),
     peers: () => this.peerInstances(),
-    hasSession: (workspaceId, deviceId) => this.hasDeviceSession(workspaceId, deviceId),
+    hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
     peerKey: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     routeFailures: key => this.routeFailures(key),
     retryAt: (key, fallback) => this.runtimeState?.reconnectState(key)?.retryAtMs ?? fallback,
@@ -40,6 +39,12 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     putVerifiedBundle: (credential, bundle) => this.putVerifiedBundle(credential, bundle),
     trace: (event, detail, level) => this.trace(event, detail, level),
   }, this.handshakeCodec)
+
+  protected hasPeerSession(workspaceId: string, deviceId: string, instanceId = "legacy") {
+    return this.runtimeState?.sessions().some(session =>
+      session.key.workspaceId === workspaceId && session.key.deviceId === deviceId && session.key.instanceId === instanceId,
+    ) ?? false
+  }
 
   protected hasDeviceSession(workspaceId: string, deviceId: string) {
     return this.runtimeState?.connectedDevices(workspaceId).includes(deviceId) ?? false
@@ -75,7 +80,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   }
 
   protected async scheduleDials(localDeviceId: string, signal: AbortSignal): Promise<void> {
-    await this.dialScheduler.schedule(localDeviceId, signal)
+    await this.dialScheduler.schedule(localDeviceId, this.instanceId, signal)
   }
 
   protected waitForDialTick(signal: AbortSignal) {
@@ -84,11 +89,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
 
   protected async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {
     const peer = peers[0]!
-    const key = this.deviceKey(peer.workspaceId, peer.deviceId)
+    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
     if (this.runtime().routeAttemptActive(key)) return
     const attempt = this.runtime().beginRouteAttempt(key, Date.now())
     try {
-      if (!this.node || this.hasDeviceSession(peer.workspaceId, peer.deviceId)) return
+      if (!this.node || this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) return
       const routeEntries = await Promise.all(peers.map(async candidate => ({
         peer: candidate,
         route: await adaptVerifiedWorkspaceAdvertisement(
@@ -119,7 +124,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame)
       }
     } catch (error) {
-      if (this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
+      if (this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) {
         this.trace("dial.device.superseded", {
           peerId: peer.deviceId.slice(0, 8),
           workspaceId: peer.workspaceId.slice(0, 8),
@@ -218,7 +223,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     this.recordRouteFailure(key, error)
     this.trace("dial.failed", { connectionId, peerId: peer.deviceId.slice(0, 8),
       reason: error instanceof Error ? error.message : String(error) }, "warn")
-    if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+    if (!this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
     else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
     await connection?.close().catch(() => {})
     if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
@@ -230,6 +235,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly browserSessions = new BrowserMeshSessions<SyncConnection, LiveWorkspaceSync, LocalProfile>({
     profile: this.options.getProfile,
     deviceId: profile => profile.device.deviceId,
+    instanceId: () => this.instanceId,
     credential: workspaceId => this.store.getWorkspaceCredential(workspaceId),
     create: input => {
       const credential = input.credential as WorkspaceMeshCredential

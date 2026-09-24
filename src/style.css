@@ -170,7 +170,10 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .card-stack { position: relative; flex: 1; min-height: 96px; display: grid; align-content: start; gap: 14px; padding: 14px; }
 .column-add-button { width: calc(100% - 28px); min-height: 40px; margin: 0 14px 14px; padding: 9px 10px; border: 0; color: var(--muted); background: transparent; text-align: left; font: 800 .76rem/1.2 ui-monospace, monospace; }
 .column-add-button:hover, .column-add-button:focus-visible { color: var(--ink); background: var(--soft); outline: 2px solid var(--ink); outline-offset: -2px; }
-.lead-card { width: 100%; min-width: 0; padding: 14px; overflow-wrap: anywhere; text-align: left; border: 2px solid var(--line); border-radius: 0; color: var(--ink); background: white; box-shadow: 3px 3px 0 rgba(23,23,23,.2); cursor: grab; touch-action: pan-y; transition: transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) ease, opacity var(--motion-fast) ease; }
+.lead-card { position: relative; width: 100%; min-width: 0; padding: 14px; overflow-wrap: anywhere; text-align: left; border: 2px solid var(--line); border-radius: 0; color: var(--ink); background: white; box-shadow: 3px 3px 0 rgba(23,23,23,.2); cursor: grab; touch-action: pan-y; transition: transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) ease, opacity var(--motion-fast) ease; }
+.lead-card.card-aging-watch { background: #edf0df; }.lead-card.card-aging-aged { background: #dce2c9; }.lead-card.card-aging-overdue { background: #dfcfb9; }
+.lead-card.card-aging-watch::after, .lead-card.card-aging-aged::after, .lead-card.card-aging-overdue::after { content: ""; position: absolute; top: -2px; right: -2px; width: 14px; height: 14px; border-left: 2px solid var(--line); border-bottom: 2px solid var(--line); background: #737b49; clip-path: polygon(100% 0, 100% 100%, 0 0); }
+.card-activity-age { display: block; margin-top: 11px; color: #3f4729; font: 800 .62rem/1.25 ui-monospace, monospace; letter-spacing: .02em; }
 .lead-card:active { cursor: grabbing; opacity: .55; }
 .lead-card:nth-child(3n + 1) { transform: rotate(-.45deg); }.lead-card:nth-child(3n + 2) { transform: rotate(.35deg); }
 .lead-card:hover { transform: translate(-3px, -3px) rotate(0); box-shadow: 7px 7px 0 var(--ink); }

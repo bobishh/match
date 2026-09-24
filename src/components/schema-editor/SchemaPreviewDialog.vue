@@ -40,6 +40,7 @@ const emit = defineEmits<{
       </header>
 
       <div class="preview-body">
+        <p v-if="diff.cardAgingChange">Card aging: {{ diff.cardAgingChange.before }} → {{ diff.cardAgingChange.after }} days</p>
         <section v-if="diff.columnsRenamed.length">
           <h4>Renamed Columns</h4>
           <ul>
@@ -94,6 +95,7 @@ const emit = defineEmits<{
         </section>
         <p
           v-if="
+            !diff.cardAgingChange &&
             !diff.columnsRenamed.length &&
             !diff.columnsAdded.length &&
             !diff.columnsSoftDeleted.length &&
