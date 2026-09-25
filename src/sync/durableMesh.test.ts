@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError } from "@meta-uber/mesh-transport"
 import { createMeshRuntime } from "@meta-uber/mesh-runtime"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
-import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
+import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEnvelope, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
 import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
@@ -102,6 +103,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner" } } as never),
       store: { getWorkspaceCredential: async () => ({ ownerPersonId: "owner" }), putWorkspaceCredential: put,
+        getPendingOwnershipTransfer: async () => null,
         listPeers: async () => [{ personId: "target", deviceId: "target-device" }] } as never })
     ;(mesh as any).sessions.set("test", { workspaceId: "workspace", deviceId: "target-device" })
     await expect(mesh.transferOwnership("workspace", "target")).rejects.toThrow(/online/i)
@@ -568,6 +570,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const store = {
       putWorkspaceCredential: async (next: typeof credential) => { credential = structuredClone(next) },
       transferWorkspaceCredential: async (_previous: string, next: typeof credential) => { credential = structuredClone(next) },
+      getPendingOwnershipTransfer: async () => null,
       listPeers: async () => [],
       listWorkspaceCredentials: async () => [credential],
     }
@@ -603,6 +606,7 @@ describe("DurableMesh peer catalog gossip", () => {
       const store = {
         putWorkspaceCredential: async (next: any) => { credential = structuredClone(next) },
         transferWorkspaceCredential: async (_previous: string, next: any) => { credential = structuredClone(next) },
+        getPendingOwnershipTransfer: async () => null,
         listPeers: async () => [], listWorkspaceCredentials: async () => [credential],
       }
       const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
@@ -773,6 +777,77 @@ describe("DurableMesh peer catalog gossip", () => {
 
     expect(imported).toEqual(["owner-phone"])
     await mesh.dispose()
+  })
+
+  it("rejects a valid scope ledger that conflicts with the Rust-planned ownership transfer before persisting it", async () => {
+    const snapshot = { genesis: {}, grants: [], grantIssuers: [], revocations: [], controlTransfers: [] }
+    const catalog = { version: 1 as const, peers: [], revocations: [], scopeAuthoritySnapshot: snapshot }
+    const credential = { workspaceId: "workspace-1", ownerPersonId: "owner", ownerPublicKey: "owner-key" }
+    const transferWorkspaceCredential = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => ({} as never),
+      store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => ({ scopeAuthoritySnapshot: snapshot }),
+        transferWorkspaceCredential } as never })
+    const state = meshRustRuntime().state as any
+    const spies = [
+      vi.spyOn(state, "validateMeshCatalog").mockReturnValue(catalog),
+      vi.spyOn(state, "mergeScopeAuthoritySnapshots").mockReturnValue(snapshot),
+      vi.spyOn(state, "validateScopeAuthority").mockReturnValue({ scopeId: "workspace-1", controller: { personId: "wrong-owner", publicKey: "wrong-key" } }),
+      vi.spyOn(state, "planOwnershipMerge").mockReturnValue({ accepted: [], persistCatalog: false, steps: [{
+        record: { payload: { toOwnerPersonId: "next-owner", toOwnerPublicKey: "next-key" } }, accepted: [], previousOwnerEpoch: 1,
+      }] }),
+    ]
+    try {
+      await expect(mesh.mergeWorkspace("workspace-1", catalog)).rejects.toThrow(/planned workspace owner/)
+      expect(transferWorkspaceCredential).not.toHaveBeenCalled()
+    } finally {
+      spies.forEach(spy => spy.mockRestore())
+      await mesh.dispose()
+    }
+  })
+
+  it("exports a signed scope ledger through Rust catalog validation and imports its merged copy", async () => {
+    resetIdentityStorageForTest()
+    const profile = await bootstrapIdentity("Owner")
+    const workspaceId = "workspace-scope-export"
+    const genesis = await signEnvelope(profile.privateKeys.devicePrivateKey, {
+      kind: "scope-genesis", version: 1, scopeId: workspaceId,
+      creator: { personId: profile.identity.personId, publicKey: profile.identity.publicKey, certificates: [profile.certificate] },
+      controlEpoch: 1,
+    }, profile.device.deviceId)
+    const scopeAuthoritySnapshot = { genesis, grants: [], grantIssuers: [], revocations: [], controlTransfers: [] }
+    const credential = { version: 1 as const, workspaceId, ownerPersonId: profile.identity.personId,
+      ownerPublicKey: profile.identity.publicKey, ownerCertificates: [profile.certificate], transportSecret: "mesh-secret",
+      epoch: 1, updatedAt: new Date().toISOString() }
+    const authority = { ...credential, scopeAuthoritySnapshot }
+    const sender = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => profile,
+      store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => authority } as never })
+    ;(sender as any).peerInstances = async () => []
+    const exported = await sender.exportWorkspace(workspaceId)
+    const catalog = meshRustRuntime().state.validateMeshCatalog(exported) as typeof exported
+    expect(catalog.scopeAuthoritySnapshot).toEqual(scopeAuthoritySnapshot)
+
+    const putWorkspaceAuthority = vi.fn()
+    const receiver = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
+      getProfile: async () => profile,
+      store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => authority,
+        putWorkspaceAuthority } as never })
+    const internal = receiver as any
+    internal.mergeOwnershipTransfers = async () => credential
+    internal.mergeDeviceRevocations = async () => {}
+    internal.mergeDepartures = async () => {}
+    internal.mergeRevocations = async () => {}
+    internal.mergeSuccessionState = async () => credential
+    internal.mergePeerBundles = async () => {}
+    internal.notify = async () => {}
+    try {
+      await receiver.mergeWorkspace(workspaceId, catalog)
+      expect(putWorkspaceAuthority).toHaveBeenCalledWith(expect.objectContaining({ scopeAuthoritySnapshot }))
+    } finally {
+      await sender.dispose()
+      await receiver.dispose()
+    }
   })
 
   it("Given an enrolled owner device, when it opens an existing workspace, then its certificate can verify new grants", async () => {

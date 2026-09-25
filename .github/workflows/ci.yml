@@ -49,7 +49,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --project=core
+      - run: npx playwright test --reporter=list --project=core
 
   browser-network:
     name: Browser (${{ matrix.project }})
@@ -57,7 +57,9 @@ jobs:
     # matrix when that prerequisite already failed.
     needs: [verify, browser-core]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Twenty serial durable scenarios take seven minutes locally, before CI
+    # setup and the single retry. Keep individual test deadlines unchanged.
+    timeout-minutes: ${{ matrix.project == 'durable-mesh' && 20 || 10 }}
     strategy:
       # Projects run serially. Stop scheduling the remaining matrix after the
       # first failure; the next push supersedes this run through concurrency.
@@ -91,7 +93,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --project=${{ matrix.project }}
+      - run: npx playwright test --reporter=list --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -116,4 +118,4 @@ jobs:
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
       - run: cargo build --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-native/Cargo.toml --example browser_document_probe
-      - run: npx playwright test --project=browser-native
+      - run: npx playwright test --reporter=list --project=browser-native

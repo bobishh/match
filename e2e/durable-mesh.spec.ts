@@ -686,15 +686,19 @@ test("Given a connected peer closes its tab, when it returns, then presence turn
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const syncDialog = page.getByRole("dialog", { name: "Device sync" })
     await expect(syncDialog.getByText("Reconnecting · Checking live channel. Changes stay saved on this device.")).toBeVisible()
-    await expect(syncDialog.getByRole("list", { name: "Mesh members" })).toContainText("reconnecting")
+    await expect(syncDialog.getByRole("list", { name: "Mesh members" }).locator(".mesh-member-presence.is-reconnecting")).toHaveCount(1)
     await expect(page.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
-    await expect(syncDialog.getByText("Offline · No live channel. Reconnecting automatically.")).toBeVisible()
+    await expect(syncDialog.getByText(/^Offline · No live channel\. (?:Retrying in \d+s\.|Reconnecting automatically\.)$/)).toBeVisible()
     await expect(syncDialog.getByText(/^Reconnect:/)).toHaveCount(0)
     await expect(syncDialog.locator(".mesh-member-presence.is-online")).toHaveCount(1)
     await expect(syncDialog.locator(".mesh-member-presence.is-offline")).toHaveCount(1)
-    const selfMember = syncDialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "You" })
-    await expect(selfMember).toContainText("1 device · 1 online · You")
-    await expect(syncDialog.getByRole("list", { name: "Mesh members" })).toContainText("1 device · 0 online")
+    const members = syncDialog.getByRole("list", { name: "Mesh members" })
+    const selfMember = members.getByRole("button").filter({ hasText: "You" })
+    const remoteMember = members.getByRole("button").filter({ hasNotText: "You" })
+    await expect(selfMember).toContainText("1 known device · You")
+    await expect(remoteMember).toContainText("1 known device")
+    await remoteMember.click()
+    await expect(syncDialog.getByRole("list", { name: /Devices for/ })).toContainText("No connection")
     await selfMember.click()
     const selectedMemberFits = await selfMember.evaluate(member => {
       const list = member.parentElement!.getBoundingClientRect()
@@ -916,6 +920,12 @@ test("Given unsigned cleanup history, when the owner signs verified cleanup, the
       const doc = useMatch().getActiveDoc()!
       const old = A.change(A.clone(doc), (d:any) => { Object.values(d.entities).find((e:any)=>e.values)!.kind = "task" })
       const current = A.change(A.clone(old), (d:any) => { delete Object.values(d.entities).find((e:any)=>e.values)!.kind })
+      // The shared baseline must be authorized before joining. Only the later
+      // guest cleanup is intentionally unsigned for the repair scenario.
+      const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+      const { authorizeLocalChanges } = await import("/src/sync/changeAuthorization.ts")
+      await authorizeLocalChanges(current, await bootstrapIdentity(),
+        [...A.getHeads(old), ...A.getHeads(current)])
       await defaultStorage.saveSnapshot(doc.id,current,A.save(current))
       return A.getHeads(old)
     })

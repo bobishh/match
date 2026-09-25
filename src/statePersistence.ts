@@ -23,6 +23,7 @@ import {
   workspaceRole,
   workspaceWritesBlocked,
 } from "./sync/changeAuthorization";
+import { peerStore } from "./sync/peerStore";
 import {
   defaultStorage,
   saveWorkspace,
@@ -135,6 +136,8 @@ export async function persistAuthorizedCommand(
   profile: LocalProfile,
   storage: WorkspaceStorage,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  if (typeof indexedDB !== "undefined" && await peerStore.getPendingOwnershipTransfer(doc.id))
+    throw new Error("Ownership transfer is awaiting confirmation. Reconnect and retry the same recipient.");
   if (await workspaceWritesBlocked(doc.id))
     throw new Error("Workspace writes paused: conflicting ownership records");
   const role = await workspaceRole(doc, profile);

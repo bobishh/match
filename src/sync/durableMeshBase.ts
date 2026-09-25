@@ -14,6 +14,14 @@ import { peerStore, type PeerStore, type WorkspaceMeshCredential} from "./peerSt
 import { startPersistentNode } from "./persistentNode"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport} from "./transport"
 import { publishGossipPacket, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+export type ScopeAuthoritySnapshot = {
+  genesis: unknown
+  grants: unknown[]
+  grantIssuers: unknown[]
+  revocations: unknown[]
+  controlTransfers: unknown[]
+}
+
 export type MeshWorkspaceEnvelope = {
   version: 1
   workspaceId: string
@@ -31,13 +39,7 @@ export type MeshWorkspaceEnvelope = {
   successionPolicy?: WorkspaceSuccessionPolicy
   successionVotes?: WorkspaceSuccessionVote[]
   successionClaims?: WorkspaceSuccessionClaim[]
-  scopeAuthoritySnapshot?: {
-    genesis: unknown
-    grants: unknown[]
-    grantIssuers: unknown[]
-    revocations: unknown[]
-    controlTransfers: unknown[]
-  }
+  scopeAuthoritySnapshot?: ScopeAuthoritySnapshot
 }
 
 export type MeshExport = {
@@ -50,6 +52,7 @@ export type MeshExport = {
   successionPolicy?: WorkspaceSuccessionPolicy
   successionVotes?: WorkspaceSuccessionVote[]
   successionClaims?: WorkspaceSuccessionClaim[]
+  scopeAuthoritySnapshot?: ScopeAuthoritySnapshot
 }
 
 export type MeshPeerView = {

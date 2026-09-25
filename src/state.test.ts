@@ -5,10 +5,12 @@ import { initializeAutomerge } from "./crdt"
 import { setStorageFailureHookForTest, WorkspaceStorage } from "./storage"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
 import { useMatch, hydrate, reconcile, resetStateForTest } from "./state"
+import { persistAuthorizedCommand } from "./statePersistence"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { isItem } from "./domain/model"
 import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations } from "./sync/changeAuthorization"
+import { peerStore } from "./sync/peerStore"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -94,6 +96,35 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(match.workspace.leads.some((l) => l.company === "Failed Corp")).toBe(false)
 
     unsubscribe()
+  })
+
+  it("rejects a local edit while an ownership transfer awaits confirmation", async () => {
+    const match = useMatch()
+    const workspaceId = match.activeWorkspace.id
+    const doc = match.getActiveDoc()!
+    const column = Object.values(doc.entities).find(entity => entity.kind === "column")
+    if (!column) throw new Error("Test workspace has no column")
+    vi.stubGlobal("indexedDB", {})
+    const pending = vi.spyOn(peerStore, "getPendingOwnershipTransfer").mockResolvedValue({
+      version: 1,
+      workspaceId,
+      transfer: {},
+    })
+
+    try {
+      await expect(persistAuthorizedCommand(doc, {
+        kind: "createItem",
+        parentId: column.id,
+        title: "Deferred edit",
+      }, match.getCurrentProfile()!, defaultStorage)).rejects.toThrow(
+        "Ownership transfer is awaiting confirmation. Reconnect and retry the same recipient.",
+      )
+      expect(Object.values(match.getActiveDoc()!.entities).filter(isItem)
+        .some(entity => entity.title === "Deferred edit")).toBe(false)
+    } finally {
+      pending.mockRestore()
+      vi.unstubAllGlobals()
+    }
   })
 
   it("reconciles changes from BroadcastChannel without losing local state", async () => {

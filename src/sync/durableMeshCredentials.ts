@@ -310,10 +310,12 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     const peers = (await this.peerInstances(workspaceId)).filter(peer => !peer.revokedAt && peer.advertisement)
       .map(peer => peer.advertisement as WorkspaceMemberBundle)
     const credential = await this.store.getWorkspaceCredential(workspaceId)
+    const authority = await this.store.getWorkspaceAuthority(workspaceId)
     return { version: 1, peers, deviceRevocations: credential ? deviceRevocations(credential) : [], departures: credential ? departures(credential) : [], revocations: credential ? revocations(credential) : [],
       ownershipTransfers: credential ? ownershipTransfers(credential) : [],
       successionPolicy: credential ? successionPolicy(credential) : undefined,
       successionVotes: credential ? successionVotes(credential) : [],
-      successionClaims: credential ? successionClaims(credential) : [] }
+      successionClaims: credential ? successionClaims(credential) : [],
+      scopeAuthoritySnapshot: authority?.scopeAuthoritySnapshot }
   }
 }
