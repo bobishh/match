@@ -104,8 +104,8 @@ describe("leaving membership", () => {
 
   it("requires removal-aware peers before accepting a session, even before the first removal", async () => {
     const f = await fixture()
-    await expect((f.mesh as any).mergeIncomingAuthority(f.credential(), { capabilities: ["iroh-gossip-v1"] }))
-      .rejects.toThrow("Reload Match to support device removals")
+    await expect((f.mesh as any).mergeIncomingAuthority(f.credential(), { capabilities: ["iroh-gossip-v1", "automerge-sync-v1"] }))
+      .rejects.toThrow("Peer does not support device revocations; update the app")
     expect(f.credential().catalog).toBeUndefined()
     await f.mesh.dispose()
   })

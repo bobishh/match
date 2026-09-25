@@ -38,20 +38,26 @@ function canonicalChoice<T>(left: T, right: T): T {
   return canonicalizeJson(left) <= canonicalizeJson(right) ? left : right
 }
 
-function mergeCertificates(left: DeviceCertificate[], right: DeviceCertificate[]): DeviceCertificate[] {
+function mergeCertificates(left: DeviceCertificate[] | undefined, right: DeviceCertificate[] | undefined): DeviceCertificate[] {
   const merged = new Map<string, DeviceCertificate>()
-  for (const certificate of [...left, ...right]) {
+  for (const certificate of [...(left ?? []), ...(right ?? [])]) {
     const current = merged.get(certificate.signature)
     merged.set(certificate.signature, current ? canonicalChoice(current, certificate) : certificate)
   }
   return [...merged.values()].sort((a, b) => a.signature.localeCompare(b.signature))
 }
 
+function mergeRequiredText(left: string | undefined, right: string | undefined): string {
+  if (!left) return right ?? ""
+  if (!right) return left
+  return canonicalChoice(left, right)
+}
+
 function mergeAuthorization(current: WorkspaceChangeAuthorization, incoming: WorkspaceChangeAuthorization): WorkspaceChangeAuthorization {
   return { signed: canonicalChoice(current.signed, incoming.signed), publicKey: canonicalChoice(current.publicKey, incoming.publicKey),
     certificates: mergeCertificates(current.certificates, incoming.certificates),
     ...(current.grant || incoming.grant ? { grant: current.grant && incoming.grant ? canonicalChoice(current.grant, incoming.grant) : current.grant ?? incoming.grant } : {}),
-    ownerPublicKey: canonicalChoice(current.ownerPublicKey, incoming.ownerPublicKey),
+    ownerPublicKey: mergeRequiredText(current.ownerPublicKey, incoming.ownerPublicKey),
     ownerCertificates: mergeCertificates(current.ownerCertificates, incoming.ownerCertificates) }
 }
 
@@ -89,5 +95,3 @@ export async function putRecords(workspaceId: string, incoming: WorkspaceChangeA
     transaction.onabort = () => reject(transaction.error)
   })
 }
-
-export { mergeCertificates }

@@ -77,7 +77,11 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
   const handleUpdateRejectionReason = async (reason: string) => {
     if (selection.selectedLead.value) await core.match.updateLeadAsync(selection.selectedLead.value.id, { rejectionReason: reason })
   }
-  return { restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate, openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason }
+  const reviewItem = async (item: Item) => {
+    await core.match.executeCommandAsync({ kind: "reviewItem", entityId: item.id })
+    core.notice.value = "Card reviewed"
+  }
+  return { restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate, openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason, reviewItem }
 }
 
 function appendQuickNote(existing: unknown, note: string) {

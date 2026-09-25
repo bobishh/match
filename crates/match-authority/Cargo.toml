@@ -1,0 +1,10 @@
+[package]
+name = "match-authority"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+automerge = "0.12"
+meta-mesh-core = { git = "https://github.com/bobishh/meta-mesh.git", rev = "cc4403f69b0f40d0f331c2c6ab63e090e56b8229" }
+serde_json = "1"

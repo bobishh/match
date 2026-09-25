@@ -1,10 +1,8 @@
 import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked } from "./durableMeshBase"
 import { type LocalProfile} from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import * as Automerge from "@automerge/automerge/slim"
-import { isMeshNetworkFailure, isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
-import { BrowserMeshDialScheduler, BrowserMeshDocumentSessions, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
-import { AutomergeAntiEntropy } from "@meta-uber/mesh-replication/automerge"
+import { isMeshNetworkFailure, meshNetworkConnection as networkConnection, meshNetworkIO as networkIO } from "@meta-uber/mesh-transport"
+import { BrowserMeshDialScheduler, BrowserMeshOutgoingHandshake, BrowserMeshSessions } from "@meta-uber/mesh-runtime"
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { defaultProofStore } from "../domain/proofs"
@@ -20,8 +18,7 @@ import { DurableMeshHandshake } from "./durableMeshHandshake"
 export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
     peers: () => this.peerInstances(),
-    hasSession: (workspaceId, deviceId) => this.hasDeviceSession(workspaceId, deviceId),
-    deviceKey: (workspaceId, deviceId) => this.deviceKey(workspaceId, deviceId),
+    hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
     peerKey: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     routeFailures: key => this.routeFailures(key),
     retryAt: (key, fallback) => this.runtimeState?.reconnectState(key)?.retryAtMs ?? fallback,
@@ -42,6 +39,12 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     putVerifiedBundle: (credential, bundle) => this.putVerifiedBundle(credential, bundle),
     trace: (event, detail, level) => this.trace(event, detail, level),
   }, this.handshakeCodec)
+
+  protected hasPeerSession(workspaceId: string, deviceId: string, instanceId = "legacy") {
+    return this.runtimeState?.sessions().some(session =>
+      session.key.workspaceId === workspaceId && session.key.deviceId === deviceId && session.key.instanceId === instanceId,
+    ) ?? false
+  }
 
   protected hasDeviceSession(workspaceId: string, deviceId: string) {
     return this.runtimeState?.connectedDevices(workspaceId).includes(deviceId) ?? false
@@ -77,7 +80,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   }
 
   protected async scheduleDials(localDeviceId: string, signal: AbortSignal): Promise<void> {
-    await this.dialScheduler.schedule(localDeviceId, signal)
+    await this.dialScheduler.schedule(localDeviceId, this.instanceId, signal)
   }
 
   protected waitForDialTick(signal: AbortSignal) {
@@ -86,11 +89,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
 
   protected async dialDevice(peers: WorkspacePeerRecord[], signal: AbortSignal) {
     const peer = peers[0]!
-    const key = this.deviceKey(peer.workspaceId, peer.deviceId)
+    const key = this.peerKey(peer.workspaceId, peer.deviceId, peer.instanceId)
     if (this.runtime().routeAttemptActive(key)) return
     const attempt = this.runtime().beginRouteAttempt(key, Date.now())
     try {
-      if (!this.node || this.hasDeviceSession(peer.workspaceId, peer.deviceId)) return
+      if (!this.node || this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) return
       const routeEntries = await Promise.all(peers.map(async candidate => ({
         peer: candidate,
         route: await adaptVerifiedWorkspaceAdvertisement(
@@ -121,7 +124,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame)
       }
     } catch (error) {
-      if (this.hasDeviceSession(peer.workspaceId, peer.deviceId)) {
+      if (this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) {
         this.trace("dial.device.superseded", {
           peerId: peer.deviceId.slice(0, 8),
           workspaceId: peer.workspaceId.slice(0, 8),
@@ -198,7 +201,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
-      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), "device-revocation-v1"] }, peer.workspaceId)
+      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
   }
 
   protected async verifyOutgoingHandshakePeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle) {
@@ -206,7 +209,6 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ownerPersonId: credential.ownerPersonId, ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[], ownerHistory: ownerAuthorities(credential).slice(1) })
     const payload = verified.advertisement.payload
-    if (hasLeftWorkspace(credential, payload.personId, bundle.grant) || isDeviceRevoked(credential, payload.personId, payload.deviceId)) throw new Error("Device access revoked")
     return { deviceId: payload.deviceId, instanceId: payload.instanceId ?? "legacy", issuedAt: payload.issuedAt,
       routeSequence: payload.routeSequence, personId: payload.personId, endpoint: payload.endpoint }
   }
@@ -218,12 +220,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId.slice(0, 8) })
       throw new MeshDialCancelled()
     }
-    this.reconnectPolicy.recordFailure(key, isNetworkFailure(error))
+    this.recordRouteFailure(key, error)
     this.trace("dial.failed", { connectionId, peerId: peer.deviceId.slice(0, 8),
       reason: error instanceof Error ? error.message : String(error) }, "warn")
-    if (!this.hasDeviceSession(peer.workspaceId, peer.deviceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
+    if (!this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
     else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
-    this.runtime().scheduleReconnect(key, Date.now(), 1_000, 10_000)
     await connection?.close().catch(() => {})
     if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
       const stale = this.node
@@ -231,42 +232,36 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       await stale?.close("Mesh runtime closed").catch(() => {})
     }
   }
-  private readonly documentSessions = new BrowserMeshDocumentSessions<SyncConnection, LiveWorkspaceSync,
-    WorkspaceMeshCredential, LocalProfile, AutomergeAntiEntropy>({
-      localDeviceId: profile => profile.device.deviceId,
-      localPersonId: profile => profile.identity.personId,
-      secret: credential => credential.transportSecret,
-      createEngine: ({ localDeviceId, workspaceId }) => new AutomergeAntiEntropy(localDeviceId, Automerge, {
-        proof: async () => this.options.workspaceStore.readAuthorization?.(
-          await this.options.workspaceStore.read(workspaceId),
-        ),
-      }),
-      incremental: input => liveAutomergeWorkspaceSync(input.connection, input.secret, this.options.workspaceStore,
-        input.workspaceId, input.localDeviceId, input.deviceId, input.engine, input.onDocumentStatus, {
-          ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
-          onOwnerWorkspaceOffer: input.onOwnerWorkspaceOffer,
-          onGossipPacket: input.onGossipPacket,
-          onBlobRequest: input.blobTransferSupported
-            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, input.secret, stream, frame)
-            : undefined,
-        }),
-      ownerWorkspaceOffer: (bytes, remotePersonId) => this.receiveOwnerWorkspaceOffer(bytes, remotePersonId),
-      gossipPacket: (workspaceId, endpoint, packet) => this.receiveWorkspaceGossipPacket(workspaceId, endpoint, packet),
-      rejected: (stage, error) => this.report(stage, error),
-      cleared: stage => {
-        if (this.lastDiagnostic.startsWith(`${stage}:`)) {
-          this.lastDiagnostic = ""
-          this.options.onDiagnostic?.("")
-        }
-      },
-      trace: (event, detail, level) => this.trace(event, detail, level),
-    })
-
   private readonly browserSessions = new BrowserMeshSessions<SyncConnection, LiveWorkspaceSync, LocalProfile>({
     profile: this.options.getProfile,
     deviceId: profile => profile.device.deviceId,
+    instanceId: () => this.instanceId,
     credential: workspaceId => this.store.getWorkspaceCredential(workspaceId),
-    create: input => this.documentSessions.create({ ...input, credential: input.credential as WorkspaceMeshCredential }),
+    create: input => {
+      const credential = input.credential as WorkspaceMeshCredential
+      const stage = `Workspace ${input.workspaceId.slice(0, 8)} from ${input.deviceId.slice(0, 8)}`
+      const session = liveAutomergeWorkspaceSync(input.connection, credential.transportSecret, this.options.workspaceStore,
+        input.workspaceId, input.profile.device.deviceId, input.deviceId, error => {
+          if (error) {
+            this.trace("document.rejected", { connectionId: input.connectionId, workspaceId: input.workspaceId,
+              peerId: input.deviceId, instanceId: input.instanceId, reason: error.message }, "warn")
+            this.report(stage, error)
+          } else if (this.lastDiagnostic.startsWith(`${stage}:`)) {
+            this.lastDiagnostic = ""
+            this.options.onDiagnostic?.("")
+          }
+        }, {
+          ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
+          onOwnerWorkspaceOffer: input.ownerWorkspaceOfferFrame && input.remotePersonId === input.profile.identity.personId
+            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId) : undefined,
+          onGossipPacket: input.remoteEndpoint
+            ? packet => this.receiveWorkspaceGossipPacket(input.workspaceId, input.remoteEndpoint, packet) : undefined,
+          onBlobRequest: input.blobTransferSupported
+            ? (stream, frame) => this.respondToBlobRequest(input.workspaceId, input.deviceId, credential.transportSecret, stream, frame)
+            : undefined,
+        })
+      return { session }
+    },
     runtime: () => this.runtime(),
     key: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     stopped: () => this.stopped,
@@ -287,7 +282,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     publishRecovered: (key, entry) => this.publishRecoveredSession(key, entry as SessionEntry),
     stableSession: key => this.clearRouteReconnect(key),
     protocolFailure: (stage, error) => this.reportProtocolFailure(stage, error),
-    networkFailure: (key, error) => this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error)),
+    networkFailure: (key, error) => { this.recordRouteFailure(key, error) },
   }, this.sessions)
 
   protected async installSession(workspaceId: string, deviceId: string, instanceId: string, remoteIssuedAt: string,
@@ -358,8 +353,8 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     try {
       await entry.session.publish()
     } catch (error) {
-      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-      this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+      const networkFailure = this.recordRouteFailure(key, error)
+      if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("recovery publish failed")
     }
   }
@@ -373,10 +368,17 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         }, "warn")
       }
     }, async (key, entry, error) => {
-      this.reconnectPolicy.recordFailure(key, isMeshNetworkFailure(error))
-      this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+      const networkFailure = this.recordRouteFailure(key, error)
+      if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
       await entry.evict("publish failed")
     })
+  }
+
+  protected recordRouteFailure(key: string, error: unknown): boolean {
+    const networkFailure = isMeshNetworkFailure(error)
+    this.reconnectPolicy.recordFailure(key, networkFailure)
+    this.runtime().scheduleReconnect(key, Date.now(), 1_000, 10_000)
+    return networkFailure
   }
 
   async views(workspaceId?: string): Promise<MeshPeerView[]> {
@@ -398,7 +400,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     const profile = await this.options.getProfile()
     const result: string[] = []
     for (const credential of await this.store.listWorkspaceCredentials()) {
-      if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || (deviceRevocations(credential).length > 0 && isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId)) || isGrantRevoked(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined)) result.push(credential.workspaceId)
+      if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId) || isGrantRevoked(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined)) result.push(credential.workspaceId)
     }
     return result
   }

@@ -2,6 +2,7 @@
 <script setup lang="ts">
 import { useAppController } from "./app/useAppController"
 import { isArchiveColumn } from "./domain/archive"
+import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, statusLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
@@ -25,6 +26,7 @@ import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
 import { saveIdentityName } from "./app/identityName"
 import { computed, ref } from "vue"
+import { useAgingClock } from "./app/useAgingClock"
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)
@@ -77,7 +79,7 @@ const { meshPresence, meshPresenceLabel,
 const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates,
   reloadPage, openBoardItem,
-  restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate,
+  restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate, reviewItem,
   openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
   handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, openAddItem,
@@ -87,21 +89,13 @@ const {
   addBoardColumn,
 } = app.actions
 
-function saveSelectedItemDocument(document: Omit<DocumentInput, "leadId">) {
-  const item = selectedItem.value
-  if (!item) return Promise.reject(new Error("Item is no longer open"))
-  return submitDocument(item.id, document)
+function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) {
+  return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open"))
 }
 
-function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) {
-  const item = selectedLeadItem.value
-  if (!item) return Promise.reject(new Error("Lead is no longer open"))
-  return submitDocument(item.id, document)
-}
-
-async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) {
-  if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false
-}
+async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
+const agingNow = useAgingClock()
+function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string; archive?: true; displayHint?: "normal" | "collapsed" }) { return isCardAgingExemptColumn(column) ? null : cardAge(item, activeBoard.value?.cardAgingPolicy, agingNow.value) }
 </script>
 
 <template>
@@ -239,7 +233,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
             <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
           </header>
           <div class="card-stack" :data-column-id="column.id">
-            <button v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="{ 'card-moved': movedItemId === item.id }" :data-item-id="item.id" type="button" :aria-label="`Open ${item.title}`" @click="openBoardItem(item)">
+            <button v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)">
               <div class="card-main">
               <template v-if="leadForItem(item)">
                 <div class="card-head"><span class="company">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
@@ -254,6 +248,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
                   <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
                 </dl>
               </div>
+              <span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
             </button>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
@@ -361,7 +356,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       :subitems="subitemsForSelectedItem"
       :fields="boardFields"
       :documents="documentsFor(selectedItem.id)"
-      :save-document="saveSelectedItemDocument"
+      :save-document="document => saveItemDocument(selectedItem, document)"
       :history="selectedItemHistory"
       :archive-error="archiveError"
       :restore-saving="historyRestoreSaving"
@@ -378,6 +373,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       @restore-version="restoreSelectedItemVersion"
       @update:quick-note="quickNoteDraft = $event"
       @save-note="saveQuickNote(selectedItem)"
+      @review="reviewItem"
     />
 
     <ItemFormDialog
@@ -431,7 +427,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
       :can-manage-mesh="canManageAccess"
       :transferring-ownership="transferringOwnership" :leaving-mesh="leavingMesh"
       :mesh-action-error="peerAccessError"
-      :workspace-connected="meshPresence === 'connected'"
+      :workspace-connected="meshPresence === 'connected'" :workspace-reconnecting="meshPresence === 'reconnecting'"
       :mesh-diagnostic="sync.meshDiagnostic.value"
       :retry-at="activeMeshRetryAt"
       :network-online="sync.networkOnline.value"
@@ -467,6 +463,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
         <div class="detail-head">
           <div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div>
           <div class="detail-head-actions">
+            <button v-if="selectedLeadItem" class="button button-small button-quiet" type="button" :disabled="!canEditItems" @click="reviewItem(selectedLeadItem)">Reviewed</button>
             <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="handleOpenItemEdit(selectedLeadItem)">Edit</button>
             <button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button>
           </div>
@@ -512,7 +509,7 @@ async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWork
           v-if="selectedLeadItem"
           :documents="selectedDocuments"
           :read-only="!canEditItems"
-          :save="saveSelectedLeadDocument"
+          :save="document => saveItemDocument(selectedLeadItem, document)"
         />
       </div>
       </section>

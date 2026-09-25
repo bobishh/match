@@ -4,10 +4,17 @@ import type { GossipStateMachine } from "@meta-uber/mesh-replication"
 import irohInit, {
   BrowserNode,
   WasmAutomergeSyncEngine,
+  WasmAutomergeDeviceSyncFlow,
+  WasmMeshBatchDeliveryFlow,
   WasmBlobEngine,
   WasmDeviceRouteCatalog,
   WasmGossipEngine,
   WasmMeshRuntimeState,
+  WasmGossipLifecycleState,
+  WasmMeshLifecycleState,
+  WasmMeshSessionLifecycle,
+  WasmLiveWorkspaceSession,
+  WasmMeshScopeRuntime,
   WasmMeshHandshakeFlow,
   WasmMeshAuthenticatedSessions,
   WasmPairingCodec,
@@ -62,7 +69,20 @@ async function installIrohBrowserRuntime(): Promise<void> {
       createDeviceRouteCatalog: () => new WasmDeviceRouteCatalog(),
       createAutomergeSyncEngine: (localDeviceId, maximumFrameBytes) =>
         new WasmAutomergeSyncEngine(localDeviceId, maximumFrameBytes),
+      createAutomergeDeviceSyncFlow: (targetDeviceId, documentId, maximumRounds) =>
+        new WasmAutomergeDeviceSyncFlow(targetDeviceId, documentId, maximumRounds),
+      decodeAutomergeDeviceSyncRequest: (request, expectedRemoteDeviceId) =>
+        WasmAutomergeDeviceSyncFlow.decodeIncomingRequest(request, expectedRemoteDeviceId),
+      encodeAutomergeDeviceSyncResponse: (batchId, ack, frame) =>
+        WasmAutomergeDeviceSyncFlow.encodeResponse(batchId, ack, frame),
+      createBatchDeliveryFlow: (targetDeviceId, routeInstanceIds, fallbackDelayMs, retryDelaysMs) =>
+        new WasmMeshBatchDeliveryFlow(targetDeviceId, routeInstanceIds, fallbackDelayMs, retryDelaysMs),
       createMeshRuntimeState: () => new WasmMeshRuntimeState(),
+      createGossipLifecycleState: topicPrefix => new WasmGossipLifecycleState(topicPrefix),
+      createMeshLifecycleState: () => new WasmMeshLifecycleState(),
+      createMeshSessionLifecycleState: stableAfterMs => new WasmMeshSessionLifecycle(stableAfterMs),
+      createLiveWorkspaceSession: (workspaceId, secret) => new WasmLiveWorkspaceSession(workspaceId, secret),
+      createMeshScopeRuntime: (workspaceId, secret) => new WasmMeshScopeRuntime(workspaceId, secret),
       createMeshHandshakeFlow: direction => new WasmMeshHandshakeFlow(direction),
       createMeshAuthenticatedSessions: () => new WasmMeshAuthenticatedSessions(),
     })

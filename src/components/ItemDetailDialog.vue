@@ -32,6 +32,7 @@ const emit = defineEmits<{
   (e: "restoreVersion", changeHash: string): void
   (e: "update:quickNote", value: string): void
   (e: "saveNote"): void
+  (e: "review", item: Item): void
 }>()
 </script>
 
@@ -44,6 +45,7 @@ const emit = defineEmits<{
           <h2>{{ item.title }}</h2>
         </div>
         <div class="detail-head-actions">
+          <button class="button button-small button-quiet" type="button" :disabled="readOnly" @click="emit('review', item)">Reviewed</button>
           <button class="button button-small" type="button" :disabled="readOnly" @click="emit('edit', item)">Edit</button>
           <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('close')">×</button>
         </div>

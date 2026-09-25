@@ -1,0 +1,18 @@
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/assets/inter-latin-wght-normal.woff2") format("woff2");
+}
+
+:root {
+  --site-font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --site-content-max: 1480px;
+  --site-gutter: clamp(16px, 4vw, 56px);
+  --site-brand-size: clamp(1.5rem, 2.4vw, 2rem);
+  --site-brand-weight: 900;
+  --site-brand-tracking: -.06em;
+  --site-ui-weight: 800;
+  --site-heading-weight: 800;
+}

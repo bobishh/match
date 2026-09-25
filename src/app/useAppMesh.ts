@@ -1,4 +1,4 @@
-import { computed, ref, type ComputedRef, type Ref } from "vue"
+import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from "vue"
 import type { WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
 import { pendingHistoryRepair, repairPendingHistory } from "../sync/changeAuthorization"
@@ -21,13 +21,30 @@ export function useAppMesh(context: MeshContext) {
   const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
     peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
   ))
-  const meshPresence = computed<"connected" | "offline" | "empty">(() => {
-    if (sync.isWorkspaceAccessRevoked(activeWorkspace.id)) return "offline"
-    if (sync.isWorkspaceLive(activeWorkspace.id) || activeMeshPeers.value.some(peer => peer.online)) return "connected"
-    return activeMeshPeers.value.length ? "offline" : "empty"
-  })
+  const liveChannel = computed(() => sync.isWorkspaceLive(activeWorkspace.id) || activeMeshPeers.value.some(peer => peer.online))
+  const meshPresence = ref<"connected" | "reconnecting" | "offline" | "empty">("empty")
+  let offlineTimer: ReturnType<typeof setTimeout> | undefined
+  watch([() => activeWorkspace.id, liveChannel, () => sync.isEnabled.value, () => sync.networkOnline.value,
+    () => sync.isWorkspaceAccessRevoked(activeWorkspace.id), () => activeMeshPeers.value.length],
+  ([workspaceId, connected, enabled, networkOnline, revoked, peerCount]) => {
+    clearTimeout(offlineTimer)
+    if (revoked || networkOnline === false || !enabled) {
+      meshPresence.value = peerCount ? "offline" : "empty"
+    } else if (connected) {
+      meshPresence.value = "connected"
+    } else if (peerCount) {
+      meshPresence.value = "reconnecting"
+      offlineTimer = setTimeout(() => {
+        if (activeWorkspace.id === workspaceId && !liveChannel.value) meshPresence.value = "offline"
+      }, 4_000)
+    } else {
+      meshPresence.value = "empty"
+    }
+  }, { immediate: true })
+  onScopeDispose(() => clearTimeout(offlineTimer))
   const meshPresenceLabel = computed(() => ({
     connected: "Mesh connected",
+    reconnecting: "Mesh reconnecting",
     offline: "Mesh offline",
     empty: "Mesh empty",
   }[meshPresence.value]))
@@ -55,7 +72,8 @@ export function useAppMesh(context: MeshContext) {
     const selfId = chat.personId.value
     const personIds = new Set(peers.map(peer => peer.personId))
     if (selfId) personIds.add(selfId)
-    return [...personIds].map(personId => createMeshMember(personId, peers, selfId, sync, chat, currentWorkspaceOwnerId.value, currentRole.value))
+    return [...personIds].map(personId => createMeshMember(personId, peers, selfId, sync, chat, currentWorkspaceOwnerId.value, currentRole.value,
+      meshPresence.value === "reconnecting"))
       .sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
   })
   const activeSuccession = computed(() => sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id))
@@ -110,17 +128,21 @@ export function useAppMesh(context: MeshContext) {
   return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, repairableHistory, repairHistory, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, revokeWorkspacePeer }
 }
 
-function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string, currentRole: WorkspaceRole) {
+function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string, currentRole: WorkspaceRole, reconnecting: boolean) {
   const devices = peers.filter(peer => peer.personId === personId)
   const self = personId === selfId
+  const pendingRemote = reconnecting && !self
   const localUserAgent = sync.localUserAgent.value || undefined
   const deviceList = devices.map(peer => ({
     deviceId: peer.deviceId, name: peer.deviceName || `Device ${peer.deviceId.slice(0, 6)}`,
-    online: peer.online || (self && peer.deviceId === sync.localDeviceId.value), lastSeen: peer.lastSeen,
+    online: peer.online || (self && peer.deviceId === sync.localDeviceId.value),
+    reconnecting: awaitingRemote(pendingRemote, peer.online), lastSeen: peer.lastSeen,
     userAgent: peer.userAgent || (self && peer.deviceId === sync.localDeviceId.value ? localUserAgent : undefined),
     description: describeUserAgent(peer.userAgent || (self && peer.deviceId === sync.localDeviceId.value ? localUserAgent : undefined)), tabs: peer.instances ?? 1,
   }))
-  if (self && sync.localDeviceId.value && !deviceList.some(device => device.deviceId === sync.localDeviceId.value)) deviceList.push({ deviceId: sync.localDeviceId.value, name: "This device", online: true, lastSeen: new Date().toISOString(), userAgent: localUserAgent, description: describeUserAgent(localUserAgent), tabs: 1 })
+  if (self && sync.localDeviceId.value && !deviceList.some(device => device.deviceId === sync.localDeviceId.value)) deviceList.push({ deviceId: sync.localDeviceId.value, name: "This device", online: true, reconnecting: false, lastSeen: new Date().toISOString(), userAgent: localUserAgent, description: describeUserAgent(localUserAgent), tabs: 1 })
   const peerRole = devices[0]?.role ?? "visitor"
-  return { personId, name: self ? chat.displayName.value || "You" : chat.members.value.find(member => member.personId === personId)?.name ?? `Participant · ${personId.slice(0, 6)}`, role: self ? currentRole : personId === ownerId ? "owner" as const : peerRole === "owner" ? "editor" as const : peerRole, online: deviceList.some(device => device.online), onlineDevices: deviceList.filter(device => device.online).length, devices: deviceList.length, deviceList, self }
+  return { personId, name: self ? chat.displayName.value || "You" : chat.members.value.find(member => member.personId === personId)?.name ?? `Participant · ${personId.slice(0, 6)}`, role: self ? currentRole : personId === ownerId ? "owner" as const : peerRole === "owner" ? "editor" as const : peerRole, online: deviceList.some(device => device.online), reconnecting: awaitingRemote(pendingRemote, deviceList.some(device => device.online)), onlineDevices: deviceList.filter(device => device.online).length, devices: deviceList.length, deviceList, self }
 }
+
+function awaitingRemote(pendingRemote: boolean, online: boolean): boolean { return pendingRemote && !online }

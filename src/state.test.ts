@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { initializeAutomerge } from "./crdt"
 import { setStorageFailureHookForTest, WorkspaceStorage } from "./storage"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
-import { useMatch, hydrate, resetStateForTest } from "./state"
+import { useMatch, hydrate, reconcile, resetStateForTest } from "./state"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { isItem } from "./domain/model"
@@ -106,13 +106,29 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(match.ready.value).toBe(true)
   })
 
+  it("notifies live mesh subscribers when another tab persists an inactive workspace during reconciliation", async () => {
+    const match = useMatch()
+    const activeWorkspaceId = match.activeWorkspace.id
+    const publish = vi.fn()
+    const unsubscribe = match.subscribeLocalChanges(publish)
+
+    await Promise.all([
+      reconcile(defaultStorage),
+      reconcile(defaultStorage, true),
+    ])
+
+    expect(publish).toHaveBeenCalledOnce()
+    expect(match.activeWorkspace.id).toBe(activeWorkspaceId)
+    unsubscribe()
+  })
+
   it("rejects an unrelated same-ID workspace without changing local documents or identity", async () => {
     const match = useMatch()
     await match.createLeadAsync({ company: "Local data", role: "Engineer", status: "lead" })
     const id = match.getActiveDoc()!.id
     const unrelated = Automerge.from(createWorkspaceDoc(id, "Remote board", match.getActiveDoc()!.ownerPersonId, "blank"))
     const bytes = Automerge.save(unrelated)
-    await expect(match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizationBundle(bytes))).rejects.toThrow("Workspace conflict")
+    await expect(match.mergeAuthorizedWorkspace(id, bytes, await exportAuthorizationBundle(bytes, match.getCurrentProfile()!))).rejects.toThrow("Workspace conflict")
     expect(match.activeWorkspace.id).toBe(id)
     expect(match.activeWorkspace.title).toBe("Job search")
     expect(match.workspace.leads.some(lead => lead.company === "Local data")).toBe(true)
@@ -122,7 +138,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const match = useMatch()
     const before = match.getAutomergeBytes()
     const remote = Automerge.from(createWorkspaceDoc("other", "Remote board", match.getCurrentProfile()!.identity.personId, "blank"))
-    const authorization = await exportAuthorizationBundle(Automerge.save(remote))
+    const authorization = await exportAuthorizationBundle(Automerge.save(remote), match.getCurrentProfile()!)
     await expect(match.mergeAuthorizedWorkspace("selected", Automerge.save(remote), authorization)).rejects.toThrow(/Invalid workspace/)
     expect(match.getAutomergeBytes()).toEqual(before)
   })
@@ -134,7 +150,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const forged = Automerge.change(Automerge.clone(before), draft => { draft.ownerPersonId = "attacker" })
     const changed = Automerge.getAllChanges(forged).map(change => Automerge.decodeChange(change).hash)
     await authorizeLocalChanges(forged, match.getCurrentProfile()!, changed)
-    const authorization = await exportAuthorizationBundle(Automerge.save(before))
+    const authorization = await exportAuthorizationBundle(Automerge.save(before), match.getCurrentProfile()!)
     authorization.records = await exportAuthorizations(Automerge.save(forged))
     await expect(match.mergeAuthorizedWorkspace(before.id, Automerge.save(forged), authorization)).rejects.toThrow(/owner/i)
     expect(match.getActiveDoc()!.ownerPersonId).toBe(owner)

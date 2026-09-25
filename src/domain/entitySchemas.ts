@@ -18,6 +18,13 @@ const priorityRuleSchema = z.strictObject({
   weight: z.number().min(-10).max(10),
 })
 const priorityBandSchema = z.strictObject({ optionId: id, minScore: z.number().min(0).max(10) })
+export const cardAgingPolicySchema = z.strictObject({
+  version: z.literal(1),
+  thresholds: z.strictObject({ watch: z.number().int().positive(), aged: z.number().int().positive(), overdue: z.number().int().positive() }).refine(
+    ({ watch, aged, overdue }) => watch < aged && aged < overdue,
+    "Aging thresholds must increase from watch to aged to overdue",
+  ),
+})
 export const priorityPolicySchema = z.strictObject({
   version: z.literal(1),
   evaluator: z.literal("weighted-rules-v1"),
@@ -31,6 +38,7 @@ const boardSchema = z.strictObject({
   ...common, kind: z.literal("board"), entityName: z.string().refine(value => Boolean(value.trim())).optional(),
   preset: z.strictObject({ key: z.enum(["job-search", "blank"]), version: z.literal(1), bindings: z.record(z.string(), z.string()) }).nullable(),
   priorityPolicy: priorityPolicySchema.nullable().optional(),
+  cardAgingPolicy: cardAgingPolicySchema.optional(),
 })
 const columnSchema = z.strictObject({
   ...common,
@@ -38,7 +46,7 @@ const columnSchema = z.strictObject({
   displayHint: z.enum(["normal", "collapsed"]),
   archive: z.literal(true).optional(),
 })
-const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema) })
+const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional() })
 const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, deleted: z.boolean() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
 const fieldSchema = z.discriminatedUnion("valueType", [
@@ -83,6 +91,7 @@ export type Column = z.infer<typeof columnSchema>
 export type FieldValue = z.infer<typeof fieldValueSchema>
 export type PriorityRule = z.infer<typeof priorityRuleSchema>
 export type PriorityPolicy = z.infer<typeof priorityPolicySchema>
+export type CardAgingPolicy = z.infer<typeof cardAgingPolicySchema>
 export type Item = z.infer<typeof itemSchema> & { readonly kind?: never }
 export type FieldDefinition = z.infer<typeof fieldSchema>
 export type FileReference = z.infer<typeof fileReferenceSchema>

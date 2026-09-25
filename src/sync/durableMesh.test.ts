@@ -2,14 +2,28 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError } from "@meta-uber/mesh-transport"
+import { createMeshRuntime } from "@meta-uber/mesh-runtime"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
-import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure, shouldReplaceMeshSession } from "./durableMesh"
+import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
 import { isEnvelope, isGrantRevoked } from "./durableMeshBase"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
+
+function rustReplacesSession(
+  previous: { remoteIssuedAt: string; remoteRouteSequence?: number; direction: "incoming" | "outgoing" },
+  candidate: { remoteIssuedAt: string; remoteRouteSequence?: number; direction: "incoming" | "outgoing" },
+  preferred: "incoming" | "outgoing",
+) {
+  const runtime = createMeshRuntime()
+  const key = { workspaceId: "comparison", deviceId: "comparison", instanceId: "comparison" }
+  try {
+    runtime.admitSession({ key, connectionId: "previous", ...previous }, previous.direction)
+    return runtime.admitSession({ key, connectionId: "candidate", ...candidate }, preferred).decision === "accepted"
+  } finally { runtime.free?.() }
+}
 
 describe("DurableMesh peer catalog gossip", () => {
   it("rejects a removed person's stale grant but accepts their newly approved generation", () => {
@@ -38,7 +52,7 @@ describe("DurableMesh peer catalog gossip", () => {
       .toThrow("Peer does not support required iroh gossip")
     expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "iroh-gossip-v1"]))
       .toThrow("Peer does not support required Automerge sync")
-    expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1"]))
+    expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1", "device-revocation-v1"]))
       .not.toThrow()
   })
 
@@ -50,11 +64,11 @@ describe("DurableMesh peer catalog gossip", () => {
       epoch: 1, updatedAt: new Date().toISOString(),
     }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" } } as never),
+      getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } } as never),
       store: { removeWorkspaceMeshData, listWorkspaceCredentials: async () => [credential], listPeers: async () => [] } as never })
 
     await expect((mesh as any).activeCredentialsForProfile([credential],
-      { identity: { personId: "current-person", publicKey: "current-key" } })).resolves.toEqual([])
+      { identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } })).resolves.toEqual([])
     expect(removeWorkspaceMeshData).not.toHaveBeenCalled()
     await mesh.dispose()
   })
@@ -65,11 +79,11 @@ describe("DurableMesh peer catalog gossip", () => {
       ownerPublicKey: "previous-key", ownerCertificates: [], transportSecret: "mesh-secret", epoch: 1, updatedAt: new Date().toISOString(),
     }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" } } as never),
+      getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } } as never),
       store: { listWorkspaceCredentials: async () => [credential], listPeers: async () => [{ workspaceId: "stale-workspace", deviceId: "old-device" }] } as never })
     const internal = mesh as any
 
-    await internal.activeCredentialsForProfile([credential], { identity: { personId: "current-person", publicKey: "current-key" } })
+    await internal.activeCredentialsForProfile([credential], { identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } })
 
     await expect(internal.peerInstances()).resolves.toEqual([])
     await mesh.dispose()
@@ -90,7 +104,7 @@ describe("DurableMesh peer catalog gossip", () => {
       store: { getWorkspaceCredential: async () => ({ ownerPersonId: "owner" }), putWorkspaceCredential: put,
         listPeers: async () => [{ personId: "target", deviceId: "target-device" }] } as never })
     ;(mesh as any).sessions.set("test", { workspaceId: "workspace", deviceId: "target-device" })
-    await expect(mesh.transferOwnership("workspace", "target")).rejects.toThrow(/reload Match/i)
+    await expect(mesh.transferOwnership("workspace", "target")).rejects.toThrow(/online/i)
     expect(put).not.toHaveBeenCalled()
     ;(mesh as any).sessions.clear()
     await mesh.dispose()
@@ -100,11 +114,11 @@ describe("DurableMesh peer catalog gossip", () => {
     const credential = { workspaceId: "new-workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" } } as never),
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       store: { getWorkspaceCredential: async () => credential, getPeer: async () => ({ personId: "owner" }),
         listWorkspaceCredentials: async () => [] } as never })
     const internal = mesh as any
-    internal.ownerCredentials.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.ensureOwnerCredential = vi.fn(async () => credential)
     internal.start = vi.fn(async () => {})
     internal.notify = vi.fn(async () => {})
     internal.encodeOwnerWorkspaceOffer = vi.fn(async () => new Uint8Array([1]))
@@ -130,10 +144,10 @@ describe("DurableMesh peer catalog gossip", () => {
     const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
       read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" } } as never),
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [] } as never })
     const internal = mesh as any
-    internal.ownerCredentials.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.ensureOwnerCredential = vi.fn(async () => credential)
     internal.start = vi.fn(async () => {})
     internal.notify = vi.fn(async () => {})
     internal.encodeOwnerWorkspaceOffer = vi.fn(async () => offer)
@@ -154,11 +168,11 @@ describe("DurableMesh peer catalog gossip", () => {
     const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" } } as never),
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       store: { getWorkspaceCredential: async () => credential, getPeer: async () => ({ personId: "owner" }),
         listWorkspaceCredentials: async () => [] } as never })
     const internal = mesh as any
-    internal.ownerCredentials.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.ensureOwnerCredential = vi.fn(async () => credential)
     internal.start = vi.fn(async () => {})
     internal.notify = vi.fn(async () => {})
     internal.encodeOwnerWorkspaceOffer = vi.fn(async () => new Uint8Array([1]))
@@ -243,6 +257,25 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given publish loses its stream, when the session is evicted, then UI reconnects without a persistent sync error", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+    const internal = mesh as any
+    const evict = vi.fn(async () => {})
+    internal.browserSessions.publishAll = vi.fn(async (_broadcast: unknown, onFailure: (key: string, entry: unknown, error: unknown) => Promise<void>) => {
+      await onFailure("workspace:remote", { deviceId: "remote-device", evict },
+        new MeshNetworkError("closed by peer: browser connection closed (code 0)"))
+    })
+
+    await internal.publishAll()
+
+    expect(evict).toHaveBeenCalledWith("publish failed")
+    expect(onDiagnostic).not.toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
   it("Given simultaneous same-peer handshakes, when credentials load concurrently, then only one session owns the receive loop", async () => {
     const credential = { workspaceId: "workspace", transportSecret: "secret" }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
@@ -265,7 +298,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const internal = mesh as any
     const publish = vi.fn(async () => {})
     internal.lifecycle = { stopped: false }
-    internal.documentSessions.create = vi.fn(() => ({
+    internal.browserSessions.host.create = vi.fn(() => ({
       session: { publish, close: async () => {}, done: new Promise<never>(() => {}) },
     }))
     const connection = { close: vi.fn(async () => {}), acceptStream: vi.fn(), openStream: vi.fn() }
@@ -292,8 +325,8 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(first.close).not.toHaveBeenCalled()
     expect(sibling.close).not.toHaveBeenCalled()
     expect(internal.sessions.size).toBe(2)
-    expect(internal.documentSessions.engine("workspace", "remote", "slot-0", "local"))
-      .not.toBe(internal.documentSessions.engine("workspace", "remote", "slot-1", "local"))
+    expect(internal.sessions.get("workspace:remote:slot-0").session)
+      .not.toBe(internal.sessions.get("workspace:remote:slot-1").session)
     await internal.sessions.get("workspace:remote:slot-0").evict("remote closed")
     expect(internal.sessions.get("workspace:remote:slot-1").connection).toBe(sibling)
     expect(sibling.close).not.toHaveBeenCalled()
@@ -362,43 +395,79 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("Given an established session drops, when its receive loop fails, then reconnect is backed off", async () => {
+    let rejectReceive!: (error: Error) => void
+    const done = new Promise<never>((_resolve, reject) => { rejectReceive = reject })
+    const mesh = new DurableMesh({
+      transport: {} as never,
+      workspace: {} as never,
+      workspaceStore: {} as never,
+      getProfile: async () => ({ device: { deviceId: "local-device" } } as never),
+      store: {
+        getWorkspaceCredential: async () => ({ workspaceId: "workspace", transportSecret: "secret" }),
+        listWorkspaceCredentials: async () => [],
+        listPeers: async () => [],
+      } as never,
+    })
+    const internal = mesh as any
+    internal.browserSessions.host.create = vi.fn(() => ({
+      session: { publish: async () => {}, close: async () => {}, done },
+    }))
+    const connection = { close: vi.fn(async () => {}) }
+
+    await internal.installSession("workspace", "remote-device", "slot-0", "2026-09-24", 1,
+      "outgoing", connection, false, "outgoing-test")
+    rejectReceive(new MeshNetworkError("connection lost"))
+
+    await vi.waitFor(() => expect(internal.sessions.size).toBe(0))
+    const reconnect = internal.runtime().reconnectState("workspace:remote-device:slot-0")
+    expect(reconnect).not.toBeNull()
+    expect(reconnect.retryAtMs).toBeGreaterThan(Date.now())
+    await mesh.dispose()
+  })
+
   it("Given a live session while Iroh gossip has no neighbour yet, when the workspace changes, then direct sync still publishes", async () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({} as never), store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never })
+      getProfile: async () => ({ device: { deviceId: "local" } } as never),
+      store: { getWorkspaceCredential: async () => ({ workspaceId: "workspace", transportSecret: "secret" }),
+        listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never })
     const internal = mesh as any
     const publish = vi.fn(async () => {})
-    internal.sessions.set("workspace:remote:slot", {
-      workspaceId: "workspace", deviceId: "remote", instanceId: "slot", endpoint: "remote-endpoint",
+    internal.lifecycle = { stopped: false }
+    internal.browserSessions.host.create = vi.fn(() => ({
       session: { publish, close: async () => {}, done: new Promise<never>(() => {}) },
-      evict: async () => {},
-    })
+    }))
+    const connection = { acceptStream: vi.fn(() => new Promise<never>(() => {})), close: vi.fn(async () => {}) }
+    await internal.installSession("workspace", "remote", "slot", "2026-09-23", 1, "incoming", connection)
+    publish.mockClear()
     await internal.publishAll()
 
     expect(publish).toHaveBeenCalledOnce()
+    internal.lifecycle = undefined
     await mesh.dispose()
   })
 
   it("Given simultaneous dials converge, when the same session arrives again, then only the preferred direction replaces its duplicate", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", direction: "incoming" as const }
 
-    expect(shouldReplaceMeshSession(current, { ...current }, "incoming")).toBe(false)
-    expect(shouldReplaceMeshSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
-    expect(shouldReplaceMeshSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
+    expect(rustReplacesSession(current, { ...current }, "incoming")).toBe(false)
+    expect(rustReplacesSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
+    expect(rustReplacesSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
   })
 
   it("Given a renewed route for one instance, when both sessions arrive, then route sequence beats wall-clock skew", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:05:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
     const renewed = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 5, direction: "incoming" as const }
 
-    expect(shouldReplaceMeshSession(current, renewed, "incoming")).toBe(true)
-    expect(shouldReplaceMeshSession(renewed, current, "incoming")).toBe(false)
+    expect(rustReplacesSession(current, renewed, "incoming")).toBe(true)
+    expect(rustReplacesSession(renewed, current, "incoming")).toBe(false)
   })
 
   it("Given equal route sequence with skewed clocks, when duplicate sessions arrive, then time cannot replace the preferred direction", () => {
     const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
     const future = { ...current, remoteIssuedAt: "2099-09-14T12:00:00.000Z", direction: "outgoing" as const }
 
-    expect(shouldReplaceMeshSession(current, future, "incoming")).toBe(false)
+    expect(rustReplacesSession(current, future, "incoming")).toBe(false)
   })
 
   it("Given a newer browser instance closed, when an older live instance has no session, then it still dials the known peer", async () => {
@@ -688,6 +757,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const imported: string[] = []
     const internal = mesh as any
     internal.mergeOwnershipTransfers = async () => credential
+    internal.mergeSuccessionState = async () => credential
     internal.mergeRevocations = async () => {}
     internal.putVerifiedBundle = vi.fn(async (_credential: unknown, bundle: { id: string }) => {
       if (bundle.id === "poisoned") throw new Error("Invalid workspace grant signature")
@@ -759,5 +829,38 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(credential.ownerCertificates.map(item => item.payload.deviceId)).toContain(deviceId)
     expect("localGrant" in credential).toBe(false)
     await mesh.dispose()
+  })
+})
+
+describe("durable runtime cleanup", () => {
+  it("reports a failed diagnostic notification without an unhandled rejection", async () => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: {} as never, getProfile: async () => null as never })
+    const internal = mesh as any
+    internal.notify = vi.fn(async () => { throw new Error("storage unavailable") })
+    internal.trace = vi.fn()
+    internal.report("Restart", new Error("node closed"))
+    await vi.waitFor(() => expect(internal.trace).toHaveBeenCalledWith(
+      "diagnostic.notification.failed", { reason: "storage unavailable" }, "warn"))
+    expect(internal.notify).toHaveBeenCalledOnce()
+  })
+
+  it.each(["sessions", "gossip", "runtime"])("closes detached resources even when %s cleanup fails", async stage => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: {} as never, getProfile: async () => null as never })
+    const internal = mesh as any
+    const node = { close: vi.fn(async () => {}) }
+    const acceptor = { close: vi.fn(async () => {}) }
+    internal.node = node
+    internal.acceptor = acceptor
+    internal.dropSessions = vi.fn(async () => { if (stage === "sessions") throw new Error("cleanup failed") })
+    if (stage === "gossip") internal.gossip.closeAll = vi.fn(() => { throw new Error("cleanup failed") })
+    if (stage === "runtime") internal.runtimeState = { stop: () => { throw new Error("cleanup failed") } }
+    internal.notify = vi.fn(async () => {})
+    await expect(internal.shutdown()).rejects.toThrow("cleanup failed")
+    expect(node.close).toHaveBeenCalledOnce()
+    expect(acceptor.close).toHaveBeenCalledOnce()
+    expect(internal.node).toBeUndefined()
+    expect(internal.acceptor).toBeUndefined()
   })
 })

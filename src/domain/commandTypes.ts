@@ -20,6 +20,7 @@ export type Command =
   | { kind: "createColumn"; boardId: string; title: string; beforeId?: string | null }
   | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
   | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue> }
+  | { kind: "reviewItem"; entityId: string }
   | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
   | { kind: "renameEntity"; entityId: string; title: string }

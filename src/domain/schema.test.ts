@@ -38,6 +38,7 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(draft.boardTitle).toBe("Product Roadmap")
     expect(draft.columns.map((c) => c.title)).toEqual(["To do", "Doing", "Done"])
     expect(draft.fields).toEqual([])
+    expect(draft.cardAgingPolicy).toEqual({ version: 1, thresholds: { watch: 7, aged: 14, overdue: 30 } })
 
     // Verify no private identity, devices, certificates, or items are in draft
     expect((draft as any).ownerPersonId).toBeUndefined()
@@ -94,6 +95,12 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
       ],
     }
     expect(validateBoardSchemaDraft(validDraftWithDatetime).valid).toBe(true)
+
+    validDraftWithDatetime.cardAgingPolicy = { version: 1, thresholds: { watch: 14, aged: 7, overdue: 30 } }
+    expect(validateBoardSchemaDraft(validDraftWithDatetime).errors).toContainEqual({
+      path: "/cardAgingPolicy/thresholds",
+      message: "Aging thresholds must increase from watch to aged to overdue",
+    })
   })
 
   it("projects one explicit archive role and rejects a second archive column", () => {
