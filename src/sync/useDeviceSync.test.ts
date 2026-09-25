@@ -46,12 +46,12 @@ describe("device sync errors", () => {
 })
 
 describe("useDeviceSync direct sync selection and custom workspace sets", () => {
-  it("Given the direct runtime node closes, when its live session fails, then durable mesh adopts the node and keeps reconnecting", async () => {
+  it.each([false, true])("Given the direct node closes (cleanup fails: %s), then durable mesh adopts it and keeps reconnecting", async cleanupFails => {
     let rejectSession!: (error: unknown) => void
     const session = {
       done: new Promise<void>((_, reject) => { rejectSession = reject }),
       publish: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => { if (cleanupFails) throw new Error("connection already closed") }),
     }
     const node = { close: vi.fn(async () => undefined) }
     const durableMesh = {

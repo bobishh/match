@@ -128,18 +128,25 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     if (offline && typeof window !== "undefined") window.removeEventListener("offline", offline)
     const node = this.node
     this.node = undefined
-    this.gossip.closeAll()
-    await this.dropSessions()
-    this.authenticatedSessions?.clear()
-    this.runtimeState?.stop()
-    await this.gossip.waitForRefreshes()
-    this.gossip.closeAll()
-    await this.acceptor?.close().catch(() => {})
+    const acceptor = this.acceptor
     this.acceptor = undefined
     const adopted = this.adoptedNode
     this.adoptedNode = undefined
-    await node?.close("Mesh stopped").catch(() => {})
-    if (adopted !== node) await adopted?.close("Mesh stopped").catch(() => {})
+    try {
+      this.gossip.closeAll()
+      await this.dropSessions()
+    } finally {
+      try {
+        this.authenticatedSessions?.clear()
+        this.runtimeState?.stop()
+        await this.gossip.waitForRefreshes()
+        this.gossip.closeAll()
+      } finally {
+        await acceptor?.close().catch(() => {})
+        await node?.close("Mesh stopped").catch(() => {})
+        if (adopted !== node) await adopted?.close("Mesh stopped").catch(() => {})
+      }
+    }
     await this.notify()
   }
 

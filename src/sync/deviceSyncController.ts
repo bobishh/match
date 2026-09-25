@@ -14,6 +14,7 @@ import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
 import { recoverLiveSession } from "./deviceSyncLiveRecovery"
+import { meshTrace } from "./meshTrace"
 
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
@@ -147,9 +148,11 @@ export class DeviceSyncController {
     this.liveSession = undefined
     this.state.directLive.value = false
     this.state.liveWorkspaceIds.value = []
-    await session?.close()
     const current = this.node
     this.node = undefined
+    await session?.close().catch(error => {
+      meshTrace("live.session.cleanup.failed", { reason: userMessage(error, "Session cleanup failed") }, "warn")
+    })
     await current?.close(reason).catch(() => {})
   }
 

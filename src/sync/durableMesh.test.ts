@@ -831,3 +831,36 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 })
+
+describe("durable runtime cleanup", () => {
+  it("reports a failed diagnostic notification without an unhandled rejection", async () => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: {} as never, getProfile: async () => null as never })
+    const internal = mesh as any
+    internal.notify = vi.fn(async () => { throw new Error("storage unavailable") })
+    internal.trace = vi.fn()
+    internal.report("Restart", new Error("node closed"))
+    await vi.waitFor(() => expect(internal.trace).toHaveBeenCalledWith(
+      "diagnostic.notification.failed", { reason: "storage unavailable" }, "warn"))
+    expect(internal.notify).toHaveBeenCalledOnce()
+  })
+
+  it.each(["sessions", "gossip", "runtime"])("closes detached resources even when %s cleanup fails", async stage => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: {} as never, getProfile: async () => null as never })
+    const internal = mesh as any
+    const node = { close: vi.fn(async () => {}) }
+    const acceptor = { close: vi.fn(async () => {}) }
+    internal.node = node
+    internal.acceptor = acceptor
+    internal.dropSessions = vi.fn(async () => { if (stage === "sessions") throw new Error("cleanup failed") })
+    if (stage === "gossip") internal.gossip.closeAll = vi.fn(() => { throw new Error("cleanup failed") })
+    if (stage === "runtime") internal.runtimeState = { stop: () => { throw new Error("cleanup failed") } }
+    internal.notify = vi.fn(async () => {})
+    await expect(internal.shutdown()).rejects.toThrow("cleanup failed")
+    expect(node.close).toHaveBeenCalledOnce()
+    expect(acceptor.close).toHaveBeenCalledOnce()
+    expect(internal.node).toBeUndefined()
+    expect(internal.acceptor).toBeUndefined()
+  })
+})

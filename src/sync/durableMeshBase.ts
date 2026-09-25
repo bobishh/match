@@ -300,7 +300,9 @@ export abstract class DurableMeshBase {
     this.lastDiagnostic = `${stage}: ${detail || "unknown transport error"}`
     this.trace("diagnostic", { stage, reason: detail || "unknown transport error" }, "warn")
     this.options.onDiagnostic?.(this.lastDiagnostic)
-    void this.notify()
+    void this.notify().catch(error => {
+      this.trace("diagnostic.notification.failed", { reason: error instanceof Error ? error.message : String(error) }, "warn")
+    })
   }
 
   protected reportProtocolFailure(stage: string, error: unknown) {

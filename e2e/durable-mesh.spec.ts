@@ -35,6 +35,25 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
   return context
 }
 
+async function journalChangeIds(page: Page, workspaceId: string): Promise<string[]> {
+  return page.evaluate(async id => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("match-workspace-journal-v1")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      const transaction = db.transaction("changes", "readonly")
+      const records = await new Promise<Array<{ id: string }>>((resolve, reject) => {
+        const request = transaction.objectStore("changes").index("workspaceId").getAll(id)
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      return records.map(record => record.id).sort()
+    } finally { db.close() }
+  }, workspaceId)
+}
+
 async function discardTransportState(page: Page) {
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -247,6 +266,7 @@ test("Given two connected clients, when exactly one page reloads after a pending
     await Promise.all([host.goto("/"), guest.goto("/")])
     await pairWorkspace(host, guest)
     await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect(host.getByLabel("Workspace role: owner")).toBeVisible()
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
 
     await guest.evaluate(() => window.dispatchEvent(new Event("offline")))
@@ -269,6 +289,81 @@ test("Given two connected clients, when exactly one page reloads after a pending
 
     await addLead(guest, "After one-sided reload")
     await expect(host.getByRole("button", { name: "Open After one-sided reload — Engineer" })).toBeVisible({ timeout: 20_000 })
+  } finally {
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
+test("Given a paired editor goes offline, when both sides edit and it comes online, then persisted changes converge without reloading", async ({ browser }) => {
+  test.setTimeout(120_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await pairWorkspace(host, guest)
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+
+    const before = await Promise.all([host, guest].map((target, index) => target.evaluate(async sentinel => {
+      const current = window as Window & { __MATCH_RECONNECT_SENTINEL__?: string }
+      current.__MATCH_RECONNECT_SENTINEL__ = sentinel
+      const { readLocal } = await import("/src/localDb.ts")
+      const profile = JSON.parse((await readLocal("match.local_profile.v1"))!) as { identity: { personId: string } }
+      const { useMatch } = await import("/src/state.ts")
+      const workspaceId = useMatch().getActiveDoc()!.id
+      const { meshTraceSnapshot, clearMeshTrace } = await import("/src/sync/meshTrace.ts")
+      const session = meshTraceSnapshot().findLast(event => event.event === "session.started")
+      clearMeshTrace()
+      return { sentinel, personId: profile.identity.personId, workspaceId, connectionId: session?.connectionId }
+    }, `reconnect-${index}`)))
+    expect(before[0].workspaceId).toBe(before[1].workspaceId)
+    expect(before[1].connectionId).toEqual(expect.any(String))
+    const guestJournalBefore = await journalChangeIds(guest, before[1].workspaceId)
+
+    // Chromium's network emulation emits the production offline event. Match's
+    // handler closes the real Iroh session even when WebRTC itself stays viable.
+    await guestContext.setOffline(true)
+    await expect(guest.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
+    await expect.poll(() => guest.evaluate(async () => {
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return meshTraceSnapshot().some(event => event.event === "session.closed" && event.cause === "mesh stopped")
+    }), { timeout: 20_000 }).toBe(true)
+
+    await addLead(guest, "Guest queued offline")
+    await addLead(host, "Host queued remotely")
+    const guestJournalOffline = await journalChangeIds(guest, before[1].workspaceId)
+    expect(guestJournalOffline.length).toBeGreaterThan(guestJournalBefore.length)
+
+    await guestContext.setOffline(false)
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
+    await expect(host.getByRole("button", { name: "Open Guest queued offline — Engineer" })).toBeVisible({ timeout: 30_000 })
+    await expect(guest.getByRole("button", { name: "Open Host queued remotely — Engineer" })).toBeVisible({ timeout: 30_000 })
+
+    const after = await Promise.all([host, guest].map(target => target.evaluate(async () => {
+      const current = window as Window & { __MATCH_RECONNECT_SENTINEL__?: string }
+      const { readLocal } = await import("/src/localDb.ts")
+      const profile = JSON.parse((await readLocal("match.local_profile.v1"))!) as { identity: { personId: string } }
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return { sentinel: current.__MATCH_RECONNECT_SENTINEL__, personId: profile.identity.personId,
+        trace: meshTraceSnapshot() }
+    })))
+    expect(after.map(value => value.sentinel)).toEqual(before.map(value => value.sentinel))
+    expect(after.map(value => value.personId)).toEqual(before.map(value => value.personId))
+    await expect(host.getByLabel("Workspace role: owner")).toBeVisible()
+    await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
+
+    const reconnect = after[1].trace.find(event => event.event === "session.started")
+    expect(reconnect, JSON.stringify(after[1].trace)).toBeDefined()
+    expect(reconnect?.connectionId).not.toBe(before[1].connectionId)
+    expect(after[1].trace.some(event => event.event === "node.shutdown"), JSON.stringify(after[1].trace)).toBe(false)
+    expect(after[1].trace.some(event => event.event === "run.start"), JSON.stringify(after[1].trace)).toBe(false)
+
+    // Match currently replays persisted Automerge state; it does not drain a
+    // separate outbox. The committed offline change therefore remains journaled.
+    const guestJournalAfter = await journalChangeIds(guest, before[1].workspaceId)
+    expect(guestJournalAfter).toEqual(guestJournalOffline)
   } finally {
     await Promise.all([hostContext.close(), guestContext.close()])
   }
