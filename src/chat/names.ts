@@ -249,10 +249,8 @@ export function resolveDisplayNamesWithIdentity(
   identity: { personId: string; name: string },
 ): Record<string, string> {
   if (!identity.personId) return resolveDisplayNames(people)
-  const names = resolveDisplayNames([
+  return resolveDisplayNames([
     ...people.filter(person => person.personId !== identity.personId),
     identity,
   ])
-  names[identity.personId] = identity.name
-  return names
 }

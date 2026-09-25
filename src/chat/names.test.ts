@@ -13,8 +13,9 @@ it("uses identity name when this workspace still stores an older chat announceme
     { personId: "self", name: "Swift Mimosa" },
     { personId: "peer", name: "Bo" },
   ], { personId: "self", name: "Bo" })
-  expect(names.self).toBe("Bo")
+  expect(names.self).toMatch(/^Bo · /)
   expect(names.peer).toMatch(/^Bo · /)
+  expect(names.self).not.toBe(names.peer)
 })
 
 describe("normalizeDisplayName", () => {
