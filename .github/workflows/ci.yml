@@ -115,4 +115,5 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
+      - run: cargo build --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-native/Cargo.toml --example browser_document_probe
       - run: npx playwright test --project=browser-native
