@@ -117,12 +117,40 @@ Iroh connectivity and are separate so connectivity failures are visible:
 npx playwright test --project=scoped-enrollment
 npx playwright test --project=workspace-roles
 npx playwright test --project=workspace-sync-data
+npx playwright test --project=durable-mesh
 ```
 
 See [playwright.config.ts](playwright.config.ts) for all projects. CI runs the static
 checks, unit tests, bundle budgets, dependency audit, and browser suites. Historical
 measurements in [CODE_QUALITY_AUDIT.md](CODE_QUALITY_AUDIT.md) are dated snapshots,
 not a substitute for the current CI result.
+
+## Recovery and verification
+
+The [durable mesh browser suite](e2e/durable-mesh.spec.ts) exercises real Iroh
+connections and browser storage, including:
+
+- Unexpected transport-node closure: create a replacement node, reconnect, and
+  synchronize edits in both directions without reloading or pairing again.
+- Failed receive persistence: leave the saved document and journal unchanged,
+  send no saved-state acknowledgement, then replay and acknowledge after storage
+  recovers and the connection is re-established.
+- Repeated disconnections with two tabs of one device: converge on edits, retain
+  roles, and check that nodes, sessions, and timers do not accumulate. Each tab
+  has an independent channel; opening a tab does not create another device.
+
+An ownership handoff keeps its pending proposal separate from accepted authority.
+While confirmation is pending, local document writes are blocked. Retrying uses
+that same proposal; accepting the handoff stores the resulting ownership and
+scope authority together.
+
+MetaMesh also checks ownership/revocation, session generations, and batch delivery
+with [executable protocol models](vendor/meta-mesh/formal/README.md). The runner
+compares transitions against production Rust, explores bounded concrete states,
+and requires deliberately broken implementations to fail. This is bounded
+conformance testing, not a proof for every possible execution. Browser transport,
+storage failures, and adapter wiring are tested separately by the scenarios above.
+Recovery requires the peer, network, and storage to become available again.
 
 ## What to expect
 
