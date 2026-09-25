@@ -384,15 +384,13 @@ test("Given a paired editor, when live receive persistence fails, then no saved 
 
     await guest.evaluate(() => { window.__MATCH_INJECT_STORAGE_FAILURE__ = true })
     await addLead(host, "Replay after receive failure")
-    await expect.poll(() => guest.evaluate(async () => {
-      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
-      return meshTraceSnapshot().some(event => event.event === "workspace.frame.rejected")
-    }), { timeout: 25_000 }).toBe(true)
+    // The same receive can arrive on an incoming stream or as a document
+    // response. Observe the target persistence attempt, not either path's log.
+    await expect.poll(async () => (await targetDocumentReceives(guest, "Replay after receive failure — Engineer"))
+      .some(attempt => attempt.failed), { timeout: 25_000 }).toBe(true)
     await expect(guest.getByRole("button", { name: "Open Replay after receive failure — Engineer" })).toHaveCount(0)
     expect(await journalChangeIds(guest, workspaceId)).toEqual(journalBefore)
     expect(await persistedLeadExists(guest, workspaceId, "Replay after receive failure — Engineer")).toBe(false)
-    await expect.poll(async () => (await targetDocumentReceives(guest, "Replay after receive failure — Engineer")).length,
-      { timeout: 20_000 }).toBeGreaterThan(0)
     const failedAttempts = await targetDocumentReceives(guest, "Replay after receive failure — Engineer")
     expect(failedAttempts.length).toBeGreaterThan(0)
     expect(failedAttempts.every(attempt => attempt.failed && !attempt.persisted && !attempt.responseSent)).toBe(true)
@@ -403,8 +401,10 @@ test("Given a paired editor, when live receive persistence fails, then no saved 
     await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
     await expect(guest.getByRole("button", { name: "Open Replay after receive failure — Engineer" })).toBeVisible({ timeout: 40_000 })
     expect(await persistedLeadExists(guest, workspaceId, "Replay after receive failure — Engineer")).toBe(true)
-    const recoveredAttempts = await targetDocumentReceives(guest, "Replay after receive failure — Engineer")
-    expect(recoveredAttempts.some(attempt => attempt.persisted && attempt.responseSent)).toBe(true)
+    // Storage/UI commit precedes the asynchronous response send. Wait for
+    // that send to complete rather than treating visible data as an ACK.
+    await expect.poll(async () => (await targetDocumentReceives(guest, "Replay after receive failure — Engineer"))
+      .some(attempt => attempt.persisted && attempt.responseSent), { timeout: 20_000 }).toBe(true)
   } finally {
     await testInfo.attach("storage-receives.json", { body: JSON.stringify({
       attempts: await documentReceiveAttempts(guest).catch(() => []),
