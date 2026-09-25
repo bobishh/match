@@ -1,5 +1,8 @@
+import * as Automerge from "@automerge/automerge"
 import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
+import { captureRealIrohNodes, captureSavedAcknowledgements, closeLatestRealIrohNode, documentReceiveAttempts, realIrohNodeOwnership } from "./support/recovery"
+import { captureMeshResources, meshResourceCounts } from "./support/meshResources"
 
 async function addLead(page: Page, company: string) {
   await ensureJobSearchWorkspace(page)
@@ -52,6 +55,23 @@ async function journalChangeIds(page: Page, workspaceId: string): Promise<string
       return records.map(record => record.id).sort()
     } finally { db.close() }
   }, workspaceId)
+}
+
+async function persistedLeadExists(page: Page, workspaceId: string, title: string): Promise<boolean> {
+  return page.evaluate(async ({ id, expectedTitle }) => {
+    const { WorkspaceStorage } = await import("/src/storage.ts")
+    const stored = await new WorkspaceStorage().loadWorkspaceDoc(id)
+    return Object.values(stored?.doc.entities ?? {}).some((entity: any) => !entity.deleted && entity.title === expectedTitle)
+  }, { id: workspaceId, expectedTitle: title })
+}
+
+async function targetDocumentReceives(page: Page, title: string) {
+  const records = await documentReceiveAttempts(page)
+  return records.filter(record => {
+    const doc = Automerge.load<{ entities: Record<string, { deleted?: boolean; title?: string }> }>(new Uint8Array(record.document))
+    try { return Object.values(doc.entities).some(entity => !entity.deleted && entity.title === title) }
+    finally { Automerge.free(doc) }
+  })
 }
 
 async function discardTransportState(page: Page) {
@@ -291,6 +311,192 @@ test("Given two connected clients, when exactly one page reloads after a pending
     await expect(host.getByRole("button", { name: "Open After one-sided reload — Engineer" })).toBeVisible({ timeout: 20_000 })
   } finally {
     await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
+test("Given a paired editor, when its actual Iroh node closes unexpectedly, then a fresh node reconnects and syncs without reload or pairing", async ({ browser }) => {
+  test.setTimeout(120_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([captureRealIrohNodes(host), captureRealIrohNodes(guest)])
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await pairWorkspace(host, guest)
+    await guest.evaluate(() => { (window as Window & { __MATCH_RECOVERY_SENTINEL__?: string }).__MATCH_RECOVERY_SENTINEL__ = "still-running" })
+    const ownershipBeforeClose = await realIrohNodeOwnership(guest)
+    expect(ownershipBeforeClose.created).toBeGreaterThan(0)
+    const before = await guest.evaluate(async () => {
+      const { clearMeshTrace, meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      const endpoint = meshTraceSnapshot().findLast(event => event.event === "node.started")?.endpoint
+      clearMeshTrace()
+      return { endpoint, href: window.location.href }
+    })
+
+    await closeLatestRealIrohNode(guest, before.endpoint)
+
+    await expect.poll(async () => (await realIrohNodeOwnership(guest)).created, { timeout: 45_000 })
+      .toBe(ownershipBeforeClose.created + 1)
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+    await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
+    expect(await guest.evaluate(() => window.location.href)).toBe(before.href)
+    expect(await guest.evaluate(() => (window as Window & { __MATCH_RECOVERY_SENTINEL__?: string }).__MATCH_RECOVERY_SENTINEL__)).toBe("still-running")
+
+    await addLead(host, "After actual node recovery")
+    await expect(guest.getByRole("button", { name: "Open After actual node recovery — Engineer" })).toBeVisible({ timeout: 30_000 })
+    await addLead(guest, "Recovered node sends")
+    await expect(host.getByRole("button", { name: "Open Recovered node sends — Engineer" })).toBeVisible({ timeout: 30_000 })
+
+    const after = await guest.evaluate(async () => {
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return meshTraceSnapshot()
+    })
+    expect(after.some(event => event.event === "node.shutdown"), JSON.stringify(after)).toBe(true)
+    const restarted = after.filter(event => event.event === "node.started")
+    expect(restarted).toHaveLength(1)
+    expect(after.filter(event => event.event === "run.start")).toHaveLength(1)
+  } finally {
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
+test("Given a paired editor, when live receive persistence fails, then no saved state is acknowledged and reconnect replays it after storage recovers", async ({ browser }, testInfo) => {
+  test.setTimeout(120_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([captureRealIrohNodes(guest), captureSavedAcknowledgements(guest)])
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await pairWorkspace(host, guest)
+    await guest.waitForTimeout(1_000)
+    await guest.evaluate(() => {
+      window.__MATCH_E2E_DOCUMENT_RECEIVES__ = []
+    })
+    const workspaceId = await guest.evaluate(async () => (await (await import("/src/localDb.ts")).readLocal("match.active_workspace_id"))!)
+    const journalBefore = await journalChangeIds(guest, workspaceId)
+    await Promise.all([host, guest].map(target => target.evaluate(async () => {
+      const { clearMeshTrace } = await import("/src/sync/meshTrace.ts")
+      clearMeshTrace()
+    })))
+
+    await guest.evaluate(() => { window.__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await addLead(host, "Replay after receive failure")
+    await expect.poll(() => guest.evaluate(async () => {
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return meshTraceSnapshot().some(event => event.event === "workspace.frame.rejected")
+    }), { timeout: 25_000 }).toBe(true)
+    await expect(guest.getByRole("button", { name: "Open Replay after receive failure — Engineer" })).toHaveCount(0)
+    expect(await journalChangeIds(guest, workspaceId)).toEqual(journalBefore)
+    expect(await persistedLeadExists(guest, workspaceId, "Replay after receive failure — Engineer")).toBe(false)
+    await expect.poll(async () => (await targetDocumentReceives(guest, "Replay after receive failure — Engineer")).length,
+      { timeout: 20_000 }).toBeGreaterThan(0)
+    const failedAttempts = await targetDocumentReceives(guest, "Replay after receive failure — Engineer")
+    expect(failedAttempts.length).toBeGreaterThan(0)
+    expect(failedAttempts.every(attempt => attempt.failed && !attempt.persisted && !attempt.responseSent)).toBe(true)
+
+    await closeLatestRealIrohNode(guest)
+    await guest.evaluate(() => { window.__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
+    await expect(guest.getByRole("button", { name: "Open Replay after receive failure — Engineer" })).toBeVisible({ timeout: 40_000 })
+    expect(await persistedLeadExists(guest, workspaceId, "Replay after receive failure — Engineer")).toBe(true)
+    const recoveredAttempts = await targetDocumentReceives(guest, "Replay after receive failure — Engineer")
+    expect(recoveredAttempts.some(attempt => attempt.persisted && attempt.responseSent)).toBe(true)
+  } finally {
+    await testInfo.attach("storage-receives.json", { body: JSON.stringify({
+      attempts: await documentReceiveAttempts(guest).catch(() => []),
+      trace: await guest.evaluate(async () => (await import("/src/sync/meshTrace.ts")).meshTraceSnapshot()).catch(() => []),
+    }), contentType: "application/json" })
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
+test("Given two tabs for one editor device, when their real Iroh nodes disconnect repeatedly, then roles, edits, and node ownership recover without accumulation", async ({ browser }, testInfo) => {
+  test.setTimeout(180_000)
+  const hostContext = await isolatedContext(browser)
+  const editorContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const editor = await editorContext.newPage()
+  let secondEditor: Page | undefined
+  try {
+    await Promise.all([captureRealIrohNodes(host), captureRealIrohNodes(editor), captureMeshResources(host), captureMeshResources(editor)])
+    await Promise.all([host.goto("/"), editor.goto("/")])
+    await pairWorkspace(host, editor)
+    secondEditor = await editorContext.newPage()
+    await Promise.all([captureRealIrohNodes(secondEditor), captureMeshResources(secondEditor)])
+    await secondEditor.goto("/")
+    await expect(secondEditor.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
+    await expect(secondEditor.getByLabel("Workspace role: editor")).toBeVisible()
+    const people = await Promise.all([host, editor, secondEditor].map(page => page.evaluate(async () =>
+      JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)))
+    expect(people[1]).toBe(people[2])
+
+    for (const [cycle, target] of [editor, secondEditor, editor, secondEditor].entries()) {
+      const before = await realIrohNodeOwnership(target)
+      await target.evaluate(async () => {
+        const { clearMeshTrace } = await import("/src/sync/meshTrace.ts")
+        clearMeshTrace()
+      })
+      await closeLatestRealIrohNode(target)
+      await expect.poll(async () => (await realIrohNodeOwnership(target)).created, { timeout: 45_000 }).toBe(before.created + 1)
+      await expect(target.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
+      await expect(target.getByLabel("Workspace role: editor")).toBeVisible()
+      const after = await realIrohNodeOwnership(target)
+      expect(after.active).toBe(before.active)
+      const startsAfter = await target.evaluate(async () => {
+        const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+        return meshTraceSnapshot().filter(event => event.event === "run.start").length
+      })
+      expect(startsAfter).toBe(1)
+      const title = `Two-tab recovery ${cycle}`
+      await addLead(target, title)
+      for (const page of [host, editor, secondEditor]) {
+        await expect(page.getByRole("button", { name: `Open ${title} — Engineer` })).toBeVisible({ timeout: 30_000 })
+      }
+      await expect(host.getByLabel("Workspace role: owner")).toBeVisible()
+      await Promise.all([editor, secondEditor].map(page => expect(page.getByLabel("Workspace role: editor")).toBeVisible()))
+      expect(await Promise.all([host, editor, secondEditor].map(page => page.evaluate(async () =>
+        JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)))).toEqual(people)
+      const sessions = await target.evaluate(async () => {
+        const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+        const trace = meshTraceSnapshot()
+        const active = new Set<string>()
+        for (const event of trace) {
+          if (event.event === "session.started") active.add(String(event.connectionId))
+          if (event.event === "session.closed") active.delete(String(event.connectionId))
+        }
+        return active.size
+      })
+      expect(sessions).toBeGreaterThan(0)
+      expect(sessions).toBeLessThanOrEqual(2)
+      const resources = await meshResourceCounts(target)
+      expect(resources.heartbeats).toBeGreaterThan(0)
+      expect(resources.heartbeats).toBeLessThanOrEqual(2)
+      expect(resources.retryWaits).toBeLessThanOrEqual(1)
+    }
+    await host.getByRole("button", { name: "Sync", exact: true }).click()
+    const dialog = host.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("list", { name: "Mesh members" }).getByRole("button").filter({ hasText: "editor" }).click()
+    await expect(dialog.getByRole("list", { name: /Devices for/ })).toContainText("2 known browser sessions")
+    await dialog.getByRole("button", { name: "Stop live sync" }).click()
+    for (const page of [editor, secondEditor]) {
+      await page.getByRole("button", { name: "Sync", exact: true }).click()
+      await page.getByRole("dialog", { name: "Device sync" }).getByRole("button", { name: "Stop live sync" }).click()
+    }
+    await expect.poll(async () => (await Promise.all([host, editor, secondEditor].map(meshResourceCounts))).every(counts => counts.heartbeats === 0 && counts.retryWaits === 0), { timeout: 30_000 }).toBe(true)
+    await expect.poll(async () => (await Promise.all([host, editor, secondEditor].map(realIrohNodeOwnership))).every(ownership => ownership.active === 0), { timeout: 30_000 }).toBe(true)
+  } finally {
+    const traces = await Promise.all([host, editor, secondEditor].filter((page): page is Page => Boolean(page)).map(async page => ({
+      url: page.url(),
+      dial: await page.evaluate(() => (window as Window & { __meshDialInput?: unknown }).__meshDialInput).catch(() => undefined),
+      peers: await page.evaluate(async () => (await (await import("/src/sync/peerStore.ts")).peerStore.listPeerInstances()).map(peer => ({ workspaceId: peer.workspaceId, deviceId: peer.deviceId, instanceId: peer.instanceId, endpoint: peer.endpoint, revokedAt: peer.revokedAt }))).catch(() => []),
+      trace: await page.evaluate(async () => (await import("/src/sync/meshTrace.ts")).meshTraceSnapshot()).catch(() => []),
+    })))
+    await testInfo.attach("mesh-traces.json", { body: JSON.stringify(traces), contentType: "application/json" })
+    await Promise.all([hostContext.close(), editorContext.close()])
   }
 })
 

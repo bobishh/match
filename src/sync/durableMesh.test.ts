@@ -864,3 +864,26 @@ describe("durable runtime cleanup", () => {
     expect(internal.acceptor).toBeUndefined()
   })
 })
+
+
+describe("durable node supervision", () => {
+  it.each([false, true])("restarts when its acceptor ends (rejects: %s) and cancels that run's dial loop", async rejects => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: {} as never, getProfile: async () => ({}) as never,
+      store: { listWorkspaceCredentials: async () => [{}] } as never })
+    const internal = mesh as any
+    const acceptor = { accept: async () => { if (rejects) throw new Error("node closed"); return undefined }, close: vi.fn(async () => {}) }
+    internal.adoptedNode = { endpointId: "endpoint", accept: async () => acceptor, close: vi.fn(async () => {}) }
+    internal.activeCredentialsForProfile = async () => [{}]
+    internal.prepareCredentials = async () => {}
+    let cancelled = false
+    internal.dialLoop = (signal: AbortSignal) => new Promise<void>(resolve => {
+      signal.addEventListener("abort", () => { cancelled = true; resolve() }, { once: true })
+    })
+    const stop = new AbortController()
+    try {
+      await expect(internal.runMeshOnce(stop.signal)).rejects.toThrow(/accept.*(closed|failed)/i)
+      expect(cancelled).toBe(true)
+    } finally { stop.abort() }
+  }, 500)
+})

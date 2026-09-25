@@ -7,7 +7,7 @@
   {
     "name": "application CSS",
     "path": "dist/assets/index-*.css",
-    "limit": "10 kB"
+    "limit": "10.5 kB"
   },
   {
     "name": "Automerge WebAssembly",

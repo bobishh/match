@@ -5,7 +5,7 @@ import type { WorkspaceGrant } from "../domain/model"
 import { BrowserMeshHandshake, BrowserMeshLifecycle, MeshHandshakeCodec, type MeshHandshakePayload } from "@meta-uber/mesh-runtime"
 import { defaultProofStore } from "../domain/proofs"
 import { startPersistentNode } from "./persistentNode"
-import { isMeshNetworkFailure as isNetworkFailure, meshNetworkConnection as networkConnection } from "@meta-uber/mesh-transport"
+import { meshNetworkConnection as networkConnection } from "@meta-uber/mesh-transport"
 import { meshRustRuntime, type RustMeshAuthenticatedSessions } from "@meta-uber/mesh-replication/runtime"
 import { createPeerAdvertisement,
   verifyWorkspaceMemberBundle, type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
@@ -172,8 +172,24 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     this.offlineHandler = offline
     if (typeof window !== "undefined") window.addEventListener("offline", offline)
     this.stopWatch = this.options.workspace.subscribe?.(() => { void this.publishAll() })
-    void this.acceptLoop(signal)
-    await this.dialLoop(signal)
+    await this.superviseNode(signal)
+  }
+
+  private async superviseNode(signal: AbortSignal): Promise<void> {
+    const run = new AbortController()
+    const cancel = () => run.abort()
+    signal.addEventListener("abort", cancel, { once: true })
+    if (signal.aborted) cancel()
+    try {
+      const ended = await Promise.race([
+        this.acceptLoop(run.signal).then(() => "accept"),
+        this.dialLoop(run.signal).then(() => "dial"),
+      ])
+      if (!signal.aborted) throw new MeshNodeRestart(`${ended} loop closed`)
+    } finally {
+      cancel()
+      signal.removeEventListener("abort", cancel)
+    }
   }
 
   protected async prepareOwnedWorkspaces(ids: string[], node: SyncNode, profile: LocalProfile): Promise<WorkspaceMeshCredential[]> {
@@ -214,7 +230,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       } catch (error) {
         if (!signal.aborted) {
           this.trace("accept.failed", { reason: error instanceof Error ? error.message : String(error) }, "warn")
-          if (!isNetworkFailure(error)) console.warn("Mesh accept failed", error)
+          throw new MeshNodeRestart(`accept failed: ${error instanceof Error ? error.message : String(error)}`)
         }
       }
     }
