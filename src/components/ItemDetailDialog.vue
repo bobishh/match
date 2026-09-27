@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MarkdownContent } from "../ui/markdownContent"
 import ModalLayer from "./ModalLayer.vue"
 import QuickNoteForm from "./QuickNoteForm.vue"
 import type { Item, FieldDefinition } from "../domain/model"
@@ -54,7 +55,7 @@ const emit = defineEmits<{
       <div class="detail-scroll detail-content">
         <div v-if="item.body" class="detail-section">
           <span class="detail-label">Notes</span>
-          <p class="detail-copy">{{ item.body }}</p>
+          <MarkdownContent class="detail-copy" :source="item.body" />
         </div>
 
         <QuickNoteForm

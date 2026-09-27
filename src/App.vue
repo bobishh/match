@@ -1,5 +1,6 @@
 <!-- Workspace role gates are enforced again at command and sync boundaries. -->
 <script setup lang="ts">
+import { MarkdownContent } from "./ui/markdownContent"
 import { useAppController } from "./app/useAppController"
 import { isArchiveColumn } from "./domain/archive"
 import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
@@ -240,10 +241,10 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
                 <strong>{{ leadForItem(item)?.role }}</strong>
                 <div class="card-meta"><span v-if="leadForItem(item)?.location">{{ leadForItem(item)?.location }}</span><span v-if="leadForItem(item)?.fitScore !== undefined" class="fit">{{ leadForItem(item)?.fitScore }}/10 fit</span></div>
               </template>
-              <template v-else><strong>{{ item.title }}</strong><p v-if="item.body && !hasFilters" class="item-card-body">{{ item.body }}</p></template>
+              <template v-else><strong>{{ item.title }}</strong><MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" :source="item.body" compact /></template>
               </div>
               <div v-if="hasFilters && (cardNotes(item) || cardFields(item).length)" class="card-context">
-                <p v-if="cardNotes(item)" class="card-notes">{{ cardNotes(item) }}</p>
+                <MarkdownContent v-if="cardNotes(item)" class="card-notes" :source="cardNotes(item) || ''" compact />
                 <dl v-if="cardFields(item).length" class="card-fields">
                   <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
                 </dl>
@@ -479,7 +480,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           <div><span class="detail-label">Work mode</span><strong>{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><p class="detail-copy">{{ selectedLead.notes }}</p></section>
+        <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><MarkdownContent class="detail-copy" :source="selectedLead.notes" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"

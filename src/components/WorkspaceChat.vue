@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MarkdownContent } from "../ui/markdownContent"
 import { ref, computed, watch, nextTick, onMounted } from "vue"
 import ModalLayer from "./ModalLayer.vue"
 
@@ -333,7 +334,7 @@ function formatDisplayTime(createdAt: string): string {
               {{ formatDisplayTime(msg.createdAt) }}
             </time>
           </div>
-          <div class="chat-message-body">{{ msg.body }}</div>
+          <MarkdownContent class="chat-message-body" :source="msg.body" />
         </article>
 
         <div v-if="typingLabel" class="chat-typing" role="status" aria-label="Typing presence">{{ typingLabel }}</div>

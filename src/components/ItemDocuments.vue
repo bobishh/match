@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MarkdownContent } from "../ui/markdownContent"
 import { onBeforeUnmount, ref } from "vue"
 import {
   attachmentMediaType,
@@ -100,7 +101,7 @@ async function openPreview(document: Document) {
       return
     }
     const mediaType = attachmentMediaType(document.file)
-    if (isText(mediaType)) {
+    if (isText(mediaType) || isMarkdown(document)) {
       previewText.value = new TextDecoder().decode(bytes)
     } else if (isEmbeddable(mediaType)) {
       previewUrl.value = URL.createObjectURL(blobFrom(bytes, mediaType))
@@ -152,6 +153,13 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function isMarkdown(document: Document): boolean {
+  return document.format === "markdown" || Boolean(document.file && (
+    attachmentMediaType(document.file) === "text/markdown" ||
+    /\.(md|markdown)$/i.test(attachmentName(document.file))
+  ))
 }
 
 function isText(mediaType: string): boolean {
@@ -258,6 +266,7 @@ onBeforeUnmount(closePreview)
           sandbox=""
           :srcdoc="previewText"
         ></iframe>
+        <MarkdownContent v-else-if="previewText && isMarkdown(preview)" class="document-preview-markdown" :source="previewText" />
         <pre v-else-if="previewText" class="document-preview-text">{{ previewText }}</pre>
         <img
           v-else-if="previewUrl && preview.file && attachmentMediaType(preview.file).startsWith('image/')"

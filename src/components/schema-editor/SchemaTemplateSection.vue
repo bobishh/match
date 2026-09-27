@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { MarkdownContent } from "../../ui/markdownContent"
 import { ref } from "vue";
 import type { Template } from "../../types";
 
@@ -84,6 +85,10 @@ function saveTemplate() {
             placeholder="# Your name"
           ></textarea>
         </label>
+        <section v-if="templateDraft.markdown" aria-label="Template preview">
+          <h3>Preview</h3>
+          <MarkdownContent :source="templateDraft.markdown" />
+        </section>
         <div class="dialog-actions">
           <button class="button button-primary" type="submit">
             Save template

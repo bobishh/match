@@ -10,6 +10,8 @@ second device and keep working across both.
 
 - Create a blank board or a job-search pipeline; edit cards, columns, and fields.
 - Attach documents, preview supported files, and download attachments.
+- Render Markdown in card bodies, notes, chat, documents, and template previews.
+  Task lists use `- [ ]` / `- [x]`; checkboxes are read-only previews.
 - Work locally, then synchronize with another online device.
 - Share selected boards with an editor or a read-only visitor.
 - Inspect item history and restore an earlier version without erasing history.

@@ -1,0 +1,31 @@
+import { describe, expect, it } from "vitest"
+import { renderMarkdown } from "./markdown"
+
+describe("shared Markdown rendering", () => {
+  it("renders structured content and preserves ordinary note line breaks", () => {
+    const html = renderMarkdown("# Plan\n\n**Important**\nNext line\n\n- [ ] First\n- [x] Done\n\n`code`")
+    expect(html).toContain("<h1>Plan</h1>")
+    expect(html).toContain("<strong>Important</strong><br>")
+    expect(html).toContain('type="checkbox"')
+    expect(html).toContain('checked="checked"')
+    expect(html).toContain('disabled="disabled"')
+    expect(html).not.toContain('id="task-item')
+    expect(html).toContain("<code>code</code>")
+  })
+
+  it("keeps untrusted HTML and executable links out of generated markup", () => {
+    const html = renderMarkdown('<img src=x onerror=alert(1)>\n<script>alert(1)</script>\n\n[run](javascript:alert(1))\n\n![run](data:text/html;base64,PHNjcmlwdD4=)')
+    expect(html).not.toMatch(/<(?:img|script)\b/)
+    expect(html).not.toContain('href="javascript:')
+    expect(html).not.toContain('src="data:')
+    expect(html).toContain("&lt;script&gt;")
+  })
+
+  it("renders card previews without nested interactive elements", () => {
+    const html = renderMarkdown('- [ ] **First**\n- [x] Done\n\n[site](https://example.com)\n\n![photo](https://example.com/image.png)', true)
+    expect(html).not.toMatch(/<(?:a|input|img)\b/)
+    expect(html).toContain("☐ ")
+    expect(html).toContain("☑ ")
+    expect(html).toContain("<strong>First</strong>")
+  })
+})
