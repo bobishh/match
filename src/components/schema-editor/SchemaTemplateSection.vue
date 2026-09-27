@@ -87,7 +87,7 @@ function saveTemplate() {
         </label>
         <section v-if="templateDraft.markdown" aria-label="Template preview">
           <h3>Preview</h3>
-          <MarkdownContent :source="templateDraft.markdown" />
+          <MarkdownContent :source="templateDraft.markdown" :editable-tasks="!readOnly" @task-toggle="templateDraft.markdown = $event" />
         </section>
         <div class="dialog-actions">
           <button class="button button-primary" type="submit">

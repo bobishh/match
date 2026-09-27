@@ -14,6 +14,7 @@ defineProps<{
   fields: FieldDefinition[]
   documents: Document[]
   saveDocument: (document: Omit<DocumentInput, "leadId">) => Promise<void>
+  updateDocument: (documentId: string, content: string) => Promise<void>
   history?: HistoryEntry[]
   archiveError?: string
   restoreSaving?: boolean
@@ -34,6 +35,7 @@ const emit = defineEmits<{
   (e: "update:quickNote", value: string): void
   (e: "saveNote"): void
   (e: "review", item: Item): void
+  (e: "updateMarkdown", item: Item, markdown: string): void
 }>()
 </script>
 
@@ -55,7 +57,7 @@ const emit = defineEmits<{
       <div class="detail-scroll detail-content">
         <div v-if="item.body" class="detail-section">
           <span class="detail-label">Notes</span>
-          <MarkdownContent class="detail-copy" :source="item.body" />
+          <MarkdownContent class="detail-copy" :source="item.body" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
         </div>
 
         <QuickNoteForm
@@ -71,6 +73,7 @@ const emit = defineEmits<{
           :documents="documents"
           :read-only="readOnly"
           :save="saveDocument"
+          :update="updateDocument"
         />
 
         <div v-if="fields.length" class="detail-grid">

@@ -17,6 +17,7 @@ const props = defineProps<{
   documents: Document[]
   readOnly?: boolean
   save: (document: DocumentDraft) => Promise<void>
+  update: (documentId: string, content: string) => Promise<void>
 }>()
 
 const formOpen = ref(false)
@@ -31,6 +32,8 @@ const preview = ref<Document | null>(null)
 const previewText = ref("")
 const previewUrl = ref("")
 const previewError = ref("")
+const previewSaving = ref(false)
+const previewStatus = ref("")
 
 async function attach() {
   const trimmedTitle = title.value.trim()
@@ -84,6 +87,7 @@ async function openPreview(document: Document) {
   closePreview()
   preview.value = document
   previewError.value = ""
+  previewStatus.value = ""
   if (document.content !== undefined) {
     previewText.value = document.content
     return
@@ -119,6 +123,27 @@ function closePreview() {
   previewText.value = ""
   previewUrl.value = ""
   previewError.value = ""
+  previewStatus.value = ""
+}
+
+async function updatePreviewMarkdown(markdown: string) {
+  if (!preview.value?.content || previewSaving.value) return
+  const previous = previewText.value
+  previewText.value = markdown
+  previewSaving.value = true
+  previewError.value = ""
+  previewStatus.value = "Saving checklist…"
+  try {
+    await props.update(preview.value.id, markdown)
+    preview.value = { ...preview.value, content: markdown }
+    previewStatus.value = "Checklist saved"
+  } catch (caught) {
+    previewText.value = previous
+    previewStatus.value = ""
+    previewError.value = `Checklist not saved: ${caught instanceof Error ? caught.message : String(caught)}`
+  } finally {
+    previewSaving.value = false
+  }
 }
 
 async function download(document: Document) {
@@ -259,14 +284,15 @@ onBeforeUnmount(closePreview)
           <button class="icon-button" type="button" aria-label="Close" @click="closePreview">×</button>
         </div>
         <p v-if="previewError" class="document-preview-message">{{ previewError }}</p>
+        <p v-if="previewStatus" class="document-preview-message" role="status">{{ previewStatus }}</p>
         <iframe
-          v-else-if="preview.content !== undefined && preview.format === 'html'"
+          v-if="preview.content !== undefined && preview.format === 'html'"
           class="document-preview-frame"
           title="HTML document preview"
           sandbox=""
           :srcdoc="previewText"
         ></iframe>
-        <MarkdownContent v-else-if="previewText && isMarkdown(preview)" class="document-preview-markdown" :source="previewText" />
+        <MarkdownContent v-else-if="previewText && isMarkdown(preview)" class="document-preview-markdown" :source="previewText" :editable-tasks="!readOnly && preview.content !== undefined && !previewSaving" @task-toggle="updatePreviewMarkdown" />
         <pre v-else-if="previewText" class="document-preview-text">{{ previewText }}</pre>
         <img
           v-else-if="previewUrl && preview.file && attachmentMediaType(preview.file).startsWith('image/')"

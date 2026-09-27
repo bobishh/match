@@ -62,6 +62,17 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
     await core.match.createDocumentAsync({ leadId: itemId, ...draft, title: draft.title.trim() })
     core.notice.value = "Document attached"
   }
+  const updateDocumentMarkdown = (documentId: string, markdown: string) => core.match.updateDocumentAsync(documentId, markdown)
+  const updateItemMarkdown = async (item: Item, markdown: string) => {
+    const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
+    const updatesLeadNotes = Boolean(notesFieldId && board.leadForItem(item))
+    try {
+      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, ...(updatesLeadNotes ? { values: { [notesFieldId!]: markdown } } : { body: markdown }) })
+      core.notice.value = "Checklist updated"
+    } catch (error) {
+      core.notice.value = `Checklist not saved: ${messageFrom(error)}`
+    }
+  }
   const handleSaveTemplate = async (payload: { id?: string; name: string; markdown: string }) => {
     if (payload.id) await core.match.updateTemplateAsync(payload.id, { name: payload.name, markdown: payload.markdown })
     else await core.match.createTemplateAsync({ name: payload.name, markdown: payload.markdown })
@@ -81,7 +92,7 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
     await core.match.executeCommandAsync({ kind: "reviewItem", entityId: item.id })
     core.notice.value = "Card reviewed"
   }
-  return { restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate, openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason, reviewItem }
+  return { restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason, reviewItem }
 }
 
 function appendQuickNote(existing: unknown, note: string) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { renderMarkdown } from "./markdown"
+import { renderMarkdown, toggleMarkdownTask } from "./markdown"
 
 describe("shared Markdown rendering", () => {
   it("renders structured content and preserves ordinary note line breaks", () => {
@@ -27,5 +27,14 @@ describe("shared Markdown rendering", () => {
     expect(html).toContain("☐ ")
     expect(html).toContain("☑ ")
     expect(html).toContain("<strong>First</strong>")
+  })
+
+  it("indexes editable tasks and updates only the selected source marker", () => {
+    const source = "- [ ] First\n  - [x] Nested\n1. [ ] Numbered"
+    const html = renderMarkdown(source, true, true)
+    expect(html).toContain('data-task-index="0"')
+    expect(html).toContain('data-task-index="2"')
+    expect(html).not.toContain('disabled="disabled"')
+    expect(toggleMarkdownTask(source, 1, false)).toBe("- [ ] First\n  - [ ] Nested\n1. [ ] Numbered")
   })
 })

@@ -16,12 +16,17 @@ type ArtifactInputWithId = ArtifactInput & { id?: string };
 export function createContentActions() {
   return {
     createDocumentAsync,
+    updateDocumentAsync,
     createTemplateAsync,
     updateTemplateAsync,
     createArtifactAsync,
     documentsFor,
     artifactsFor,
   };
+}
+
+async function updateDocumentAsync(documentId: string, content: string): Promise<void> {
+  await commitAndPersist({ kind: "patchDocument", documentId, content });
 }
 
 async function createDocumentAsync(

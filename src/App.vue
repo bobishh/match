@@ -78,9 +78,8 @@ const { meshPresence, meshPresenceLabel,
   claimWorkspaceSuccession, revokeWorkspacePeer, promoteWorkspacePeer,
 } = app.collaboration.mesh
 const {
-  selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates,
-  reloadPage, openBoardItem,
-  restoreSelectedItemVersion, saveQuickNote, submitDocument, handleSaveTemplate, reviewItem,
+  selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, reloadPage, openBoardItem,
+  restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, reviewItem,
   openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
   handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, openAddItem,
@@ -90,9 +89,7 @@ const {
   addBoardColumn,
 } = app.actions
 
-function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) {
-  return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open"))
-}
+function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const agingNow = useAgingClock()
@@ -234,23 +231,24 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
             <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
           </header>
           <div class="card-stack" :data-column-id="column.id">
-            <button v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)">
+            <article v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id">
+              <button class="card-open-button" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)"></button>
               <div class="card-main">
               <template v-if="leadForItem(item)">
                 <div class="card-head"><span class="company">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
                 <strong>{{ leadForItem(item)?.role }}</strong>
                 <div class="card-meta"><span v-if="leadForItem(item)?.location">{{ leadForItem(item)?.location }}</span><span v-if="leadForItem(item)?.fitScore !== undefined" class="fit">{{ leadForItem(item)?.fitScore }}/10 fit</span></div>
               </template>
-              <template v-else><strong>{{ item.title }}</strong><MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" :source="item.body" compact /></template>
+              <template v-else><strong>{{ item.title }}</strong><MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" /></template>
               </div>
               <div v-if="hasFilters && (cardNotes(item) || cardFields(item).length)" class="card-context">
-                <MarkdownContent v-if="cardNotes(item)" class="card-notes" :source="cardNotes(item) || ''" compact />
+                <MarkdownContent v-if="cardNotes(item)" class="card-notes" :source="cardNotes(item) || ''" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" />
                 <dl v-if="cardFields(item).length" class="card-fields">
                   <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
                 </dl>
               </div>
               <span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
-            </button>
+            </article>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
           <button v-if="!isEditingBoard && canEditItems" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
@@ -358,6 +356,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :fields="boardFields"
       :documents="documentsFor(selectedItem.id)"
       :save-document="document => saveItemDocument(selectedItem, document)"
+      :update-document="updateDocumentMarkdown"
       :history="selectedItemHistory"
       :archive-error="archiveError"
       :restore-saving="historyRestoreSaving"
@@ -375,6 +374,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       @update:quick-note="quickNoteDraft = $event"
       @save-note="saveQuickNote(selectedItem)"
       @review="reviewItem"
+      @update-markdown="updateItemMarkdown"
     />
 
     <ItemFormDialog
@@ -480,7 +480,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           <div><span class="detail-label">Work mode</span><strong>{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><MarkdownContent class="detail-copy" :source="selectedLead.notes" /></section>
+        <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><MarkdownContent class="detail-copy" :source="selectedLead.notes" :editable-tasks="canEditItems" @task-toggle="selectedLeadItem && updateItemMarkdown(selectedLeadItem, $event)" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"
@@ -511,6 +511,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           :documents="selectedDocuments"
           :read-only="!canEditItems"
           :save="document => saveItemDocument(selectedLeadItem, document)"
+          :update="updateDocumentMarkdown"
         />
       </div>
       </section>
