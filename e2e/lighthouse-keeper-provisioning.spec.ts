@@ -187,7 +187,9 @@ test("Given a running Lighthouse identity, when both controllers approve all own
 
     await sync.getByRole("button", { name: "Code matches · approve" }).click()
     await expect(sync.getByText("All selected boards activated and saved by Lighthouse.")).toBeVisible({ timeout: 90_000 })
-    expect(droppedResponse).toBe(true)
+    // Status polling may observe the durable commit before the intercepted
+    // provision response returns. Keep the native process alive until loss occurs.
+    await expect.poll(() => droppedResponse, { timeout: 15_000 }).toBe(true)
     expect(bodyForRetry).toBeTruthy()
 
     const configPath = join(baseDirectory, "config.json")
