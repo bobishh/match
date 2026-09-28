@@ -188,7 +188,7 @@ function authorities(credential: StoredWorkspaceAuthority | null) {
   ...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
 }
 
-export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocumentV2>, profile: LocalProfile, hashes: string[]) {
+export async function prepareLocalChangeAuthorizations(doc: Automerge.Doc<WorkspaceDocumentV2>, profile: LocalProfile, hashes: string[]) {
   const credential = typeof indexedDB === "undefined" ? undefined : (await storedWorkspaceAuthority(doc.id)).authority
   if (typeof indexedDB !== "undefined" && !credential) throw new Error("Workspace authority is unavailable. Import this board as a new board.")
   const ownerPersonId = credential?.ownerPersonId ?? doc.ownerPersonId
@@ -198,11 +198,15 @@ export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocument
     kind: "workspace-changes" as const, version: 1 as const, workspaceId: doc.id, hashes,
     personId: profile.identity.personId, deviceId: profile.device.deviceId,
   }, profile.device.deviceId)
-  await putRecords(doc.id, [{ signed, publicKey: profile.identity.publicKey, certificates,
+  return [{ signed, publicKey: profile.identity.publicKey, certificates,
     ...(profile.identity.personId !== ownerPersonId ? { grant: credential?.localGrant as WorkspaceGrant } : {}),
     ownerPublicKey: credential?.ownerPublicKey ?? profile.identity.publicKey,
     ownerCertificates: credential?.ownerCertificates as DeviceCertificate[] ?? certificates,
-  }])
+  }] satisfies Authorization[]
+}
+
+export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocumentV2>, profile: LocalProfile, hashes: string[]) {
+  return putRecords(doc.id, await prepareLocalChangeAuthorizations(doc, profile, hashes))
 }
 export async function exportAuthorizations(bytes: Uint8Array) {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
@@ -355,7 +359,7 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
 }
 
 /** Persists only proofs that a completed admission has already verified. */
-export async function persistIncomingChangeAuthorizations(workspaceId: string, verified: unknown[]): Promise<boolean> {
+async function persistIncomingChangeAuthorizations(workspaceId: string, verified: unknown[]): Promise<boolean> {
   return putRecords(workspaceId, verified as Authorization[])
 }
 

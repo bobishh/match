@@ -13,6 +13,7 @@ import {
   refreshAvailableWorkspaces,
   updateReactiveState,
 } from "./statePersistence";
+import { withWorkspaceMutation } from "./workspaceMutation";
 import { stateRuntime } from "./stateContext";
 import { writeLocal } from "./localDb";
 
@@ -134,7 +135,7 @@ async function deleteWorkspaceAsync(
   storage = defaultStorage,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2> | undefined> {
   const wasActive = stateRuntime.activeDoc?.id === workspaceId;
-  await storage.deleteWorkspace(workspaceId);
+  await withWorkspaceMutation(workspaceId, () => storage.deleteWorkspace(workspaceId));
   const root = await storage.loadPersonalRoot();
   if (root?.workspaces[workspaceId]) {
     delete root.workspaces[workspaceId];

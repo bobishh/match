@@ -7,11 +7,16 @@ import type {
   PersonalRootDocumentV1,
   Heads,
 } from "./domain/model"
+import { records, mergeAuthorizationRecords, type WorkspaceChangeAuthorization } from "./sync/workspaceChangeProofStore"
+import { canonicalizeJson } from "./domain/identity"
 import type { StoredProofsV1 } from "./domain/proofs"
 import { toBase64Url, fromBase64Url } from "./domain/identity"
 import { getStorageRaw, removeStorageRaw, setStorageRaw, storageKeys } from "./storageRaw"
 import {
   deleteWorkspaceJournal,
+  readWorkspaceSnapshot,
+  listWorkspaceSnapshots,
+  type StoredWorkspaceSnapshot,
   openWorkspaceJournal,
   readLocalJournal,
   recordsForWorkspace,
@@ -89,6 +94,15 @@ function parseStoredSnapshot(raw: string, workspaceId: string): StoredSnapshot |
   }
 }
 
+async function repairLegacyCatalog(records: Map<string, WorkspaceMeta>, snapshots: StoredWorkspaceSnapshot[]): Promise<void> {
+  const committedIds = new Set(snapshots.map(snapshot => snapshot.workspaceId))
+  for (const record of records.values()) {
+    if (committedIds.has(record.id)) continue
+    const key = `${workspaceMetaPrefix}${record.id}`
+    if (await getStorageRaw(key) === null) await setStorageRaw(key, JSON.stringify(record))
+  }
+}
+
 async function readIndexedJournalRecord<T>(
   workspaceId: string,
   storeName: "receipts" | "proofs",
@@ -134,10 +148,9 @@ export class WorkspaceStorage {
       } catch { /* Preserve unreadable data for manual recovery. */ }
       finally { if (doc) Automerge.free(doc) }
     }
-    for (const record of records.values()) {
-      const key = `${workspaceMetaPrefix}${record.id}`
-      if (await getStorageRaw(key) === null) await setStorageRaw(key, JSON.stringify(record))
-    }
+    const committedSnapshots = await listWorkspaceSnapshots()
+    for (const snapshot of committedSnapshots) accept({ id: snapshot.workspaceId, title: snapshot.title, updatedAt: snapshot.savedAt })
+    await repairLegacyCatalog(records, committedSnapshots)
     for (const id of records.keys()) if (await getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) records.delete(id)
     this.inMemory.workspaces = records
     return [...records.values()]
@@ -263,29 +276,97 @@ export class WorkspaceStorage {
     doc: Automerge.Doc<WorkspaceDocumentV2>,
     bytes: Uint8Array
   ): Promise<void> {
+    await this.commitWorkspace(workspaceId, doc, bytes, [])
+  }
+
+  /** Snapshot, authorization evidence and optional local transaction are one
+   * durable unit. Callers hold the shared workspace mutation lock while reading
+   * the latest document, validating it and committing the candidate. */
+  async commitWorkspace(
+    workspaceId: string,
+    doc: Automerge.Doc<WorkspaceDocumentV2>,
+    bytes: Uint8Array,
+    authorizations: WorkspaceChangeAuthorization[],
+    command?: { receipt: TransactionReceipt; changeBytes: Uint8Array; proof: ChangeProof },
+  ): Promise<{ proofChanged: boolean }> {
     checkStorageFailureHook()
-    const heads = Automerge.getHeads(doc).sort()
-    const snapshot = {
-      workspaceId,
-      heads,
-      bytes: new Uint8Array(bytes),
-      savedAt: new Date().toISOString(),
-    }
+    if (doc.id !== workspaceId) throw new Error("Workspace commit ID mismatch")
     if (await getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) throw new Error("Workspace was deleted in another tab")
-    await setStorageRaw(
-      `match.snapshot.${workspaceId}`,
-      JSON.stringify({ heads, bytesBase64: toBase64Url(bytes), savedAt: snapshot.savedAt })
-    )
-    await this.registerWorkspace(workspaceId, doc.title)
+    const snapshot: StoredWorkspaceSnapshot = {
+      id: workspaceId, workspaceId, title: doc.title,
+      heads: Automerge.getHeads(doc).sort(), bytes: new Uint8Array(bytes), savedAt: new Date().toISOString(),
+    }
+    // Legacy proof storage is read-only during migration. The transaction also
+    // rereads current proofs, so standalone proof updates cannot be overwritten.
+    const previousProofs = await records(workspaceId)
+    let proofChanged = false
+    const addCommand = (journal: ReturnType<typeof readLocalJournal>) => {
+      if (!command) return
+      const { receipt, changeBytes, proof } = command
+      const saved = journal.receipts[receipt.transactionId]
+      if (saved && saved.changeHash !== receipt.changeHash) throw new Error("Transaction ID conflicts with a committed change")
+      if (saved) return
+      journal.changes.push({ workspaceId, changeHash: receipt.changeHash, bytesBase64: toBase64Url(changeBytes), addedAt: snapshot.savedAt })
+      journal.proofs[receipt.changeHash] = proof
+      journal.receipts[receipt.transactionId] = receipt
+    }
+    if (typeof indexedDB === "undefined") {
+      await withLocalJournalLock(workspaceId, async () => {
+        const journal = readLocalJournal(workspaceId)
+        const existing = mergeAuthorizationRecords(previousProofs, (journal.authorizations ?? []) as WorkspaceChangeAuthorization[])
+        const next = mergeAuthorizationRecords(existing, authorizations)
+        proofChanged = canonicalizeJson(existing) !== canonicalizeJson(next)
+        journal.snapshot = snapshot
+        journal.authorizations = next
+        addCommand(journal)
+        writeLocalJournal(workspaceId, journal)
+      })
+    } else {
+      const database = await openWorkspaceJournal()
+      const transaction = database.transaction(["snapshots", "authorizations", "changes", "proofs", "receipts"], "readwrite")
+      const completion = transactionDone(transaction)
+      try {
+        const snapshotStore = transaction.objectStore("snapshots")
+        const existingSnapshot = await requestResult(snapshotStore.get(workspaceId)) as StoredWorkspaceSnapshot | undefined
+        const proofStore = transaction.objectStore("authorizations")
+        const stored = await requestResult(proofStore.get(workspaceId)) as { records: WorkspaceChangeAuthorization[] } | undefined
+        const existing = mergeAuthorizationRecords(previousProofs, stored?.records ?? [])
+        const next = mergeAuthorizationRecords(existing, authorizations)
+        proofChanged = canonicalizeJson(existing) !== canonicalizeJson(next)
+        if (!existingSnapshot || existingSnapshot.heads.join() !== snapshot.heads.join()) snapshotStore.put(snapshot)
+        if (!stored || proofChanged) proofStore.put({ id: workspaceId, workspaceId, records: next })
+        if (command) {
+          const { receipt, changeBytes, proof } = command
+          const receiptKey = `${workspaceId}:${receipt.transactionId}`
+          const existingReceipt = await requestResult(transaction.objectStore("receipts").get(receiptKey)) as StoredReceiptRecord | undefined
+          if (existingReceipt && existingReceipt.receipt.changeHash !== receipt.changeHash) throw new Error("Transaction ID conflicts with a committed change")
+          if (!existingReceipt) {
+            const changeKey = `${workspaceId}:${receipt.changeHash}`
+            transaction.objectStore("changes").put({ id: changeKey, workspaceId, changeHash: receipt.changeHash, bytes: new Uint8Array(changeBytes), addedAt: snapshot.savedAt })
+            transaction.objectStore("proofs").put({ id: changeKey, workspaceId, changeHash: receipt.changeHash, proof })
+            transaction.objectStore("receipts").put({ id: receiptKey, workspaceId, transactionId: receipt.transactionId, receipt })
+          }
+        }
+      } catch (error) {
+        transaction.abort()
+        await completion.catch(() => undefined)
+        throw error
+      }
+      await completion
+    }
+    // Memory projections advance only after the durable transaction completes.
     this.inMemory.snapshots.set(workspaceId, snapshot)
+    this.inMemory.workspaces.set(workspaceId, { id: workspaceId, title: snapshot.title, updatedAt: snapshot.savedAt })
+    return { proofChanged }
   }
 
   async loadWorkspaceDoc(
     workspaceId: string
   ): Promise<{ doc: Automerge.Doc<WorkspaceDocumentV2>; heads: Heads } | null> {
     if (await getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) return null
-    const rawSnapshot = await getStorageRaw(`match.snapshot.${workspaceId}`)
-    const parsedSnapshot = rawSnapshot ? parseStoredSnapshot(rawSnapshot, workspaceId) : null
+    const committedSnapshot = await readWorkspaceSnapshot(workspaceId)
+    const rawSnapshot = committedSnapshot ? null : await getStorageRaw(`match.snapshot.${workspaceId}`)
+    const parsedSnapshot = committedSnapshot ?? (rawSnapshot ? parseStoredSnapshot(rawSnapshot, workspaceId) : null)
     if (parsedSnapshot) this.inMemory.snapshots.set(workspaceId, parsedSnapshot)
     const snapshot = parsedSnapshot ?? this.inMemory.snapshots.get(workspaceId) ?? null
 

@@ -19,10 +19,21 @@ export type LocalJournal = {
   changes: Array<{ workspaceId: string; changeHash: string; bytesBase64: string; addedAt: string }>
   proofs: Record<string, ChangeProof>
   receipts: Record<string, TransactionReceipt>
+  snapshot?: StoredWorkspaceSnapshot
+  authorizations?: unknown[]
+}
+
+export type StoredWorkspaceSnapshot = {
+  id: string
+  workspaceId: string
+  title: string
+  heads: string[]
+  bytes: Uint8Array
+  savedAt: string
 }
 
 const journalDatabaseName = "match-workspace-journal-v1"
-const journalStores = ["changes", "proofs", "receipts"] as const
+const journalStores = ["changes", "proofs", "receipts", "snapshots", "authorizations"] as const
 type JournalStoreName = typeof journalStores[number]
 type JournalIndexedStoreName = JournalStoreName
 
@@ -45,10 +56,10 @@ export function transactionDone(transaction: IDBTransaction): Promise<void> {
   })
 }
 
-function openJournalDatabase(): Promise<IDBDatabase> {
-  if (typeof indexedDB === "undefined") return Promise.reject(new Error("IndexedDB is not available"))
-  return journalDatabasePromise ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open(journalDatabaseName, 1)
+function requestOpenJournal(version?: number): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = version === undefined ? indexedDB.open(journalDatabaseName) : indexedDB.open(journalDatabaseName, version)
+    let blocked = false
     request.onupgradeneeded = () => {
       const database = request.result
       for (const name of journalStores) {
@@ -57,18 +68,42 @@ function openJournalDatabase(): Promise<IDBDatabase> {
         store.createIndex("workspaceId", "workspaceId", { unique: false })
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      if (blocked) { request.result.close(); return }
+      request.result.onversionchange = () => { request.result.close(); journalDatabasePromise = undefined }
+      resolve(request.result)
+    }
     request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"))
-    request.onblocked = () => reject(new Error("IndexedDB upgrade blocked"))
+    request.onblocked = () => { blocked = true; reject(new Error("Close other Match tabs and reload to upgrade workspace storage")) }
+  })
+}
+
+async function ensureJournalStores(): Promise<IDBDatabase> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const database = await requestOpenJournal()
+    if (journalStores.every(name => database.objectStoreNames.contains(name))) return database
+    const version = database.version + 1
+    database.close()
+    try { return await requestOpenJournal(version) }
+    catch (error) { if (attempt === 2) throw error }
+  }
+  throw new Error("IndexedDB journal upgrade failed")
+}
+
+function openJournalDatabase(): Promise<IDBDatabase> {
+  if (typeof indexedDB === "undefined") return Promise.reject(new Error("IndexedDB is not available"))
+  return journalDatabasePromise ??= ensureJournalStores().catch(error => {
+    journalDatabasePromise = undefined
+    throw error
   })
 }
 
 export function readLocalJournal(workspaceId: string): LocalJournal {
-  return memoryJournals.get(workspaceId) ?? { changes: [], proofs: {}, receipts: {} }
+  return structuredClone(memoryJournals.get(workspaceId) ?? { changes: [], proofs: {}, receipts: {} })
 }
 
 export function writeLocalJournal(workspaceId: string, journal: LocalJournal): void {
-  memoryJournals.set(workspaceId, journal)
+  memoryJournals.set(workspaceId, structuredClone(journal))
 }
 
 export function withLocalJournalLock<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
@@ -109,10 +144,30 @@ export async function deleteWorkspaceJournal(workspaceId: string): Promise<void>
   const database = await openJournalDatabase()
   const transaction = database.transaction([...journalStores], "readwrite")
   const completion = transactionDone(transaction)
-  for (const name of ["changes", "proofs", "receipts"] as const) {
+  for (const name of ["changes", "proofs", "receipts", "snapshots", "authorizations"] as const) {
     const store = transaction.objectStore(name)
     const keys = await requestResult(store.index("workspaceId").getAllKeys(workspaceId))
     for (const key of keys) store.delete(key)
   }
   await completion
+}
+
+export async function readWorkspaceSnapshot(workspaceId: string): Promise<StoredWorkspaceSnapshot | undefined> {
+  if (typeof indexedDB === "undefined") return readLocalJournal(workspaceId).snapshot
+  const database = await openWorkspaceJournal()
+  const transaction = database.transaction("snapshots", "readonly")
+  const completion = transactionDone(transaction)
+  const snapshot = await requestResult(transaction.objectStore("snapshots").get(workspaceId)) as StoredWorkspaceSnapshot | undefined
+  await completion
+  return snapshot
+}
+
+export async function listWorkspaceSnapshots(): Promise<StoredWorkspaceSnapshot[]> {
+  if (typeof indexedDB === "undefined") return [...memoryJournals.values()].flatMap(journal => journal.snapshot ? [structuredClone(journal.snapshot)] : [])
+  const database = await openWorkspaceJournal()
+  const transaction = database.transaction("snapshots", "readonly")
+  const completion = transactionDone(transaction)
+  const snapshots = await requestResult(transaction.objectStore("snapshots").getAll()) as StoredWorkspaceSnapshot[]
+  await completion
+  return snapshots
 }

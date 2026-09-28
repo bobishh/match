@@ -18,7 +18,7 @@ import { createWorkspaceDoc } from "./domain/seeds";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command } from "./domain/commands";
 import {
-  authorizeLocalChanges,
+  prepareLocalChangeAuthorizations,
   recordGenesisAuthority,
   workspaceRole,
   workspaceWritesBlocked,
@@ -30,6 +30,7 @@ import {
   type WorkspaceStorage,
 } from "./storage";
 import { projectWorkspace } from "./stateProjection";
+import { withWorkspaceMutation } from "./workspaceMutation";
 import { stateRuntime } from "./stateContext";
 import { readLocal, writeLocal } from "./localDb";
 
@@ -52,7 +53,6 @@ export function resetStateForTest(): void {
   stateRuntime.saveState.value = "idle";
   stateRuntime.pendingWrites = 0;
   stateRuntime.batchSaveFailed = false;
-  stateRuntime.workspaceCommandQueues.clear();
   stateRuntime.reconcilePromise = undefined;
   stateRuntime.reconcileRequested = false;
   stateRuntime.reconcileWorkspaceChanged = false;
@@ -121,9 +121,7 @@ export async function commitAndPersist(
   if (!workspaceId || !profile) throw new Error("Workspace not hydrated");
   startPendingWrite();
   try {
-    await queueWorkspaceCommand(workspaceId, () =>
-      persistCommand(workspaceId, command, profile, storage),
-    );
+    await persistCommand(workspaceId, command, profile, storage);
   } catch (error) {
     stateRuntime.batchSaveFailed = true;
     throw error;
@@ -137,6 +135,17 @@ export async function persistAuthorizedCommand(
   command: Command,
   profile: LocalProfile,
   storage: WorkspaceStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  return withWorkspaceMutation(doc.id, async () => {
+    const stored = (await storage.loadWorkspaceDoc(doc.id))?.doc;
+    const base = stored ? Automerge.merge(Automerge.clone(stored), Automerge.clone(doc)) : doc;
+    return commitAuthorizedCommand(base, command, profile, storage);
+  });
+}
+
+async function commitAuthorizedCommand(
+  doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command,
+  profile: LocalProfile, storage: WorkspaceStorage,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
   if (typeof indexedDB !== "undefined" && await peerStore.getPendingOwnershipTransfer(doc.id))
     throw new Error("Ownership transfer is awaiting confirmation. Reconnect and retry the same recipient.");
@@ -152,20 +161,12 @@ export async function persistAuthorizedCommand(
   const changeBytes = Automerge.getLastLocalChange(result.value.newDoc);
   if (!changeBytes) throw new Error("No change produced");
   assertWorkspaceTransition(role, doc, result.value.newDoc);
-  await authorizeLocalChanges(result.value.newDoc, profile, [
+  const authorizations = await prepareLocalChangeAuthorizations(result.value.newDoc, profile, [
     result.value.receipt.changeHash,
   ]);
-  await storage.commitTransaction(
-    doc.id,
-    result.value.receipt,
-    changeBytes,
-    result.value.proof,
-  );
-  await storage.saveSnapshot(
-    doc.id,
-    result.value.newDoc,
-    Automerge.save(result.value.newDoc),
-  );
+  await storage.commitWorkspace(doc.id, result.value.newDoc, Automerge.save(result.value.newDoc), authorizations, {
+    receipt: result.value.receipt, changeBytes, proof: result.value.proof,
+  });
   return result.value.newDoc;
 }
 
@@ -366,56 +367,22 @@ function finishPendingWrite(): void {
       : "saved";
 }
 
-async function queueWorkspaceCommand(
-  workspaceId: string,
-  operation: () => Promise<void>,
-): Promise<void> {
-  const previous =
-    stateRuntime.workspaceCommandQueues.get(workspaceId) ?? Promise.resolve();
-  const current = previous
-    .catch(() => undefined)
-    .then(() => withWorkspaceLock(workspaceId, operation));
-  stateRuntime.workspaceCommandQueues.set(workspaceId, current);
-  void current
-    .finally(() => {
-      if (stateRuntime.workspaceCommandQueues.get(workspaceId) === current)
-        stateRuntime.workspaceCommandQueues.delete(workspaceId);
-    })
-    .catch(() => undefined);
-  await current;
-}
-
-function withWorkspaceLock(
-  workspaceId: string,
-  operation: () => Promise<void>,
-): Promise<void> {
-  return typeof navigator !== "undefined" && navigator.locks
-    ? navigator.locks.request(
-        `match-workspace-command:${workspaceId}`,
-        operation,
-      )
-    : operation();
-}
-
 async function persistCommand(
   workspaceId: string,
   command: Command,
   profile: LocalProfile,
   storage: WorkspaceStorage,
 ): Promise<void> {
-  const base = await latestWorkspaceDocument(workspaceId, storage);
-  let next = await persistAuthorizedCommand(base, command, profile, storage);
-  next = await mergeLatestWorkspaceVersions(workspaceId, next, storage);
-  await storage.saveSnapshot(workspaceId, next, Automerge.save(next));
-  if (stateRuntime.activeDoc?.id === workspaceId) {
-    updateReactiveState(next);
-    await saveWorkspace(stateRuntime.workspace).catch(() => undefined);
-  }
-  stateRuntime.storageChannel?.postMessage({
-    type: "workspace-persisted",
-    workspaceId,
+  await withWorkspaceMutation(workspaceId, async () => {
+    const base = await latestWorkspaceDocument(workspaceId, storage);
+    const next = await commitAuthorizedCommand(base, command, profile, storage);
+    if (stateRuntime.activeDoc?.id === workspaceId) {
+      updateReactiveState(next);
+      await saveWorkspace(stateRuntime.workspace).catch(() => undefined);
+    }
+    stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });
+    notifyLocalChanges(workspaceId);
   });
-  notifyLocalChanges(workspaceId);
 }
 
 async function latestWorkspaceDocument(
@@ -429,24 +396,6 @@ async function latestWorkspaceDocument(
   return local && stored
     ? Automerge.merge(Automerge.clone(local), Automerge.clone(stored))
     : (local ?? (stored as Automerge.Doc<WorkspaceDocumentV2>));
-}
-
-async function mergeLatestWorkspaceVersions(
-  workspaceId: string,
-  next: Automerge.Doc<WorkspaceDocumentV2>,
-  storage: WorkspaceStorage,
-) {
-  const stored = (await storage.loadWorkspaceDoc(workspaceId))?.doc;
-  const local =
-    stateRuntime.activeDoc?.id === workspaceId
-      ? stateRuntime.activeDoc
-      : undefined;
-  const withStored = stored
-    ? Automerge.merge(Automerge.clone(next), Automerge.clone(stored))
-    : next;
-  return local
-    ? Automerge.merge(Automerge.clone(withStored), Automerge.clone(local))
-    : withStored;
 }
 
 function ensureContentWrite(role: WorkspaceRole): void {

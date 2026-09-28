@@ -22,7 +22,6 @@ export type StateRuntime = {
   currentProfile: LocalProfile | null;
   pendingWrites: number;
   batchSaveFailed: boolean;
-  workspaceCommandQueues: Map<string, Promise<void>>;
   localChangeListeners: Set<(workspaceId?: string) => void>;
   storageChannel: BroadcastChannel | undefined;
   reconcilePromise: Promise<void> | undefined;
@@ -52,7 +51,6 @@ export const stateRuntime: StateRuntime = {
   currentProfile: null,
   pendingWrites: 0,
   batchSaveFailed: false,
-  workspaceCommandQueues: new Map(),
   localChangeListeners: new Set(),
   storageChannel:
     typeof BroadcastChannel === "undefined"
