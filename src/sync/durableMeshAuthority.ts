@@ -62,6 +62,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const actions = await this.traceSlowPhase("catalog.plan", workspaceId, {},
       () => meshRustRuntime().state.planCatalogMerge())
     for (const action of actions) {
+      // Publish derived UI authority only after the imported ledger is durable.
+      if (action === "notify") continue
       const effect = effects[action]
       if (!effect) throw new Error(`Unexpected mesh catalog action: ${action}`)
       await this.traceSlowPhase(`effect.${action}`, workspaceId,
@@ -70,6 +72,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     if (!scopeImport.ownershipPlan?.steps.length)
       await this.traceSlowPhase("authority-snapshot.persist", workspaceId, {},
         () => persistScopeAuthoritySnapshot(this.store, workspaceId, scopeImport.snapshot))
+    if (actions.includes("notify"))
+      await this.traceSlowPhase("effect.notify", workspaceId, {}, effects.notify!)
   }
   protected async mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]) {
     for (const [index, bundle] of bundles.entries()) {
@@ -87,39 +91,41 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     batch?: { index: number; total: number }) {
     const peer = { personId: raw.advertisement.payload.personId.slice(0, 8), deviceId: raw.advertisement.payload.deviceId.slice(0, 8),
       ...(batch ? { bundleIndex: batch.index, bundleCount: batch.total } : {}) }
-    const phase = (name: string, operation: () => unknown | Promise<unknown>) =>
+    const phase = <T>(name: string, operation: () => T | Promise<T>) =>
       this.traceSlowPhase(name, credential.workspaceId, peer, operation)
-    credential = ((await phase("peer.credential.read", () => this.store.getWorkspaceCredential(credential.workspaceId))) as WorkspaceMeshCredential | undefined) ?? credential
-    const previous = await phase("peer.previous.read", () => this.store.getPeer(credential.workspaceId, raw.advertisement.payload.deviceId)) as WorkspacePeerRecord | undefined
+    credential = await phase("peer.credential.read", () => this.store.getWorkspaceCredential(credential.workspaceId)) ?? credential
+    const previous = await phase("peer.previous.read", () => this.store.getPeer(credential.workspaceId, raw.advertisement.payload.deviceId))
     raw = await phase("peer.grant.plan", () => meshRustRuntime().state.planMemberGrant({ kind: "prefer",
-      previous: previous?.advertisement ?? null, incoming: raw }).bundle as WorkspaceMemberBundle) as WorkspaceMemberBundle
+      previous: previous?.advertisement ?? null, incoming: raw }).bundle as WorkspaceMemberBundle)
     const verified = await phase("peer.bundle.verify", () => verifyWorkspaceMemberBundle(raw, {
       workspaceId: credential.workspaceId,
       ownerPersonId: credential.ownerPersonId,
       ownerPublicKey: credential.ownerPublicKey,
       ownerCertificates: credential.ownerCertificates as DeviceCertificate[],
       ownerHistory: ownerAuthorities(credential).slice(1),
-    })) as VerifiedWorkspaceMember
-    const ownerCertificates = [...new Map([
+    }))
+    const ownerCertificates = await phase("peer.certificates.merge", () => [...new Map([
       ...credential.ownerCertificates as DeviceCertificate[],
       ...(verified.ownerCertificates ?? []),
-    ].map(certificate => [certificate.signature, certificate])).values()]
+    ].map(certificate => [certificate.signature, certificate])).values()])
     if (ownerCertificates.length > credential.ownerCertificates.length) {
       await phase("peer.certificates.persist", () => this.store.putWorkspaceCredential({ ...credential, ownerCertificates, updatedAt: new Date().toISOString() }))
     }
     const p = verified.advertisement.payload
-    if (isDeviceRevoked(credential, p.personId, p.deviceId)) throw new Error("Device access revoked")
-    const route = await phase("peer.route.adapt", () => adaptVerifiedWorkspaceAdvertisement(verified.advertisement)) as Awaited<ReturnType<typeof adaptVerifiedWorkspaceAdvertisement>>
-    if (isGrantRevoked(credential, p.personId, raw.grant as WorkspaceGrant | undefined)) throw new Error("Workspace member is revoked")
-    const profile = await phase("peer.profile.read", () => this.options.getProfile()) as LocalProfile
-    const local = meshRustRuntime().state.planMemberGrant({ kind: "persistLocal", credential,
+    const deviceRevoked = await phase("peer.device-revocation.check", () => isDeviceRevoked(credential, p.personId, p.deviceId))
+    if (deviceRevoked) throw new Error("Device access revoked")
+    const route = await phase("peer.route.adapt", () => adaptVerifiedWorkspaceAdvertisement(verified.advertisement))
+    const grantRevoked = await phase("peer.grant-revocation.check", () => isGrantRevoked(credential, p.personId, raw.grant as WorkspaceGrant | undefined))
+    if (grantRevoked) throw new Error("Workspace member is revoked")
+    const profile = await phase("peer.profile.read", () => this.options.getProfile())
+    const local = await phase("peer.local-grant.plan", () => meshRustRuntime().state.planMemberGrant({ kind: "persistLocal", credential,
       localPersonId: profile.identity.personId, grant: raw.grant ?? null,
-      ownerCertificates, updatedAt: new Date().toISOString() })
+      ownerCertificates, updatedAt: new Date().toISOString() }))
     if (local.grantId && local.grant && local.credential) {
       await phase("peer.local-grant.persist", () => defaultProofStore.putGrant(local.grantId!, local.grant as WorkspaceGrant))
       await phase("peer.local-credential.persist", () => this.store.putWorkspaceCredential(local.credential as WorkspaceMeshCredential))
     }
-    const record: WorkspacePeerRecord = {
+    const record = await phase("peer.record.build", () => ({
       workspaceId: route.scopeId,
       personId: route.personId,
       deviceId: route.deviceId,
@@ -132,7 +138,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       // clear the old per-device tombstone so every device can reconnect.
       revokedAt: null,
       advertisement: raw,
-    }
+    }))
     await phase("peer.upsert", () => this.store.upsertPeer(record))
   }
   protected async mergeOwnershipTransfers(

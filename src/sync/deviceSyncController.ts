@@ -16,6 +16,7 @@ import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
 import { recoverLiveSession } from "./deviceSyncLiveRecovery"
 import { meshTrace } from "./meshTrace"
 import { createDeviceSyncJoinApproval } from "./deviceSyncJoinApproval"
+import { AuthorityFingerprintTracker } from "./authorityFingerprint"
 
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
@@ -58,6 +59,7 @@ export class DeviceSyncController {
   private approveResolve: ((approved: boolean) => void) | undefined
   private durableMesh?: DurableMesh
   private durableMeshPromise?: Promise<DurableMesh | undefined>
+  private readonly authorityFingerprint = new AuthorityFingerprintTracker()
 
   constructor(options: DeviceSyncOptions) {
     this.workspace = options.workspace
@@ -95,7 +97,7 @@ export class DeviceSyncController {
     return {
       transport: this.transport, workspaceStore: store, workspace: this.workspace,
       getProfile: () => this.getProfile(),
-      onChange: (ids, peers, revoked, succession) => this.updateMeshState(ids, peers, revoked, succession),
+      onChange: (ids, peers, revoked, succession, fingerprint) => this.updateMeshState(ids, peers, revoked, succession, fingerprint),
       onDiagnostic: message => { this.state.meshDiagnostic.value = message },
       onRetryChange: retryAtByWorkspace => { this.state.meshRetryAt.value = retryAtByWorkspace },
       networkOnline: () => this.state.networkOnline.value,
@@ -103,12 +105,12 @@ export class DeviceSyncController {
     }
   }
 
-  private updateMeshState(ids: string[], peers: MeshPeerView[], revoked: string[], succession: MeshSuccessionView[]) {
+  private updateMeshState(ids: string[], peers: MeshPeerView[], revoked: string[], succession: MeshSuccessionView[], fingerprint: string) {
     this.state.meshLiveWorkspaceIds.value = [...new Set(ids)].filter(id => !this.leavingWorkspaceIds.has(id))
     this.state.meshPeers.value = peers.filter(peer => !this.leavingWorkspaceIds.has(peer.workspaceId))
     this.state.revokedWorkspaceIds.value = revoked.filter(id => !this.leavingWorkspaceIds.has(id))
     this.state.meshSuccession.value = succession.filter(item => !this.leavingWorkspaceIds.has(item.workspaceId))
-    this.state.ownershipRevision.value += 1
+    if (this.authorityFingerprint.update(fingerprint)) this.state.ownershipRevision.value += 1
     if (ids.length > 0 && this.state.step.value === "workspace-reconnecting") this.state.step.value = "members"
   }
 

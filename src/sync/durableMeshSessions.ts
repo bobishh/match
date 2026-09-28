@@ -9,6 +9,7 @@ import { defaultProofStore } from "../domain/proofs"
 import { requestBlob, respondToBlobRequest, type BlobDescriptor } from "@meta-uber/mesh-blob"
 import { verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
+import { workspaceAuthorityFingerprint } from "./authorityFingerprint"
 import type { SyncConnection} from "./transport"
 import { liveAutomergeWorkspaceSync, type LiveWorkspaceSync} from "./workspaceSet"
 import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revocations, isGrantRevoked,
@@ -18,6 +19,7 @@ import { DurableMeshHandshake } from "./durableMeshHandshake"
 export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly workspacePublishTasks = new Map<string, Promise<void>>()
   private readonly dirtyWorkspacePublishes = new Set<string>()
+  private authorityReadFailure = 0
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
     peers: async () => (await this.peerInstances()).filter(peer => !isNativeLighthouseRoute(peer)),
     hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
@@ -440,18 +442,18 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     })
   }
 
-  async revokedWorkspaceIds(): Promise<string[]> {
-    const profile = await this.options.getProfile()
+  async revokedWorkspaceIds(credentials?: WorkspaceMeshCredential[], profile?: LocalProfile): Promise<string[]> {
+    profile ??= await this.options.getProfile()
     const result: string[] = []
-    for (const credential of await this.store.listWorkspaceCredentials()) {
+    for (const credential of credentials ?? await this.store.listWorkspaceCredentials()) {
       if (hasLeftWorkspace(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined) || isDeviceRevoked(credential, profile.identity.personId, profile.device.deviceId) || isGrantRevoked(credential, profile.identity.personId, credential.localGrant as WorkspaceGrant | undefined)) result.push(credential.workspaceId)
     }
     return result
   }
 
-  async successionViews(): Promise<MeshSuccessionView[]> {
+  async successionViews(credentials?: WorkspaceMeshCredential[]): Promise<MeshSuccessionView[]> {
     const result: MeshSuccessionView[] = []
-    for (const credential of await this.store.listWorkspaceCredentials()) {
+    for (const credential of credentials ?? await this.store.listWorkspaceCredentials()) {
       const summary = meshRustRuntime().state.summarizeSuccession(
         successionPolicy(credential), successionClaims(credential), successionVotes(credential), ownershipTransfers(credential),
         revocations(credential), credential.epoch,
@@ -472,10 +474,18 @@ export class DurableMeshSessions extends DurableMeshHandshake {
 
   protected async notify() {
     const workspaces = [...new Set([...this.sessions.values()].map(entry => entry.workspaceId))]
-    const peers = await this.views()
-    const revoked = await this.revokedWorkspaceIds()
-    const succession = await this.successionViews()
-    this.options.onChange?.(workspaces, peers, revoked, succession)
+    const [peers, credentials, authorityResult, profile] = await Promise.all([
+      this.views(), this.store.listWorkspaceCredentials(),
+      this.store.listWorkspaceAuthorities().then(authorities => ({ authorities }), () => ({ authorities: null })),
+      this.options.getProfile(),
+    ])
+    const [revoked, succession] = await Promise.all([
+      this.revokedWorkspaceIds(credentials, profile), this.successionViews(credentials),
+    ])
+    const fingerprint = authorityResult.authorities
+      ? workspaceAuthorityFingerprint(credentials, authorityResult.authorities)
+      : `authority-read-failed:${++this.authorityReadFailure}`
+    this.options.onChange?.(workspaces, peers, revoked, succession, fingerprint)
   }
 }
 

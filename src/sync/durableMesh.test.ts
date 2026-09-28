@@ -143,7 +143,7 @@ describe("DurableMesh peer catalog gossip", () => {
     }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } } as never),
-      store: { removeWorkspaceMeshData, listWorkspaceCredentials: async () => [credential], listPeers: async () => [] } as never })
+      store: { removeWorkspaceMeshData, listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never })
 
     await expect((mesh as any).activeCredentialsForProfile([credential],
       { identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } })).resolves.toEqual([])
@@ -158,7 +158,7 @@ describe("DurableMesh peer catalog gossip", () => {
     }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } } as never),
-      store: { listWorkspaceCredentials: async () => [credential], listPeers: async () => [{ workspaceId: "stale-workspace", deviceId: "old-device" }] } as never })
+      store: { listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [], listPeers: async () => [{ workspaceId: "stale-workspace", deviceId: "old-device" }] } as never })
     const internal = mesh as any
 
     await internal.activeCredentialsForProfile([credential], { identity: { personId: "current-person", publicKey: "current-key" }, device: { deviceId: "current-device" } })
@@ -195,7 +195,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       store: { getWorkspaceCredential: async () => credential, getPeer: async () => ({ personId: "owner" }),
-        listWorkspaceCredentials: async () => [] } as never })
+        listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     internal.ensureOwnerCredential = vi.fn(async () => credential)
     internal.start = vi.fn(async () => {})
@@ -220,7 +220,7 @@ describe("DurableMesh peer catalog gossip", () => {
       ownerPublicKey: "owner-key", ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
-      store: { listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+      store: { listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never })
     const internal = mesh as any
     internal.activeWorkspaceIds = new Set(["existing-workspace"])
     internal.ensureOwnerCredential = vi.fn(async () => credential)
@@ -243,7 +243,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       getOwnedWorkspaceIds: async () => ["new-workspace"],
-      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [] } as never })
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     internal.ensureOwnerCredential = vi.fn(async () => credential)
     internal.start = vi.fn(async () => {})
@@ -272,7 +272,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       getOwnedWorkspaceIds: async () => ["new-workspace"],
-      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [] } as never })
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     internal.encodeOwnerWorkspaceOffer = vi.fn(async () => offer)
     const connection = { openStream: vi.fn(async () => stream) }
@@ -294,7 +294,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
       store: { getWorkspaceCredential: async () => credential, getPeer: async () => ({ personId: "owner" }),
-        listWorkspaceCredentials: async () => [] } as never })
+        listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     internal.ensureOwnerCredential = vi.fn(async () => credential)
     internal.start = vi.fn(async () => {})
@@ -316,7 +316,7 @@ describe("DurableMesh peer catalog gossip", () => {
   it("does not report a cancelled losing route as an invalid peer or penalize its health", async () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
-      getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never, onDiagnostic })
+      getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never, onDiagnostic })
     const controller = new AbortController(); controller.abort()
     ;(mesh as any).node = {}
     await expect((mesh as any).connectPeer({ workspaceId: "workspace", deviceId: "remote" }, {}, new AbortController().signal, controller.signal)).rejects.toThrow(/cancelled/)
@@ -330,7 +330,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({} as never),
-      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never, onDiagnostic })
     const internal = mesh as any
     const peer = {
       workspaceId: "workspace", personId: "remote-person", deviceId: "remote-device", instanceId: "legacy:remote",
@@ -368,7 +368,7 @@ describe("DurableMesh peer catalog gossip", () => {
       listeners.push(listener)
       return unsubscribe
     } } as never, workspaceStore: {} as never,
-    getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+    getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never })
     const internal = mesh as any
     internal.acceptConnection = vi.fn(async () => {
       internal.sessions.set("invited", { connection, session: { done } })
@@ -390,7 +390,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({} as never),
-      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never, onDiagnostic })
     const internal = mesh as any
     const peer = {
       workspaceId: "workspace", personId: "remote-person", deviceId: "remote-device", instanceId: "legacy:remote",
@@ -418,7 +418,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const browser = peer("browser-device", "Mozilla/5.0 Chrome/140")
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({} as never),
-      store: { listPeerInstances: async () => [lighthouse, browser], listWorkspaceCredentials: async () => [] } as never })
+      store: { listPeerInstances: async () => [lighthouse, browser], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const schedulerPeers = await (mesh as any).dialScheduler.host.peers()
 
     expect(isNativeLighthouseRoute(lighthouse as never)).toBe(true)
@@ -431,7 +431,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({} as never),
-      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never, onDiagnostic })
     const internal = mesh as any
     const evict = vi.fn(async () => {})
     internal.sessions.set("workspace:remote:slot", { workspaceId: "workspace", deviceId: "remote-device", evict,
@@ -447,7 +447,7 @@ describe("DurableMesh peer catalog gossip", () => {
   it("Given one workspace publishes slowly, when that scope changes repeatedly, then unrelated scopes stay idle and requests coalesce", async () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({} as never),
-      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never })
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     let release!: () => void
     const firstPublish = new Promise<void>(resolve => { release = resolve })
@@ -476,7 +476,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
       workspaceStore: { read: () => new Promise<Uint8Array>(() => {}) } as never,
       getProfile: async () => ({ device: { deviceId: "local" } } as never),
-      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never })
     const connection = () => ({ acceptStream: vi.fn(() => new Promise<never>(() => {})), openStream: vi.fn(), close: vi.fn(async () => {}) })
     const first = connection(), second = connection()
     await Promise.all([first, second].map(value => (mesh as any).installSession("workspace", "remote", "slot-0", "2026-09-17", 1, "incoming", value)))
@@ -489,7 +489,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const credential = { workspaceId: "workspace", transportSecret: "secret" }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ device: { deviceId: "local" } } as never),
-      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never })
     const internal = mesh as any
     const publish = vi.fn(async () => {})
     internal.lifecycle = { stopped: false }
@@ -511,7 +511,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
       workspaceStore: { read: () => new Promise<Uint8Array>(() => {}) } as never,
       getProfile: async () => ({ device: { deviceId: "local" } } as never),
-      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never })
     const connection = () => ({ acceptStream: vi.fn(() => new Promise<never>(() => {})), openStream: vi.fn(), close: vi.fn(async () => {}) })
     const first = connection(), sibling = connection()
     const internal = mesh as any
@@ -548,7 +548,7 @@ describe("DurableMesh peer catalog gossip", () => {
       getProfile: async () => ({ identity: { personId: "local-person" }, device: { deviceId: "local-device" } } as never),
       store: {
         getWorkspaceCredential: async () => credential,
-        listWorkspaceCredentials: async () => [credential],
+        listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [],
         listPeers: async () => [peer],
       } as never,
       onChange: (...args) => changes.push(args),
@@ -600,7 +600,7 @@ describe("DurableMesh peer catalog gossip", () => {
       getProfile: async () => ({ device: { deviceId: "local-device" } } as never),
       store: {
         getWorkspaceCredential: async () => ({ workspaceId: "workspace", transportSecret: "secret" }),
-        listWorkspaceCredentials: async () => [],
+        listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [],
         listPeers: async () => [],
       } as never,
     })
@@ -625,7 +625,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ device: { deviceId: "local" } } as never),
       store: { getWorkspaceCredential: async () => ({ workspaceId: "workspace", transportSecret: "secret" }),
-        listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never })
+        listPeers: async () => [], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     const publish = vi.fn(async () => {})
     internal.lifecycle = { stopped: false }
@@ -738,7 +738,7 @@ describe("DurableMesh peer catalog gossip", () => {
     const mesh = new DurableMesh({
       transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
       getProfile: async () => ({} as never),
-      store: { listWorkspaceCredentials: async () => [credential] } as never,
+      store: { listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [] } as never,
     })
 
     await expect(mesh.successionViews()).resolves.toMatchObject([{ workspaceId: "workspace-conflict", conflicted: true }])
@@ -765,7 +765,7 @@ describe("DurableMesh peer catalog gossip", () => {
       transferWorkspaceCredential: async (_previous: string, next: typeof credential) => { credential = structuredClone(next) },
       getPendingOwnershipTransfer: async () => null,
       listPeers: async () => [],
-      listWorkspaceCredentials: async () => [credential],
+      listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [],
     }
     const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
       getProfile: async () => owner, store: store as never })
@@ -800,7 +800,7 @@ describe("DurableMesh peer catalog gossip", () => {
         putWorkspaceCredential: async (next: any) => { credential = structuredClone(next) },
         transferWorkspaceCredential: async (_previous: string, next: any) => { credential = structuredClone(next) },
         getPendingOwnershipTransfer: async () => null,
-        listPeers: async () => [], listWorkspaceCredentials: async () => [credential],
+        listPeers: async () => [], listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [],
       }
       const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
         getProfile: async () => profile, store: store as never })
@@ -1048,7 +1048,8 @@ describe("DurableMesh peer catalog gossip", () => {
     const catalog = meshRustRuntime().state.validateMeshCatalog(exported) as typeof exported
     expect(catalog.scopeAuthoritySnapshot).toEqual(scopeAuthoritySnapshot)
 
-    const putWorkspaceAuthority = vi.fn()
+    const order: string[] = []
+    const putWorkspaceAuthority = vi.fn(async () => { order.push("persist") })
     const receiver = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
       getProfile: async () => profile,
       store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => authority,
@@ -1060,10 +1061,16 @@ describe("DurableMesh peer catalog gossip", () => {
     internal.mergeRevocations = async () => {}
     internal.mergeSuccessionState = async () => credential
     internal.mergePeerBundles = async () => {}
-    internal.notify = async () => {}
+    internal.notify = vi.fn(async () => { order.push("notify") })
     try {
       await receiver.mergeWorkspace(workspaceId, catalog)
       expect(putWorkspaceAuthority).toHaveBeenCalledWith(expect.objectContaining({ scopeAuthoritySnapshot }))
+      expect(order).toEqual(["persist", "notify"])
+      order.length = 0
+      internal.notify.mockClear()
+      putWorkspaceAuthority.mockRejectedValueOnce(new Error("Ledger commit failed"))
+      await expect(receiver.mergeWorkspace(workspaceId, catalog)).rejects.toThrow("Ledger commit failed")
+      expect(internal.notify).not.toHaveBeenCalled()
     } finally {
       await sender.dispose()
       await receiver.dispose()
@@ -1165,7 +1172,7 @@ describe("durable node supervision", () => {
   it.each([false, true])("restarts when its acceptor ends (rejects: %s) and cancels that run's dial loop", async rejects => {
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
       workspaceStore: {} as never, getProfile: async () => ({}) as never,
-      store: { listWorkspaceCredentials: async () => [{}] } as never })
+      store: { listWorkspaceCredentials: async () => [{}], listWorkspaceAuthorities: async () => [] } as never })
     const internal = mesh as any
     const acceptor = { accept: async () => { if (rejects) throw new Error("node closed"); return undefined }, close: vi.fn(async () => {}) }
     internal.adoptedNode = { endpointId: "endpoint", accept: async () => acceptor, close: vi.fn(async () => {}) }

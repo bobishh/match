@@ -103,7 +103,7 @@ export type DurableMeshOptions = {
   workspace: WorkspaceReplica
   getProfile: () => Promise<LocalProfile>
   store?: PeerStore
-  onChange?: (workspaces: string[], peers: MeshPeerView[], revoked: string[], succession: MeshSuccessionView[]) => void
+  onChange?: (workspaces: string[], peers: MeshPeerView[], revoked: string[], succession: MeshSuccessionView[], authorityFingerprint: string) => void
   onDiagnostic?: (message: string) => void
   onRetryChange?: (retryAtByWorkspace: Record<string, number>) => void
   networkOnline?: () => boolean
