@@ -236,7 +236,7 @@ describe("DurableMesh peer catalog gossip", () => {
   it("offers a new owner workspace over the renamed frame only after v2 negotiation", async () => {
     const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
-    const offer = new Uint8Array([1])
+    const offer = new TextEncoder().encode(JSON.stringify({ workspaceId: "new-workspace", workspace: { id: "new-workspace", bytes: "AA" } }))
     const receipt = new TextEncoder().encode(await sha256Base64Url(offer))
     const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
       read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }
@@ -265,7 +265,7 @@ describe("DurableMesh peer catalog gossip", () => {
   it("shares one owner-workspace offer when concurrent sessions see the same missing scope", async () => {
     const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
-    const offer = new Uint8Array([1])
+    const offer = new TextEncoder().encode(JSON.stringify({ workspaceId: "new-workspace", workspace: { id: "new-workspace", bytes: "AA" } }))
     const receipt = new TextEncoder().encode(await sha256Base64Url(offer))
     const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
       read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }

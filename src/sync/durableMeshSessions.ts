@@ -257,7 +257,8 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         }, {
           ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
           onOwnerWorkspaceOffer: input.ownerWorkspaceOfferFrame && input.remotePersonId === input.profile.identity.personId
-            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId) : undefined,
+            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId,
+              input.connection, credential.transportSecret) : undefined,
           onGossipPacket: input.remoteEndpoint
             ? packet => this.receiveWorkspaceGossipPacket(input.workspaceId, input.remoteEndpoint, packet) : undefined,
           onBlobRequest: input.blobTransferSupported

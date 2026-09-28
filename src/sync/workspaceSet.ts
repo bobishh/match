@@ -8,8 +8,10 @@ import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { meshTrace } from "./meshTrace"
 import { readProofPage, writeProofPage, clearProofPages } from "./proofPageCache"
 import { workspaceProofTransfer, exportWorkspaceProofs } from "./workspaceProofTransfer"
+import { serveOwnerOfferProofs } from "./ownerOfferProofs"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
+export { publishOwnerWorkspaceOffer } from "./ownerOfferProofs"
 
 export type WorkspaceReplica = {
   subscribe?: (listener: () => void) => () => void
@@ -100,9 +102,8 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
     },
     async receive(bytes: Uint8Array, history = true) {
       const entries = parseEntries(await this.resolveProofs(bytes), ids)
-      // Validate the complete batch before writing the first workspace. This
-      // keeps a bad second board from stranding the first as an orphaned local
-      // document during enrollment or an invitation.
+      // Validate every workspace before the first write, preventing partial
+      // enrollment when a later board is rejected.
       for (const entry of entries) {
         if (store.validate) await receiveStage("Workspace", entry.id, () =>
           store.validate!(entry.id, fromBase64Url(entry.bytes), entry.authorization))
@@ -142,8 +143,8 @@ function safeDiagnostic(error: unknown): string {
   return ` [${diagnostic.code}${field}]`
 }
 
-// Receipt is bound to the exact document, proofs and ownership catalog on this
-// authenticated peer stream. A timeout is an unknown outcome, never a rollback.
+// Receipt binds exact document, proofs and catalog to this authenticated
+// stream. Timeout means unknown outcome, never rollback.
 export async function publishConfirmedWorkspace(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
   const protocol = createLiveWorkspaceSession("confirmed-delivery", secret)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -160,18 +161,6 @@ export async function publishConfirmedWorkspace(connection: SyncConnection, secr
       }),
     ])
   } finally { clearTimeout(timer); protocol.free?.() }
-}
-
-export async function publishOwnerWorkspaceOffer(connection: SyncConnection, secret: string, bytes: Uint8Array,
-  frame: OwnerWorkspaceOfferFrame): Promise<void> {
-  const protocol = createLiveWorkspaceSession("owner-offer", secret)
-  try {
-    const encoded = protocol.encode(frame, bytes)
-    const stream = await connection.openStream()
-    await stream.send(encoded)
-    await stream.closeSend()
-    protocol.verifySavedReceipt(await stream.read(), bytes)
-  } finally { protocol.free?.() }
 }
 
 export async function publishGossipPacket(connection: SyncConnection, secret: string, packet: Uint8Array): Promise<void> {
@@ -442,6 +431,7 @@ export function liveAutomergeWorkspaceSync(
   }
   const receive = async (stream: DuplexStream, frame: Uint8Array): Promise<void> => {
     try {
+      if (await serveOwnerOfferProofs(connection, secret, stream, frame)) return
       await measureScopePhase("scope.receive", workspaceId, remoteDeviceId,
         () => scope.receive(stream, frame), frame.byteLength)
     }

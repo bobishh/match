@@ -12,6 +12,10 @@ type RequestEffect = Extract<RustMeshScopeFrameEffect, { kind: "proofRequest" }>
 export function workspaceProofTransfer(store: WorkspaceSetStore, ids: string[]) {
   const sources = new Map<string, RustMeshScopeRuntime>()
   return {
+    closeProofSources() {
+      for (const runtime of sources.values()) runtime.free?.()
+      sources.clear()
+    },
     async serveProofPage(frame: Uint8Array, stream: DuplexStream, secret: string): Promise<boolean> {
       const id = requestWorkspace(frame, secret, ids)
       if (!id) return false
