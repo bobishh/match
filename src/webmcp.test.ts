@@ -6,6 +6,7 @@ import { registerWebMcp, type ModelContext } from "./webmcp"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
 import { useMatch, hydrate, resetStateForTest } from "./state"
 import { isItem } from "./domain/model"
+import { clearMeshTrace, meshTrace } from "./sync/meshTrace"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -69,6 +70,23 @@ describe("generic WebMCP tools", () => {
     await expect(registeredTools.get("send_chat_message").execute({ body: "Vacancy audit complete" }))
       .resolves.toEqual({ sent: true })
     expect(sendChatMessage).toHaveBeenCalledWith("Vacancy audit complete")
+  })
+
+  it("reads lifecycle evidence without changing workspace data or allowing write inputs", async () => {
+    clearMeshTrace()
+    meshTrace("session.closed", { connectionId: "in-7", cause: "heartbeat failed" })
+    await registerWebMcp({ getActiveDoc: match.getActiveDoc }, mockContext)
+    const trace = registeredTools.get("get_sync_trace")
+    const before = match.getActiveDoc()
+    expect(trace.annotations.readOnlyHint).toBe(true)
+    const result = trace.execute({})
+    expect(result.events).toEqual([expect.objectContaining({
+      event: "session.closed", connectionId: "in-7", cause: "heartbeat failed",
+    })])
+    expect(() => structuredClone(result)).not.toThrow()
+    expect(match.getActiveDoc()).toBe(before)
+    expect(() => trace.execute({ reconnect: true })).toThrow()
+    clearMeshTrace()
   })
 
   it("returns cloneable workspace records and switches the active workspace", async () => {
