@@ -21,6 +21,7 @@ import { userMessage } from "./deviceSyncState"
 import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
 import type { JoinDecision } from "./deviceSyncJoinApproval"
+import { keeperCommitReceiptVerifier, type KeeperCommitReceiptVerifier } from "./keeperCommitReceipt"
 
 type WorkspaceOption = { id: string; title: string }
 type KeeperAdmission = { servicePersonId: string; workspaceIds: string[] }
@@ -238,6 +239,7 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
   let session: LiveWorkspaceSync | undefined
   let heartbeat: (() => void) | undefined
   let personId = ""
+  let verifyKeeperCommit: KeeperCommitReceiptVerifier | undefined
   const timeout = setTimeout(() => { void connection.close() }, 600_000)
   runtime.connections.add(connection)
   try {
@@ -258,9 +260,16 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
         return guest
       },
       approve: guest => approveWorkspaceAccess(runtime, guest),
-      prepare: result => prepareWorkspaceAccess(runtime, result),
+      prepare: result => prepareWorkspaceAccess(runtime, result, runtime.keeperAdmission ? async snapshot => {
+        verifyKeeperCommit = await keeperCommitReceiptVerifier(runtime.keeperAdmission!.workspaceIds, snapshot)
+      } : undefined),
       beforeAckFrame: (frame, stream) => runtime.replica.serveProofPage(frame, stream, runtime.invite.secret),
-      acknowledged: payload => runtime.replica.receive(payload),
+      acknowledged: async payload => {
+        if (runtime.keeperAdmission) {
+          if (!verifyKeeperCommit) throw new Error("Keeper commit receipt was not negotiated")
+          verifyKeeperCommit(payload)
+        } else await runtime.replica.receive(payload)
+      },
     })
     if (result.kind !== "accepted" || !("value" in result)) return
     personId = result.value.personId
@@ -293,6 +302,7 @@ async function receiveMeshPeer(runtime: HostRuntime, connection: SyncConnection,
 function readWorkspaceRequest(runtime: HostRuntime, payload: Uint8Array) {
   const guest = JSON.parse(new TextDecoder().decode(payload))
   if (typeof guest.personId !== "string" || !guest.personId || guest.invitationId !== runtime.invite.invitationId) throw new Error("Invalid workspace join request.")
+  if (runtime.keeperAdmission && guest.provisioningReceiptVersion !== 1) throw new Error("Keeper needs bounded commit receipt support.")
   return guest as { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }
 }
 
@@ -343,12 +353,15 @@ function matchesKeeperAdmission(runtime: HostRuntime, personId: string) {
 
 async function prepareWorkspaceAccess(runtime: HostRuntime, approval: {
   personId: string; grants: WorkspaceGrant[]; ownerConnection?: { controllerPersonId: string }
-}) {
+}, keeperSnapshot?: (snapshot: Uint8Array) => Promise<void>) {
   const injectedFailure = (window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__
   if (injectedFailure) throw new Error(injectedFailure)
+  const snapshot = await runtime.replica.snapshot()
+  await keeperSnapshot?.(snapshot)
   return new TextEncoder().encode(JSON.stringify({ grants: approval.grants,
     ownerConnection: approval.ownerConnection,
-    snapshot: toBase64Url(await runtime.replica.snapshot()),
+    snapshot: toBase64Url(snapshot),
+    ...(keeperSnapshot ? { provisioningReceiptVersion: 1 } : {}),
     meshWorkspaces: await runtime.context.durableMesh?.invitationPayload(runtime.workspaces.map(item => item.id)),
   }))
 }
