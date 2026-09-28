@@ -94,7 +94,7 @@ export function userMessage(err: unknown, fallback: string) {
 }
 
 export type WorkspaceJoinGrant = WorkspaceGrant & { payload?: { workspaceId?: unknown; personId?: unknown } }
-export type WorkspaceJoinPayload = { error?: unknown; snapshot?: unknown; grants?: unknown; meshWorkspaces?: unknown }
+export type WorkspaceJoinPayload = { error?: unknown; snapshot?: unknown; grants?: unknown; meshWorkspaces?: unknown; capabilities?: unknown }
 
 export function validWorkspaceJoinPayload(payload: WorkspaceJoinPayload, workspaceIds: string[], personId: string):
   payload is WorkspaceJoinPayload & { snapshot: string; grants: Array<WorkspaceJoinGrant & { payload: { workspaceId: string; personId: string } }> } {

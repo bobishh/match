@@ -19,6 +19,7 @@ export type KeeperPairing = {
   controllerFingerprint: string
   discovery: LighthouseDiscovery
   workspaces: KeeperWorkspace[]
+  futureBoards?: boolean
 }
 
 export type KeeperPairingStatus = "pending" | "approved" | "provisioning" | "active" | "rejected" | "expired"
@@ -125,7 +126,7 @@ function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: Keep
   }
 }
 
-export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspaces: KeeperWorkspace[]): Promise<KeeperPairing> {
+export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspaces: KeeperWorkspace[], futureBoards = false): Promise<KeeperPairing> {
   const profile = await bootstrapIdentity()
   if (!workspaces.length) throw new Error("Choose at least one owner board.")
   const scopes = await Promise.all(workspaces.map(async workspace => {
@@ -141,7 +142,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
     return { workspaceId: workspace.id, title: workspace.title, genesisAnchor: canonicalizeJson(snapshot.genesis), mode: "replicate" }
   }))
   const signedRequestBody = await signedRequest(profile, discovery, "lighthouse-pairing-offer", {
-    body: { scopes, policy: { futureBoards: false } },
+    body: { scopes, policy: { futureBoards } },
   })
   const transcriptHash = await sha256Base64Url(new TextEncoder().encode(canonicalizeJson(signedRequestBody.signed.payload)))
   const result = await request<{
@@ -157,7 +158,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   }
   const operatorUrl = new URL(result.operatorUrl)
   if (operatorUrl.origin !== discovery.origin || operatorUrl.pathname !== "/admin/") throw new Error("Keeper returned an unsafe operator URL.")
-  return { pairingId: result.pairingId, operatorUrl: operatorUrl.toString(), comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash, challengeNonce: challenge.nonce, controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery, workspaces: workspaces.map(workspace => ({ ...workspace })) }
+  return { pairingId: result.pairingId, operatorUrl: operatorUrl.toString(), comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash, challengeNonce: challenge.nonce, controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery, workspaces: workspaces.map(workspace => ({ ...workspace })), futureBoards }
 }
 
 export async function decideKeeperPairing(pairing: KeeperPairing, approve: boolean): Promise<void> {
@@ -197,6 +198,7 @@ export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation
         transcriptHash: pairing.transcriptHash,
         servicePersonId: pairing.discovery.personId,
         approvedScopes,
+        futureBoards: pairing.futureBoards === true,
         invitation,
       },
     })

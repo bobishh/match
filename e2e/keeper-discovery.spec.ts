@@ -94,7 +94,8 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
   }))
   await page.route(`${origin}/v1/pairings`, async route => {
-    const request = route.request().postDataJSON() as { signed: { payload: unknown } }
+    const request = route.request().postDataJSON() as { signed: { payload: { body: { policy: { futureBoards: boolean } } } } }
+    expect(request.signed.payload.body.policy.futureBoards).toBe(true)
     transcriptHash = keeper.hash(request.signed.payload)
     nonce = randomBytes(32).toString("base64url")
     const expiresAt = Math.floor(Date.now() / 1000) + 600
@@ -112,7 +113,8 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.route(`${origin}/v1/pairings/pairing-test/provision`, async route => {
-    const request = route.request().postDataJSON() as { signed: { payload: { body: { pairingId: string; transcriptHash: string; servicePersonId: string; approvedScopes: { workspaceId: string; mode: string }[]; invitation: { kind: string; role: string; workspaces: { id: string }[] } } } } }
+    const request = route.request().postDataJSON() as { signed: { payload: { body: { pairingId: string; transcriptHash: string; servicePersonId: string; futureBoards: boolean; approvedScopes: { workspaceId: string; mode: string }[]; invitation: { kind: string; role: string; workspaces: { id: string }[] } } } } }
+    expect(request.signed.payload.body.futureBoards).toBe(true)
     expect(request.signed.payload.body.pairingId).toBe("pairing-test")
     expect(request.signed.payload.body.transcriptHash).toBe(transcriptHash)
     expect(request.signed.payload.body.servicePersonId).toBe(keeper.identity.personId)
@@ -133,6 +135,7 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   await dialog.getByRole("button", { name: "Add keeper" }).click()
   await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
   await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await expect(dialog.getByRole("checkbox", { name: "Also replicate my future boards" })).toBeChecked()
   await dialog.getByRole("button", { name: "Request keeper access" }).click()
   await expect(dialog.getByText("Awaiting both approvals. No access granted.")).toBeVisible()
   await expect(dialog.getByText("314159")).toBeVisible()

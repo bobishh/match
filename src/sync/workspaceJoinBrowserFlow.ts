@@ -12,6 +12,7 @@ import { offlineRetryDelay } from "./offlineRetry"
 import { startPersistentNode } from "./persistentNode"
 import type { SyncConnection, SyncNode, SyncTransport } from "./transport"
 import { liveWorkspaceSetSync, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore, workspaceSet } from "./workspaceSet"
+import { assertProofPagingNegotiated, proofPagingCapabilities, supportsProofPaging } from "./proofPagingCapability"
 
 export type WorkspaceJoinBrowserContext = {
   state: DeviceSyncState
@@ -94,8 +95,8 @@ async function connectGuestCycle(context: WorkspaceJoinBrowserContext, run: numb
     if (context.currentRun() !== run) return cycle
     context.setNode(cycle.node)
     cycle.connection = meshNetworkConnection(await meshNetworkIO(dialGuest(cycle.node, invite.issuerEndpoint)))
-    await installGuestInvitation(context, run, invite, profile, replica, cycle)
-    cycle.session = liveWorkspaceSetSync(cycle.connection, invite.secret, replica)
+    const proofPagingSupported = await installGuestInvitation(context, run, invite, profile, replica, cycle)
+    cycle.session = liveWorkspaceSetSync(cycle.connection, invite.secret, replica, { proofPagingSupported })
     context.setLiveSession(cycle.session)
     context.state.directLive.value = true
     context.setStopWatching(context.workspace.subscribe?.(() => {
@@ -149,13 +150,15 @@ async function installGuestInvitation(context: WorkspaceJoinBrowserContext, run:
   const workspaceIds = invite.workspaces.map(item => item.id)
   const request = new TextEncoder().encode(JSON.stringify({
     invitationId: invite.invitationId,
+    capabilities: proofPagingCapabilities,
     personId: profile.identity.personId,
     displayName: context.displayName?.() || profile.identity.displayName,
     meshPeers: await context.durableMesh?.createGuestAdvertisements(workspaceIds, cycle.node!.endpointId, profile),
   }))
   context.state.step.value = "workspace-guest-waiting"
   const guest = new BrowserWorkspaceJoinGuest(new WasmWorkspaceJoinHandshake(invite.secret, "guest"))
-  await guest.handle(stream, connection, request, bytes => installReceivedInvitation(context, run, invite, profile, replica, workspaceIds, bytes, connection))
+  const result = await guest.handle(stream, connection, request, bytes => installReceivedInvitation(context, run, invite, profile, replica, workspaceIds, bytes, connection))
+  return supportsProofPaging(result.capabilities)
 }
 
 async function installReceivedInvitation(context: WorkspaceJoinBrowserContext, run: number, invite: WorkspaceJoinInvite,
@@ -165,12 +168,15 @@ async function installReceivedInvitation(context: WorkspaceJoinBrowserContext, r
   if (!validWorkspaceJoinPayload(received, workspaceIds, profile.identity.personId)) throw new Error("The other device needs an update. Reload it and generate a new invitation.")
   if (context.currentRun() !== run) throw new Error("Workspace join was cancelled.")
   if (!meshOwnersMatch(received.meshWorkspaces, invite.issuerPersonId)) throw new Error("Invitation owner mismatch")
-  const snapshot = await replica.resolveProofs(fromBase64Url(received.snapshot), connection, invite.secret)
+  const proofPagingSupported = supportsProofPaging(received.capabilities)
+  const offeredSnapshot = fromBase64Url(received.snapshot)
+  assertProofPagingNegotiated(offeredSnapshot, workspaceIds, proofPagingSupported)
+  const snapshot = await replica.resolveProofs(offeredSnapshot, connection, invite.secret)
   await replica.validate(snapshot)
   await context.durableMesh?.validateInvitation(received.meshWorkspaces, workspaceIds, profile, received.grants)
   for (const grant of received.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   await context.durableMesh?.receiveInvitation(received.meshWorkspaces, workspaceIds, profile, received.grants)
   await replica.receive(snapshot)
   await context.workspaceStore.activate(invite.workspaces[0]!.id)
-  return { value: received, acknowledgement: await replica.snapshot() }
+  return { value: received, acknowledgement: await replica.snapshot(undefined, proofPagingSupported) }
 }

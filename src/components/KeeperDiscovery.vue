@@ -12,6 +12,7 @@ const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairin
 const error = ref("")
 const discovery = ref<Awaited<ReturnType<typeof keeperApi.discover>> | null>(null)
 const selectedWorkspaceIds = ref<string[]>([])
+const futureBoards = ref(true)
 const eligibleWorkspaces = ref<KeeperWorkspace[]>([])
 const ineligibleWorkspaces = ref<KeeperWorkspace[]>([])
 const pairing = ref<KeeperPairing | null>(null)
@@ -42,7 +43,7 @@ async function requestPairing() {
   error.value = ""
   status.value = "creating"
   try {
-    pairing.value = await keeperApi.beginPairing(discovery.value, selectedWorkspaces())
+    pairing.value = await keeperApi.beginPairing(discovery.value, selectedWorkspaces(), futureBoards.value)
     status.value = "pairing"
     scheduleStatusCheck()
   } catch (cause) {
@@ -151,6 +152,10 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           </label>
         </div>
         <p v-else class="dialog-copy">No board has verified owner proof here. Open Sync on an owned board and retry.</p>
+        <label v-if="eligibleWorkspaces.length && !pairing" class="sync-checkbox-item">
+          <input v-model="futureBoards" type="checkbox" aria-label="Also replicate my future boards" />
+          <span>Also replicate my future boards<small class="sync-workspace-detail">New boards you own will be added automatically.</small></span>
+        </label>
         <p v-if="ineligibleWorkspaces.length" class="dialog-copy">{{ ineligibleWorkspaces.map(workspace => workspace.title).join(", ") }} lack stored, Rust-verified scope genesis. Legacy proof backfill remains outstanding; pairing stays disabled for these boards.</p>
         <p v-if="discovery.capabilities.pairing !== true" class="dialog-copy" role="status">This keeper has no pairing endpoint. Discovery did not connect or grant access.</p>
         <button v-if="!pairing" class="button button-primary" type="button" :disabled="discovery.capabilities.pairing !== true || !selectedWorkspaceIds.length || status === 'creating'" @click="requestPairing">{{ status === "creating" ? "Starting request…" : "Request keeper access" }}</button>
@@ -158,6 +163,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <p><span class="detail-label">Comparison code</span><br /><strong>{{ pairing.comparisonCode }}</strong></p>
           <p><span class="detail-label">Controller fingerprint</span><br /><code>{{ pairing.controllerFingerprint }}</code></p>
           <p class="dialog-copy">Compare code with keeper operator before approving. Request expires {{ new Date(pairing.expiresAt * 1000).toLocaleString() }}.</p>
+          <p class="dialog-copy">{{ pairing.futureBoards ? "Includes your future boards." : "Includes only the selected boards." }}</p>
           <a class="button button-quiet" :href="pairing.operatorUrl" target="_blank" rel="noopener noreferrer">Open operator approval</a>
           <p class="dialog-copy" role="status">{{ status === "rejected" ? "Pairing rejected. No access granted." : status === "expired" ? "Pairing expired. No access granted." : status === "active" ? "All selected boards activated and saved by Lighthouse." : status === "provisioning" ? "Both sides approved. Lighthouse is joining and saving every selected board; access remains pending until all boards commit." : status === "approved" ? "Both sides approved. Starting the selected-board join…" : controllerApproved ? "Awaiting operator approval. No access granted." : "Awaiting both approvals. No access granted." }}</p>
           <div v-if="status === 'pairing' && !controllerApproved" class="dialog-actions">

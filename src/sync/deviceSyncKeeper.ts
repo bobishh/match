@@ -11,7 +11,7 @@ export function createKeeperProvisioner(
     await ensureDurableMesh()
     let invitationTask = invitationHosts.get(pairing.pairingId)
     if (!invitationTask) {
-      invitationTask = createKeeperWorkspaceHost(hostContext(), pairing.workspaces, pairing.discovery.personId)
+      invitationTask = createKeeperWorkspaceHost(hostContext(), pairing.workspaces, pairing.discovery.personId, pairing.futureBoards === true)
       invitationHosts.set(pairing.pairingId, invitationTask)
       void invitationTask.catch(() => {
         if (invitationHosts.get(pairing.pairingId) === invitationTask) invitationHosts.delete(pairing.pairingId)

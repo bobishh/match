@@ -22,9 +22,10 @@ import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
 import type { JoinDecision } from "./deviceSyncJoinApproval"
 import { keeperCommitReceiptVerifier, type KeeperCommitReceiptVerifier } from "./keeperCommitReceipt"
+import { assertProofPagingNegotiated, proofPagingCapabilities, supportsProofPaging } from "./proofPagingCapability"
 
 type WorkspaceOption = { id: string; title: string }
-type KeeperAdmission = { servicePersonId: string; workspaceIds: string[] }
+type KeeperAdmission = { servicePersonId: string; workspaceIds: string[]; followOwner: boolean }
 
 export type WorkspaceHostContext = PairingContext & {
   workspace: WorkspaceReplica
@@ -185,6 +186,7 @@ export async function createKeeperWorkspaceHost(
   context: WorkspaceHostContext,
   workspaces: WorkspaceOption[],
   servicePersonId: string,
+  followOwner = false,
 ) {
   if (!workspaces.length || !servicePersonId) throw new Error("Keeper scopes and service identity are required.")
   const profile = await context.getProfile()
@@ -206,7 +208,7 @@ export async function createKeeperWorkspaceHost(
   context.state.liveWorkspaceIds.value = workspaces.map(item => item.id)
   await startWorkspaceHostController({
     context, run, node, profile, invite, owners, workspaces, replica,
-    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id) },
+    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id), followOwner },
   })
   return invite
 }
@@ -240,6 +242,7 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
   let heartbeat: (() => void) | undefined
   let personId = ""
   let verifyKeeperCommit: KeeperCommitReceiptVerifier | undefined
+  let proofPagingSupported = false
   const timeout = setTimeout(() => { void connection.close() }, 600_000)
   runtime.connections.add(connection)
   try {
@@ -256,25 +259,30 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
     const result = await handshake.handle(rawRequest, stream, connection, {
       request: payload => {
         const guest = readWorkspaceRequest(runtime, payload)
+        proofPagingSupported = supportsProofPaging(guest.capabilities)
         personId = guest.personId
         return guest
       },
       approve: guest => approveWorkspaceAccess(runtime, guest),
-      prepare: result => prepareWorkspaceAccess(runtime, result, runtime.keeperAdmission ? async snapshot => {
+      prepare: result => prepareWorkspaceAccess(runtime, result, proofPagingSupported, runtime.keeperAdmission ? async snapshot => {
         verifyKeeperCommit = await keeperCommitReceiptVerifier(runtime.keeperAdmission!.workspaceIds, snapshot)
       } : undefined),
-      beforeAckFrame: (frame, stream) => runtime.replica.serveProofPage(frame, stream, runtime.invite.secret),
+      beforeAckFrame: (frame, stream) => proofPagingSupported
+        ? runtime.replica.serveProofPage(frame, stream, runtime.invite.secret) : Promise.resolve(false),
       acknowledged: async payload => {
         if (runtime.keeperAdmission) {
           if (!verifyKeeperCommit) throw new Error("Keeper commit receipt was not negotiated")
           verifyKeeperCommit(payload)
-        } else await runtime.replica.receive(payload)
+        } else {
+          assertProofPagingNegotiated(payload, runtime.workspaces.map(item => item.id), proofPagingSupported)
+          await runtime.replica.receive(await runtime.replica.resolveProofs(payload, connection, runtime.invite.secret))
+        }
       },
     })
     if (result.kind !== "accepted" || !("value" in result)) return
     personId = result.value.personId
     clearTimeout(timeout)
-    session = await startPeerSession(runtime, connection, personId)
+    session = await startPeerSession(runtime, connection, personId, proofPagingSupported)
     heartbeat = startMeshHeartbeat(session, () => { void session?.close() })
     connected()
     await runtime.group.publish()
@@ -303,7 +311,10 @@ function readWorkspaceRequest(runtime: HostRuntime, payload: Uint8Array) {
   const guest = JSON.parse(new TextDecoder().decode(payload))
   if (typeof guest.personId !== "string" || !guest.personId || guest.invitationId !== runtime.invite.invitationId) throw new Error("Invalid workspace join request.")
   if (runtime.keeperAdmission && guest.provisioningReceiptVersion !== 1) throw new Error("Keeper needs bounded commit receipt support.")
-  return guest as { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }
+  if (runtime.keeperAdmission && (guest.followOwner === true) !== runtime.keeperAdmission.followOwner) {
+    throw new Error("Keeper future-board policy does not match the approved pairing.")
+  }
+  return guest as { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown; capabilities?: unknown }
 }
 
 async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }) {
@@ -321,7 +332,7 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   }
   const name = typeof guest.displayName === "string" ? guest.displayName.slice(0, 80) : `Participant ${guest.personId.slice(0, 6)}`
   const decision = runtime.keeperAdmission
-    ? { role: "visitor" as const, followOwner: false }
+    ? { role: "visitor" as const, followOwner: runtime.keeperAdmission.followOwner }
     : await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
   if (!decision) {
     return { ok: false as const, error: "The owner declined this request." }
@@ -353,23 +364,25 @@ function matchesKeeperAdmission(runtime: HostRuntime, personId: string) {
 
 async function prepareWorkspaceAccess(runtime: HostRuntime, approval: {
   personId: string; grants: WorkspaceGrant[]; ownerConnection?: { controllerPersonId: string }
-}, keeperSnapshot?: (snapshot: Uint8Array) => Promise<void>) {
+}, proofPagingSupported: boolean, keeperSnapshot?: (snapshot: Uint8Array) => Promise<void>) {
   const injectedFailure = (window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__
   if (injectedFailure) throw new Error(injectedFailure)
-  const snapshot = await runtime.replica.snapshot()
+  const snapshot = await runtime.replica.snapshot(undefined, proofPagingSupported)
   await keeperSnapshot?.(snapshot)
   return new TextEncoder().encode(JSON.stringify({ grants: approval.grants,
     ownerConnection: approval.ownerConnection,
     snapshot: toBase64Url(snapshot),
+    capabilities: proofPagingSupported ? proofPagingCapabilities : [],
     ...(keeperSnapshot ? { provisioningReceiptVersion: 1 } : {}),
     meshWorkspaces: await runtime.context.durableMesh?.invitationPayload(runtime.workspaces.map(item => item.id)),
   }))
 }
 
-async function startPeerSession(runtime: HostRuntime, connection: SyncConnection, personId: string) {
+async function startPeerSession(runtime: HostRuntime, connection: SyncConnection, personId: string, proofPagingSupported: boolean) {
   if (runtime.run !== runtime.context.currentRun() || runtime.stopped()) throw new Error("Invitation superseded")
   const handoff = new BrowserWorkspaceJoinHandoffHost(new WasmWorkspaceJoinHandoff(runtime.invite.secret, "host"))
   const session = liveWorkspaceSetSync(connection, runtime.invite.secret, runtime.replica, {
+    proofPagingSupported,
     onHandoffRequest: async (stream, requestFrame) => {
       await handoff.run(stream, requestFrame, connection)
       await runtime.handoff()
