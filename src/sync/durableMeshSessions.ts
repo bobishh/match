@@ -120,12 +120,12 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       const installed = await this.installSession(peer.workspaceId, peer.deviceId, value.instanceId,
         value.issuedAt, value.routeSequence, "outgoing", value.connection,
         value.heartbeatSupported, value.connectionId, value.ownershipReceiptSupported,
-        value.personId, value.ownerWorkspaceSupported, value.ownerWorkspaceOfferFrame, value.blobTransferSupported, value.endpoint)
+        value.personId, value.ownerWorkspaceSupported, value.ownerWorkspaceOfferFrame, value.blobTransferSupported, value.endpoint, value.proofPagingSupported)
       if (installed) await this.refreshWorkspaceGossip(peer.workspaceId)
       if (installed && value.ownerWorkspaceOfferFrame) {
         const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
         if (credential) await this.offerMissingOwnerWorkspaces(value.connection, credential.transportSecret,
-          value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame)
+          value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame, undefined, value.proofPagingSupported)
       }
     } catch (error) {
       if (this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) {
@@ -256,9 +256,10 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           }
         }, {
           ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
+          proofPagingSupported: input.proofPagingSupported,
           onOwnerWorkspaceOffer: input.ownerWorkspaceOfferFrame && input.remotePersonId === input.profile.identity.personId
             ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId,
-              input.connection, credential.transportSecret) : undefined,
+              input.connection, credential.transportSecret, input.proofPagingSupported) : undefined,
           onGossipPacket: input.remoteEndpoint
             ? packet => this.receiveWorkspaceGossipPacket(input.workspaceId, input.remoteEndpoint, packet) : undefined,
           onBlobRequest: input.blobTransferSupported
@@ -294,10 +295,10 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     remoteRouteSequence: number | undefined, direction: "incoming" | "outgoing", connection: SyncConnection, heartbeatSupported = false,
     connectionId = this.connectionId(direction), ownershipReceiptSupported = false,
     remotePersonId = "", ownerWorkspaceSupported = false, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined = undefined,
-    blobTransferSupported = false, remoteEndpoint = "") {
+    blobTransferSupported = false, remoteEndpoint = "", proofPagingSupported = false) {
     return this.browserSessions.install({ workspaceId, deviceId, instanceId, remoteIssuedAt, remoteRouteSequence,
       direction, connection, heartbeatSupported, connectionId, ownershipReceiptSupported,
-      remotePersonId, ownerWorkspaceSupported, ownerWorkspaceOfferFrame, blobTransferSupported, remoteEndpoint })
+      remotePersonId, ownerWorkspaceSupported, ownerWorkspaceOfferFrame, blobTransferSupported, remoteEndpoint, proofPagingSupported })
   }
 
   private async respondToBlobRequest(workspaceId: string, deviceId: string, secret: string,

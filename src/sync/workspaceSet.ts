@@ -7,7 +7,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { meshTrace } from "./meshTrace"
 import { readProofPage, writeProofPage, clearProofPages } from "./proofPageCache"
-import { workspaceProofTransfer, exportWorkspaceProofs } from "./workspaceProofTransfer"
+import { workspaceProofTransfer, exportWorkspaceProofs, assertSnapshotProofPaging } from "./workspaceProofTransfer"
 import { serveOwnerOfferProofs } from "./ownerOfferProofs"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
@@ -48,6 +48,7 @@ export type WorkspaceSetStore = {
 }
 
 type LiveWorkspaceOptions = {
+  proofPagingSupported?: boolean
   onHandoffRequest?: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
   ownerWorkspaceOfferFrame?: OwnerWorkspaceOfferFrame
   onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
@@ -72,13 +73,13 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
     }
   }
   return {
-    async snapshot(knownChat?: Map<string, Set<string>>) {
+    async snapshot(knownChat?: Map<string, Set<string>>, proofPagingSupported = true) {
       const entries = await Promise.all(ids.map(async id => {
         try {
           const bytes = await store.read(id)
           const authorization = await store.readAuthorization?.(bytes, id)
           return { id, bytes: toBase64Url(bytes),
-            ...(store.readAuthorization ? { authorization: exportWorkspaceProofs(bytes, authorization) } : {}),
+            ...(store.readAuthorization ? { authorization: exportWorkspaceProofs(bytes, authorization, proofPagingSupported) } : {}),
             ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
               const known = knownChat.get(id) ?? new Set<string>()
               knownChat.set(id, known)
@@ -145,7 +146,8 @@ function safeDiagnostic(error: unknown): string {
 
 // Receipt binds exact document, proofs and catalog to this authenticated
 // stream. Timeout means unknown outcome, never rollback.
-export async function publishConfirmedWorkspace(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
+export async function publishConfirmedWorkspace(connection: SyncConnection, secret: string, bytes: Uint8Array, proofPagingSupported = true): Promise<void> {
+  assertSnapshotProofPaging(bytes, proofPagingSupported)
   const protocol = createLiveWorkspaceSession("confirmed-delivery", secret)
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -226,11 +228,14 @@ export function liveWorkspaceSetSync(
       if (stopped) return
       const task = (async () => {
         const frame = await stream.read()
+        if (options.proofPagingSupported === false && inspectPairingFrame(frame).type === "mesh-proof-request-v1") {
+          throw new Error("Peer did not negotiate proof paging; update the app")
+        }
         if (await replica.serveProofPage(frame, stream, secret)) return
         const operation = protocol.receiveWithPlan(frame)
         if (!operation) { await stream.closeSend(); return }
         await applyWorkspaceSetReceivePlan(protocol, operation, stream, frame,
-          async bytes => replica.receive(await replica.resolveProofs(bytes, connection, secret), false), options)
+          async bytes => replica.receive(await replica.resolveProofs(bytes, connection, secret, options.proofPagingSupported), false), options)
       })().catch(async error => {
         if (!stopped) { receiveFailure = error; await connection.close().catch(() => {}) }
       })
@@ -244,7 +249,7 @@ export function liveWorkspaceSetSync(
       queue = queue.then(async () => {
         if (stopped) return
         const nextKnownChat = new Map([...knownChat].map(([id, known]) => [id, new Set(known)]))
-        const bytes = await replica.snapshot(nextKnownChat)
+        const bytes = await replica.snapshot(nextKnownChat, options.proofPagingSupported)
         if (stopped) return
         const plan = protocol.prepareSnapshotPublish(bytes)
         if (!plan.frame) { knownChat = nextKnownChat; return }
@@ -360,7 +365,7 @@ export function liveAutomergeWorkspaceSync(
     mergeDurableBatch: bytes => measureScopePhase("store.merge-durable-batch", workspaceId, remoteDeviceId,
       async () => {
         const replica = workspaceSet(store, [workspaceId])
-        await replica.receive(await replica.resolveProofs(bytes, connection, secret), false)
+        await replica.receive(await replica.resolveProofs(bytes, connection, secret, options.proofPagingSupported), false)
       }, bytes.byteLength),
     mergeAuthorization: async authorization => {
       const bytes = await store.read(workspaceId)
@@ -393,7 +398,7 @@ export function liveAutomergeWorkspaceSync(
     onHandoffRequest: options.onHandoffRequest
       ? (stream, frame) => measureScopePhase("callback.handoff-request", workspaceId, remoteDeviceId,
         () => options.onHandoffRequest!(stream, frame), frame.byteLength) : undefined,
-  })
+  }, options.proofPagingSupported ?? true)
   scope.startDocumentSync(localDeviceId, remoteDeviceId)
   const responseStream: DuplexStream = {
     async send(frame) {

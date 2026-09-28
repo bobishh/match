@@ -10,6 +10,7 @@ import { computeWorkspaceAdmission, type IncomingAuthorizationBundle } from "./w
 import { liveAutomergeWorkspaceSync, workspaceSet } from "./workspaceSet"
 import { registerOwnerOfferProofs, serveOwnerOfferProofs } from "./ownerOfferProofs"
 import { clearProofPages } from "./proofPageCache"
+import { publishConfirmedToSessions } from "./durableMeshOwnershipScope"
 import type { SyncConnection } from "./transport"
 
 beforeAll(async () => {
@@ -69,7 +70,7 @@ async function fixture(corruption?: "missing" | "forged") {
     expect(result.admittedHashes).toHaveLength(100)
   })
   const target = workspaceSet({ read: async () => { throw new Error("Not enrolled") }, merge, validate, activate: vi.fn() }, [doc.id])
-  return { id: doc.id, snapshot, offer, connection, target, merge, validate, release, requests }
+  return { id: doc.id, snapshot, offer, connection, source: workspaceSet(store, [doc.id]), target, merge, validate, release, requests }
 }
 
 it("Given approved future-board offer, pages bypass current scope and ACK waits for durable admission", async () => {
@@ -127,6 +128,23 @@ it("Given unapproved connection or changed manifest, dispatcher never serves arb
   const changed = encodePairingFrame("mesh-proof-request-v1", "old-secret", new TextEncoder().encode(JSON.stringify(request)))
   await expect(serveOwnerOfferProofs(f.connection, "old-secret", stream, changed)).rejects.toThrow("changed approved manifest")
   expect(stream.send).not.toHaveBeenCalled()
+  f.release()
+  await clearProofPages(f.id)
+})
+
+it("Given legacy peer, complete mid-size v1 remains compatible and manifest fetch stays unnegotiated", async () => {
+  const f = await fixture()
+  const legacy = await f.source.snapshot(undefined, false)
+  const entry = meshRustRuntime().state.decodeWorkspaceSet(legacy, [f.id])[0]!
+  expect(entry.authorization).toMatchObject({ version: 1 })
+  expect((entry.authorization as { records: unknown[] }).records).toHaveLength(100)
+  await expect(f.target.resolveProofs(f.snapshot, f.connection, "old-secret", false)).rejects.toThrow("did not negotiate")
+  expect(f.requests).toHaveLength(0)
+  const evict = vi.fn()
+  await expect(publishConfirmedToSessions([{ connection: f.connection, proofPagingSupported: false, evict } as never],
+    "old-secret", f.snapshot, "failed")).rejects.toThrow("does not support proof paging")
+  expect(evict).not.toHaveBeenCalled()
+  expect(f.requests).toHaveLength(0)
   f.release()
   await clearProofPages(f.id)
 })

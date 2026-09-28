@@ -65,13 +65,14 @@ export async function persistScopeAuthoritySnapshot(store: PeerStore, workspaceI
 }
 
 export async function confirmedOwnershipSnapshot(store: WorkspaceSetStore, workspaceId: string, transfer: WorkspaceOwnershipTransfer,
-  scopeAuthoritySnapshot: ScopeAuthoritySnapshot | undefined, exportWorkspace: (workspaceId: string) => Promise<MeshExport>) {
+  scopeAuthoritySnapshot: ScopeAuthoritySnapshot | undefined, exportWorkspace: (workspaceId: string) => Promise<MeshExport>,
+  proofPagingSupported = true) {
   return workspaceSet({ ...store, readMesh: async id => {
     const mesh = await exportWorkspace(id)
     if (id !== workspaceId) return mesh
     return { ...mesh, ownershipTransfers: [...(mesh.ownershipTransfers ?? []), transfer],
       scopeAuthoritySnapshot: scopeAuthoritySnapshot ?? mesh.scopeAuthoritySnapshot }
-  } }, [workspaceId]).snapshot()
+  } }, [workspaceId]).snapshot(undefined, proofPagingSupported)
 }
 
 export async function createOwnershipProposal(profile: LocalProfile, workspaceId: string,
@@ -95,8 +96,13 @@ export async function createOwnershipProposal(profile: LocalProfile, workspaceId
 }
 
 export async function publishConfirmedToSessions(sessions: SessionEntry[], secret: string, snapshot: Uint8Array, message: string) {
-  const receipts = await Promise.allSettled(sessions.map(session => publishConfirmedWorkspace(session.connection, secret, snapshot)))
-  await Promise.all(sessions.flatMap((session, index) => receipts[index]?.status === "rejected" ? [session.evict(message)] : []))
+  const receipts = await Promise.allSettled(sessions.map(session => publishConfirmedWorkspace(
+    session.connection, secret, snapshot, session.proofPagingSupported ?? false)))
+  const unsupported = (receipt: PromiseSettledResult<void> | undefined) => receipt?.status === "rejected"
+    && String(receipt.reason).includes("does not support proof paging")
+  await Promise.all(sessions.flatMap((session, index) => receipts[index]?.status === "rejected" && !unsupported(receipts[index])
+    ? [session.evict(message)] : []))
+  if (receipts.length && receipts.every(unsupported)) throw new Error("Peer does not support proof paging; update the app")
   return receipts.some(receipt => receipt.status === "fulfilled")
 }
 
@@ -106,4 +112,11 @@ export async function awaitOwnerDelivery(sessions: () => SessionEntry[], secret:
     if (Date.now() >= deadline) throw new Error("No owner confirmed the workspace before leaving. Keep an owner device online, then retry.")
     await new Promise(resolve => setTimeout(resolve, 200))
   }
+}
+
+export async function ownerDeliverySnapshot(store: WorkspaceSetStore, workspaceId: string, sessions: SessionEntry[], ownerPersonId: string) {
+  const owners = sessions.filter(session => session.workspaceId === workspaceId &&
+    session.remotePersonId === ownerPersonId && session.ownershipReceiptSupported)
+  return workspaceSet(store, [workspaceId]).snapshot(undefined,
+    owners.length > 0 && owners.every(session => session.proofPagingSupported))
 }
