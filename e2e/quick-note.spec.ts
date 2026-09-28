@@ -64,7 +64,7 @@ test("Given a Job search lead, when a quick note is added, then it uses the pres
 
   await expect(detail.getByText("Existing context\n\nFollow up Friday", { exact: true })).toBeVisible()
   await page.reload()
-  await page.getByRole("button").filter({ hasText: "Quick Note Corp" }).click()
+  await page.getByRole("button", { name: "Open Quick Note Corp — Engineer", exact: true }).click()
   await expect(page.getByRole("dialog", { name: "Lead details", exact: true })
     .getByText("Existing context\n\nFollow up Friday", { exact: true })).toBeVisible()
 })

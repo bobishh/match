@@ -35,19 +35,19 @@ test.describe("Automatic priority from workspace preferences", () => {
     await addLead(page, "Office only", "onsite")
     await addLead(page, "Remote first", "remote")
 
-    const remote = page.getByRole("button", { name: "Open Remote first — Backend Engineer" })
+    const remote = page.locator(".lead-card").filter({ has: page.getByRole("button", { name: "Open Remote first — Backend Engineer" }) })
     await expect(remote).toContainText("P0")
     await expect(remote).toContainText("8/10 fit")
-    const onsite = page.getByRole("button", { name: "Open Office only — Backend Engineer" })
+    const onsite = page.locator(".lead-card").filter({ has: page.getByRole("button", { name: "Open Office only — Backend Engineer" }) })
     await expect(onsite).toContainText("P3")
     await expect(onsite).toContainText("0/10 fit")
     const cards = page.getByRole("region", { name: "Lead" }).locator(".lead-card")
-    await expect(cards.first()).toHaveAccessibleName("Open Remote first — Backend Engineer")
+    await expect(cards.first().getByRole("button")).toHaveAccessibleName("Open Remote first — Backend Engineer")
 
     const reopened = await openPriorityRules(page)
     await reopened.getByLabel("Card order").selectOption("fit_asc")
     await reopened.getByRole("button", { name: "Save priority rules" }).click()
-    await expect(cards.first()).toHaveAccessibleName("Open Office only — Backend Engineer")
+    await expect(cards.first().getByRole("button")).toHaveAccessibleName("Open Office only — Backend Engineer")
   })
 
   test("Given automatic priority with no criteria, when saving, then settings stay open with an actionable error", async ({ page }) => {
