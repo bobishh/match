@@ -96,7 +96,9 @@ type WorkspaceWriteAuthorityEvidence = {
   deviceRevocations: Array<{ record: unknown; signer: WorkspaceAuthority }>
   departures: Array<{ record: unknown; authority: WorkspaceAuthority }>
 }
-type IncomingAuthorizationBundle = { version: 1; records: unknown[]; authority: WorkspaceWriteAuthorityEvidence }
+type IncomingAuthorizationBundle =
+  | { version: 1; records: unknown[]; authority: WorkspaceWriteAuthorityEvidence }
+  | { version: 2; pages: unknown[][]; authority: WorkspaceWriteAuthorityEvidence }
 type PendingHistoryRepair = { bytes: Uint8Array; hashes: string[]; authorization: Authorization[] }
 const historyRepairs = new Map<string, PendingHistoryRepair>()
 
@@ -218,7 +220,7 @@ export async function exportAuthorizations(bytes: Uint8Array) {
  * them. The receiver verifies this evidence before it uses any of it and does
  * not store it as a side effect of validation.
  */
-export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<IncomingAuthorizationBundle> {
+export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<Extract<IncomingAuthorizationBundle, { version: 1 }>> {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
   let authority = (await storedWorkspaceAuthority(doc.id)).authority
   if (!authority && typeof indexedDB === "undefined" && knownProfile?.identity.personId === doc.ownerPersonId) {
@@ -275,7 +277,8 @@ async function incomingCredential(workspaceId: string): Promise<StoredWorkspaceA
 
 function authorizationBundle(raw: unknown): IncomingAuthorizationBundle {
   const bundle = raw as IncomingAuthorizationBundle
-  if (!bundle || bundle.version !== 1 || !Array.isArray(bundle.records) || !bundle.authority) {
+  if (!bundle || ![1, 2].includes(bundle.version) || !bundle.authority ||
+    (bundle.version === 1 ? !Array.isArray(bundle.records) : !Array.isArray(bundle.pages))) {
     throw new Error("The peer needs an update: missing workspace authority evidence")
   }
   return bundle
@@ -311,11 +314,12 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   if (credential && meshRustRuntime().state.hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
+  const recordPages = meshRustRuntime().state.authorizationRecordPages(bundle)
+  const incomingRecords = recordPages.flat()
   const authority = meshRustRuntime().state.prepareWriteEvidence({ incoming: bundle.authority,
     known: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
-    records: bundle.records, genesisPersonId: local?.ownerPersonId ?? remote.ownerPersonId,
+    records: incomingRecords, genesisPersonId: local?.ownerPersonId ?? remote.ownerPersonId,
     remoteOwnerPersonId: remote.ownerPersonId }) as WorkspaceWriteAuthorityEvidence
-  if (bundle.records.length > 20000 || new TextEncoder().encode(JSON.stringify(bundle)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
   const knownHashes = local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : []
   const changes = Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change))
   const snapshot = {
@@ -333,7 +337,8 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
     departures: authority.departures,
   }
   const plan = meshRustRuntime().state.planChangeAdmissionFlow({
-    records: bundle.records,
+    records: bundle.version === 1 ? incomingRecords : [],
+    ...(bundle.version === 2 ? { recordPages } : {}),
     knownHashes,
     changes: changes.map(change => ({ hash: change.hash, dependencies: change.deps, actor: change.actor,
       message: change.message ?? "" })),

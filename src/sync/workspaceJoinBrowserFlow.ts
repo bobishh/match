@@ -155,17 +155,17 @@ async function installGuestInvitation(context: WorkspaceJoinBrowserContext, run:
   }))
   context.state.step.value = "workspace-guest-waiting"
   const guest = new BrowserWorkspaceJoinGuest(new WasmWorkspaceJoinHandshake(invite.secret, "guest"))
-  await guest.handle(stream, connection, request, bytes => installReceivedInvitation(context, run, invite, profile, replica, workspaceIds, bytes))
+  await guest.handle(stream, connection, request, bytes => installReceivedInvitation(context, run, invite, profile, replica, workspaceIds, bytes, connection))
 }
 
 async function installReceivedInvitation(context: WorkspaceJoinBrowserContext, run: number, invite: WorkspaceJoinInvite,
-  profile: LocalProfile, replica: ReturnType<typeof workspaceSet>, workspaceIds: string[], bytes: Uint8Array) {
+  profile: LocalProfile, replica: ReturnType<typeof workspaceSet>, workspaceIds: string[], bytes: Uint8Array, connection: SyncConnection) {
   const received = JSON.parse(new TextDecoder().decode(bytes)) as WorkspaceJoinPayload
   if (context.durableMesh && received.meshWorkspaces === undefined) throw new Error("The other device needs an update. Reload it and generate a new invitation.")
   if (!validWorkspaceJoinPayload(received, workspaceIds, profile.identity.personId)) throw new Error("The other device needs an update. Reload it and generate a new invitation.")
   if (context.currentRun() !== run) throw new Error("Workspace join was cancelled.")
   if (!meshOwnersMatch(received.meshWorkspaces, invite.issuerPersonId)) throw new Error("Invitation owner mismatch")
-  const snapshot = fromBase64Url(received.snapshot)
+  const snapshot = await replica.resolveProofs(fromBase64Url(received.snapshot), connection, invite.secret)
   await replica.validate(snapshot)
   await context.durableMesh?.validateInvitation(received.meshWorkspaces, workspaceIds, profile, received.grants)
   for (const grant of received.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)

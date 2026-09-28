@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises"
 import { decodePairingFrame, encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import type { SyncConnection } from "./transport"
 import { liveAutomergeWorkspaceSync, liveWorkspaceSetSync, workspaceSet, publishConfirmedWorkspace, publishOwnerWorkspaceOffer } from "./workspaceSet"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
+import { readProofPage, writeProofPage, clearProofPages } from "./proofPageCache"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { sha256Base64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
@@ -429,4 +431,100 @@ describe("rejected document isolation", () => {
     await session.close()
     remote.free?.()
   })
+})
+
+
+describe("paged initial snapshot transport", () => {
+  async function fixture() {
+    const doc = Automerge.from({ id: crypto.randomUUID(), title: "Pages" })
+    const document = Automerge.save(doc)
+    const hash = Automerge.decodeChange(Automerge.getLastLocalChange(doc)!).hash
+    const authorization = { version: 1, authority: { genesisOwner: { personId: "fixture-owner" } },
+      records: Array.from({ length: 20_001 }, (_, index) => ({ signed: { signature: `signature-${String(index).padStart(6, "0")}`,
+        payload: { hashes: [hash] } } })) }
+    const readAuthorization = vi.fn(async () => authorization)
+    const source = workspaceSet({ read: async () => document, readAuthorization,
+      merge: vi.fn(), activate: vi.fn() }, [doc.id])
+    const merge = vi.fn()
+    const validate = vi.fn(async (_id: string, _bytes: Uint8Array, proof: any) => {
+      expect(proof.version).toBe(2)
+      expect(proof.pages.flat()).toHaveLength(20_001)
+    })
+    const target = workspaceSet({ read: async () => { throw new Error("Absent snapshot") }, merge, validate, activate: vi.fn() }, [doc.id])
+    const frames: Uint8Array[] = []
+    let requests = 0
+    let failAt = 0
+    const connection = { openStream: async () => {
+      let request!: Uint8Array
+      return { send: async (frame: Uint8Array) => { request = frame; frames.push(frame) }, closeSend: async () => {},
+        read: async () => {
+          requests++
+          let reply!: Uint8Array
+          await source.serveProofPage(request, { read: vi.fn(), send: async frame => { reply = frame; frames.push(frame) }, closeSend: async () => {} }, "secret")
+          if (requests === failAt) throw new Error("Lost page response")
+          return reply
+        } }
+    }, acceptStream: vi.fn(), close: vi.fn() } as SyncConnection
+    return { id: doc.id, document, authorization, source, target, merge, validate, readAuthorization, connection, frames,
+      count: () => requests, fail: (at: number) => { failAt = at } }
+  }
+  it("Given 20,001 records, fetches bounded pages before any validation or document publication", async () => {
+    const f = await fixture()
+    const snapshot = await f.source.snapshot()
+    await expect(f.target.validate(snapshot)).rejects.toThrow(/pages required/)
+    expect(f.merge).not.toHaveBeenCalled()
+    const resolved = await f.target.resolveProofs(snapshot, f.connection, "secret")
+    expect(f.validate).not.toHaveBeenCalled()
+    expect(f.merge).not.toHaveBeenCalled()
+    expect(f.frames.every(frame => frame.length <= 256 * 1024)).toBe(true)
+    expect(f.readAuthorization).toHaveBeenCalledTimes(2) // Snapshot plus first source page; subsequent pages reuse frozen index.
+    await f.target.receive(resolved)
+    expect(f.merge).toHaveBeenCalledTimes(1)
+    const decoded = meshRustRuntime().state.decodeWorkspaceSet(resolved, [f.id])
+    expect((decoded[0]!.authorization as any).pages.flat()).toHaveLength(20_001)
+    await clearProofPages(f.id)
+  }, 20_000)
+  it("Given lost response, retry reuses saved pages; corrupt saved page forces bounded refetch", async () => {
+    const f = await fixture()
+    const snapshot = await f.source.snapshot()
+    f.fail(2)
+    await expect(f.target.resolveProofs(snapshot, f.connection, "secret")).rejects.toThrow("Lost page response")
+    expect(f.merge).not.toHaveBeenCalled()
+    const first = JSON.parse(new TextDecoder().decode(f.frames[0]!.subarray(f.frames[0]!.indexOf(10) + 1)))
+    const cacheKey = `${first.requestId}:${first.after}`
+    expect(await readProofPage(f.id, cacheKey)).toBeDefined()
+    await writeProofPage(f.id, cacheKey, new TextEncoder().encode("corrupt"))
+    const resolved = await f.target.resolveProofs(snapshot, f.connection, "secret")
+    expect(f.count()).toBeGreaterThan(2)
+    await f.target.receive(resolved)
+    expect(f.merge).toHaveBeenCalledTimes(1)
+    await clearProofPages(f.id)
+  }, 20_000)
+  it("Given durable local coverage, manifest resolves without network; authority still passes validation", async () => {
+    const f = await fixture()
+    const target = workspaceSet({ read: async () => f.document, merge: vi.fn(), activate: vi.fn(), validate: vi.fn() }, [f.id])
+    const resolved = await target.resolveProofs(await f.source.snapshot())
+    const entry = meshRustRuntime().state.decodeWorkspaceSet(resolved, [f.id])[0]!
+    expect(entry.authorization).toMatchObject({ version: 2, pages: [] })
+    await target.validate(resolved)
+    expect(f.count()).toBe(0)
+  })
+  it("Given initial durable batch, emits receipt only after all pages and durable merge", async () => {
+    const f = await fixture()
+    let release!: () => void
+    const durable = new Promise<void>(resolve => { release = resolve })
+    const merge = vi.fn(() => durable)
+    const target = workspaceSet({ read: async () => { throw new Error("Absent snapshot") }, merge, activate: vi.fn() }, [f.id])
+    const stream = { send: vi.fn(), closeSend: vi.fn(), read: async () => encodePairingFrame("mesh-durable-batch", "secret", await f.source.snapshot()) }
+    let sent = false
+    f.connection.acceptStream = async () => { if (!sent) { sent = true; return stream }; return new Promise<never>(() => {}) }
+    const session = liveWorkspaceSetSync(f.connection, "secret", target)
+    await vi.waitFor(() => expect(merge).toHaveBeenCalled(), { timeout: 20_000 })
+    expect(stream.send).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => expect(stream.send).toHaveBeenCalledTimes(1))
+    expect(inspectPairingFrame(stream.send.mock.calls[0]![0]).type).toBe("mesh-durable-ack")
+    await session.close()
+    await clearProofPages(f.id)
+  }, 20_000)
 })

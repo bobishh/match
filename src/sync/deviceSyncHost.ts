@@ -222,6 +222,7 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
       },
       approve: guest => approveWorkspaceAccess(runtime, guest),
       prepare: result => prepareWorkspaceAccess(runtime, result),
+      beforeAckFrame: (frame, stream) => runtime.replica.serveProofPage(frame, stream, runtime.invite.secret),
       acknowledged: payload => runtime.replica.receive(payload),
     })
     if (result.kind !== "accepted" || !("value" in result)) return

@@ -341,8 +341,17 @@ async function approveEnrollment(
     await context.durableMesh!.invitationPayload(ids), transfer.grants, await replica.snapshot())
   await stream.send(encodePairingFrame("enroll-approved", secret, payload))
   await stream.closeSend()
-  const ack = await connection.acceptStream()
-  const acknowledgement = await ack.read()
+  let ack: Awaited<ReturnType<SyncConnection["acceptStream"]>> | undefined
+  let acknowledgement: Uint8Array | undefined
+  for (let rounds = 0; rounds < 4096; rounds++) {
+    const incoming = await connection.acceptStream()
+    const frame = await incoming.read()
+    if (await replica.serveProofPage(frame, incoming, secret)) continue
+    ack = incoming
+    acknowledgement = frame
+    break
+  }
+  if (!ack || !acknowledgement) throw new Error("Enrollment proof reply limit exceeded")
   if (inspectPairingFrame(acknowledgement).type === "enroll-rejected") {
     const reason = enrollmentRejection(decodePairingFrame(acknowledgement, "enroll-rejected", secret))
     await ack.send(encodePairingFrame("enroll-rejected-ack", secret, new Uint8Array()))
@@ -453,11 +462,13 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   let prepared: Awaited<ReturnType<typeof preflightEnrollment>>
   let ids: string[]
   let replica: ReturnType<typeof workspaceSet>
+  let snapshot: Uint8Array
   try {
     prepared = await preflightEnrollment(response, invite, profile)
     ids = prepared.payload.workspaces.map(item => item.id)
     replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore!, prepared.payload.workspaces)
-    await replica.validate(fromBase64Url(prepared.payload.snapshot))
+    snapshot = await replica.resolveProofs(fromBase64Url(prepared.payload.snapshot), connection, invite.secret)
+    await replica.validate(snapshot)
     await context.durableMesh!.validateInvitation(prepared.payload.meshWorkspaces, ids, prepared.profile, prepared.payload.grants)
   } catch (error) {
     await sendEnrollmentRejection(connection, invite.secret, error).catch(() => undefined)
@@ -465,7 +476,7 @@ async function receiveEnrollmentApproval(context: EnrollmentContext, run: number
   }
   const enrolled = await installEnrollment(response, invite, profile, context.state.replacementPersonId.value)
   await context.identityChanged?.()
-  await replica.receive(fromBase64Url(enrolled.snapshot))
+  await replica.receive(snapshot)
   await context.durableMesh!.receiveInvitation(enrolled.meshWorkspaces, ids, enrolled.profile, enrolled.grants)
   const ownerIds = enrolled.meshWorkspaces.filter(item => item.ownerPersonId === enrolled.profile.identity.personId).map(item => item.workspaceId)
   await context.durableMesh!.ensureOwnerWorkspaces(ownerIds, node.endpointId, enrolled.profile)
