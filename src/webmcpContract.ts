@@ -31,6 +31,7 @@ export type ToolStore = {
   trashItems?: { value: TrashEntry[] } | TrashEntry[];
   placementIssues?: { value: PlacementIssue[] } | PlacementIssue[];
   sendChatMessage?: (body: string) => Promise<void>;
+  getSyncTrace?: () => unknown[];
 };
 
 type WorkspaceSummary = {

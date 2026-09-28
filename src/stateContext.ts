@@ -23,11 +23,13 @@ export type StateRuntime = {
   pendingWrites: number;
   batchSaveFailed: boolean;
   workspaceCommandQueues: Map<string, Promise<void>>;
-  localChangeListeners: Set<() => void>;
+  localChangeListeners: Set<(workspaceId?: string) => void>;
   storageChannel: BroadcastChannel | undefined;
   reconcilePromise: Promise<void> | undefined;
   reconcileRequested: boolean;
   reconcileWorkspaceChanged: boolean;
+  reconcileWorkspaceIds: Set<string>;
+  reconcileWorkspaceUnknown: boolean;
 };
 
 export const stateRuntime: StateRuntime = {
@@ -59,4 +61,6 @@ export const stateRuntime: StateRuntime = {
   reconcilePromise: undefined,
   reconcileRequested: false,
   reconcileWorkspaceChanged: false,
+  reconcileWorkspaceIds: new Set(),
+  reconcileWorkspaceUnknown: false,
 };

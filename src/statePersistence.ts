@@ -56,6 +56,8 @@ export function resetStateForTest(): void {
   stateRuntime.reconcilePromise = undefined;
   stateRuntime.reconcileRequested = false;
   stateRuntime.reconcileWorkspaceChanged = false;
+  stateRuntime.reconcileWorkspaceIds.clear();
+  stateRuntime.reconcileWorkspaceUnknown = false;
   clearWorkspaceProjection();
   stateRuntime.availableWorkspaces.value = [];
   Object.assign(stateRuntime.activeWorkspaceMeta, {
@@ -167,11 +169,14 @@ export async function persistAuthorizedCommand(
   return result.value.newDoc;
 }
 
-export async function reconcile(storage = defaultStorage, workspaceChanged = false): Promise<void> {
+export async function reconcile(storage = defaultStorage, workspaceChanged = false, changedWorkspaceId?: string): Promise<void> {
   if (!stateRuntime.ready.value || !stateRuntime.activeDoc)
     return;
-  if (workspaceChanged)
+  if (workspaceChanged) {
     stateRuntime.reconcileWorkspaceChanged = true;
+    if (changedWorkspaceId) stateRuntime.reconcileWorkspaceIds.add(changedWorkspaceId);
+    else stateRuntime.reconcileWorkspaceUnknown = true;
+  }
   if (stateRuntime.reconcilePromise) {
     stateRuntime.reconcileRequested = true;
     return stateRuntime.reconcilePromise;
@@ -181,7 +186,11 @@ export async function reconcile(storage = defaultStorage, workspaceChanged = fal
       stateRuntime.reconcileRequested = false;
       const workspaceChanged = stateRuntime.reconcileWorkspaceChanged;
       stateRuntime.reconcileWorkspaceChanged = false;
-      await reconcileWorkspace(storage, workspaceChanged);
+      const workspaceIds = new Set(stateRuntime.reconcileWorkspaceIds);
+      stateRuntime.reconcileWorkspaceIds.clear();
+      const workspaceUnknown = stateRuntime.reconcileWorkspaceUnknown;
+      stateRuntime.reconcileWorkspaceUnknown = false;
+      await reconcileWorkspace(storage, workspaceChanged, workspaceIds, workspaceUnknown);
     } while (stateRuntime.reconcileRequested);
   })().finally(() => {
     stateRuntime.reconcilePromise = undefined;
@@ -208,8 +217,8 @@ export async function refreshAvailableWorkspaces(
   }
 }
 
-export function notifyLocalChanges(): void {
-  for (const listener of stateRuntime.localChangeListeners) listener();
+export function notifyLocalChanges(workspaceId?: string): void {
+  for (const listener of stateRuntime.localChangeListeners) listener(workspaceId);
 }
 
 async function loadInitialWorkspace(
@@ -406,7 +415,7 @@ async function persistCommand(
     type: "workspace-persisted",
     workspaceId,
   });
-  notifyLocalChanges();
+  notifyLocalChanges(workspaceId);
 }
 
 async function latestWorkspaceDocument(
@@ -444,7 +453,8 @@ function ensureContentWrite(role: WorkspaceRole): void {
   if (role === "visitor") assertWorkspaceCapability(role, "content.write");
 }
 
-async function reconcileWorkspace(storage: WorkspaceStorage, workspaceChanged = false): Promise<void> {
+async function reconcileWorkspace(storage: WorkspaceStorage, workspaceChanged = false,
+  changedWorkspaceIds = new Set<string>(), workspaceUnknown = false): Promise<void> {
   const active = stateRuntime.activeDoc;
   if (!active) return;
   await refreshAvailableWorkspaces(storage);
@@ -452,7 +462,14 @@ async function reconcileWorkspace(storage: WorkspaceStorage, workspaceChanged = 
   const activeChanged = loaded &&
     Automerge.getHeads(active).sort().join(",") !== loaded.heads.join(",");
   if (activeChanged) updateReactiveState(loaded.doc);
-  if (activeChanged || workspaceChanged) notifyLocalChanges();
+  if (workspaceUnknown) {
+    notifyLocalChanges();
+    return;
+  }
+  const changedIds = new Set(changedWorkspaceIds);
+  if (activeChanged) changedIds.add(active.id);
+  for (const id of changedIds) notifyLocalChanges(id);
+  if (workspaceChanged && changedIds.size === 0) notifyLocalChanges();
 }
 
 function clearWorkspaceProjection(): void {
@@ -485,9 +502,10 @@ function replaceWorkspaceProjection(
   );
 }
 
-stateRuntime.storageChannel?.addEventListener("message", (event: MessageEvent<{ type?: unknown }>) => {
+stateRuntime.storageChannel?.addEventListener("message", (event: MessageEvent<{ type?: unknown; workspaceId?: unknown }>) => {
   if (event.data?.type !== "workspace-persisted") return;
-  void reconcile(defaultStorage, true);
+  void reconcile(defaultStorage, true,
+    typeof event.data.workspaceId === "string" ? event.data.workspaceId : undefined);
 });
 if (typeof window !== "undefined") {
   window.addEventListener("focus", () => {

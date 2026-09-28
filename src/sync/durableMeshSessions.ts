@@ -16,6 +16,8 @@ import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export class DurableMeshSessions extends DurableMeshHandshake {
+  private readonly workspacePublishTasks = new Map<string, Promise<void>>()
+  private readonly dirtyWorkspacePublishes = new Set<string>()
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
     peers: async () => (await this.peerInstances()).filter(peer => !isNativeLighthouseRoute(peer)),
     hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
@@ -360,18 +362,60 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   }
 
   protected async publishAll() {
-    await this.browserSessions.publishAll(async workspaceId => {
-      try { await this.broadcastWorkspaceGossip(workspaceId) }
-      catch (error) {
-        this.trace("gossip.broadcast.failed", {
-          workspaceId: workspaceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error),
-        }, "warn")
-      }
-    }, async (key, entry, error) => {
-      const networkFailure = this.recordRouteFailure(key, error)
-      if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
-      await entry.evict("publish failed")
+    const started = performance.now()
+    this.trace("workspace.publish.requested", { workspaceId: "*", source: "all" })
+    try {
+      const workspaceIds = [...new Set([...this.sessions.values()].map(entry => entry.workspaceId))]
+      await Promise.allSettled(workspaceIds.map(workspaceId => this.publishWorkspace(workspaceId)))
+    } finally {
+      this.trace("workspace.publish.completed", {
+        workspaceId: "*", source: "all", elapsedMs: Math.round(performance.now() - started),
+      })
+    }
+  }
+
+  protected publishWorkspace(workspaceId: string): Promise<void> {
+    this.trace("workspace.publish.requested", { workspaceId: workspaceId.slice(0, 8), source: "scoped" })
+    const active = this.workspacePublishTasks.get(workspaceId)
+    if (active) {
+      this.dirtyWorkspacePublishes.add(workspaceId)
+      this.trace("workspace.publish.coalesced", { workspaceId: workspaceId.slice(0, 8) })
+      return active
+    }
+    const task = (async () => {
+      do {
+        this.dirtyWorkspacePublishes.delete(workspaceId)
+        const sessions = [...this.sessions.entries()].filter(([, entry]) => entry.workspaceId === workspaceId)
+        const started = performance.now()
+        this.trace("workspace.publish.started", { workspaceId: workspaceId.slice(0, 8), sessions: sessions.length })
+        try {
+          await Promise.allSettled(sessions.map(async ([key, entry]) => {
+            try { await entry.session.publish() }
+            catch (error) {
+              const networkFailure = this.recordRouteFailure(key, error)
+              if (!networkFailure) this.report(`Publish ${entry.deviceId.slice(0, 6)}`, error)
+              await entry.evict("publish failed")
+            }
+          }))
+          try { await this.broadcastWorkspaceGossip(workspaceId) }
+          catch (error) {
+            this.trace("gossip.broadcast.failed", {
+              workspaceId: workspaceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error),
+            }, "warn")
+          }
+        } finally {
+          this.trace("workspace.publish.completed", {
+            workspaceId: workspaceId.slice(0, 8), source: "scoped", sessions: sessions.length,
+            elapsedMs: Math.round(performance.now() - started),
+          })
+        }
+      } while (this.dirtyWorkspacePublishes.has(workspaceId))
+    })().finally(() => {
+      this.workspacePublishTasks.delete(workspaceId)
+      this.dirtyWorkspacePublishes.delete(workspaceId)
     })
+    this.workspacePublishTasks.set(workspaceId, task)
+    return task
   }
 
   protected recordRouteFailure(key: string, error: unknown): boolean {

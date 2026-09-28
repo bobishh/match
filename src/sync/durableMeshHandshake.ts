@@ -47,6 +47,17 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   private offlineHandler: (() => void) | undefined
   private authenticatedSessions: RustMeshAuthenticatedSessions | undefined
 
+  protected abstract publishWorkspace(workspaceId: string): Promise<void>
+
+  private subscribeWorkspaceUpdates() {
+    const scoped = this.options.workspace.subscribeWorkspace
+    if (scoped) return scoped(workspaceId => {
+      if (workspaceId) void this.publishWorkspace(workspaceId)
+      else void this.publishAll()
+    })
+    return this.options.workspace.subscribe?.(() => { void this.publishAll() })
+  }
+
   protected rustAuthenticatedSessions(): RustMeshAuthenticatedSessions {
     return this.authenticatedSessions ??= meshRustRuntime().createMeshAuthenticatedSessions()
   }
@@ -171,7 +182,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     const offline = () => { void this.dropSessions() }
     this.offlineHandler = offline
     if (typeof window !== "undefined") window.addEventListener("offline", offline)
-    this.stopWatch = this.options.workspace.subscribe?.(() => { void this.publishAll() })
+    this.stopWatch = this.subscribeWorkspaceUpdates()
     await this.superviseNode(signal)
   }
 

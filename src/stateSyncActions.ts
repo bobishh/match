@@ -60,7 +60,7 @@ async function mergeAuthorizedWorkspace(
   // a document head. Notify the live mesh in that proof-only case too.
   const documentChanged = await mergeValidatedWorkspaceBytes(id, remote);
   const proofChanged = await persistIncomingChangeAuthorizations(id, verified);
-  if (proofChanged && !documentChanged) notifyLocalChanges();
+  if (proofChanged && !documentChanged) notifyLocalChanges(id);
 }
 
 /**
@@ -148,8 +148,8 @@ async function saveMergedWorkspace(
   await storage.saveSnapshot(id, doc, Automerge.save(doc));
   if (stateRuntime.activeDoc?.id === id) updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
-  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
-  notifyLocalChanges();
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId: id });
+  notifyLocalChanges(id);
 }
 
 async function importWorkspaceDocument(
@@ -165,7 +165,7 @@ async function importWorkspaceDocument(
   await addWorkspaceToPersonalRoot(doc.id, "import", storage);
   await switchWorkspace(doc.id, storage);
   await refreshAvailableWorkspaces(storage);
-  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId: doc.id });
 }
 
 function invalidWorkspaceReceived(diagnostic: {
@@ -210,7 +210,7 @@ async function mergeWorkspaceRecord(
   await reconcile(storage);
 }
 
-function subscribeLocalChanges(listener: () => void): () => void {
+function subscribeLocalChanges(listener: (workspaceId?: string) => void): () => void {
   stateRuntime.localChangeListeners.add(listener);
   return () => stateRuntime.localChangeListeners.delete(listener);
 }

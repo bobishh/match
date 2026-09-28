@@ -10,6 +10,7 @@ import { configureChat, exportChat, receiveChat, subscribeChat } from "../chat/s
 import { useWorkspaceChat } from "../chat/useWorkspaceChat"
 import { defaultBoardFilters, type BoardFilters } from "../filters"
 import { useDeviceSync } from "../sync/useDeviceSync"
+import { meshTrace } from "../sync/meshTrace"
 import { useAppMesh } from "./useAppMesh"
 import { blobDescriptor, configureAttachmentFetcher, readStoredAttachment, writeStoredAttachment } from "../attachments"
 
@@ -98,12 +99,19 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
   const sync = useDeviceSync({
     displayName: () => identityName.value,
     identityChanged: match.refreshIdentity,
-    workspace: { subscribe: listener => subscribeWorkspaceAndChat(match.subscribeLocalChanges, listener) },
+    workspace: {
+      subscribe: listener => subscribeWorkspaceAndChat(match.subscribeLocalChanges, listener),
+      subscribeWorkspace: listener => subscribeWorkspaceAndChatScoped(match.subscribeLocalChanges, listener),
+    },
     workspaceStore: {
-      read: match.readWorkspaceBytes,
-      validate: async (id, bytes, authorization) => { await match.validateAuthorizedWorkspace(id, bytes, authorization) },
-      merge: match.mergeAuthorizedWorkspace,
-      readAuthorization: exportAuthorizationBundle,
+      read: id => timedWorkspaceStoreStage("read", id, () => match.readWorkspaceBytes(id)),
+      validate: (id, bytes, authorization) => timedWorkspaceStoreStage("validate", id, async () => {
+        await match.validateAuthorizedWorkspace(id, bytes, authorization)
+      }),
+      merge: (id, bytes, authorization) => timedWorkspaceStoreStage("merge", id, () =>
+        match.mergeAuthorizedWorkspace(id, bytes, authorization)),
+      readAuthorization: (bytes, id) => timedWorkspaceStoreStage("read-authorization", id ?? "unknown", () =>
+        exportAuthorizationBundle(bytes)),
       activate: match.switchWorkspace,
       readChat: exportChat,
       mergeChat: receiveChat,
@@ -156,6 +164,26 @@ function subscribeWorkspaceAndChat(subscribeLocalChanges: ReturnType<typeof useM
   const stopWorkspace = subscribeLocalChanges(listener)
   const stopChat = subscribeChat(listener)
   return () => { stopWorkspace(); stopChat() }
+}
+
+function subscribeWorkspaceAndChatScoped(
+  subscribeLocalChanges: ReturnType<typeof useMatch>["subscribeLocalChanges"],
+  listener: (workspaceId?: string) => void,
+) {
+  const stopWorkspace = subscribeLocalChanges(listener)
+  const stopChat = subscribeChat(event => listener(event.workspaceId))
+  return () => { stopWorkspace(); stopChat() }
+}
+
+async function timedWorkspaceStoreStage<T>(stage: string, workspaceId: string, operation: () => Promise<T>): Promise<T> {
+  const started = performance.now()
+  try { return await operation() }
+  finally {
+    const elapsedMs = Math.round(performance.now() - started)
+    if (elapsedMs >= 1_000) meshTrace("workspace.store.slow", {
+      stage, workspaceId: workspaceId.slice(0, 8), elapsedMs,
+    }, "warn")
+  }
 }
 
 async function resolveWorkspaceOwner(readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"], id: string) {

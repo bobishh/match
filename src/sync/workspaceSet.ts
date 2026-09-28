@@ -1,4 +1,5 @@
 import { BrowserMeshScopeSync, createLiveWorkspaceSession, type RustLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
+import { inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
@@ -10,6 +11,8 @@ import type { DuplexStream, SyncConnection } from "./transport"
 
 export type WorkspaceReplica = {
   subscribe?: (listener: () => void) => () => void
+  /** Scope-aware updates for durable per-workspace sessions. */
+  subscribeWorkspace?: (listener: (workspaceId?: string) => void) => () => void
 }
 
 export type LiveWorkspaceSync = {
@@ -28,7 +31,7 @@ export type WorkspaceSetStore = {
   validate?: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   merge: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   activate: (id: string) => Promise<void>
-  readAuthorization?: (bytes: Uint8Array) => Promise<unknown>
+  readAuthorization?: (bytes: Uint8Array, workspaceId?: string) => Promise<unknown>
   readChat?: (id: string, known?: Set<string>) => Promise<unknown>
   mergeChat?: (id: string, value: unknown, history: boolean) => Promise<void>
   readMesh?: (id: string) => Promise<unknown>
@@ -68,7 +71,7 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
         try {
           const bytes = await store.read(id)
           return { id, bytes: toBase64Url(bytes),
-            ...(store.readAuthorization ? { authorization: await store.readAuthorization(bytes) } : {}),
+            ...(store.readAuthorization ? { authorization: await store.readAuthorization(bytes, id) } : {}),
             ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
               const known = knownChat.get(id) ?? new Set<string>()
               knownChat.set(id, known)
@@ -308,9 +311,11 @@ export function liveAutomergeWorkspaceSync(
   let stopped = false
   let lastRejection: string | undefined
   let heartbeatQueue = Promise.resolve()
+  const liveness = createLiveWorkspaceSession(workspaceId, secret)
+  const frameHandlers = new Set<Promise<void>>()
   const scope = BrowserMeshScopeSync.create(workspaceId, secret, {
     readDocument: () => store.read(workspaceId),
-    readAuthorization: store.readAuthorization ? bytes => store.readAuthorization!(bytes) : undefined,
+    readAuthorization: store.readAuthorization ? bytes => store.readAuthorization!(bytes, workspaceId) : undefined,
     readChat: store.readChat ? known => store.readChat!(workspaceId, known) : undefined,
     readMesh: store.readMesh ? () => store.readMesh!(workspaceId) : undefined,
     persistDocument: async (candidate, proof) => {
@@ -373,20 +378,18 @@ export function liveAutomergeWorkspaceSync(
       lastRejection = error.message
     }
   }
+  const incomingContext = { isStopped: () => stopped, liveness, receive, workspaceId, remoteDeviceId }
   const done = (async () => {
     try {
       while (!stopped) {
         const stream = await connection.acceptStream()
         if (stopped) return
-        const frame = await stream.read()
-        try { await receive(stream, frame) }
-        catch (error) {
-          meshTrace("workspace.frame.rejected", {
-            workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8),
-            reason: error instanceof Error ? error.message : String(error),
-          }, "warn")
-          await stream.closeSend().catch(() => {})
-        }
+        // Keep accepting independent QUIC streams while application storage
+        // waits. Scope runtime still serializes document/control mutations.
+        const task = handleLiveWorkspaceStream(stream, incomingContext)
+        frameHandlers.add(task)
+        void task.finally(() => frameHandlers.delete(task))
+        if (frameHandlers.size >= 32) await Promise.race(frameHandlers)
       }
     } catch (error) { if (!stopped) throw error }
   })()
@@ -409,7 +412,45 @@ export function liveAutomergeWorkspaceSync(
     async close() {
       stopped = true
       try { await connection.close() }
-      finally { await scope.close() }
+      finally { liveness.free?.(); await scope.close() }
     },
   }
+}
+
+async function handleLiveWorkspaceStream(stream: DuplexStream, context: {
+  isStopped: () => boolean
+  liveness: RustLiveWorkspaceSession
+  receive: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
+  workspaceId: string
+  remoteDeviceId: string
+}): Promise<void> {
+  const { liveness, receive, workspaceId, remoteDeviceId } = context
+    const started = performance.now()
+    let kind = "unread"
+    try {
+      const frame = await stream.read()
+      if (context.isStopped()) return
+      kind = inspectPairingFrame(frame).type
+      meshTrace("workspace.receive.started", {
+        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8), kind,
+      })
+      if (kind === "sync-heartbeat") {
+        // Rust authenticates and validates heartbeat independently of pending
+        // document storage. A liveness ACK never acknowledges persisted data.
+        const operation = liveness.receiveWithPlan(frame)
+        if (!operation || operation.action.kind !== "heartbeat") throw new Error("Invalid mesh heartbeat")
+        await applyWorkspaceSetReceivePlan(liveness, operation, stream, frame, async () => {}, {})
+      } else await receive(stream, frame)
+    } catch (error) {
+      if (!context.isStopped()) meshTrace("workspace.frame.rejected", {
+        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8),
+        reason: error instanceof Error ? error.message : String(error),
+      }, "warn")
+      await stream.closeSend().catch(() => {})
+    } finally {
+      meshTrace("workspace.receive.completed", {
+        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8), kind,
+        elapsedMs: Math.round(performance.now() - started),
+      })
+    }
 }

@@ -2,7 +2,6 @@ import {
   noUnknown, objectInput, optionalString, requiredString,
   type RegisterTool, type ToolStore,
 } from "../webmcpContract"
-import { meshTraceSnapshot } from "../sync/meshTrace"
 
 export async function registerUtilityTools(store: ToolStore, register: RegisterTool): Promise<void> {
   await register({
@@ -13,7 +12,7 @@ export async function registerUtilityTools(store: ToolStore, register: RegisterT
     annotations: { readOnlyHint: true },
     execute(input) {
       noUnknown(objectInput(input), [])
-      return { capturedAt: new Date().toISOString(), events: meshTraceSnapshot() }
+      return { capturedAt: new Date().toISOString(), events: store.getSyncTrace?.() ?? [] }
     },
   })
 

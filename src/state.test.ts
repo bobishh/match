@@ -32,10 +32,10 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
 
   it("notifies subscribers only after durable commit succeeds", async () => {
     const match = useMatch()
-    let changeNotified = false
+    let changedWorkspaceId: string | undefined
 
-    const unsubscribe = match.subscribeLocalChanges(() => {
-      changeNotified = true
+    const unsubscribe = match.subscribeLocalChanges(workspaceId => {
+      changedWorkspaceId = workspaceId
     })
 
     const lead = await match.createLeadAsync({
@@ -46,7 +46,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     })
 
     expect(lead).toBeDefined()
-    expect(changeNotified).toBe(true)
+    expect(changedWorkspaceId).toBe(match.activeWorkspace.id)
     expect(match.workspace.leads.some((l) => l.company === "Stripe")).toBe(true)
 
     unsubscribe()

@@ -45,7 +45,7 @@ async function createWorkspaceAsync(
   await saveActiveWorkspaceId(id);
   updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
-  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId: id });
   return doc;
 }
 
@@ -68,7 +68,7 @@ async function importWorkspaceAsNew(
   await saveActiveWorkspaceId(doc.id);
   updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
-  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId: doc.id });
   return doc;
 }
 
@@ -145,7 +145,7 @@ async function deleteWorkspaceAsync(
     stateRuntime.availableWorkspaces.value.filter(
       (workspace) => workspace.id !== workspaceId,
     );
-  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted" });
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });
   if (wasActive) return selectWorkspaceReplacement(storage);
 }
 

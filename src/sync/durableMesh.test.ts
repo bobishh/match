@@ -358,15 +358,40 @@ describe("DurableMesh peer catalog gossip", () => {
       store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never, onDiagnostic })
     const internal = mesh as any
     const evict = vi.fn(async () => {})
-    internal.browserSessions.publishAll = vi.fn(async (_broadcast: unknown, onFailure: (key: string, entry: unknown, error: unknown) => Promise<void>) => {
-      await onFailure("workspace:remote", { deviceId: "remote-device", evict },
-        new MeshNetworkError("closed by peer: browser connection closed (code 0)"))
-    })
+    internal.sessions.set("workspace:remote:slot", { workspaceId: "workspace", deviceId: "remote-device", evict,
+      session: { publish: async () => { throw new MeshNetworkError("closed by peer: browser connection closed (code 0)") } } })
 
     await internal.publishAll()
 
     expect(evict).toHaveBeenCalledWith("publish failed")
     expect(onDiagnostic).not.toHaveBeenCalled()
+    await mesh.dispose()
+  })
+
+  it("Given one workspace publishes slowly, when that scope changes repeatedly, then unrelated scopes stay idle and requests coalesce", async () => {
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listPeers: async () => [], listWorkspaceCredentials: async () => [] } as never })
+    const internal = mesh as any
+    let release!: () => void
+    const firstPublish = new Promise<void>(resolve => { release = resolve })
+    const scoped = { publish: vi.fn().mockImplementationOnce(() => firstPublish).mockResolvedValue(undefined) }
+    const unrelated = { publish: vi.fn().mockResolvedValue(undefined) }
+    internal.sessions.set("scope-a:peer:slot", { workspaceId: "scope-a", deviceId: "peer", session: scoped,
+      evict: vi.fn(async () => {}) })
+    internal.sessions.set("scope-b:peer:slot", { workspaceId: "scope-b", deviceId: "peer", session: unrelated,
+      evict: vi.fn(async () => {}) })
+    internal.broadcastWorkspaceGossip = vi.fn(async () => {})
+
+    const publishing = internal.publishWorkspace("scope-a")
+    await vi.waitFor(() => expect(scoped.publish).toHaveBeenCalledOnce())
+    const repeated = [internal.publishWorkspace("scope-a"), internal.publishWorkspace("scope-a")]
+    release()
+    await Promise.all([publishing, ...repeated])
+
+    expect(scoped.publish).toHaveBeenCalledTimes(2)
+    expect(unrelated.publish).not.toHaveBeenCalled()
+    expect(internal.broadcastWorkspaceGossip).toHaveBeenCalledTimes(2)
     await mesh.dispose()
   })
 

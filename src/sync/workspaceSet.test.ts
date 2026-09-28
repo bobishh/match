@@ -329,6 +329,33 @@ describe("incremental workspace control plane", () => {
 
 
 describe("rejected document isolation", () => {
+  it("Given blocked persistence, when authenticated heartbeat arrives, then liveness replies before any durable receipt", async () => {
+    let saved!: () => void
+    const pending = new Promise<void>(resolve => { saved = resolve })
+    const batch = new TextEncoder().encode(JSON.stringify([{ id: "workspace", bytes: "AA" }]))
+    const frames = [encodePairingFrame("mesh-durable-batch", "secret", batch),
+      encodePairingFrame("sync-heartbeat", "wrong-secret", new Uint8Array()),
+      encodePairingFrame("sync-heartbeat", "secret", new Uint8Array())]
+    const streams = frames.map(frame => ({ read: async () => frame, send: vi.fn(), closeSend: vi.fn(async () => {}) }))
+    let index = 0
+    const connection = { acceptStream: async () => streams[index++] ?? new Promise<never>(() => {}),
+      close: vi.fn(), openStream: vi.fn() }
+    const merge = vi.fn(() => pending)
+    const session = liveAutomergeWorkspaceSync(connection, "secret", {
+      read: async () => new Uint8Array(), merge, activate: vi.fn(),
+    }, "workspace", "local", "remote")
+    await vi.waitFor(() => expect(streams[2]!.send).toHaveBeenCalledOnce())
+    expect(merge).toHaveBeenCalledOnce()
+    expect(streams[0]!.send).not.toHaveBeenCalled()
+    expect(streams[1]!.send).not.toHaveBeenCalled()
+    expect(inspectPairingFrame(streams[2]!.send.mock.calls[0]![0]).type).toBe("sync-heartbeat-ack")
+    expect(connection.close).not.toHaveBeenCalled()
+    saved()
+    await vi.waitFor(() => expect(streams[0]!.send).toHaveBeenCalledOnce())
+    expect(inspectPairingFrame(streams[0]!.send.mock.calls[0]![0]).type).toBe("mesh-durable-ack")
+    await session.close()
+  })
+
   it("keeps the peer session alive when one application control frame cannot be stored", async () => {
     const authorization = [{ signed: { signature: "legacy-proof" } }]
     const frames = [
