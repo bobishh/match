@@ -575,6 +575,30 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
   }
 })
 
+test("Given a connected peer misses a local change notification, then periodic anti-entropy converges without adding another device", async ({ browser }) => {
+  test.setTimeout(90_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await pairWorkspace(host, guest)
+    await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await guest.evaluate(async () => {
+      const { stateRuntime } = await import("/src/stateContext.ts")
+      stateRuntime.localChangeListeners.clear()
+    })
+
+    await addLead(guest, "Recovered without third device")
+
+    await expect(host.getByRole("button", { name: "Open Recovered without third device — Engineer" }))
+      .toBeVisible({ timeout: 20_000 })
+  } finally {
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
 test("Given an existing editor, when the owner enrolls another device, then the owner device verifies that editor after reload", async ({ browser, page }) => {
   test.setTimeout(120_000)
   const editorContext = await isolatedContext(browser)

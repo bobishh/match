@@ -14,6 +14,7 @@ export type WorkspaceReplica = {
 
 export type LiveWorkspaceSync = {
   publish: () => Promise<void>
+  reconcile?: () => Promise<void>
   heartbeat?: () => Promise<void>
   close: () => Promise<void>
   done: Promise<void>
@@ -391,6 +392,11 @@ export function liveAutomergeWorkspaceSync(
   })()
   return {
     done,
+    async reconcile() {
+      if (stopped) return
+      try { await scope.reconcile(sendFrame) }
+      catch (error) { if (!stopped) throw error }
+    },
     async publish() {
       if (stopped) return
       try { await scope.publish(sendFrame) }
