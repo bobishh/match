@@ -55,7 +55,7 @@ recovery-envelope export, key rotation, or stolen-device recovery flow.
 ## Connection protocol
 
 A session authenticates its remote identity and negotiates capabilities. Owner
-workspace offers use `mesh-owner-workspace-offer` / `owner-workspace-v2` and are
+workspace offers use `mesh-owner-workspace-offer` / `owner-workspace` and are
 sent only to a supported same-person session. `mesh-iroh-gossip` carries actual
 Iroh gossip packets. These are different messages and have different receivers.
 Logs associate session closure and receive failures with a connection, workspace,
