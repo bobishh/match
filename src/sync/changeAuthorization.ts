@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge/slim"
-import { publicKeyId, signEnvelope, type LocalProfile } from "../domain/identity"
+import { canonicalizeJson, publicKeyId, signEnvelope, type LocalProfile } from "../domain/identity"
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore, type WorkspaceAuthorityRecord, type WorkspaceMeshCredential } from "./peerStore"
@@ -7,9 +7,10 @@ import { type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
-import { isDiscriminatorCleanup } from "./workspaceHistoryRepair"
+import { runWorkspaceAdmission } from "./workspaceAdmissionClient"
+import type { IncomingAuthorizationBundle, WorkspaceWriteAuthorityEvidence } from "./workspaceAdmissionCore"
 
-import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
+import { assertWorkspaceCapability, type WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
   constructor(message: string) { super(message); this.name = "WorkspaceChangeRejected" }
 }
@@ -85,20 +86,6 @@ export async function recordGenesisAuthority(doc: Automerge.Doc<WorkspaceDocumen
 }
 
 type Authorization = WorkspaceChangeAuthorization
-type WorkspaceWriteAuthorityEvidence = {
-  genesisOwner: WorkspaceAuthority
-  genesisEpoch: number
-  currentOwner: WorkspaceAuthority
-  currentEpoch: number
-  ownershipTransfers: WorkspaceOwnershipTransfer[]
-  successionClaims: WorkspaceSuccessionClaim[]
-  revocations: unknown[]
-  deviceRevocations: Array<{ record: unknown; signer: WorkspaceAuthority }>
-  departures: Array<{ record: unknown; authority: WorkspaceAuthority }>
-}
-type IncomingAuthorizationBundle =
-  | { version: 1; records: unknown[]; authority: WorkspaceWriteAuthorityEvidence }
-  | { version: 2; pages: unknown[][]; authority: WorkspaceWriteAuthorityEvidence }
 type PendingHistoryRepair = { bytes: Uint8Array; hashes: string[]; authorization: Authorization[] }
 const historyRepairs = new Map<string, PendingHistoryRepair>()
 
@@ -291,17 +278,6 @@ function normalizeAuthorityDepartures(authority: WorkspaceWriteAuthorityEvidence
   return authority
 }
 
-function rejectUnsignedChanges(remote: Automerge.Doc<WorkspaceDocumentV2>, unsigned: Automerge.DecodedChange[],
-  verified: Authorization[], message: string): void {
-  if (!unsigned.length) return
-  historyRepairs.delete(remote.id)
-  if (unsigned.every(change => isDiscriminatorCleanup(remote, change))) {
-    if (historyRepairs.size >= 64) historyRepairs.delete(historyRepairs.keys().next().value!)
-    historyRepairs.set(remote.id, { bytes: Automerge.save(remote), hashes: unsigned.map(change => change.hash), authorization: verified })
-  }
-  throw new WorkspaceChangeRejected(message)
-}
-
 export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown): Promise<void> {
   await validateIncomingChangeAuthorizations(local, remote, raw)
 }
@@ -314,56 +290,29 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   if (credential && meshRustRuntime().state.hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
-  const recordPages = meshRustRuntime().state.authorizationRecordPages(bundle)
-  const incomingRecords = recordPages.flat()
-  const authority = meshRustRuntime().state.prepareWriteEvidence({ incoming: bundle.authority,
-    known: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
-    records: incomingRecords, genesisPersonId: local?.ownerPersonId ?? remote.ownerPersonId,
-    remoteOwnerPersonId: remote.ownerPersonId }) as WorkspaceWriteAuthorityEvidence
-  // Admission needs actual hash/dependency metadata, not every operation body.
-  // Keep complete history coverage while avoiding eager binary change decoding.
-  const knownHashes = local ? Automerge.getChangesMetaSince(local, []).map(change => change.hash) : []
-  const changes = Automerge.getChangesMetaSince(remote, [])
-  const snapshot = {
-    workspaceId: remote.id,
-    genesisOwner: authority.genesisOwner,
-    genesisEpoch: authority.genesisEpoch,
-    expectedCurrentOwner: authority.currentOwner,
-    // Known local transition heads must remain available while Rust verifies a
-    // stale peer's earlier history; never let incoming evidence erase them.
-    document: Array.from(Automerge.save(local ? Automerge.merge(Automerge.clone(local), remote) : remote)),
-    ownershipTransfers: authority.ownershipTransfers,
-    successionClaims: authority.successionClaims,
-    revocations: authority.revocations,
-    deviceRevocations: authority.deviceRevocations,
-    departures: authority.departures,
+  const frozenCredential = canonicalizeJson(credential)
+  const plan = await runWorkspaceAdmission({ workspaceId: remote.id,
+    local: local ? Automerge.save(local) : undefined, remote: Automerge.save(remote),
+    authorization: bundle, knownAuthority: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
+    now: Date.now(),
+  })
+  // Off-thread validation yields while control evidence can change. A result
+  // verified against earlier rights cannot authorize a commit under new rights.
+  const currentCredential = await incomingCredential(remote.id)
+  if (canonicalizeJson(currentCredential) !== frozenCredential ||
+    (currentCredential && meshRustRuntime().state.hasAuthorityConflict(currentCredential))) {
+    throw new Error("Workspace authority changed during validation. Retry synchronization.")
   }
-  const plan = meshRustRuntime().state.planChangeAdmissionFlow({
-    records: bundle.version === 1 ? incomingRecords : [],
-    ...(bundle.version === 2 ? { recordPages } : {}),
-    knownHashes,
-    changes: changes.map(change => ({ hash: change.hash, dependencies: change.deps, actor: change.actor,
-      message: change.message ?? "" })),
-    snapshot,
-  }, Date.now()) as {
-    neededHashes: string[]
-    verifiedAuthorizations: Authorization[]
-    admittedChanges: Array<{ hash: string }>
-    editorChanges: Array<{ hash: string; dependencies: string[] }>
-    unsignedChanges: Array<{ hash: string }>
-    unsignedError?: string | null
+  if (plan.unsignedHashes.length) {
+    historyRepairs.delete(remote.id)
+    if (plan.repairableCleanup) {
+      if (historyRepairs.size >= 64) historyRepairs.delete(historyRepairs.keys().next().value!)
+      historyRepairs.set(remote.id, { bytes: Automerge.save(remote), hashes: plan.unsignedHashes, authorization: plan.verifiedAuthorizations })
+    }
+    throw new WorkspaceChangeRejected(plan.unsignedError)
   }
-  for (const change of plan.editorChanges) {
-    assertWorkspaceTransition("editor", Automerge.view(remote, change.dependencies), Automerge.view(remote, [change.hash]))
-  }
-  // Discriminator repair inspects operations only on rejected unsigned history.
-  const decodedByHash = new Map(plan.unsignedChanges.length
-    ? Automerge.getAllChanges(remote).map(raw => { const change = Automerge.decodeChange(raw); return [change.hash, change] as const })
-    : [])
-  const unsigned = plan.unsignedChanges.map(change => decodedByHash.get(change.hash)!)
-  rejectUnsignedChanges(remote, unsigned, plan.verifiedAuthorizations, plan.unsignedError ?? "Unsigned workspace change rejected")
   const pending = historyRepairs.get(remote.id)
-  const admittedHashes = new Set(plan.admittedChanges.map(change => change.hash))
+  const admittedHashes = new Set(plan.admittedHashes)
   if (pending?.hashes.every(hash => plan.neededHashes.includes(hash) && admittedHashes.has(hash))) historyRepairs.delete(remote.id)
   return plan.verifiedAuthorizations
 }
