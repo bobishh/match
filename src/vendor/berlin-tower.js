@@ -58,26 +58,34 @@
         animations = [];
         if (reducedMotion.matches) { setAssembled(); return; }
         this.hasPlayed = true;
-        addBall();
+        const run = this.animationRun = (this.animationRun ?? 0) + 1;
+        ball?.remove();
+        ball = null;
         base.style.transform = 'scaleX(0)';
         spire.style.transform = 'translateY(84px)';
-        ball.style.transform = 'translateY(-100px)';
         const animate = (selector, frames, options) => {
           const animation = tower.querySelector(selector).animate(frames, { fill: 'both', ...options });
           animations.push(animation);
+          return animation;
         };
-        animate('[data-tower-base]', [
+        const baseAnimation = animate('[data-tower-base]', [
           { transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }
         ], { duration: 180, easing: 'cubic-bezier(.2,.7,.2,1)' });
         animate('[data-tower-spire]', [
           { transform: 'translateY(84px)' }, { transform: 'translateY(0)' }
         ], { delay: 140, duration: 440, easing: 'cubic-bezier(.16,1,.3,1)' });
-        animate('[data-tower-ball]', [
-          { transform: 'translateY(-100px)', offset: 0, easing: 'cubic-bezier(.55,0,1,.6)' },
-          { transform: 'translateY(0)', offset: .65, easing: 'cubic-bezier(0,.4,.4,1)' },
-          { transform: 'translateY(-7px)', offset: .82, easing: 'cubic-bezier(.5,0,1,1)' },
-          { transform: 'translateY(0)', offset: 1 }
-        ], { delay: 500, duration: 480 });
+        void baseAnimation.finished.then(() => {
+          if (!this.isConnected || reducedMotion.matches || this.animationRun !== run) return;
+          const sphere = addBall();
+          sphere.style.transform = 'translateY(-100px)';
+          const animation = sphere.animate([
+            { transform: 'translateY(-100px)', offset: 0, easing: 'cubic-bezier(.55,0,1,.6)' },
+            { transform: 'translateY(0)', offset: .65, easing: 'cubic-bezier(0,.4,.4,1)' },
+            { transform: 'translateY(-7px)', offset: .82, easing: 'cubic-bezier(.5,0,1,1)' },
+            { transform: 'translateY(0)', offset: 1 }
+          ], { fill: 'both', duration: 480 });
+          animations.push(animation);
+        }).catch(() => {});
       };
 
       this.observer = new IntersectionObserver((entries) => {
@@ -89,6 +97,7 @@
       this.observer.observe(this.trigger);
       shadow.querySelector('button').addEventListener('click', play);
       const stop = () => {
+        this.animationRun = (this.animationRun ?? 0) + 1;
         animations.forEach((animation) => animation.cancel());
         animations = [];
         if (this.hasPlayed || reducedMotion.matches) setAssembled();
