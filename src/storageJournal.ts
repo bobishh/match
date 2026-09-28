@@ -78,7 +78,12 @@ function requestOpenJournal(version?: number): Promise<IDBDatabase> {
       resolve(request.result)
     }
     request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"))
-    request.onblocked = () => { blocked = true; reject(new Error("Close other Match tabs and reload to upgrade workspace storage")) }
+    request.onblocked = () => {
+      blocked = true
+      const error = new Error("Close other Match tabs and reload to upgrade workspace storage")
+      error.name = "IndexedDBBlockedError"
+      reject(error)
+    }
   })
 }
 
@@ -90,7 +95,9 @@ async function ensureJournalStores(): Promise<IDBDatabase> {
     const version = database.version + 1
     database.close()
     try { return await requestOpenJournal(version) }
-    catch (error) { if (attempt === 2) throw error }
+    catch (error) {
+      if (!(error instanceof DOMException && error.name === "VersionError") || attempt === 2) throw error
+    }
   }
   throw new Error("IndexedDB journal upgrade failed")
 }
