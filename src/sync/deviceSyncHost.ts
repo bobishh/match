@@ -144,7 +144,7 @@ async function startWorkspaceHostController(input: HostInput) {
     if (input.run !== input.context.currentRun() || stopped || peers.size) return
     input.context.state.directLive.value = false
     if (!everConnected) return
-    input.context.state.step.value = "workspace-reconnecting"
+    if (!input.keeperAdmission) input.context.state.step.value = "workspace-reconnecting"
     if (handoffStarted) return
     handoffStarted = true
     void handoffDisconnectedPeer(input)
@@ -379,7 +379,7 @@ async function startPeerSession(runtime: HostRuntime, connection: SyncConnection
   runtime.peers.set(personId, session)
   await previous?.close()
   runtime.context.state.directLive.value = true
-  runtime.context.state.step.value = "synced"
+  if (!runtime.keeperAdmission) runtime.context.state.step.value = "synced"
   return session
 }
 
