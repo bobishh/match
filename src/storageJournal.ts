@@ -32,12 +32,15 @@ export type StoredWorkspaceSnapshot = {
   savedAt: string
 }
 
-const journalDatabaseName = "match-workspace-journal-v1"
+const journalDatabaseName = "match-workspace-state"
+const legacyJournalDatabaseName = "match-workspace-journal-v1"
+const legacyMigrationMarkerId = "__meta__legacy-journal-migration-complete__"
 const journalStores = ["changes", "proofs", "receipts", "snapshots", "authorizations"] as const
 type JournalStoreName = typeof journalStores[number]
 type JournalIndexedStoreName = JournalStoreName
 
 let journalDatabasePromise: Promise<IDBDatabase> | undefined
+let legacyJournalDatabasePromise: Promise<IDBDatabase | undefined> | undefined
 const localJournalQueues = new Map<string, Promise<unknown>>()
 const memoryJournals = new Map<string, LocalJournal>()
 
@@ -56,16 +59,13 @@ export function transactionDone(transaction: IDBTransaction): Promise<void> {
   })
 }
 
-function requestOpenJournal(version?: number): Promise<IDBDatabase> {
+function openCurrentJournal(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = version === undefined ? indexedDB.open(journalDatabaseName) : indexedDB.open(journalDatabaseName, version)
-    let blocked = false
+    const request = indexedDB.open(journalDatabaseName)
     request.onupgradeneeded = () => {
       const database = request.result
       for (const name of journalStores) {
-        const store = database.objectStoreNames.contains(name)
-          ? request.transaction!.objectStore(name)
-          : database.createObjectStore(name, { keyPath: "id" })
+        const store = database.createObjectStore(name, { keyPath: "id" })
         if (!store.indexNames.contains("workspaceId")) store.createIndex("workspaceId", "workspaceId", { unique: false })
         if (name === "snapshots" && !store.indexNames.contains("catalog")) {
           store.createIndex("catalog", ["workspaceId", "title", "savedAt"], { unique: false })
@@ -73,38 +73,192 @@ function requestOpenJournal(version?: number): Promise<IDBDatabase> {
       }
     }
     request.onsuccess = () => {
-      if (blocked) { request.result.close(); return }
       request.result.onversionchange = () => { request.result.close(); journalDatabasePromise = undefined }
       resolve(request.result)
     }
     request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"))
-    request.onblocked = () => {
-      blocked = true
-      const error = new Error("Close other Match tabs and reload to upgrade workspace storage")
-      error.name = "IndexedDBBlockedError"
-      reject(error)
-    }
   })
 }
 
-async function ensureJournalStores(): Promise<IDBDatabase> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const database = await requestOpenJournal()
-    const complete = journalStores.every(name => database.objectStoreNames.contains(name))
-    if (complete && database.transaction("snapshots", "readonly").objectStore("snapshots").indexNames.contains("catalog")) return database
-    const version = database.version + 1
-    database.close()
-    try { return await requestOpenJournal(version) }
-    catch (error) {
-      if (!(error instanceof DOMException && error.name === "VersionError") || attempt === 2) throw error
-    }
+type JournalRow = { id: IDBValidKey; workspaceId: string; value: Record<string, unknown> }
+
+function legacyWorkspaceId(store: JournalStoreName, value: Record<string, unknown>, id: IDBValidKey): string | undefined {
+  if (typeof value.workspaceId === "string") return value.workspaceId
+  if (store === "snapshots" && typeof id === "string") return id
+  if (store === "authorizations" && typeof id === "string") return id
+  if (["changes", "proofs", "receipts"].includes(store) && typeof id === "string") {
+    const separator = id.lastIndexOf(":")
+    if (separator > 0) return id.slice(0, separator)
   }
-  throw new Error("IndexedDB journal upgrade failed")
+  return undefined
+}
+
+function openLegacyJournal(): Promise<IDBDatabase | undefined> {
+  return legacyJournalDatabasePromise ??= new Promise<IDBDatabase | undefined>((resolve, reject) => {
+    const request = indexedDB.open(legacyJournalDatabaseName)
+    let settled = false
+    let missing = false
+    let blockedTimer: ReturnType<typeof setTimeout> | undefined
+    const settle = (error?: Error, database?: IDBDatabase) => {
+      if (settled) { database?.close(); return }
+      settled = true
+      if (blockedTimer) clearTimeout(blockedTimer)
+      if (error) reject(error)
+      else resolve(database)
+    }
+    request.onupgradeneeded = event => {
+      if (event.oldVersion === 0) {
+        missing = true
+        request.transaction?.abort()
+      }
+    }
+    request.onsuccess = () => {
+      if (settled) { request.result.close(); return }
+      request.result.onversionchange = () => {
+        request.result.close()
+        legacyJournalDatabasePromise = undefined
+      }
+      settle(undefined, request.result)
+    }
+    request.onerror = () => {
+      if (missing && request.error?.name === "AbortError") settle()
+      else settle(request.error ?? new Error("Legacy workspace storage could not be opened"))
+    }
+    request.onblocked = () => {
+      const error = new Error("Legacy workspace storage is busy in another tab")
+      error.name = "LegacyJournalUnavailableError"
+      if (blockedTimer) clearTimeout(blockedTimer)
+      blockedTimer = setTimeout(() => settle(error), 1500)
+    }
+    blockedTimer = setTimeout(() => {
+      const error = new Error("Legacy workspace storage is still busy in another tab")
+      error.name = "LegacyJournalUnavailableError"
+      settle(error)
+    }, 5000)
+  }).catch(error => {
+    legacyJournalDatabasePromise = undefined
+    throw error
+  })
+}
+
+async function readLegacyRows(database: IDBDatabase): Promise<Map<JournalStoreName, JournalRow[]>> {
+  const rows = new Map<JournalStoreName, JournalRow[]>()
+  const existingStores = journalStores.filter(name => database.objectStoreNames.contains(name))
+  if (!existingStores.length) return rows
+  const transaction = database.transaction([...existingStores], "readonly")
+  const completion = transactionDone(transaction)
+  await Promise.all(existingStores.map(async name => {
+    const storeRows = await new Promise<JournalRow[]>((resolve, reject) => {
+      const result: JournalRow[] = []
+      const request = transaction.objectStore(name).openCursor()
+      request.onsuccess = () => {
+        const cursor = request.result
+        if (!cursor) { resolve(result); return }
+        if (!cursor.value || typeof cursor.value !== "object") {
+          reject(new Error(`Legacy ${name} record is malformed; source data was preserved`))
+          return
+        }
+        const value = cursor.value as Record<string, unknown>
+        const id = (value.id as IDBValidKey | undefined) ?? cursor.primaryKey
+        const workspaceId = legacyWorkspaceId(name, value, id)
+        if (workspaceId === undefined) {
+          reject(new Error(`Legacy ${name} record has no workspace identity; source data was preserved`))
+          return
+        }
+        result.push({ id, workspaceId, value })
+        cursor.continue()
+      }
+      request.onerror = () => reject(request.error ?? new Error(`Legacy ${name} scan failed`))
+    })
+    rows.set(name, storeRows)
+  }))
+  await completion
+  for (const name of journalStores) if (!rows.has(name)) rows.set(name, [])
+  return rows
+}
+
+function byteArraysEqual(left: unknown, right: unknown): boolean {
+  if (!(left instanceof Uint8Array) || !(right instanceof Uint8Array) || left.length !== right.length) return false
+  return left.every((value, index) => value === right[index])
+}
+
+async function migrateLegacyJournal(database: IDBDatabase): Promise<void> {
+  const markerRead = database.transaction("authorizations", "readonly")
+  const markerReadDone = transactionDone(markerRead)
+  const currentMarker = await requestResult(markerRead.objectStore("authorizations").get(legacyMigrationMarkerId))
+  await markerReadDone
+  if (currentMarker) return
+
+  let legacy: IDBDatabase | undefined
+  try {
+    legacy = await openLegacyJournal()
+    const legacyRows = legacy ? await readLegacyRows(legacy) : new Map<JournalStoreName, JournalRow[]>()
+    const transaction = database.transaction([...journalStores], "readwrite")
+    const completion = transactionDone(transaction)
+    let migrationError: Error | undefined
+    const abort = (error: Error) => {
+      if (migrationError) return
+      migrationError = error
+      try { transaction.abort() } catch { /* Transaction already completed. */ }
+    }
+    const authorizations = transaction.objectStore("authorizations")
+    const marker = authorizations.get(legacyMigrationMarkerId)
+    marker.onerror = () => abort(marker.error ?? new Error("Legacy journal migration marker read failed"))
+    marker.onsuccess = () => {
+      if (marker.result) return
+      const rows = [...legacyRows].flatMap(([storeName, storeRows]) => storeRows
+        .map(row => ({ storeName, row })))
+      let remaining = rows.length
+      const finishMigration = () => {
+        if (remaining > 0) return
+        authorizations.put({ id: legacyMigrationMarkerId, workspaceId: "__system__", legacyMigrationComplete: true })
+      }
+      if (!remaining) { finishMigration(); return }
+      for (const { storeName, row } of rows) {
+        const store = transaction.objectStore(storeName)
+        const existing = store.get(row.id)
+        existing.onerror = () => abort(existing.error ?? new Error("Legacy workspace record read failed"))
+        existing.onsuccess = () => {
+          const current = existing.result as Record<string, unknown> | undefined
+          const incoming: Record<string, unknown> = { ...row.value, id: row.id, workspaceId: row.workspaceId }
+          if (current) {
+            if (storeName === "receipts" && (current.transactionId !== incoming.transactionId ||
+              (current.receipt as { changeHash?: unknown } | undefined)?.changeHash !==
+              (incoming.receipt as { changeHash?: unknown } | undefined)?.changeHash)) {
+              abort(new Error("Legacy workspace receipt conflicts with committed data"))
+              return
+            }
+            if (storeName === "changes" && !byteArraysEqual(current.bytes, incoming.bytes)) {
+              abort(new Error("Legacy workspace change conflicts with committed data"))
+              return
+            }
+          } else {
+            store.put(incoming)
+          }
+          remaining -= 1
+          finishMigration()
+        }
+      }
+    }
+    try { await completion }
+    catch (error) { throw migrationError ?? error }
+  } finally {
+    legacy?.close()
+    legacyJournalDatabasePromise = undefined
+  }
 }
 
 function openJournalDatabase(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") return Promise.reject(new Error("IndexedDB is not available"))
-  return journalDatabasePromise ??= ensureJournalStores().catch(error => {
+  return journalDatabasePromise ??= openCurrentJournal().then(async database => {
+    try {
+      await migrateLegacyJournal(database)
+      return database
+    } catch (error) {
+      database.close()
+      throw error
+    }
+  }).catch(error => {
     journalDatabasePromise = undefined
     throw error
   })
@@ -159,7 +313,10 @@ export async function deleteWorkspaceJournal(workspaceId: string): Promise<void>
   for (const name of ["changes", "proofs", "receipts", "snapshots", "authorizations"] as const) {
     const store = transaction.objectStore(name)
     const keys = await requestResult(store.index("workspaceId").getAllKeys(workspaceId))
-    for (const key of keys) store.delete(key)
+    for (const key of keys) {
+      if (name === "authorizations" && key === legacyMigrationMarkerId) continue
+      store.delete(key)
+    }
   }
   await completion
 }
