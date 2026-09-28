@@ -320,8 +320,10 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
     known: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
     records: incomingRecords, genesisPersonId: local?.ownerPersonId ?? remote.ownerPersonId,
     remoteOwnerPersonId: remote.ownerPersonId }) as WorkspaceWriteAuthorityEvidence
-  const knownHashes = local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : []
-  const changes = Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change))
+  // Admission needs actual hash/dependency metadata, not every operation body.
+  // Keep complete history coverage while avoiding eager binary change decoding.
+  const knownHashes = local ? Automerge.getChangesMetaSince(local, []).map(change => change.hash) : []
+  const changes = Automerge.getChangesMetaSince(remote, [])
   const snapshot = {
     workspaceId: remote.id,
     genesisOwner: authority.genesisOwner,
@@ -354,7 +356,10 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   for (const change of plan.editorChanges) {
     assertWorkspaceTransition("editor", Automerge.view(remote, change.dependencies), Automerge.view(remote, [change.hash]))
   }
-  const decodedByHash = new Map(changes.map(change => [change.hash, change]))
+  // Discriminator repair inspects operations only on rejected unsigned history.
+  const decodedByHash = new Map(plan.unsignedChanges.length
+    ? Automerge.getAllChanges(remote).map(raw => { const change = Automerge.decodeChange(raw); return [change.hash, change] as const })
+    : [])
   const unsigned = plan.unsignedChanges.map(change => decodedByHash.get(change.hash)!)
   rejectUnsignedChanges(remote, unsigned, plan.verifiedAuthorizations, plan.unsignedError ?? "Unsigned workspace change rejected")
   const pending = historyRepairs.get(remote.id)
