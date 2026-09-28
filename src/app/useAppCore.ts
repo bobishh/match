@@ -225,13 +225,17 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   const canManageAccess = allowed("access.manage")
   const canImportWorkspace = allowed("workspace.import")
   const canRepairHistory = allowed("history.repair")
+  const keeperOwnedWorkspaces = computed(() => match.availableWorkspaces.value.filter(item => {
+    const access = workspaceAccess.value[item.id]
+    return access?.role === "owner" && !access.blocked && !access.error
+  }))
   const canRenameWorkspace = (id: string) => {
     const access = workspaceAccess.value[id]
     return Boolean(access && !access.blocked && canWorkspace(access.role, "workspace.rename"))
   }
   watch(canEditBoard, allowed => { if (!allowed) { ui.isEditingBoard.value = false; ui.editingColumn.value = null; ui.showEntitySettings.value = false } })
   watch(canEditItems, allowed => { if (!allowed) closeRestrictedEditors(ui) })
-  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRepairHistory, canRenameWorkspace }
+  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRepairHistory, canRenameWorkspace }
 }
 
 type WorkspaceAccessResult = { role: WorkspaceRole; blocked: boolean; error?: string }

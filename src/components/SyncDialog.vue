@@ -3,6 +3,7 @@ import LighthouseMark from "./LighthouseMark.vue"
 import { isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
+import KeeperDiscovery from "./KeeperDiscovery.vue"
 import ModalLayer from "./ModalLayer.vue"
 import WorkspaceFileActions from "./WorkspaceFileActions.vue"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
@@ -22,6 +23,7 @@ const props = defineProps<{
   invitationWorkspaceTitle?: string
   invitationWorkspaces?: { id: string; title: string }[]
   availableWorkspaces?: { id: string; title: string }[]
+  keeperOwnedWorkspaces?: { id: string; title: string }[]
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
   meshMembers?: MeshMemberView[]
@@ -100,7 +102,6 @@ const isEnrollmentHost = computed(
 )
 const selectedMemberId = ref("")
 const confirmingLeave = ref(false)
-
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
 const canVoteForSelectedMember = computed(() => {
@@ -187,6 +188,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           <strong>{{ workspaceConnected ? "Connected here" : workspaceReconnecting ? "Reconnecting" : "Offline" }}</strong>
           · {{ connectionSummary }}
         </p>
+        <KeeperDiscovery :owned-workspaces="keeperOwnedWorkspaces ?? []" />
         <p v-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
         <section v-if="repairableHistory" class="dialog-copy">
           <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
