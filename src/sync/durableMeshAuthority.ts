@@ -278,6 +278,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   protected async mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect = true) {
+    if (!raw.length && revocations(credential).length === 0) return
     const profile = await this.options.getProfile()
     const plan = meshRustRuntime().state.planAuthorityMerge({ credential,
       peers: await this.store.listPeers(credential.workspaceId), localPersonId: profile.identity.personId,

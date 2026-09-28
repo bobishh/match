@@ -29,6 +29,81 @@ function rustReplacesSession(
 }
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("skips empty revocation planning only when no stored revocations exist", async () => {
+    const plan = vi.spyOn(meshRustRuntime().state as any, "planAuthorityMerge")
+    const getProfile = vi.fn(async () => ({ identity: { personId: "owner" }, device: { deviceId: "owner-device" } } as never))
+    const putWorkspaceCredential = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile, store: { putWorkspaceCredential } as never })
+    const credential = { workspaceId: "workspace-1", catalog: { revocations: [] } }
+
+    try {
+      await (mesh as any).mergeRevocations(credential, [])
+      expect(plan).not.toHaveBeenCalled()
+      expect(getProfile).not.toHaveBeenCalled()
+      expect(putWorkspaceCredential).not.toHaveBeenCalled()
+    } finally {
+      plan.mockRestore()
+      await mesh.dispose()
+    }
+  })
+
+  it("still enforces stored revocations when the incoming list is empty", async () => {
+    const credential = { workspaceId: "workspace-1", catalog: { revocations: [{ payload: { personId: "local" } }] } }
+    const peer = { workspaceId: "workspace-1", personId: "remote", deviceId: "remote-device" }
+    const state = meshRustRuntime().state as any
+    const plan = vi.spyOn(state, "planAuthorityMerge").mockReturnValue({
+      credential, peers: [peer], evictDeviceIds: [peer.deviceId], localAccessRevoked: true,
+    })
+    const upsertPeer = vi.fn()
+    const evict = vi.fn(async () => {})
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "local" }, device: { deviceId: "local-device" } } as never),
+      store: { listPeers: async () => [peer], putWorkspaceCredential: vi.fn(), upsertPeer } as never })
+    const internal = mesh as any
+    internal.sessions.set("workspace-1:remote-device:slot", { workspaceId: "workspace-1", deviceId: peer.deviceId, evict })
+
+    try {
+      await expect(internal.mergeRevocations(credential, [])).rejects.toThrow("Workspace access revoked")
+      expect(plan).toHaveBeenCalledWith(expect.objectContaining({ credential,
+        records: { kind: "revocations", records: [] } }))
+      expect(upsertPeer).toHaveBeenCalledWith(peer)
+      expect(evict).toHaveBeenCalledWith("peer revoked")
+    } finally {
+      plan.mockRestore()
+      await mesh.dispose()
+    }
+  })
+
+  it("applies a fresh incoming revocation when the stored list is empty", async () => {
+    const credential = { workspaceId: "workspace-1", catalog: { revocations: [] } }
+    const nextCredential = { ...credential, catalog: { revocations: [{ payload: { personId: "remote" } }] } }
+    const record = { payload: { personId: "remote" } }
+    const peer = { workspaceId: "workspace-1", personId: "remote", deviceId: "remote-device" }
+    const state = meshRustRuntime().state as any
+    const plan = vi.spyOn(state, "planAuthorityMerge").mockReturnValue({
+      credential: nextCredential, peers: [peer], evictDeviceIds: [peer.deviceId], localAccessRevoked: false,
+    })
+    const putWorkspaceCredential = vi.fn()
+    const upsertPeer = vi.fn()
+    const evict = vi.fn(async () => {})
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner" }, device: { deviceId: "owner-device" } } as never),
+      store: { listPeers: async () => [peer], putWorkspaceCredential, upsertPeer } as never })
+    ;(mesh as any).sessions.set("workspace-1:remote-device:slot", { workspaceId: "workspace-1", deviceId: peer.deviceId, evict })
+
+    try {
+      await (mesh as any).mergeRevocations(credential, [record])
+      expect(plan).toHaveBeenCalledWith(expect.objectContaining({ records: { kind: "revocations", records: [record] } }))
+      expect(putWorkspaceCredential).toHaveBeenCalledWith(nextCredential)
+      expect(upsertPeer).toHaveBeenCalledWith(peer)
+      expect(evict).toHaveBeenCalledWith("peer revoked")
+    } finally {
+      plan.mockRestore()
+      await mesh.dispose()
+    }
+  })
+
   it("rejects a removed person's stale grant but accepts their newly approved generation", () => {
     const credential = { catalog: { revocations: [{ payload: { personId: "returning", epoch: 2 } }] } } as any
     expect(isGrantRevoked(credential, "returning", { payload: { accessEpoch: 2 } })).toBe(true)
