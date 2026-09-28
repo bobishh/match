@@ -12,8 +12,15 @@ const manifest = resolve(process.env.MATCH_LIGHTHOUSE_MANIFEST ?? "../mesh-light
 test.skip(!binary || !existsSync(binary) || !existsSync(manifest), "Built standalone Lighthouse binary and checkout are required")
 test.use({ trace: "off" })
 
+const processOutput = new WeakMap<ChildProcessWithoutNullStreams, string>()
+
 function native(args: string[], env?: NodeJS.ProcessEnv) {
-  return spawn(binary!, args, { stdio: "pipe", env: { ...process.env, ...env } })
+  const child = spawn(binary!, args, { stdio: "pipe", env: { ...process.env, ...env } })
+  processOutput.set(child, "")
+  const capture = (chunk: Buffer) => processOutput.set(child, (processOutput.get(child) ?? "").concat(String(chunk)).slice(-20_000))
+  child.stdout.on("data", capture)
+  child.stderr.on("data", capture)
+  return child
 }
 
 function waitOutput(child: ChildProcessWithoutNullStreams, pattern: RegExp, timeoutMs = 90_000) {
@@ -124,7 +131,12 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
     await page.route(serviceOrigin + "/v1/pairings/*/provision", async route => {
       bodyForRetry = route.request().postData() ?? undefined
-      const response = await route.fetch()
+      let response
+      try {
+        response = await route.fetch()
+      } catch (error) {
+        throw new Error(String(error) + "\nLighthouse output:\n" + (processOutput.get(service!) ?? ""))
+      }
       if (!response.ok()) {
         await route.fulfill({ response })
         return
@@ -190,8 +202,8 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     expect((JSON.parse(bodyForRetry!) as { signed: { payload: { body: { futureBoards: boolean } } } })
       .signed.payload.body.futureBoards).toBe(true)
     expect(config.provisioningCommits.at(-1)?.futureBoards).toBe(true)
-    expect(config.controllerPersonId).toBe((JSON.parse(bodyForRetry!) as { signed: { identity: { personId: string } } })
-      .signed.identity.personId)
+    expect(config.controllerPersonId).toBe((JSON.parse(bodyForRetry!) as { identity: { personId: string } })
+      .identity.personId)
 
     await sync.getByRole("button", { name: "Close" }).click()
     await createJobSearchWorkspace(page, "Keeper future board")
