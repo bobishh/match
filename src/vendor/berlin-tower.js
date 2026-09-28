@@ -5,6 +5,11 @@
   class BerlinTower extends HTMLElement {
     connectedCallback() {
       const shadow = this.shadowRoot ?? this.attachShadow({ mode: 'open' });
+      if (this.initialized) {
+        if (!this.hasPlayed) this.observer?.observe(this);
+        return;
+      }
+      this.initialized = true;
       shadow.innerHTML = `<style>
         :host { display: inline-block; width: 30px; height: 45px; }
         button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
@@ -22,10 +27,26 @@
       </svg></button>`;
       const tower = shadow.querySelector('svg');
       let animations = [];
+      const base = tower.querySelector('[data-tower-base]');
+      const spire = tower.querySelector('[data-tower-spire]');
+      const ball = tower.querySelector('[data-tower-ball]');
+      const setAssembled = () => {
+        base.style.transform = 'scaleX(1)';
+        spire.style.transform = 'translateY(0)';
+        ball.style.transform = 'translateY(0)';
+        ball.style.opacity = '1';
+      };
+      if (!reducedMotion.matches) {
+        base.style.transform = 'scaleX(0)';
+        spire.style.transform = 'translateY(84px)';
+        ball.style.transform = 'translateY(-100px)';
+        ball.style.opacity = '0';
+      }
       const play = () => {
         animations.forEach((animation) => animation.cancel());
         animations = [];
-        if (reducedMotion.matches) return;
+        if (reducedMotion.matches) { setAssembled(); return; }
+        this.hasPlayed = true;
         const animate = (selector, frames, options) => {
           const animation = tower.querySelector(selector).animate(frames, { fill: 'both', ...options });
           animations.push(animation);
@@ -48,10 +69,14 @@
         if (!entries.some((entry) => entry.isIntersecting)) return;
         this.observer.disconnect();
         play();
-      }, { threshold: .8 });
+      }, { threshold: .1 });
       this.observer.observe(this);
       shadow.querySelector('button').addEventListener('click', play);
-      const stop = () => animations.forEach((animation) => animation.cancel());
+      const stop = () => {
+        animations.forEach((animation) => animation.cancel());
+        animations = [];
+        if (this.hasPlayed || reducedMotion.matches) setAssembled();
+      };
       const motionChanged = () => { if (reducedMotion.matches) stop(); };
       reducedMotion.addEventListener('change', motionChanged);
       this.cleanup = () => { stop(); reducedMotion.removeEventListener('change', motionChanged); };
