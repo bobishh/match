@@ -92,7 +92,6 @@ export type SessionEntry = {
   ownershipReceiptSupported?: boolean
   remotePersonId: string
   ownerWorkspaceOfferFrame?: "mesh-owner-workspace-offer"
-  proofPagingSupported?: boolean
   blobTransferSupported?: boolean
   runtimeGeneration?: number
   evict: (cause: string) => Promise<void>

@@ -32,7 +32,6 @@ type InstallSessionArguments = [
   ownerWorkspaceOfferFrame?: "mesh-owner-workspace-offer",
   blobTransferSupported?: boolean,
   remoteEndpoint?: string,
-  proofPagingSupported?: boolean,
 ]
 
 type IncomingPeer = {
@@ -263,9 +262,9 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       credential.workspaceId, remote.deviceId, remote.instanceId, remote.issuedAt, remote.routeSequence,
       "incoming", connection as SyncConnection, features.heartbeatSupported,
       connectionId, features.ownershipReceiptSupported, remote.personId, features.ownerWorkspaceSupported, features.ownerWorkspaceOfferFrame,
-      features.blobTransferSupported, remote.endpoint, features.proofPagingSupported),
+      features.blobTransferSupported, remote.endpoint),
     afterInstalled: ({ credential, remote, request, connection, features }) => this.afterIncomingInstall(
-      credential, remote, request.ownerWorkspaceIds, connection as SyncConnection, features.ownerWorkspaceOfferFrame, features.proofPagingSupported),
+      credential, remote, request.ownerWorkspaceIds, connection as SyncConnection, features.ownerWorkspaceOfferFrame),
     trace: (event, detail, level) => this.trace(event, detail, level),
     failed: (stage, error) => this.reportProtocolFailure(stage, error),
   }, this.handshakeCodec)
@@ -333,10 +332,10 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
 
   protected async afterIncomingInstall(credential: WorkspaceMeshCredential, remote: IncomingPeer,
     ownerWorkspaceIds: string[] | undefined, connection: SyncConnection,
-    ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined, proofPagingSupported = false): Promise<void> {
+    ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined): Promise<void> {
     await this.refreshWorkspaceGossip(credential.workspaceId)
     await this.offerMissingOwnerWorkspaces(connection, credential.transportSecret, ownerWorkspaceIds, remote.personId,
-      ownerWorkspaceOfferFrame, undefined, proofPagingSupported)
+      ownerWorkspaceOfferFrame)
   }
 
   protected validateHandshake(raw: unknown, workspaceId: string): MeshHandshakePayload {

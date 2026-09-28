@@ -6,5 +6,5 @@ publish = false
 
 [dependencies]
 automerge = "0.12"
-meta-mesh-core = { git = "https://github.com/bobishh/meta-mesh.git", rev = "ba481cb9bcd68bf335f596ddef19862facc1d654" }
+meta-mesh-core = { git = "https://github.com/bobishh/meta-mesh.git", rev = "e09046059bd40fd520396473ee3b5e726340449c" }
 serde_json = "1"

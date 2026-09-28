@@ -36,12 +36,10 @@ export function workspaceProofTransfer(store: WorkspaceSetStore, ids: string[]) 
         throw error
       }
     },
-    async resolveProofs(bytes: Uint8Array, connection?: SyncConnection, secret = "local-preflight", proofPagingSupported = true): Promise<Uint8Array> {
+    async resolveProofs(bytes: Uint8Array, connection?: SyncConnection, secret = "local-preflight"): Promise<Uint8Array> {
       const entries = meshRustRuntime().state.decodeWorkspaceSet(bytes, ids)
       for (const entry of entries) {
-        if (!isProofManifest(entry.authorization)) continue
-        if (!proofPagingSupported) throw new Error("Peer did not negotiate proof paging; update the app")
-        entry.authorization = await resolveEntry(entry, store, connection, secret)
+        if (isManifest(entry.authorization)) entry.authorization = await resolveEntry(entry, store, connection, secret)
       }
       return meshRustRuntime().state.encodeWorkspaceSet(entries)
     },
@@ -115,20 +113,12 @@ async function receivePage(runtime: RustMeshScopeRuntime, id: string, effect: Re
   if (!next) throw new Error("Missing proof page response")
   return next
 }
-export function isProofManifest(value: unknown): boolean {
+function isManifest(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && "kind" in value && value.kind === "workspace-authorization-manifest")
 }
-export function assertSnapshotProofPaging(bytes: Uint8Array, supported: boolean) {
-  if (supported) return
-  let entries: unknown
-  try { entries = JSON.parse(new TextDecoder().decode(bytes)) } catch { return }
-  if (Array.isArray(entries) && entries.some(entry => isProofManifest(entry?.authorization))) {
-    throw new Error("Peer does not support proof paging; update the app")
-  }
-}
-export function exportWorkspaceProofs(document: Uint8Array, value: unknown, proofPagingSupported = true): unknown {
+export function exportWorkspaceProofs(document: Uint8Array, value: unknown): unknown {
   if (!value || typeof value !== "object" || !("authority" in value) || (!("records" in value) && !("pages" in value))) return value
-  return meshRustRuntime().state.authorizationExportForPeer(document, value, proofPagingSupported)
+  return meshRustRuntime().state.authorizationExport(document, value)
 }
 async function proofTimeout<T>(operation: () => Promise<T>): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined

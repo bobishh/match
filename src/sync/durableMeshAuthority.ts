@@ -12,7 +12,8 @@ import { createWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDevic
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revokedPersonIds, isGrantRevoked, type MeshExport, type ScopeAuthoritySnapshot, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
-import { awaitOwnerDelivery, ownerDeliverySnapshot, confirmedOwnershipSnapshot, createOwnershipProposal, ownershipTransfersWithPending, persistScopeAuthoritySnapshot, planOwnershipMerge, preflightScopeAuthoritySnapshot, publishConfirmedToSessions,
+import { workspaceSet } from "./workspaceSet"
+import { awaitOwnerDelivery, confirmedOwnershipSnapshot, createOwnershipProposal, ownershipTransfersWithPending, persistScopeAuthoritySnapshot, planOwnershipMerge, preflightScopeAuthoritySnapshot, publishConfirmedToSessions,
   type OwnershipMergePlan } from "./durableMeshOwnershipScope"
 type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
 type OwnershipTransferState = {
@@ -464,7 +465,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
 
   private async confirmOwnershipDelivery(workspaceId: string, state: OwnershipTransferState): Promise<void> {
     const snapshot = await confirmedOwnershipSnapshot(this.options.workspaceStore, workspaceId, state.transfer!,
-      state.nextScopeAuthoritySnapshot, id => this.exportWorkspace(id), state.sessions.every(session => session.proofPagingSupported))
+      state.nextScopeAuthoritySnapshot, id => this.exportWorkspace(id))
     if (!await publishConfirmedToSessions(state.sessions, state.credential.transportSecret, snapshot, "ownership delivery unconfirmed")) {
       throw new Error("Ownership delivery is unconfirmed. Keep both devices open and retry the same recipient.")
     }
@@ -485,7 +486,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (Date.now() >= deadline) throw new Error("No verified workspace connection. Keep another device online, then retry leaving.")
       await new Promise(resolve => setTimeout(resolve, 100))
     }
-    const snapshot = await ownerDeliverySnapshot(this.options.workspaceStore, workspaceId, [...this.sessions.values()], credential.ownerPersonId)
+    const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
     await awaitOwnerDelivery(() => [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
       session.remotePersonId === credential.ownerPersonId && session.ownershipReceiptSupported), credential.transportSecret, snapshot, deadline)
     const [{ bytes }] = JSON.parse(new TextDecoder().decode(snapshot)) as Array<{ bytes: string }>

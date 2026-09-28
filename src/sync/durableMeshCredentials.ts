@@ -12,7 +12,6 @@ import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
 import { registerOwnerOfferProofs } from "./ownerOfferProofs"
-import { isProofManifest } from "./workspaceProofTransfer"
 import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
   type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
@@ -129,27 +128,23 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       if (!entry.ownerWorkspaceOfferFrame) return
       const credential = await this.store.getWorkspaceCredential(entry.workspaceId)
       if (!credential) return
-      await this.offerMissingOwnerWorkspaces(entry.connection, credential.transportSecret, [], entry.remotePersonId,
-        entry.ownerWorkspaceOfferFrame, [workspaceId], entry.proofPagingSupported)
+      await this.offerMissingOwnerWorkspaces(entry.connection, credential.transportSecret, [], entry.remotePersonId, entry.ownerWorkspaceOfferFrame, [workspaceId])
     }))
   }
 
-  protected async encodeOwnerWorkspaceOffer(workspaceId: string, proofPagingSupported = true) {
+  protected async encodeOwnerWorkspaceOffer(workspaceId: string) {
     const [envelope] = await this.invitationPayload([workspaceId])
     const [workspace] = JSON.parse(new TextDecoder().decode(
-      await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot(undefined, proofPagingSupported),
+      await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot(),
     ))
     return new TextEncoder().encode(JSON.stringify({ version: 1, workspaceId, envelope, workspace }))
   }
 
   protected async receiveOwnerWorkspaceOffer(bytes: Uint8Array, remotePersonId: string,
-    connection: SyncConnection, secret: string, proofPagingSupported = false) {
+    connection: SyncConnection, secret: string) {
     const profile = await this.options.getProfile()
-    const value = JSON.parse(new TextDecoder().decode(bytes)) as { envelope: MeshWorkspaceEnvelope; workspace: { authorization?: unknown } }
+    const value = JSON.parse(new TextDecoder().decode(bytes)) as { envelope: MeshWorkspaceEnvelope; workspace: unknown }
     const workspaceId = meshRustRuntime().state.validateOwnerWorkspaceOffer(value, remotePersonId, profile.identity.personId)
-    if (!proofPagingSupported && isProofManifest(value.workspace.authorization)) {
-      throw new Error("Peer did not negotiate proof paging; update the app")
-    }
     await this.validateInvitation([value.envelope], [workspaceId], profile, [])
     // Persist the signed document before activating its credential. Otherwise
     // an interrupted offer leaves durable mesh retrying a workspace which has
@@ -164,7 +159,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
 
   protected async offerMissingOwnerWorkspaces(connection: SyncConnection, secret: string,
     remoteWorkspaceIds: unknown, remotePersonId: string, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined,
-    onlyWorkspaceIds?: string[], proofPagingSupported = false) {
+    onlyWorkspaceIds?: string[]) {
     const profile = await this.options.getProfile()
     if (!ownerWorkspaceOfferFrame) return
     const keeper = remotePersonId === profile.identity.personId ? undefined :
@@ -182,7 +177,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
         continue
       }
       const offerPromise = (async () => {
-        let offer = await this.encodeOwnerWorkspaceOffer(workspaceId, proofPagingSupported)
+        let offer = await this.encodeOwnerWorkspaceOffer(workspaceId)
         if (keeper) {
           const credential = await this.store.getWorkspaceCredential(workspaceId)
           if (credential?.ownerPersonId !== profile.identity.personId) return
