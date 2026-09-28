@@ -419,7 +419,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :mesh-members="meshMembers"
       v-bind="{ activeWorkspaceId: activeWorkspace.id, localDeviceId: sync.localDeviceId.value,
         removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value,
-        keeperOwnedWorkspaces }"
+        keeperOwnedWorkspaces, provisionKeeper: sync.provisionKeeperPairing }"
       :has-mesh="meshMembers.length > 0"
       :current-person-id="chat.personId.value"
       :current-role="currentRole"

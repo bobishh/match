@@ -3,10 +3,13 @@ import { onBeforeUnmount, ref } from "vue"
 import { discoverLighthouse, type KeeperWorkspace } from "../sync/lighthouseDiscovery"
 import { beginKeeperPairing, decideKeeperPairing, getEligibleKeeperWorkspaces, getKeeperPairingStatus, type KeeperPairing, type KeeperPairingStatus } from "../sync/lighthousePairing"
 
-const props = defineProps<{ ownedWorkspaces: KeeperWorkspace[] }>()
+const props = defineProps<{
+  ownedWorkspaces: KeeperWorkspace[]
+  provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
+}>()
 const open = ref(false)
 const originInput = ref("")
-const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "rejected" | "expired">("idle")
+const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired">("idle")
 const error = ref("")
 const discovery = ref<Awaited<ReturnType<typeof discoverLighthouse>> | null>(null)
 const selectedWorkspaceIds = ref<string[]>([])
@@ -15,6 +18,7 @@ const ineligibleWorkspaces = ref<KeeperWorkspace[]>([])
 const pairing = ref<KeeperPairing | null>(null)
 const controllerApproved = ref(false)
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let provisioning = false
 
 const selectedWorkspaces = () => eligibleWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
 
@@ -63,8 +67,25 @@ async function decide(approve: boolean) {
 
 function scheduleStatusCheck() {
   clearTimeout(pollTimer)
-  if (!pairing.value || !["pairing", "approved"].includes(status.value)) return
+  if (!pairing.value || !["pairing", "approved", "provisioning"].includes(status.value)) return
   pollTimer = setTimeout(() => { void checkStatus() }, 1800)
+}
+
+async function provision() {
+  if (!pairing.value || provisioning) return
+  provisioning = true
+  error.value = ""
+  status.value = "provisioning"
+  try {
+    const result = await props.provisionKeeper(pairing.value)
+    status.value = result === "active" ? "active" : result === "pending" ? "pairing" : "provisioning"
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "Provisioning is pending. Retry after checking service state."
+    status.value = "provisioning"
+  } finally {
+    provisioning = false
+    scheduleStatusCheck()
+  }
 }
 
 async function checkStatus() {
@@ -73,7 +94,13 @@ async function checkStatus() {
     const current: KeeperPairingStatus = await getKeeperPairingStatus(pairing.value)
     if (current === "rejected") status.value = "rejected"
     else if (current === "expired") status.value = "expired"
-    else if (current === "approved") status.value = "approved"
+    else if (current === "approved") {
+      status.value = "approved"
+      await provision()
+    } else if (current === "provisioning") {
+      status.value = "provisioning"
+      await provision()
+    } else if (current === "active") status.value = "active"
     else status.value = "pairing"
   } catch (cause) {
     if (pairing.value.expiresAt <= Math.floor(Date.now() / 1000)) status.value = "expired"
@@ -133,12 +160,12 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <p><span class="detail-label">Controller fingerprint</span><br /><code>{{ pairing.controllerFingerprint }}</code></p>
           <p class="dialog-copy">Compare code with keeper operator before approving. Request expires {{ new Date(pairing.expiresAt * 1000).toLocaleString() }}.</p>
           <a class="button button-quiet" :href="pairing.operatorUrl" target="_blank" rel="noopener noreferrer">Open operator approval</a>
-          <p class="dialog-copy" role="status">{{ status === "rejected" ? "Pairing rejected. No access granted." : status === "expired" ? "Pairing expired. No access granted." : status === "approved" ? "Both sides approved. Provisioning is unavailable; no integration is active." : controllerApproved ? "Awaiting operator approval. No access granted." : "Awaiting both approvals. No access granted." }}</p>
+          <p class="dialog-copy" role="status">{{ status === "rejected" ? "Pairing rejected. No access granted." : status === "expired" ? "Pairing expired. No access granted." : status === "active" ? "All selected boards activated and saved by Lighthouse." : status === "provisioning" ? "Both sides approved. Lighthouse is joining and saving every selected board; access remains pending until all boards commit." : status === "approved" ? "Both sides approved. Starting the selected-board join…" : controllerApproved ? "Awaiting operator approval. No access granted." : "Awaiting both approvals. No access granted." }}</p>
           <div v-if="status === 'pairing' && !controllerApproved" class="dialog-actions">
             <button class="button button-primary" type="button" @click="decide(true)">Code matches · approve</button>
             <button class="button button-quiet" type="button" @click="decide(false)">Decline</button>
           </div>
-          <p v-if="status === 'approved'" class="dialog-copy">Selected boards remain unprovisioned. Match has not created or received an invitation.</p>
+          <button v-if="status === 'provisioning' && error" class="button button-primary" type="button" :disabled="provisioning" @click="provision">Retry board setup</button>
         </section>
       </section>
     </div>

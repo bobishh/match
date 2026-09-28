@@ -5,6 +5,7 @@ import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { peerStore } from "./peerStore"
 import type { DeviceCertificate } from "../domain/model"
 import type { KeeperWorkspace, LighthouseDiscovery } from "./lighthouseDiscovery"
+import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 
 const CONTROL_DOMAIN = "MESH-LIGHTHOUSE/1"
 
@@ -17,9 +18,11 @@ export type KeeperPairing = {
   challengeNonce: string
   controllerFingerprint: string
   discovery: LighthouseDiscovery
+  workspaces: KeeperWorkspace[]
 }
 
-export type KeeperPairingStatus = "pending" | "approved" | "rejected" | "expired"
+export type KeeperPairingStatus = "pending" | "approved" | "provisioning" | "active" | "rejected" | "expired"
+const provisionRequests = new WeakMap<KeeperPairing, string>()
 
 function base64Url(bytes: Uint8Array): string {
   let binary = ""
@@ -106,6 +109,22 @@ async function verifyServiceEnvelope(discovery: LighthouseDiscovery, envelope: u
   return signed.payload
 }
 
+function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: KeeperPairing) {
+  const provisioned = payload.provisioning as { scopes?: unknown } | undefined
+  if (!provisioned || !Array.isArray(provisioned.scopes)) throw new Error("Keeper omitted durable per-board provisioning state.")
+  const expected = pairing.workspaces.map(workspace => workspace.id)
+  const actual = provisioned.scopes as { workspaceId?: unknown; status?: unknown; error?: unknown }[]
+  if (actual.length !== expected.length || actual.some((scope, index) =>
+    scope.workspaceId !== expected[index]
+    || !["pending", "active"].includes(String(scope.status))
+    || (scope.error !== undefined && scope.error !== null && !["join_failed", "runtime_unavailable"].includes(String(scope.error))))) {
+    throw new Error("Keeper provisioning state does not match the approved board set.")
+  }
+  if (payload.status === "active" && actual.some(scope => scope.status !== "active" || scope.error !== undefined)) {
+    throw new Error("Keeper reported active before every approved board was committed.")
+  }
+}
+
 export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspaces: KeeperWorkspace[]): Promise<KeeperPairing> {
   const profile = await bootstrapIdentity()
   if (!workspaces.length) throw new Error("Choose at least one owner board.")
@@ -138,7 +157,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   }
   const operatorUrl = new URL(result.operatorUrl)
   if (operatorUrl.origin !== discovery.origin || operatorUrl.pathname !== "/admin/") throw new Error("Keeper returned an unsafe operator URL.")
-  return { pairingId: result.pairingId, operatorUrl: operatorUrl.toString(), comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash, challengeNonce: challenge.nonce, controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery }
+  return { pairingId: result.pairingId, operatorUrl: operatorUrl.toString(), comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash, challengeNonce: challenge.nonce, controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery, workspaces: workspaces.map(workspace => ({ ...workspace })) }
 }
 
 export async function decideKeeperPairing(pairing: KeeperPairing, approve: boolean): Promise<void> {
@@ -160,8 +179,41 @@ export async function getKeeperPairingStatus(pairing: KeeperPairing): Promise<Ke
   })
   const envelope = await request<unknown>(`${pairing.discovery.origin}/v1/pairings/${encodeURIComponent(pairing.pairingId)}/status`, { method: "POST", body: JSON.stringify(signed) })
   const payload = await verifyServiceEnvelope(pairing.discovery, envelope, "lighthouse-pairing-status")
-  if (payload.pairingId !== pairing.pairingId || payload.transcriptHash !== pairing.transcriptHash || payload.serviceOrigin !== pairing.discovery.origin || !["pending", "approved", "rejected"].includes(String(payload.status))) {
+  if (payload.pairingId !== pairing.pairingId || payload.transcriptHash !== pairing.transcriptHash || payload.serviceOrigin !== pairing.discovery.origin || !["pending", "approved", "provisioning", "active", "rejected", "expired"].includes(String(payload.status))) {
     throw new Error("Keeper returned a status for another pairing or an unsupported state.")
   }
+  if (payload.status === "provisioning" || payload.status === "active") verifyProvisionedScopes(payload, pairing)
+  return payload.status as KeeperPairingStatus
+}
+
+export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation: WorkspaceJoinInvitation): Promise<KeeperPairingStatus> {
+  let body = provisionRequests.get(pairing)
+  if (!body) {
+    const profile = await bootstrapIdentity()
+    const approvedScopes = pairing.workspaces.map(workspace => ({ workspaceId: workspace.id, mode: "replicate" }))
+    const signed = await signedRequest(profile, pairing.discovery, "lighthouse-pairing-provision", {
+      body: {
+        pairingId: pairing.pairingId,
+        transcriptHash: pairing.transcriptHash,
+        servicePersonId: pairing.discovery.personId,
+        approvedScopes,
+        invitation,
+      },
+    })
+    body = JSON.stringify(signed)
+    provisionRequests.set(pairing, body)
+  }
+  const result = await request<unknown>(`${pairing.discovery.origin}/v1/pairings/${encodeURIComponent(pairing.pairingId)}/provision`, {
+    method: "POST",
+    body,
+  })
+  const payload = await verifyServiceEnvelope(pairing.discovery, result, "lighthouse-pairing-status")
+  if (payload.pairingId !== pairing.pairingId
+    || payload.transcriptHash !== pairing.transcriptHash
+    || payload.serviceOrigin !== pairing.discovery.origin
+    || !["provisioning", "active"].includes(String(payload.status))) {
+    throw new Error("Keeper returned a provisioning state for another pairing or scope set.")
+  }
+  verifyProvisionedScopes(payload, pairing)
   return payload.status as KeeperPairingStatus
 }

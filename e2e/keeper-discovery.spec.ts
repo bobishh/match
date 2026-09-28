@@ -86,10 +86,12 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   const keeper = testIdentity()
   let transcriptHash = ""
   let nonce = ""
-  let statusRequests = 0
+  let controllerApproved = false
+  let provisionRequests = 0
+  let approvedWorkspaceIds: string[] = []
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
-    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: false }, publicOrigin: origin, managementPath: "/admin" }),
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
   }))
   await page.route(`${origin}/v1/pairings`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: unknown } }
@@ -99,11 +101,29 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
     const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce, integrationId: "integration-test", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test", expiresAt, operatorUrl: `${origin}/admin/?pairing=pairing-test`, comparisonCode: "314159", transcriptHash, challenge }) })
   })
-  await page.route(`${origin}/v1/pairings/pairing-test/decision`, route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test" }) }))
+  await page.route(`${origin}/v1/pairings/pairing-test/decision`, route => {
+    controllerApproved = true
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test" }) })
+  })
   await page.route(`${origin}/v1/pairings/pairing-test/status`, async route => {
-    statusRequests += 1
-    const status = statusRequests > 1 ? "approved" : "pending"
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: status === "approved", controllerApproved: true, status, provisioning: false, issuedAt: Math.floor(Date.now() / 1000) })
+    const status = provisionRequests > 0 ? "provisioning" : controllerApproved ? "approved" : "pending"
+    const provisioning = status === "provisioning" ? { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "pending" })) } : false
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-test/provision`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { body: { pairingId: string; transcriptHash: string; servicePersonId: string; approvedScopes: { workspaceId: string; mode: string }[]; invitation: { kind: string; role: string; workspaces: { id: string }[] } } } } }
+    expect(request.signed.payload.body.pairingId).toBe("pairing-test")
+    expect(request.signed.payload.body.transcriptHash).toBe(transcriptHash)
+    expect(request.signed.payload.body.servicePersonId).toBe(keeper.identity.personId)
+    expect(request.signed.payload.body.invitation.kind).toBe("workspace-join")
+    expect(request.signed.payload.body.invitation.role).toBe("visitor")
+    approvedWorkspaceIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
+    expect(request.signed.payload.body.approvedScopes.every(scope => scope.mode === "replicate")).toBe(true)
+    expect(approvedWorkspaceIds).toEqual(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id))
+    provisionRequests += 1
+    const status = provisionRequests === 1 ? "provisioning" : "active"
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status, provisioning: { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status })) }, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.goto("/")
@@ -118,6 +138,7 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   await expect(dialog.getByText("314159")).toBeVisible()
   await expect(dialog.getByRole("link", { name: "Open operator approval" })).toHaveAttribute("href", /\/admin/)
   await dialog.getByRole("button", { name: "Code matches · approve" }).click()
-  await expect(dialog.getByText("Both sides approved. Provisioning is unavailable; no integration is active.")).toBeVisible({ timeout: 5000 })
-  await expect(dialog.getByText("Selected boards remain unprovisioned. Match has not created or received an invitation.")).toBeVisible()
+  await expect(dialog.getByText("Both sides approved. Lighthouse is joining and saving every selected board; access remains pending until all boards commit.")).toBeVisible({ timeout: 5000 })
+  await expect(dialog.getByText("All selected boards activated and saved by Lighthouse.")).toBeVisible({ timeout: 10_000 })
+  expect(provisionRequests).toBeGreaterThanOrEqual(2)
 })

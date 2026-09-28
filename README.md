@@ -52,6 +52,12 @@ its separate identity the selected role across owned boards. The checkbox starts
 unchecked. The approving browser issues a signed grant for each new board before replication
 starts. This preference is currently local to that browser; settings synchronization
 between enrolled devices is not implemented yet.
+
+For a standalone Lighthouse keeper, Match discovers the configured HTTPS origin,
+shows its identity and capabilities, and requires controller and authenticated
+operator approval for the same transcript. Match then sends a short-lived visitor
+invitation for the exact selected boards. Pairing stays pending until Lighthouse
+returns signed evidence that every selected board committed durably.
 See [mesh-lighthouse](../mesh-lighthouse/README.md) for provisioning and durable
 state setup.
 

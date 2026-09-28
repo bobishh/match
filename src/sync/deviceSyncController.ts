@@ -9,7 +9,8 @@ import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore }
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
 import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
-import { generateWorkspaceInvite as generateHostInvite } from "./deviceSyncHost"
+import { generateWorkspaceInvite as generateHostInvite, type WorkspaceHostContext } from "./deviceSyncHost"
+import { createKeeperProvisioner } from "./deviceSyncKeeper"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
@@ -354,7 +355,11 @@ export class DeviceSyncController {
 
   private async generateWorkspaceInvite() {
     await this.ensureDurableMesh()
-    await generateHostInvite({
+    await generateHostInvite(this.workspaceHostContext())
+  }
+
+  private workspaceHostContext(): WorkspaceHostContext {
+    return {
       state: this.state, workspace: this.workspace, workspaceStore: this.workspaceStore, meshWorkspaceStore: this.meshWorkspaceStore,
       durableMesh: this.durableMesh, availableWorkspaces: this.availableWorkspaces.value, workspaceOwner: this.workspaceOwner,
       origin: this.origin, transport: this.transport, getProfile: () => this.getProfile(), nextRun: () => ++this.run,
@@ -364,7 +369,7 @@ export class DeviceSyncController {
       waitForJoinDecision: (personId, name, ownerConnection) => this.joinApproval.waitForJoinDecision(personId, name, ownerConnection),
       replaceDirectSession: (personId, session) => this.replaceDirectSession(personId, session),
       removeDirectSession: (personId, session) => this.removeDirectSession(personId, session),
-    })
+    }
   }
 
   private replaceDirectSession(personId: string, session: LiveWorkspaceSync) {
@@ -515,6 +520,7 @@ export class DeviceSyncController {
       selectedWorkspaceId: state.selectedWorkspaceId, selectedWorkspaceIds: state.selectedWorkspaceIds, invitationWorkspaceTitle: state.invitationWorkspaceTitle,
       invitationWorkspaces: state.invitationWorkspaces, availableWorkspaces: this.availableWorkspaces, open: () => this.open(),
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
+      provisionKeeperPairing: createKeeperProvisioner(() => this.ensureDurableMesh(), () => this.workspaceHostContext()),
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
       requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
       joinFromLocation: (raw: string) => isWorkspacePairingLocation(raw, url => { void this.prepareJoin(url) }), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),

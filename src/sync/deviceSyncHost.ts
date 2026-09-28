@@ -23,6 +23,7 @@ import type { PairingContext } from "./deviceSyncContext"
 import type { JoinDecision } from "./deviceSyncJoinApproval"
 
 type WorkspaceOption = { id: string; title: string }
+type KeeperAdmission = { servicePersonId: string; workspaceIds: string[] }
 
 export type WorkspaceHostContext = PairingContext & {
   workspace: WorkspaceReplica
@@ -88,11 +89,16 @@ function clearHostNotice(context: WorkspaceHostContext) {
 }
 
 async function createHostInvite(context: WorkspaceHostContext, node: SyncNode, profile: LocalProfile, workspaces: WorkspaceOption[]) {
+  const invite = await issueWorkspaceInvite(context, node, profile, workspaces)
+  await showInviteQr(context.state, invitationUrl(context.origin(), invite))
+  context.state.step.value = "workspace-host"
+  return invite
+}
+
+async function issueWorkspaceInvite(context: WorkspaceHostContext, node: SyncNode, profile: LocalProfile, workspaces: WorkspaceOption[]) {
   const secret = createPairingSecret()
   const invite = createWorkspaceJoinInvite(node.endpointId, secret, profile, workspaces)
   await defaultInvitationService.saveIssuedInvitation(invite)
-  await showInviteQr(context.state, invitationUrl(context.origin(), invite))
-  context.state.step.value = "workspace-host"
   return invite
 }
 
@@ -105,6 +111,7 @@ type HostInput = {
   owners: Map<string, string>
   workspaces: WorkspaceOption[]
   replica: ReturnType<typeof workspaceSet>
+  keeperAdmission?: KeeperAdmission
 }
 type HostRuntime = HostInput & {
   acceptor: SyncAcceptor
@@ -171,6 +178,36 @@ function createHostGroup(done: Promise<void>, peers: Map<string, LiveWorkspaceSy
       await Promise.all([...connections].map(connection => connection.close()))
     },
   }
+}
+
+export async function createKeeperWorkspaceHost(
+  context: WorkspaceHostContext,
+  workspaces: WorkspaceOption[],
+  servicePersonId: string,
+) {
+  if (!workspaces.length || !servicePersonId) throw new Error("Keeper scopes and service identity are required.")
+  const profile = await context.getProfile()
+  const owners = await workspaceOwners(context, workspaces, profile)
+  await context.pauseMesh()
+  await context.stopNode("Starting Lighthouse invitation host")
+  const run = context.nextRun()
+  clearHostNotice(context)
+  const node = await startPersistentNode(context.transport)
+  if (run !== context.currentRun()) {
+    await node.close("Keeper provisioning superseded")
+    throw new Error("Keeper provisioning was cancelled.")
+  }
+  context.setNode(node)
+  await context.durableMesh?.ensureOwnerWorkspaces(workspaces.map(item => item.id), node.endpointId, profile)
+  const invite = await issueWorkspaceInvite(context, node, profile, workspaces)
+  if (!context.workspaceStore) throw new Error("Workspace sync is unavailable.")
+  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore, workspaces)
+  context.state.liveWorkspaceIds.value = workspaces.map(item => item.id)
+  await startWorkspaceHostController({
+    context, run, node, profile, invite, owners, workspaces, replica,
+    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id) },
+  })
+  return invite
 }
 
 async function publishPeer(session: LiveWorkspaceSync) {
@@ -269,8 +306,13 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   if (Date.parse(runtime.invite.expiresAt) <= Date.now()) {
     return { ok: false as const, error: "This invitation has expired." }
   }
+  if (runtime.keeperAdmission && !matchesKeeperAdmission(runtime, guest.personId)) {
+    return { ok: false as const, error: "Keeper join does not match the approved identity and scope set." }
+  }
   const name = typeof guest.displayName === "string" ? guest.displayName.slice(0, 80) : `Participant ${guest.personId.slice(0, 6)}`
-  const decision = await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
+  const decision = runtime.keeperAdmission
+    ? { role: "visitor" as const, followOwner: false }
+    : await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
   if (!decision) {
     return { ok: false as const, error: "The owner declined this request." }
   }
@@ -288,6 +330,15 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   }
   runtime.grants.set(guest.personId, { ok: true, grants: result.grants, ownerConnection })
   return { ok: true as const, value: { personId: guest.personId, grants: result.grants, ownerConnection } }
+}
+
+function matchesKeeperAdmission(runtime: HostRuntime, personId: string) {
+  const admission = runtime.keeperAdmission
+  if (!admission || personId !== admission.servicePersonId) return false
+  const actualScopes = runtime.workspaces.map(workspace => workspace.id).sort()
+  const approvedScopes = [...admission.workspaceIds].sort()
+  return actualScopes.length === approvedScopes.length
+    && actualScopes.every((workspaceId, index) => workspaceId === approvedScopes[index])
 }
 
 async function prepareWorkspaceAccess(runtime: HostRuntime, approval: {
