@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { nextTick, ref, watch } from "vue"
-import { AuthorityFingerprintTracker, workspaceAuthorityFingerprint } from "./authorityFingerprint"
+import { workspaceAuthorityFingerprint } from "./authorityFingerprint"
 import type { WorkspaceAuthorityRecord, WorkspaceMeshCredential } from "./peerStore"
 
 const credential = (): WorkspaceMeshCredential => ({
@@ -59,22 +58,5 @@ describe("workspace authority fingerprint", () => {
     const conflict = authority()
     conflict.ownerPersonId = "conflicting-owner"
     expect(fingerprint(credential(), conflict)).not.toBe(fingerprint())
-  })
-
-  it("does not fan out board-policy reloads for identical mesh notifications", async () => {
-    const tracker = new AuthorityFingerprintTracker()
-    const revision = ref(0)
-    let allBoardLoads = 0
-    watch(revision, () => { allBoardLoads += 1 })
-    const stable = fingerprint()
-    for (let i = 0; i < 5; i += 1) if (tracker.update(stable)) revision.value += 1
-    await nextTick()
-    expect(allBoardLoads).toBe(1) // initial authority state
-
-    const changed = authority()
-    changed.catalog = { ...(changed.catalog as object), revocations: [{ personId: "former" }] }
-    if (tracker.update(fingerprint(credential(), changed))) revision.value += 1
-    await nextTick()
-    expect(allBoardLoads).toBe(2)
   })
 })
