@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from "vue"
-import { discoverLighthouse, type KeeperWorkspace } from "../sync/lighthouseDiscovery"
-import { beginKeeperPairing, decideKeeperPairing, getEligibleKeeperWorkspaces, getKeeperPairingStatus, type KeeperPairing, type KeeperPairingStatus } from "../sync/lighthousePairing"
+import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus } from "../app/keeperApi"
 
 const props = defineProps<{
   ownedWorkspaces: KeeperWorkspace[]
@@ -11,7 +10,7 @@ const open = ref(false)
 const originInput = ref("")
 const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired">("idle")
 const error = ref("")
-const discovery = ref<Awaited<ReturnType<typeof discoverLighthouse>> | null>(null)
+const discovery = ref<Awaited<ReturnType<typeof keeperApi.discover>> | null>(null)
 const selectedWorkspaceIds = ref<string[]>([])
 const eligibleWorkspaces = ref<KeeperWorkspace[]>([])
 const ineligibleWorkspaces = ref<KeeperWorkspace[]>([])
@@ -27,8 +26,8 @@ async function discover() {
   discovery.value = null
   status.value = "loading"
   try {
-    discovery.value = await discoverLighthouse(originInput.value)
-    eligibleWorkspaces.value = await getEligibleKeeperWorkspaces(props.ownedWorkspaces)
+    discovery.value = await keeperApi.discover(originInput.value)
+    eligibleWorkspaces.value = await keeperApi.eligibleWorkspaces(props.ownedWorkspaces)
     ineligibleWorkspaces.value = props.ownedWorkspaces.filter(workspace => !eligibleWorkspaces.value.some(eligible => eligible.id === workspace.id))
     selectedWorkspaceIds.value = eligibleWorkspaces.value.map(workspace => workspace.id)
     status.value = "found"
@@ -43,7 +42,7 @@ async function requestPairing() {
   error.value = ""
   status.value = "creating"
   try {
-    pairing.value = await beginKeeperPairing(discovery.value, selectedWorkspaces())
+    pairing.value = await keeperApi.beginPairing(discovery.value, selectedWorkspaces())
     status.value = "pairing"
     scheduleStatusCheck()
   } catch (cause) {
@@ -56,7 +55,7 @@ async function decide(approve: boolean) {
   if (!pairing.value) return
   error.value = ""
   try {
-    await decideKeeperPairing(pairing.value, approve)
+    await keeperApi.decidePairing(pairing.value, approve)
     controllerApproved.value = approve
     if (!approve) status.value = "rejected"
     else await checkStatus()
@@ -91,7 +90,7 @@ async function provision() {
 async function checkStatus() {
   if (!pairing.value) return
   try {
-    const current: KeeperPairingStatus = await getKeeperPairingStatus(pairing.value)
+    const current: KeeperPairingStatus = await keeperApi.pairingStatus(pairing.value)
     if (current === "rejected") status.value = "rejected"
     else if (current === "expired") status.value = "expired"
     else if (current === "approved") {
