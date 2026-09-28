@@ -3,12 +3,13 @@ import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
 import { encodePairingFrame, decodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { initializeAutomerge } from "../crdt"
-import { bootstrapIdentity, resetIdentityStorageForTest, signEnvelope } from "../domain/identity"
+import { bootstrapIdentity, resetIdentityStorageForTest, signEnvelope, fromBase64Url } from "../domain/identity"
 import { createWorkspaceDoc } from "../domain/seeds"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { computeWorkspaceAdmission, type IncomingAuthorizationBundle } from "./workspaceAdmissionCore"
 import { liveAutomergeWorkspaceSync, workspaceSet } from "./workspaceSet"
-import { registerOwnerOfferProofs, serveOwnerOfferProofs } from "./ownerOfferProofs"
+import { registerOwnerOfferProofs, serveOwnerOfferProofs, publishOwnerWorkspaceOffer } from "./ownerOfferProofs"
+import { createLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
 import { clearProofPages } from "./proofPageCache"
 import type { SyncConnection } from "./transport"
 
@@ -128,5 +129,61 @@ it("Given unapproved connection or changed manifest, dispatcher never serves arb
   await expect(serveOwnerOfferProofs(f.connection, "old-secret", stream, changed)).rejects.toThrow("changed approved manifest")
   expect(stream.send).not.toHaveBeenCalled()
   f.release()
+  await clearProofPages(f.id)
+})
+
+async function nativeRpcFixture(corruption?: "missing" | "forged") {
+  const f = await fixture()
+  const [entry] = meshRustRuntime().state.decodeWorkspaceSet(f.snapshot, [f.id])
+  const runtime = meshRustRuntime().createMeshScopeRuntime(f.id, "old-secret")
+  const receipt = createLiveWorkspaceSession("existing-board", "old-secret")
+  const empty = Automerge.init()
+  const local = Automerge.save(empty)
+  Automerge.free(empty)
+  const sent: Uint8Array[] = []
+  f.connection.openStream = async () => {
+    let frame!: Uint8Array
+    return { send: async bytes => { frame = bytes; sent.push(bytes) }, closeSend: async () => {}, read: async () => {
+      let effect = inspectPairingFrame(frame).type === "mesh-owner-workspace-offer"
+        ? runtime.beginAuthorizationTransfer(fromBase64Url(entry!.bytes), local, entry!.authorization)
+        : runtime.receiveFrame(frame)!
+      if (effect.kind === "proofPageReceived") effect = runtime.continueProofReceive()
+      if (effect.kind === "proofRequest") return Uint8Array.from(effect.frame)
+      if (effect.kind !== "documentReceive") throw new Error("Unexpected native offer response")
+      const proof = effect.proof as IncomingAuthorizationBundle
+      if (corruption && proof.version === 2) {
+        if (corruption === "missing") proof.pages = []
+        else (proof.pages[0]![0] as { signed: { signature: string } }).signed.signature = "forged-signature"
+      }
+      await f.target.receive(meshRustRuntime().state.encodeWorkspaceSet([{ ...entry, authorization: proof }]), false)
+      return receipt.acknowledgeSaved(f.offer)
+    } }
+  }
+  return { ...f, sent, close: () => { f.release(); runtime.free?.(); receipt.free?.() } }
+}
+
+it("Given native RPC proof-request reply, owner publishes exact pages and waits for original-offer durable ACK", async () => {
+  const f = await nativeRpcFixture()
+  let commit!: () => void
+  f.merge.mockImplementation(() => new Promise<void>(resolve => { commit = resolve }))
+  let acknowledged = false
+  const delivery = publishOwnerWorkspaceOffer(f.connection, "old-secret", f.offer, "mesh-owner-workspace-offer")
+    .then(() => { acknowledged = true })
+  await vi.waitFor(() => expect(f.merge).toHaveBeenCalledOnce())
+  expect(acknowledged).toBe(false)
+  expect(f.sent.map(frame => inspectPairingFrame(frame).type)).toEqual(["mesh-owner-workspace-offer", "mesh-proof-page-v1"])
+  expect(f.sent.every(frame => frame.length <= 256 * 1024)).toBe(true)
+  commit()
+  await delivery
+  expect(acknowledged).toBe(true)
+  f.close()
+  await clearProofPages(f.id)
+})
+
+it.each(["missing", "forged"] as const)("Given native RPC %s proofs, sender receives no durable ACK", async corruption => {
+  const f = await nativeRpcFixture(corruption)
+  await expect(publishOwnerWorkspaceOffer(f.connection, "old-secret", f.offer, "mesh-owner-workspace-offer")).rejects.toThrow()
+  expect(f.merge).not.toHaveBeenCalled()
+  f.close()
   await clearProofPages(f.id)
 })

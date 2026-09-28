@@ -13,11 +13,38 @@ export async function publishOwnerWorkspaceOffer(connection: SyncConnection, sec
   frame: OwnerWorkspaceOfferFrame): Promise<void> {
   const protocol = createLiveWorkspaceSession("owner-offer", secret)
   try {
-    const stream = await connection.openStream()
-    await stream.send(protocol.encode(frame, bytes))
-    await stream.closeSend()
-    protocol.verifySavedReceipt(await stream.read(), bytes)
+    let outgoing = protocol.encode(frame, bytes)
+    for (let round = 0; round <= 4096; round++) {
+      const response = await exchangeOwnerFrame(connection, outgoing, round === 0 ? 600_000 : 20_000)
+      if (inspectPairingFrame(response).type !== "mesh-proof-request-v1") {
+        protocol.verifySavedReceipt(response, bytes)
+        return
+      }
+      if (round === 4096) throw new Error("Owner proof reply limit exceeded")
+      let page: Uint8Array | undefined
+      const handled = await serveOwnerOfferProofs(connection, secret, {
+        send: async value => { page = value }, closeSend: async () => {},
+        read: async () => { throw new Error("Owner proof source cannot read") },
+      }, response)
+      if (!handled || !page) throw new Error("Native requested proofs outside approved owner offer")
+      outgoing = page
+    }
+    throw new Error("Owner proof reply limit exceeded")
   } finally { protocol.free?.() }
+}
+
+async function exchangeOwnerFrame(connection: SyncConnection, frame: Uint8Array, timeoutMs: number): Promise<Uint8Array> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([(async () => {
+      const stream = await connection.openStream()
+      await stream.send(frame)
+      await stream.closeSend()
+      return stream.read()
+    })(), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Owner delivery is unconfirmed; retry the same offer")), timeoutMs)
+    })])
+  } finally { if (timer) clearTimeout(timer) }
 }
 
 /** Called only after the authenticated owner/future-board policy approves an
