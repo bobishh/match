@@ -63,9 +63,13 @@ function requestOpenJournal(version?: number): Promise<IDBDatabase> {
     request.onupgradeneeded = () => {
       const database = request.result
       for (const name of journalStores) {
-        if (database.objectStoreNames.contains(name)) continue
-        const store = database.createObjectStore(name, { keyPath: "id" })
-        store.createIndex("workspaceId", "workspaceId", { unique: false })
+        const store = database.objectStoreNames.contains(name)
+          ? request.transaction!.objectStore(name)
+          : database.createObjectStore(name, { keyPath: "id" })
+        if (!store.indexNames.contains("workspaceId")) store.createIndex("workspaceId", "workspaceId", { unique: false })
+        if (name === "snapshots" && !store.indexNames.contains("catalog")) {
+          store.createIndex("catalog", ["workspaceId", "title", "savedAt"], { unique: false })
+        }
       }
     }
     request.onsuccess = () => {
@@ -81,7 +85,8 @@ function requestOpenJournal(version?: number): Promise<IDBDatabase> {
 async function ensureJournalStores(): Promise<IDBDatabase> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const database = await requestOpenJournal()
-    if (journalStores.every(name => database.objectStoreNames.contains(name))) return database
+    const complete = journalStores.every(name => database.objectStoreNames.contains(name))
+    if (complete && database.transaction("snapshots", "readonly").objectStore("snapshots").indexNames.contains("catalog")) return database
     const version = database.version + 1
     database.close()
     try { return await requestOpenJournal(version) }
@@ -162,12 +167,27 @@ export async function readWorkspaceSnapshot(workspaceId: string): Promise<Stored
   return snapshot
 }
 
-export async function listWorkspaceSnapshots(): Promise<StoredWorkspaceSnapshot[]> {
-  if (typeof indexedDB === "undefined") return [...memoryJournals.values()].flatMap(journal => journal.snapshot ? [structuredClone(journal.snapshot)] : [])
+export type CommittedWorkspaceMeta = { id: string; title: string; updatedAt: string }
+
+export async function listCommittedWorkspaces(): Promise<CommittedWorkspaceMeta[]> {
+  if (typeof indexedDB === "undefined") return [...memoryJournals.values()].flatMap(journal => journal.snapshot
+    ? [{ id: journal.snapshot.workspaceId, title: journal.snapshot.title, updatedAt: journal.snapshot.savedAt }] : [])
   const database = await openWorkspaceJournal()
   const transaction = database.transaction("snapshots", "readonly")
   const completion = transactionDone(transaction)
-  const snapshots = await requestResult(transaction.objectStore("snapshots").getAll()) as StoredWorkspaceSnapshot[]
-  await completion
-  return snapshots
+  const results: CommittedWorkspaceMeta[] = []
+  // Index keys carry catalog metadata; never clone every board's document bytes.
+  const request = transaction.objectStore("snapshots").index("catalog").openKeyCursor()
+  const scanned = new Promise<void>((resolve, reject) => {
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) { resolve(); return }
+      const [id, title, updatedAt] = cursor.key as string[]
+      results.push({ id: id!, title: title!, updatedAt: updatedAt! })
+      cursor.continue()
+    }
+    request.onerror = () => reject(request.error ?? new Error("Workspace catalog read failed"))
+  })
+  await Promise.all([scanned, completion])
+  return results
 }

@@ -15,7 +15,8 @@ import { getStorageRaw, removeStorageRaw, setStorageRaw, storageKeys } from "./s
 import {
   deleteWorkspaceJournal,
   readWorkspaceSnapshot,
-  listWorkspaceSnapshots,
+  listCommittedWorkspaces,
+  type CommittedWorkspaceMeta,
   type StoredWorkspaceSnapshot,
   openWorkspaceJournal,
   readLocalJournal,
@@ -94,8 +95,8 @@ function parseStoredSnapshot(raw: string, workspaceId: string): StoredSnapshot |
   }
 }
 
-async function repairLegacyCatalog(records: Map<string, WorkspaceMeta>, snapshots: StoredWorkspaceSnapshot[]): Promise<void> {
-  const committedIds = new Set(snapshots.map(snapshot => snapshot.workspaceId))
+async function repairLegacyCatalog(records: Map<string, WorkspaceMeta>, snapshots: CommittedWorkspaceMeta[]): Promise<void> {
+  const committedIds = new Set(snapshots.map(snapshot => snapshot.id))
   for (const record of records.values()) {
     if (committedIds.has(record.id)) continue
     const key = `${workspaceMetaPrefix}${record.id}`
@@ -148,8 +149,8 @@ export class WorkspaceStorage {
       } catch { /* Preserve unreadable data for manual recovery. */ }
       finally { if (doc) Automerge.free(doc) }
     }
-    const committedSnapshots = await listWorkspaceSnapshots()
-    for (const snapshot of committedSnapshots) accept({ id: snapshot.workspaceId, title: snapshot.title, updatedAt: snapshot.savedAt })
+    const committedSnapshots = await listCommittedWorkspaces()
+    for (const snapshot of committedSnapshots) accept(snapshot)
     await repairLegacyCatalog(records, committedSnapshots)
     for (const id of records.keys()) if (await getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) records.delete(id)
     this.inMemory.workspaces = records
