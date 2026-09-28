@@ -114,6 +114,19 @@ function parseEntries(bytes: Uint8Array, ids: string[]) {
   return meshRustRuntime().state.decodeWorkspaceSet(bytes, ids)
 }
 
+async function measureScopePhase<T>(phase: string, workspaceId: string, peerId: string,
+  operation: () => Promise<T>, byteLength?: number): Promise<T> {
+  const started = performance.now()
+  try { return await operation() }
+  finally {
+    const elapsedMs = Math.round(performance.now() - started)
+    if (elapsedMs >= 250) meshTrace("workspace.scope.phase", {
+      phase, workspaceId: workspaceId.slice(0, 8), peerId: peerId.slice(0, 8), elapsedMs,
+      ...(byteLength === undefined ? {} : { byteLength }),
+    }, "warn")
+  }
+}
+
 function safeDiagnostic(error: unknown): string {
   const cause = error instanceof Error ? error.cause : undefined
   if (!cause || typeof cause !== "object") return ""
@@ -298,6 +311,7 @@ async function applyWorkspaceSetReceivePlan(
   }
 }
 
+// eslint-disable-next-line max-lines-per-function
 export function liveAutomergeWorkspaceSync(
   connection: SyncConnection,
   secret: string,
@@ -314,30 +328,55 @@ export function liveAutomergeWorkspaceSync(
   const liveness = createLiveWorkspaceSession(workspaceId, secret)
   const frameHandlers = new Set<Promise<void>>()
   const scope = BrowserMeshScopeSync.create(workspaceId, secret, {
-    readDocument: () => store.read(workspaceId),
-    readAuthorization: store.readAuthorization ? bytes => store.readAuthorization!(bytes, workspaceId) : undefined,
-    readChat: store.readChat ? known => store.readChat!(workspaceId, known) : undefined,
-    readMesh: store.readMesh ? () => store.readMesh!(workspaceId) : undefined,
+    readDocument: () => measureScopePhase("store.read-document", workspaceId, remoteDeviceId,
+      () => store.read(workspaceId)),
+    readAuthorization: store.readAuthorization ? bytes => measureScopePhase("store.read-authorization", workspaceId,
+      remoteDeviceId, () => store.readAuthorization!(bytes, workspaceId), bytes.byteLength) : undefined,
+    readChat: store.readChat ? known => measureScopePhase("store.read-chat", workspaceId, remoteDeviceId,
+      () => store.readChat!(workspaceId, known)) : undefined,
+    readMesh: store.readMesh ? () => measureScopePhase("store.read-mesh", workspaceId, remoteDeviceId,
+      () => store.readMesh!(workspaceId)) : undefined,
     persistDocument: async (candidate, proof) => {
       const document = Automerge.load<{ id?: unknown }>(candidate)
       try { if (document.id !== workspaceId) throw new Error("Wrong workspace document") }
       finally { Automerge.free(document) }
-      await store.merge(workspaceId, candidate, proof)
+      await measureScopePhase("store.persist-document", workspaceId, remoteDeviceId,
+        () => store.merge(workspaceId, candidate, proof), candidate.byteLength)
     },
     onDocumentAccepted: count => {
       if (count > 0 && lastRejection) { lastRejection = undefined; onDocumentRejected?.(null) }
     },
-    mergeDurableBatch: bytes => workspaceSet(store, [workspaceId]).receive(bytes, false),
+    mergeDurableBatch: bytes => measureScopePhase("store.merge-durable-batch", workspaceId, remoteDeviceId,
+      () => workspaceSet(store, [workspaceId]).receive(bytes, false), bytes.byteLength),
     mergeAuthorization: async authorization => {
-      await store.merge(workspaceId, await store.read(workspaceId), authorization)
+      const bytes = await store.read(workspaceId)
+      await measureScopePhase("store.merge-authorization", workspaceId, remoteDeviceId,
+        () => store.merge(workspaceId, bytes, authorization), bytes.byteLength)
     },
-    mergeChat: store.mergeChat ? chat => store.mergeChat!(workspaceId, chat, false) : undefined,
-    mergeMesh: store.mergeMesh ? mesh => store.mergeMesh!(workspaceId, mesh) : undefined,
-    onOwnerWorkspaceOffer: options.ownerWorkspaceOfferFrame === "mesh-owner-workspace-offer"
-      ? options.onOwnerWorkspaceOffer : undefined,
-    onGossip: options.onGossipPacket,
-    onBlobRequest: options.onBlobRequest,
-    onHandoffRequest: options.onHandoffRequest,
+    mergeChat: store.mergeChat ? chat => measureScopePhase("store.merge-chat", workspaceId, remoteDeviceId,
+      () => store.mergeChat!(workspaceId, chat, false)) : undefined,
+    mergeMesh: store.mergeMesh ? mesh => measureScopePhase("store.merge-mesh", workspaceId, remoteDeviceId,
+      () => store.mergeMesh!(workspaceId, mesh)) : undefined,
+    onTiming: timing => {
+      const elapsedMs = Math.round(timing.elapsedMs)
+      if (elapsedMs >= 250) meshTrace("workspace.scope.queue", {
+        operation: timing.operation, operationId: timing.operationId, phase: timing.phase,
+        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8), elapsedMs,
+        ...(timing.frameBytes === undefined ? {} : { frameBytes: timing.frameBytes }),
+      }, "warn")
+    },
+    onOwnerWorkspaceOffer: options.ownerWorkspaceOfferFrame === "mesh-owner-workspace-offer" && options.onOwnerWorkspaceOffer
+      ? bytes => measureScopePhase("callback.owner-workspace-offer", workspaceId, remoteDeviceId,
+        () => options.onOwnerWorkspaceOffer!(bytes), bytes.byteLength) : undefined,
+    onGossip: options.onGossipPacket
+      ? bytes => measureScopePhase("callback.gossip", workspaceId, remoteDeviceId,
+        () => options.onGossipPacket!(bytes), bytes.byteLength) : undefined,
+    onBlobRequest: options.onBlobRequest
+      ? (stream, frame) => measureScopePhase("callback.blob-request", workspaceId, remoteDeviceId,
+        () => options.onBlobRequest!(stream, frame), frame.byteLength) : undefined,
+    onHandoffRequest: options.onHandoffRequest
+      ? (stream, frame) => measureScopePhase("callback.handoff-request", workspaceId, remoteDeviceId,
+        () => options.onHandoffRequest!(stream, frame), frame.byteLength) : undefined,
   })
   scope.startDocumentSync(localDeviceId, remoteDeviceId)
   const responseStream: DuplexStream = {
@@ -353,7 +392,8 @@ export function liveAutomergeWorkspaceSync(
   }
   const consumeResponse = async (stream: DuplexStream): Promise<void> => {
     try {
-      const frame = await stream.read()
+      const frame = await measureScopePhase("transport.response-read", workspaceId, remoteDeviceId,
+        () => stream.read())
       if (!stopped && frame.length > 0) await receive(responseStream, frame)
     } catch (error) {
       if (!stopped) meshTrace("document.response.failed", {
@@ -364,14 +404,20 @@ export function liveAutomergeWorkspaceSync(
   }
   const sendFrame = async (frame: Uint8Array, kind: "document" | "control"): Promise<boolean> => {
     if (stopped) return false
-    const stream = await connection.openStream()
-    await stream.send(frame)
-    await stream.closeSend()
+    const stream = await measureScopePhase(`transport.${kind}.open`, workspaceId, remoteDeviceId,
+      () => connection.openStream(), frame.byteLength)
+    await measureScopePhase(`transport.${kind}.send`, workspaceId, remoteDeviceId,
+      () => stream.send(frame), frame.byteLength)
+    await measureScopePhase(`transport.${kind}.close-send`, workspaceId, remoteDeviceId,
+      () => stream.closeSend(), frame.byteLength)
     if (kind === "document") void consumeResponse(stream)
     return true
   }
   const receive = async (stream: DuplexStream, frame: Uint8Array): Promise<void> => {
-    try { await scope.receive(stream, frame) }
+    try {
+      await measureScopePhase("scope.receive", workspaceId, remoteDeviceId,
+        () => scope.receive(stream, frame), frame.byteLength)
+    }
     catch (error) {
       if (!(error instanceof WorkspaceChangeRejected)) throw error
       if (lastRejection !== error.message) onDocumentRejected?.(error)
@@ -397,12 +443,14 @@ export function liveAutomergeWorkspaceSync(
     done,
     async reconcile() {
       if (stopped) return
-      try { await scope.reconcile(sendFrame) }
+      try { await measureScopePhase("scope.reconcile-total", workspaceId, remoteDeviceId,
+        () => scope.reconcile(sendFrame)) }
       catch (error) { if (!stopped) throw error }
     },
     async publish() {
       if (stopped) return
-      try { await scope.publish(sendFrame) }
+      try { await measureScopePhase("scope.publish-total", workspaceId, remoteDeviceId,
+        () => scope.publish(sendFrame)) }
       catch (error) { if (!stopped) throw error }
     },
     heartbeat() {

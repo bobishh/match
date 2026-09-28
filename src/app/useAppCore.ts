@@ -124,7 +124,8 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
     origin: () => window.location.origin,
     availableWorkspaces: match.availableWorkspaces,
     activeWorkspaceId: () => match.activeWorkspace.id || "default",
-    workspaceOwner: id => resolveWorkspaceOwner(match.readWorkspaceBytes, id),
+    workspaceOwner: id => timedWorkspaceStoreStage("owner-check", id, () =>
+      resolveWorkspaceOwner(match.readWorkspaceBytes, id)),
   })
   configureAttachmentFetcher(descriptor => sync.fetchBlob(match.activeWorkspace.id, descriptor))
   const policy = useWorkspacePolicy(match, ui, sync)
