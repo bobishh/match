@@ -94,48 +94,109 @@ function legacyWorkspaceId(store: JournalStoreName, value: Record<string, unknow
 }
 
 function openLegacyJournal(): Promise<IDBDatabase | undefined> {
-  return legacyJournalDatabasePromise ??= new Promise<IDBDatabase | undefined>((resolve, reject) => {
-    const request = indexedDB.open(legacyJournalDatabaseName)
-    let settled = false
-    let missing = false
-    let blockedTimer: ReturnType<typeof setTimeout> | undefined
-    const settle = (error?: Error, database?: IDBDatabase) => {
-      if (settled) { database?.close(); return }
-      settled = true
-      if (blockedTimer) clearTimeout(blockedTimer)
-      if (error) reject(error)
-      else resolve(database)
-    }
-    request.onupgradeneeded = event => {
-      if (event.oldVersion === 0) {
-        missing = true
-        request.transaction?.abort()
+  return legacyJournalDatabasePromise ??= (async () => {
+    if (typeof indexedDB.databases === "function") {
+      const queryStartedAt = Date.now()
+      console.info("[match.storage] legacy-enumeration-started")
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      let databases: IDBDatabaseInfo[]
+      try {
+        databases = await Promise.race([
+          indexedDB.databases(),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => {
+              const error = new Error("Legacy storage enumeration did not complete")
+              error.name = "LegacyJournalEnumerationTimeoutError"
+              reject(error)
+            }, 2000)
+          }),
+        ])
+      } catch (error) {
+        console.info("[match.storage] legacy-enumeration-error", {
+          name: error instanceof Error ? error.name : "UnknownError",
+          elapsedMs: Date.now() - queryStartedAt,
+        })
+        throw error
+      } finally {
+        if (timeout) clearTimeout(timeout)
       }
+      const legacyDatabase = databases.find(database => database.name === legacyJournalDatabaseName)
+      console.info("[match.storage] legacy-enumeration-complete", {
+        count: databases.length,
+        exists: Boolean(legacyDatabase),
+        version: legacyDatabase?.version,
+        elapsedMs: Date.now() - queryStartedAt,
+      })
+      const exists = legacyDatabase !== undefined
+      if (!exists) return undefined
+    } else {
+      console.info("[match.storage] legacy-existence-query-unavailable")
+      const error = new Error("Legacy workspace storage could not be safely identified")
+      error.name = "LegacyJournalEnumerationUnavailableError"
+      throw error
     }
-    request.onsuccess = () => {
-      if (settled) { request.result.close(); return }
-      request.result.onversionchange = () => {
-        request.result.close()
-        legacyJournalDatabasePromise = undefined
+
+    return new Promise<IDBDatabase | undefined>((resolve, reject) => {
+      const openStartedAt = Date.now()
+      console.info("[match.storage] legacy-open-started")
+      const request = indexedDB.open(legacyJournalDatabaseName)
+      let settled = false
+      let vanishedAfterEnumeration = false
+      let blockedTimer: ReturnType<typeof setTimeout> | undefined
+      const settle = (error?: Error, database?: IDBDatabase) => {
+        if (settled) { database?.close(); return }
+        settled = true
+        if (blockedTimer) clearTimeout(blockedTimer)
+        if (openTimer) clearTimeout(openTimer)
+        if (error) reject(error)
+        else resolve(database)
       }
-      settle(undefined, request.result)
-    }
-    request.onerror = () => {
-      if (missing && request.error?.name === "AbortError") settle()
-      else settle(request.error ?? new Error("Legacy workspace storage could not be opened"))
-    }
-    request.onblocked = () => {
-      const error = new Error("Legacy workspace storage is busy in another tab")
-      error.name = "LegacyJournalUnavailableError"
-      if (blockedTimer) clearTimeout(blockedTimer)
-      blockedTimer = setTimeout(() => settle(error), 1500)
-    }
-    blockedTimer = setTimeout(() => {
-      const error = new Error("Legacy workspace storage is still busy in another tab")
-      error.name = "LegacyJournalUnavailableError"
-      settle(error)
-    }, 5000)
-  }).catch(error => {
+      const openTimer = setTimeout(() => {
+        console.info("[match.storage] legacy-open-timeout", { elapsedMs: Date.now() - openStartedAt })
+        const error = new Error("Legacy workspace storage open did not complete")
+        error.name = "LegacyJournalOpenTimeoutError"
+        settle(error)
+      }, 5000)
+      request.onupgradeneeded = event => {
+        console.info("[match.storage] legacy-open-upgrade", {
+          oldVersion: event.oldVersion,
+          elapsedMs: Date.now() - openStartedAt,
+        })
+        if (event.oldVersion === 0) {
+          vanishedAfterEnumeration = true
+          request.transaction?.abort()
+        }
+      }
+      request.onsuccess = () => {
+        console.info("[match.storage] legacy-open-success", { elapsedMs: Date.now() - openStartedAt })
+        if (settled) { request.result.close(); return }
+        request.result.onversionchange = () => {
+          request.result.close()
+          legacyJournalDatabasePromise = undefined
+        }
+        settle(undefined, request.result)
+      }
+      request.onerror = () => {
+        console.info("[match.storage] legacy-open-error", {
+          name: request.error?.name ?? "UnknownError",
+          elapsedMs: Date.now() - openStartedAt,
+        })
+        if (vanishedAfterEnumeration && request.error?.name === "AbortError") {
+          const error = new Error("Legacy workspace storage changed during migration check")
+          error.name = "LegacyJournalChangedDuringOpenError"
+          settle(error)
+        }
+        else settle(request.error ?? new Error("Legacy workspace storage could not be opened"))
+      }
+      request.onblocked = () => {
+        console.info("[match.storage] legacy-open-blocked", { elapsedMs: Date.now() - openStartedAt })
+        const error = new Error("Legacy workspace storage is busy in another tab")
+        error.name = "LegacyJournalUnavailableError"
+        if (blockedTimer) clearTimeout(blockedTimer)
+        blockedTimer = setTimeout(() => settle(error), 1500)
+      }
+    })
+  })().catch(error => {
     legacyJournalDatabasePromise = undefined
     throw error
   })

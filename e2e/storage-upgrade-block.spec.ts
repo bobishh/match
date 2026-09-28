@@ -4,6 +4,9 @@ test("Given normal browser storage, when Match starts, then workspace controls l
   await page.goto(baseURL ?? "http://127.0.0.1:4244")
   await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByLabel("Opening workspace")).toHaveCount(0)
+  const databaseNames = await page.evaluate(async () => (await indexedDB.databases()).map(database => database.name))
+  expect(databaseNames).toContain("match-workspace-state")
+  expect(databaseNames).not.toContain("match-workspace-journal-v1")
 })
 
 test("Given a legacy upgrade is already blocked, when Match opens new storage, then startup fails visibly instead of hanging", async ({ browser, baseURL }) => {
