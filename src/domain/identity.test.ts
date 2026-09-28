@@ -72,6 +72,35 @@ describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
     expect(tabA.identity.publicKey).toEqual(tabB.identity.publicKey)
   })
 
+  it("reads a cached identity while another tab blocks the bootstrap lock", async () => {
+    const request = vi.fn(async (_name: string, operation: () => Promise<unknown>) => operation())
+    vi.stubGlobal("navigator", { locks: { request } })
+    try {
+      const profile = await bootstrapIdentity("Cached owner")
+      expect(request).toHaveBeenCalledTimes(1)
+      request.mockImplementation(async () => { throw new Error("Another tab holds the bootstrap lock") })
+      await renameIdentity("Updated owner")
+      const cached = await bootstrapIdentity()
+      expect(cached.identity.personId).toBe(profile.identity.personId)
+      expect(cached.identity.displayName).toBe("Updated owner")
+      expect(request).toHaveBeenCalledTimes(1)
+      clearInMemoryProfileForReloadTest()
+      await expect(bootstrapIdentity()).rejects.toThrow("Another tab holds the bootstrap lock")
+    } finally { vi.unstubAllGlobals() }
+  })
+
+  it("coalesces cold bootstrap and retries after a failed lock acquisition", async () => {
+    const request = vi.fn(async (_name: string, operation: () => Promise<unknown>) => operation())
+      .mockRejectedValueOnce(new Error("Lock acquisition failed"))
+    vi.stubGlobal("navigator", { locks: { request } })
+    try {
+      await expect(bootstrapIdentity()).rejects.toThrow("Lock acquisition failed")
+      const profiles = await Promise.all([bootstrapIdentity("Owner"), bootstrapIdentity("Other name")])
+      expect(profiles[0].identity.personId).toBe(profiles[1].identity.personId)
+      expect(request).toHaveBeenCalledTimes(2)
+    } finally { vi.unstubAllGlobals() }
+  })
+
   it("signs and verifies actor bindings and change proofs", async () => {
     const profile = await bootstrapIdentity("Signer")
     const documentId = "doc_123"

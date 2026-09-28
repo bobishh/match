@@ -243,6 +243,18 @@ export abstract class DurableMeshBase {
     meshTrace(event, { runtimeId: this.runtimeId.slice(0, 8), runId: this.currentRunId, ...detail }, level)
   }
 
+  protected async traceSlowPhase<T>(phase: string, workspaceId: string,
+    detail: Record<string, unknown>, operation: () => T | Promise<T>): Promise<T> {
+    const startedAt = performance.now()
+    try { return await operation() }
+    finally {
+      const elapsedMs = Math.round(performance.now() - startedAt)
+      if (elapsedMs >= 250) this.trace("authority.merge.phase", {
+        phase, workspaceId: workspaceId.slice(0, 8), elapsedMs, ...detail,
+      }, "warn")
+    }
+  }
+
   protected connectionId(direction: "incoming" | "outgoing") {
     this.connectionSequence += 1
     return `${direction === "incoming" ? "in" : "out"}-${this.connectionSequence}`

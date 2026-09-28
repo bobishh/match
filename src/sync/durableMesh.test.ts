@@ -11,6 +11,7 @@ import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRe
 import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
 import { isNativeLighthouseRoute } from "./durableMeshSessions"
 import { isEnvelope, isGrantRevoked } from "./durableMeshBase"
+import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
 
@@ -894,6 +895,33 @@ describe("DurableMesh peer catalog gossip", () => {
 
     expect(imported).toEqual(["owner-phone"])
     await mesh.dispose()
+  })
+
+  it("traces a slow catalog effect without changing merge order", async () => {
+    const credential = { workspaceId: "workspace-1" }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { getWorkspaceCredential: async () => credential } as never })
+    const state = meshRustRuntime().state as any
+    const validate = vi.spyOn(state, "validateMeshCatalog").mockReturnValue({ version: 1, peers: [], revocations: [] })
+    const plan = vi.spyOn(state, "planCatalogMerge").mockReturnValue(["notify"])
+    const internal = mesh as any
+    internal.notify = vi.fn(async () => { await new Promise(resolve => setTimeout(resolve, 270)) })
+    clearMeshTrace()
+
+    try {
+      await mesh.mergeWorkspace("workspace-1", {})
+      expect(internal.notify).toHaveBeenCalledOnce()
+      expect(meshTraceSnapshot()).toContainEqual(expect.objectContaining({
+        event: "authority.merge.phase",
+        phase: "effect.notify", workspaceId: "workspac", elapsedMs: expect.any(Number),
+      }))
+    } finally {
+      validate.mockRestore()
+      plan.mockRestore()
+      clearMeshTrace()
+      await mesh.dispose()
+    }
   })
 
   it("rejects a valid scope ledger that conflicts with the Rust-planned ownership transfer before persisting it", async () => {

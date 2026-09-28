@@ -54,12 +54,18 @@ const identityStore = new BrowserIdentityStore({
   }),
 })
 const recoveryStorageKey = "match.identity_recovery.v1"
+let identityInitialized = false
+let identityBootstrap: Promise<LocalProfile> | undefined
 
 export function clearInMemoryProfileForReloadTest(): void {
+  identityInitialized = false
+  identityBootstrap = undefined
   identityStore.clearMemory()
 }
 
 export function resetIdentityStorageForTest(): void {
+  identityInitialized = false
+  identityBootstrap = undefined
   identityStore.reset()
 }
 
@@ -70,9 +76,17 @@ export async function bootstrapIdentity(displayName?: string): Promise<LocalProf
       ? await identityStore.rename(randomDisplayName()) as LocalProfile
       : profile
   }
-  return typeof navigator !== "undefined" && navigator.locks
-    ? await navigator.locks.request("match-identity-bootstrap", bootstrap)
-    : await bootstrap()
+  // Cross-tab exclusion protects creation/restoration. Cached reads must not
+  // wait for another tab's scheduler on every scope/catalog operation.
+  if (identityInitialized) return bootstrap()
+  identityBootstrap ??= (async () => {
+    const profile = typeof navigator !== "undefined" && navigator.locks
+      ? await navigator.locks.request("match-identity-bootstrap", bootstrap)
+      : await bootstrap()
+    identityInitialized = true
+    return profile
+  })().finally(() => { identityBootstrap = undefined })
+  return identityBootstrap
 }
 
 export async function renameIdentity(displayName: string): Promise<LocalProfile> {
