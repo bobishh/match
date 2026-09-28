@@ -27,8 +27,31 @@ type SubscriptionOptions = {
   refreshTyping: () => void
 }
 
+type PendingChatMessage = {
+  id: string
+  workspaceId: string
+  personId: string
+  createdAt: string
+  body: string
+  status: "saving"
+}
+
+function createPendingMessage(workspaceId: string, personId: string, body: string): PendingChatMessage {
+  return { id: `pending:${crypto.randomUUID()}`, workspaceId, personId,
+    createdAt: new Date().toISOString(), body: body.trim(), status: "saving" }
+}
+
+function appendMessages(snapshot: Ref<ChatSnapshot>, added: ChatSnapshot["messages"]): void {
+  if (!added.length) return
+  const messages = new Map(snapshot.value.messages.map(message => [message.id, message]))
+  for (const message of added) messages.set(message.id, message)
+  snapshot.value = { ...snapshot.value, messages: [...messages.values()].sort((left, right) =>
+    messageOrderKey(left).localeCompare(messageOrderKey(right))) }
+}
+
 function createChatViews(
   snapshot: Ref<ChatSnapshot>,
+  pending: Ref<PendingChatMessage[]>,
   identityName: Ref<string>,
   personId: Ref<string>,
   ownerId: Ref<string>,
@@ -51,9 +74,11 @@ function createChatViews(
     role: profile.personId === ownerId.value ? "Owner" : "Member",
     })).sort((left, right) => left.personId < right.personId ? -1 : left.personId > right.personId ? 1 : 0)
   })
-  const messages = computed(() => snapshot.value.messages.map((message) => ({
+  const messages = computed(() => [...snapshot.value.messages, ...pending.value].map((message) => ({
     ...message,
-    name: names.value[message.personId] ?? `Participant · ${message.personId.slice(0, 6)}`,
+    name: names.value[message.personId] ?? (message.personId === personId.value
+      ? identityName.value
+      : `Participant · ${message.personId.slice(0, 6)}`),
   })))
   const unread = computed(() => snapshot.value.messages.filter((message) =>
     message.personId !== personId.value && (!cursor.value || messageOrderKey(message) > cursor.value)).length)
@@ -66,7 +91,8 @@ function subscribeWorkspaceChat(options: SubscriptionOptions): () => void {
   let toastTimer: ReturnType<typeof setTimeout> | undefined
   const unsubscribe = subscribeChat((event) => {
     if (event.workspaceId !== options.workspaceId.value) return
-    void options.refresh()
+    appendMessages(options.snapshot, event.added)
+    if (event.history) void options.refresh()
     if (event.typing?.length) options.refreshTyping()
     if (event.remote && !options.snapshot.value.profiles.some((profile) => profile.personId === options.personId.value)) {
       void ensureChatProfile(event.workspaceId)
@@ -108,6 +134,7 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
   const personId = ref("")
   const cursor = ref<string | null>(null)
   const snapshot = ref<ChatSnapshot>({ messages: [], profiles: [] })
+  const pending = ref<PendingChatMessage[]>([])
   const toast = ref<{ workspaceId: string; text: string } | null>(null)
   const typing = ref<ChatTyping[]>([])
   let typingExpiryTimer: ReturnType<typeof setTimeout> | undefined
@@ -116,7 +143,7 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
   let lastTypingPublished = 0
   let generation = 0
   const { names, displayName, members, messages, unread, typingPeople } = createChatViews(
-    snapshot, identityName, personId, ownerId, cursor, typing
+    snapshot, pending, identityName, personId, ownerId, cursor, typing
   )
 
   function refreshTyping() {
@@ -173,6 +200,7 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
     setTyping(false)
     generation++
     snapshot.value = { messages: [], profiles: [] }
+    pending.value = []
     error.value = ""
     nameError.value = ""
     toast.value = null
@@ -212,9 +240,14 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
     sending.value = true
     error.value = ""
     const id = workspaceId.value
-    try { await sendChatMessage(id, body); await refresh() }
+    const pendingMessage = createPendingMessage(id, personId.value, body)
+    pending.value = [...pending.value, pendingMessage]
+    try { await sendChatMessage(id, body) }
     catch (err) { error.value = err instanceof Error ? err.message : "Could not save message. Try again." }
-    finally { sending.value = false }
+    finally {
+      pending.value = pending.value.filter(message => message.id !== pendingMessage.id)
+      sending.value = false
+    }
   }
   return { open, loading, sending, error, nameError, personId, displayName, members, messages, unread, toast,
     typingPeople, setTyping, send }

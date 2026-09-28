@@ -9,6 +9,7 @@ interface ChatMessage {
   name: string
   body: string
   createdAt: string
+  status?: "saving"
 }
 
 const props = withDefaults(
@@ -45,6 +46,7 @@ const draft = ref("")
 const isSubmitting = ref(false)
 const isComposing = ref(false)
 const userJustSent = ref(false)
+const submittedDraft = ref("")
 const messageListRef = ref<HTMLElement | null>(null)
 const chatDialogRef = ref<HTMLElement | null>(null)
 const isAtBottom = ref(true)
@@ -160,6 +162,8 @@ function handleSubmit() {
   }
   isSubmitting.value = true
   userJustSent.value = true
+  submittedDraft.value = text
+  draft.value = ""
   emit("typing", false)
   emit("send", text)
   void scrollToBottom(true)
@@ -187,9 +191,8 @@ watch(
   ([sending, error], [prevSending]) => {
     if (prevSending && !sending) {
       isSubmitting.value = false
-      if (!error) {
-        draft.value = ""
-      }
+      if (error && !draft.value) draft.value = submittedDraft.value
+      submittedDraft.value = ""
     } else if (sending) {
       isSubmitting.value = true
     }
@@ -320,6 +323,7 @@ function formatDisplayTime(createdAt: string): string {
         <article
           v-for="msg in displayedMessages"
           :key="msg.id"
+          v-memo="[msg.id, msg.personId, msg.name, msg.body, msg.createdAt, msg.status]"
           class="chat-message-item"
           :class="{ 'is-own': msg.personId === currentPersonId }"
         >
@@ -333,6 +337,7 @@ function formatDisplayTime(createdAt: string): string {
             >
               {{ formatDisplayTime(msg.createdAt) }}
             </time>
+            <span v-if="msg.status === 'saving'" class="chat-message-pending">Saving locally…</span>
           </div>
           <MarkdownContent class="chat-message-body" :source="msg.body" />
         </article>

@@ -184,6 +184,12 @@
   color: var(--muted);
 }
 
+.chat-message-pending {
+  color: var(--muted);
+  font-size: .72rem;
+  font-style: italic;
+}
+
 .chat-message-body {
   font-size: 0.9rem;
   line-height: 1.45;

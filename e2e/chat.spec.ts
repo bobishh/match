@@ -114,6 +114,27 @@ test("Given a storage failure, when a message is submitted, then the draft remai
   await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("")
 })
 
+test("Given slow local signing, when a message is submitted, then it appears immediately while durability finishes", async ({ page }) => {
+  await page.goto("/")
+  const chat = await openChat(page)
+  await page.evaluate(() => {
+    const original = SubtleCrypto.prototype.sign
+    ;(window as any).__restoreChatSign = () => { SubtleCrypto.prototype.sign = original }
+    SubtleCrypto.prototype.sign = async function (...args: Parameters<SubtleCrypto["sign"]>) {
+      await new Promise(resolve => setTimeout(resolve, 2_000))
+      return original.apply(this, args)
+    }
+  })
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Local-first message")
+  await chat.getByRole("button", { name: "Send message" }).click()
+
+  await expect(chat.getByText("Local-first message", { exact: true })).toBeVisible({ timeout: 300 })
+  await expect(chat.getByText("Saving locally…", { exact: true })).toBeVisible()
+  await expect(chat.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("")
+  await expect(chat.getByText("Saving locally…", { exact: true })).toHaveCount(0, { timeout: 10_000 })
+  await page.evaluate(() => (window as any).__restoreChatSign())
+})
+
 test("Given paired workspaces, when matching names and messages sync, then both peers show stable suffixes and offline messages recover", async ({ page, browser }) => {
   test.setTimeout(90_000)
   const context = await browser.newContext()
