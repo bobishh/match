@@ -7,6 +7,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { meshTrace } from "./meshTrace"
 import { readProofPage, writeProofPage, clearProofPages } from "./proofPageCache"
+import { workspaceProofTransfer, exportWorkspaceProofs } from "./workspaceProofTransfer"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
 
@@ -57,7 +58,7 @@ export type WorkspaceSetWorkspace = string | { id: string; title?: string }
 export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: WorkspaceSetWorkspace[]) {
   const titles = new Map(workspaceEntries.flatMap(entry => typeof entry === "string" || !entry.title ? [] : [[entry.id, entry.title] as const]))
   const ids = [...new Set(workspaceEntries.map(entry => typeof entry === "string" ? entry : entry.id))].sort()
-  const proofSources = new Map<string, ReturnType<ReturnType<typeof meshRustRuntime>["createMeshScopeRuntime"]>>()
+  const proofs = workspaceProofTransfer(store, ids)
   const label = (id: string) => {
     const title = titles.get(id)
     return title ? `${id} (${title.length > 80 ? `${title.slice(0, 80)}…` : title})` : id
@@ -75,7 +76,7 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
           const bytes = await store.read(id)
           const authorization = await store.readAuthorization?.(bytes, id)
           return { id, bytes: toBase64Url(bytes),
-            ...(store.readAuthorization ? { authorization: exportProofs(bytes, authorization) } : {}),
+            ...(store.readAuthorization ? { authorization: exportWorkspaceProofs(bytes, authorization) } : {}),
             ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
               const known = knownChat.get(id) ?? new Set<string>()
               knownChat.set(id, known)
@@ -89,84 +90,7 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
       }))
       return meshRustRuntime().state.encodeWorkspaceSet(entries)
     },
-    async serveProofPage(frame: Uint8Array, stream: DuplexStream, secret: string): Promise<boolean> {
-      const header = inspectPairingFrame(frame)
-      if (header.type !== "mesh-proof-request-v1") return false
-      if (header.secret !== secret || frame.length > 256 * 1024) throw new Error("Unauthorized proof request")
-      const offset = frame.indexOf(10)
-      const request = JSON.parse(new TextDecoder().decode(frame.subarray(offset + 1))) as { manifest?: { workspaceId?: string } }
-      const id = request.manifest?.workspaceId
-      if (!id || !ids.includes(id) || !store.readAuthorization) throw new Error("Proof workspace outside invitation scope")
-      const sourceKey = `${id}:${secret}`
-      let runtime = proofSources.get(sourceKey)
-      if (!runtime) {
-        if (proofSources.size >= 4) {
-          const oldest = proofSources.keys().next().value!
-          proofSources.get(oldest)?.free?.()
-          proofSources.delete(oldest)
-        }
-        runtime = meshRustRuntime().createMeshScopeRuntime(id, secret)
-        proofSources.set(sourceKey, runtime)
-      }
-      try {
-        const effect = runtime.receiveFrame(frame)
-        if (effect?.kind !== "proofSource") throw new Error("Invalid proof request")
-        const cached = runtime.provideCachedProofPage(Uint8Array.from(effect.payload))
-        if (cached) { await stream.send(Uint8Array.from(cached)); await stream.closeSend(); return true }
-        const document = await store.read(id)
-        const proof = await store.readAuthorization(document, id)
-        await stream.send(Uint8Array.from(runtime.provideProofPage(Uint8Array.from(effect.payload), document, proof)))
-        await stream.closeSend()
-        return true
-      } catch (error) {
-        runtime.free?.()
-        proofSources.delete(sourceKey)
-        throw error
-      }
-    },
-    async resolveProofs(bytes: Uint8Array, connection?: SyncConnection, secret = "local-preflight"): Promise<Uint8Array> {
-      const entries = parseEntries(bytes, ids)
-      for (const entry of entries) {
-        if (!isProofManifest(entry.authorization)) continue
-        const runtime = meshRustRuntime().createMeshScopeRuntime(entry.id, secret)
-        let local: Uint8Array
-        try { local = await store.read(entry.id) }
-        catch {
-          const empty = Automerge.init()
-          try { local = Automerge.save(empty) } finally { Automerge.free(empty) }
-        }
-        try {
-          let effect = runtime.beginAuthorizationTransfer(fromBase64Url(entry.bytes), local, entry.authorization)
-          for (let rounds = 0; rounds < 4096; rounds++) {
-            if (effect.kind === "documentReceive") { entry.authorization = effect.proof; break }
-            if (effect.kind === "proofPageReceived") {
-              await writeProofPage(entry.id, effect.cacheKey, Uint8Array.from(effect.payload)).catch(() => {})
-              effect = runtime.continueProofReceive()
-              continue
-            }
-            if (effect.kind !== "proofRequest") throw new Error("Unexpected proof transfer state")
-            const requestFrame = Uint8Array.from(effect.frame)
-            const cached = await readProofPage(entry.id, effect.cacheKey).catch(() => undefined)
-            if (cached) {
-              try { effect = runtime.acceptProofPage(cached); continue }
-              catch { await clearProofPages(entry.id).catch(() => {}) }
-            }
-            if (!connection) throw new Error("Workspace authorization pages required before admission")
-            const frame = await proofTimeout(async () => {
-              const stream = await connection.openStream()
-              await stream.send(requestFrame)
-              await stream.closeSend()
-              return stream.read()
-            })
-            const next = runtime.receiveFrame(frame)
-            if (!next) throw new Error("Missing proof page response")
-            effect = next
-          }
-          if (isProofManifest(entry.authorization)) throw new Error("Proof transfer exceeded page limit")
-        } finally { runtime.free?.() }
-      }
-      return meshRustRuntime().state.encodeWorkspaceSet(entries)
-    },
+    ...proofs,
     async validate(bytes: Uint8Array) {
       const entries = parseEntries(await this.resolveProofs(bytes), ids)
       for (const entry of entries) {
@@ -194,22 +118,6 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
 
 function parseEntries(bytes: Uint8Array, ids: string[]) {
   return meshRustRuntime().state.decodeWorkspaceSet(bytes, ids)
-}
-
-function isProofManifest(value: unknown): value is { kind: "workspace-authorization-manifest" } {
-  return Boolean(value && typeof value === "object" && "kind" in value && value.kind === "workspace-authorization-manifest")
-}
-function exportProofs(document: Uint8Array, value: unknown): unknown {
-  if (!value || typeof value !== "object" || !("authority" in value) || (!("records" in value) && !("pages" in value))) return value
-  return meshRustRuntime().state.authorizationExport(document, value)
-}
-async function proofTimeout<T>(operation: () => Promise<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([operation(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Authorization page timed out; retry same snapshot")), 20_000)
-    })])
-  } finally { if (timer) clearTimeout(timer) }
 }
 
 async function measureScopePhase<T>(phase: string, workspaceId: string, peerId: string,
