@@ -9,7 +9,7 @@ test("Given normal browser storage, when Match starts, then workspace controls l
   expect(databaseNames).not.toContain("match-workspace-journal-v1")
 })
 
-test("Given a legacy upgrade is already blocked, when Match opens new storage, then startup fails visibly instead of hanging", async ({ browser, baseURL }) => {
+test("Given a legacy version upgrade is pending, when Match opens it unversioned, then timeout is distinguishable and recovers", async ({ browser, baseURL }) => {
   const context = await browser.newContext()
   const holder = await context.newPage()
   await holder.route("**/legacy-holder.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Legacy holder</title>" }))
@@ -38,11 +38,18 @@ test("Given a legacy upgrade is already blocked, when Match opens new storage, t
   }))
   await expect.poll(() => upgrader.evaluate(() => (window as Window & { legacyUpgradeState?: string }).legacyUpgradeState)).toBe("blocked")
   const app = await context.newPage()
+  const storageEvents: string[] = []
+  app.on("console", message => {
+    if (message.text().startsWith("[match.storage]")) storageEvents.push(message.text())
+  })
   await app.goto(baseURL ?? "http://127.0.0.1:4244")
   await expect(app.getByRole("alert")).toBeVisible({ timeout: 8_000 })
   await expect(app.getByRole("alert")).toContainText("Could not open your local data")
+  await expect.poll(() => storageEvents.some(event => event.includes("legacy-open-timeout"))).toBe(true)
+  expect(storageEvents.some(event => event.includes("legacy-open-blocked"))).toBe(false)
   await holder.close()
   await expect.poll(() => upgrader.evaluate(() => (window as Window & { legacyUpgradeState?: string }).legacyUpgradeState)).toBe("complete")
+  await expect.poll(() => storageEvents.some(event => event.includes("legacy-open-success"))).toBe(true)
   await app.reload()
   await expect(app.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(app.getByLabel("Opening workspace")).toHaveCount(0)
