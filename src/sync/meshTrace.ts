@@ -2,7 +2,8 @@ import { MeshTraceBuffer, type MeshTraceEvent, type MeshTraceLevel } from "@meta
 
 export type { MeshTraceEvent, MeshTraceLevel }
 
-let verboseConsoleLogging = false
+let verboseConsoleLogging = typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("syncTrace") === "1"
 const traceBuffer = new MeshTraceBuffer("match.mesh", 500, {
   info: line => { if (verboseConsoleLogging) console.info(line) },
   warn: line => console.warn(line),
