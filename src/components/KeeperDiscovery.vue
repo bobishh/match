@@ -1,14 +1,22 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { onBeforeUnmount, ref } from "vue"
 import { discoverLighthouse, type KeeperWorkspace } from "../sync/lighthouseDiscovery"
+import { beginKeeperPairing, decideKeeperPairing, getEligibleKeeperWorkspaces, getKeeperPairingStatus, type KeeperPairing, type KeeperPairingStatus } from "../sync/lighthousePairing"
 
 const props = defineProps<{ ownedWorkspaces: KeeperWorkspace[] }>()
 const open = ref(false)
 const originInput = ref("")
-const status = ref<"idle" | "loading" | "found" | "error">("idle")
+const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "rejected" | "expired">("idle")
 const error = ref("")
 const discovery = ref<Awaited<ReturnType<typeof discoverLighthouse>> | null>(null)
 const selectedWorkspaceIds = ref<string[]>([])
+const eligibleWorkspaces = ref<KeeperWorkspace[]>([])
+const ineligibleWorkspaces = ref<KeeperWorkspace[]>([])
+const pairing = ref<KeeperPairing | null>(null)
+const controllerApproved = ref(false)
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+
+const selectedWorkspaces = () => eligibleWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
 
 async function discover() {
   error.value = ""
@@ -16,7 +24,9 @@ async function discover() {
   status.value = "loading"
   try {
     discovery.value = await discoverLighthouse(originInput.value)
-    selectedWorkspaceIds.value = props.ownedWorkspaces.map(workspace => workspace.id)
+    eligibleWorkspaces.value = await getEligibleKeeperWorkspaces(props.ownedWorkspaces)
+    ineligibleWorkspaces.value = props.ownedWorkspaces.filter(workspace => !eligibleWorkspaces.value.some(eligible => eligible.id === workspace.id))
+    selectedWorkspaceIds.value = eligibleWorkspaces.value.map(workspace => workspace.id)
     status.value = "found"
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Could not discover this Lighthouse service."
@@ -24,12 +34,67 @@ async function discover() {
   }
 }
 
+async function requestPairing() {
+  if (!discovery.value) return
+  error.value = ""
+  status.value = "creating"
+  try {
+    pairing.value = await beginKeeperPairing(discovery.value, selectedWorkspaces())
+    status.value = "pairing"
+    scheduleStatusCheck()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "Could not start keeper pairing."
+    status.value = "found"
+  }
+}
+
+async function decide(approve: boolean) {
+  if (!pairing.value) return
+  error.value = ""
+  try {
+    await decideKeeperPairing(pairing.value, approve)
+    controllerApproved.value = approve
+    if (!approve) status.value = "rejected"
+    else await checkStatus()
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "Could not record controller decision."
+  }
+}
+
+function scheduleStatusCheck() {
+  clearTimeout(pollTimer)
+  if (!pairing.value || !["pairing", "approved"].includes(status.value)) return
+  pollTimer = setTimeout(() => { void checkStatus() }, 1800)
+}
+
+async function checkStatus() {
+  if (!pairing.value) return
+  try {
+    const current: KeeperPairingStatus = await getKeeperPairingStatus(pairing.value)
+    if (current === "rejected") status.value = "rejected"
+    else if (current === "expired") status.value = "expired"
+    else if (current === "approved") status.value = "approved"
+    else status.value = "pairing"
+  } catch (cause) {
+    if (pairing.value.expiresAt <= Math.floor(Date.now() / 1000)) status.value = "expired"
+    else error.value = cause instanceof Error ? cause.message : "Could not verify keeper pairing status."
+  }
+  scheduleStatusCheck()
+}
+
 function close() {
   open.value = false
   status.value = "idle"
   error.value = ""
   discovery.value = null
+  pairing.value = null
+  eligibleWorkspaces.value = []
+  ineligibleWorkspaces.value = []
+  controllerApproved.value = false
+  clearTimeout(pollTimer)
 }
+
+onBeforeUnmount(() => clearTimeout(pollTimer))
 </script>
 
 <template>
@@ -41,7 +106,7 @@ function close() {
         <span>Keeper hostname</span>
         <input v-model="originInput" type="url" autocomplete="url" placeholder="keeper.example.com" aria-label="Keeper hostname" @keydown.enter.prevent="discover" />
       </label>
-      <div class="dialog-actions">
+      <div v-if="!pairing" class="dialog-actions">
         <button class="button button-primary" type="button" :disabled="status === 'loading' || !originInput.trim()" @click="discover">{{ status === 'loading' ? "Discovering…" : "Discover keeper" }}</button>
         <button class="button button-quiet" type="button" @click="close">Cancel</button>
       </div>
@@ -50,18 +115,31 @@ function close() {
         <h3>{{ discovery.displayName }}</h3>
         <p class="dialog-copy">{{ discovery.origin }}</p>
         <p><span class="detail-label">Fingerprint</span><br /><code>{{ discovery.fingerprint }}</code></p>
-        <p class="dialog-copy">Service identity: {{ discovery.personId }}. Discovery data is not proof of prior ownership or authenticated trust.</p>
+        <p class="dialog-copy">Service identity: {{ discovery.personId }}. Discovery alone does not authenticate service ownership.</p>
         <p class="dialog-copy">Capabilities: {{ discovery.capabilities.modes.join(", ") }} mode; documents {{ discovery.capabilities.documentReplication ? "yes" : "no" }}; chat {{ discovery.capabilities.chatReplication ? "yes" : "no" }}; attachments {{ discovery.capabilities.blobReplication ? "yes" : "no" }}.</p>
-        <p v-if="ownedWorkspaces.length" class="sync-section-copy">Owned boards eligible for a future request</p>
-        <div v-if="ownedWorkspaces.length" class="sync-workspace-list">
-          <label v-for="workspace in ownedWorkspaces" :key="workspace.id" class="sync-checkbox-item">
+        <p v-if="eligibleWorkspaces.length" class="sync-section-copy">Boards with verified owner proof</p>
+        <div v-if="eligibleWorkspaces.length" class="sync-workspace-list">
+          <label v-for="workspace in eligibleWorkspaces" :key="workspace.id" class="sync-checkbox-item">
             <input v-model="selectedWorkspaceIds" type="checkbox" :value="workspace.id" :aria-label="`Keeper board: ${workspace.title}`" />
-            <span>{{ workspace.title }}<small class="sync-workspace-detail">Replicate · Visitor access</small></span>
+            <span>{{ workspace.title }}<small class="sync-workspace-detail">Replicate · visitor access</small></span>
           </label>
         </div>
-        <p v-else class="dialog-copy">No board has verified owner access here. Open Sync on an owned board and retry.</p>
-        <p class="dialog-copy" role="status">Pairing and provisioning are unavailable. Discovery did not connect or grant access.</p>
-        <button class="button button-primary" type="button" disabled>Pairing unavailable</button>
+        <p v-else class="dialog-copy">No board has verified owner proof here. Open Sync on an owned board and retry.</p>
+        <p v-if="ineligibleWorkspaces.length" class="dialog-copy">{{ ineligibleWorkspaces.map(workspace => workspace.title).join(", ") }} lack stored, Rust-verified scope genesis. Legacy proof backfill remains outstanding; pairing stays disabled for these boards.</p>
+        <p v-if="discovery.capabilities.pairing !== true" class="dialog-copy" role="status">This keeper has no pairing endpoint. Discovery did not connect or grant access.</p>
+        <button v-if="!pairing" class="button button-primary" type="button" :disabled="discovery.capabilities.pairing !== true || !selectedWorkspaceIds.length || status === 'creating'" @click="requestPairing">{{ status === "creating" ? "Starting request…" : "Request keeper access" }}</button>
+        <section v-if="pairing" class="mesh-member-action" aria-label="Keeper pairing state">
+          <p><span class="detail-label">Comparison code</span><br /><strong>{{ pairing.comparisonCode }}</strong></p>
+          <p><span class="detail-label">Controller fingerprint</span><br /><code>{{ pairing.controllerFingerprint }}</code></p>
+          <p class="dialog-copy">Compare code with keeper operator before approving. Request expires {{ new Date(pairing.expiresAt * 1000).toLocaleString() }}.</p>
+          <a class="button button-quiet" :href="pairing.operatorUrl" target="_blank" rel="noopener noreferrer">Open operator approval</a>
+          <p class="dialog-copy" role="status">{{ status === "rejected" ? "Pairing rejected. No access granted." : status === "expired" ? "Pairing expired. No access granted." : status === "approved" ? "Both sides approved. Provisioning is unavailable; no integration is active." : controllerApproved ? "Awaiting operator approval. No access granted." : "Awaiting both approvals. No access granted." }}</p>
+          <div v-if="status === 'pairing' && !controllerApproved" class="dialog-actions">
+            <button class="button button-primary" type="button" @click="decide(true)">Code matches · approve</button>
+            <button class="button button-quiet" type="button" @click="decide(false)">Decline</button>
+          </div>
+          <p v-if="status === 'approved'" class="dialog-copy">Selected boards remain unprovisioned. Match has not created or received an invitation.</p>
+        </section>
       </section>
     </div>
   </section>

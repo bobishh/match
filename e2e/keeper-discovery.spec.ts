@@ -1,5 +1,43 @@
 import { expect, test } from "@playwright/test"
+import { createHash, createPrivateKey, createPublicKey, randomBytes, sign } from "node:crypto"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
+
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>
+    return `{${Object.keys(object).sort().map(key => `${JSON.stringify(key)}:${canonical(object[key])}`).join(",")}}`
+  }
+  return JSON.stringify(value)
+}
+
+function testIdentity() {
+  const privateKey = (seed: Buffer) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" })
+  const publicKeyRaw = (key: ReturnType<typeof privateKey>) => createPublicKey(key).export({ format: "der", type: "spki" }).subarray(-32)
+  const id = (raw: Buffer) => createHash("sha256").update(raw).digest("base64url")
+  const signPayload = (key: ReturnType<typeof privateKey>, payload: Record<string, unknown>, signerKeyId: string, domain: string) => ({
+    payload, signerKeyId,
+    signature: sign(null, Buffer.from(`${domain}/${String(payload.kind)}\0${canonical(payload)}`), key).toString("base64url"),
+  })
+  const identitySeed = randomBytes(32)
+  const identityKey = privateKey(identitySeed)
+  const identityPublicKey = publicKeyRaw(identityKey)
+  const personId = id(identityPublicKey)
+  const deviceSeed = randomBytes(32)
+  const deviceKey = privateKey(deviceSeed)
+  const devicePublicKey = publicKeyRaw(deviceKey)
+  const deviceId = id(devicePublicKey)
+  const certificate = signPayload(identityKey, {
+    kind: "device-certificate", version: 1, personId, deviceId,
+    devicePublicKey: devicePublicKey.toString("base64url"), issuerCertificateHash: null, canEnrollDevices: true,
+  }, personId, "MATCH/1")
+  const identity = { personId, publicKey: identityPublicKey.toString("base64url"), displayName: "Test Lighthouse" }
+  return {
+    identity, deviceId, certificates: [certificate],
+    sign: (payload: Record<string, unknown>) => signPayload(deviceKey, payload, deviceId, "MESH-LIGHTHOUSE/1"),
+    hash: (payload: unknown) => createHash("sha256").update(canonical(payload)).digest("base64url"),
+  }
+}
 
 test("Given an owned board, when a Lighthouse origin is discovered, then Match shows identity, capabilities and pending-only boundary", async ({ page }) => {
   await page.route("http://127.0.0.1:8080/.well-known/mesh-lighthouse", route => route.fulfill({
@@ -23,7 +61,8 @@ test("Given an owned board, when a Lighthouse origin is discovered, then Match s
   await expect(dialog.getByRole("heading", { name: "Test Lighthouse" })).toBeVisible()
   await expect(dialog.getByText("Fingerprint")).toBeVisible()
   await expect(dialog.getByText("Job search")).toBeVisible()
-  await expect(dialog.getByText("Pairing and provisioning are unavailable")).toBeVisible()
+  await expect(dialog.getByText("This keeper has no pairing endpoint")).toBeVisible()
+  await expect(dialog.getByText("Boards with verified owner proof")).toBeVisible()
   await expect(dialog.getByText("Connected", { exact: true })).toHaveCount(0)
 })
 
@@ -40,4 +79,45 @@ test("Given discovery reports another origin, when Match checks it, then it reje
   await dialog.getByRole("button", { name: "Discover keeper" }).click()
   await expect(dialog.getByRole("alert")).toContainText("origin does not match")
   await expect(dialog.getByRole("heading", { name: "Wrong origin" })).toHaveCount(0)
+})
+
+test("Given a compatible discovered keeper, when the owner starts a pairing, then Match stays pending until both approvals", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.MATCH_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let transcriptHash = ""
+  let nonce = ""
+  let statusRequests = 0
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: false }, publicOrigin: origin, managementPath: "/admin" }),
+  }))
+  await page.route(`${origin}/v1/pairings`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: unknown } }
+    transcriptHash = keeper.hash(request.signed.payload)
+    nonce = randomBytes(32).toString("base64url")
+    const expiresAt = Math.floor(Date.now() / 1000) + 600
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce, integrationId: "integration-test", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test", expiresAt, operatorUrl: `${origin}/admin/?pairing=pairing-test`, comparisonCode: "314159", transcriptHash, challenge }) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-test/decision`, route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test" }) }))
+  await page.route(`${origin}/v1/pairings/pairing-test/status`, async route => {
+    statusRequests += 1
+    const status = statusRequests > 1 ? "approved" : "pending"
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: status === "approved", controllerApproved: true, status, provisioning: false, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request keeper access" }).click()
+  await expect(dialog.getByText("Awaiting both approvals. No access granted.")).toBeVisible()
+  await expect(dialog.getByText("314159")).toBeVisible()
+  await expect(dialog.getByRole("link", { name: "Open operator approval" })).toHaveAttribute("href", /\/admin/)
+  await dialog.getByRole("button", { name: "Code matches · approve" }).click()
+  await expect(dialog.getByText("Both sides approved. Provisioning is unavailable; no integration is active.")).toBeVisible({ timeout: 5000 })
+  await expect(dialog.getByText("Selected boards remain unprovisioned. Match has not created or received an invitation.")).toBeVisible()
 })

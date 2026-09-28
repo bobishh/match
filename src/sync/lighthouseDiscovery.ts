@@ -3,12 +3,16 @@ export type LighthouseDiscovery = {
   origin: string
   displayName: string
   personId: string
+  publicKey: string
+  deviceId: string
+  certificates: unknown[]
   fingerprint: string
   capabilities: {
     modes: string[]
     documentReplication: boolean
     chatReplication: boolean
     blobReplication: boolean
+    pairing: boolean
   }
 }
 
@@ -44,11 +48,13 @@ function parseDescriptor(value: unknown, origin: string): Omit<LighthouseDiscove
   if (!modes.includes("replicate")) throw new Error("This Lighthouse service does not support visitor replication.")
   return {
     origin, displayName: descriptor.displayName, personId: service.personId,
+    publicKey: service.publicKey, deviceId: service.deviceId, certificates: service.certificates,
     capabilities: {
       modes,
       documentReplication: rawCapabilities.documentReplication === true,
       chatReplication: rawCapabilities.chatReplication === true,
       blobReplication: rawCapabilities.blobReplication === true,
+      pairing: rawCapabilities.pairing === true,
     },
   }
 }
