@@ -6,6 +6,7 @@ const networkSpecs = [
   "**/member-access.spec.ts",
   "**/browser-native.spec.ts",
   "**/lighthouse-join.spec.ts",
+  "**/lighthouse-owner.spec.ts",
   "**/chat.spec.ts",
   "**/durable-mesh.spec.ts",
   "**/scoped-sync.spec.ts",

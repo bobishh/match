@@ -9,6 +9,7 @@ import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEn
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
 import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
+import { isNativeLighthouseRoute } from "./durableMeshSessions"
 import { isEnvelope, isGrantRevoked } from "./durableMeshBase"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
@@ -138,6 +139,24 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("activates a newly created owner workspace in the current route catalog", async () => {
+    const credential = { version: 1 as const, workspaceId: "new-workspace", ownerPersonId: "owner",
+      ownerPublicKey: "owner-key", ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
+      store: { listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+    const internal = mesh as any
+    internal.activeWorkspaceIds = new Set(["existing-workspace"])
+    internal.ensureOwnerCredential = vi.fn(async () => credential)
+    internal.start = vi.fn(async () => {})
+    internal.notify = vi.fn(async () => {})
+
+    await internal.addOwnerWorkspace("new-workspace")
+
+    expect(internal.activeWorkspaceIds).toEqual(new Set(["existing-workspace", "new-workspace"]))
+    await mesh.dispose()
+  })
+
   it("offers a new owner workspace over the renamed frame only after v2 negotiation", async () => {
     const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
@@ -147,6 +166,7 @@ describe("DurableMesh peer catalog gossip", () => {
       read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
+      getOwnedWorkspaceIds: async () => ["new-workspace"],
       store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [] } as never })
     const internal = mesh as any
     internal.ensureOwnerCredential = vi.fn(async () => credential)
@@ -163,6 +183,32 @@ describe("DurableMesh peer catalog gossip", () => {
     await vi.waitFor(() => expect(stream.send).toHaveBeenCalledOnce())
 
     expect(inspectPairingFrame(stream.send.mock.calls[0]![0]).type).toBe("mesh-owner-workspace-offer")
+    await mesh.dispose()
+  })
+
+  it("shares one owner-workspace offer when concurrent sessions see the same missing scope", async () => {
+    const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
+      ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
+    const offer = new Uint8Array([1])
+    const receipt = new TextEncoder().encode(await sha256Base64Url(offer))
+    const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
+      read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({ identity: { personId: "owner", publicKey: "owner-key" }, device: { deviceId: "owner-device" } } as never),
+      getOwnedWorkspaceIds: async () => ["new-workspace"],
+      store: { getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [] } as never })
+    const internal = mesh as any
+    internal.encodeOwnerWorkspaceOffer = vi.fn(async () => offer)
+    const connection = { openStream: vi.fn(async () => stream) }
+
+    await Promise.all([
+      internal.offerMissingOwnerWorkspaces(connection, "secret", [], "owner", "mesh-owner-workspace-offer"),
+      internal.offerMissingOwnerWorkspaces(connection, "secret", [], "owner", "mesh-owner-workspace-offer"),
+    ])
+
+    expect(internal.encodeOwnerWorkspaceOffer).toHaveBeenCalledOnce()
+    expect(connection.openStream).toHaveBeenCalledOnce()
+    expect(stream.send).toHaveBeenCalledOnce()
     await mesh.dispose()
   })
 
@@ -235,6 +281,35 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
+  it("returns invitation-node ownership after installing the mesh session and keeps its workspace feed until close", async () => {
+    const listeners: (() => void)[] = []
+    const unsubscribe = vi.fn()
+    let finishSession!: () => void
+    const done = new Promise<void>(resolve => { finishSession = resolve })
+    const connection = {}
+    const publishAll = vi.fn(async () => {})
+    const mesh = new DurableMesh({ transport: {} as never, workspace: { subscribe: (listener: () => void) => {
+      listeners.push(listener)
+      return unsubscribe
+    } } as never, workspaceStore: {} as never,
+    getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listPeers: async () => [] } as never })
+    const internal = mesh as any
+    internal.acceptConnection = vi.fn(async () => {
+      internal.sessions.set("invited", { connection, session: { done } })
+    })
+    internal.publishAll = publishAll
+
+    await internal.acceptOnInvitationNode(connection, {}, new Uint8Array())
+    expect(listeners).toHaveLength(1)
+    listeners[0]!()
+    expect(publishAll).toHaveBeenCalledOnce()
+    expect(unsubscribe).not.toHaveBeenCalled()
+
+    finishSession()
+    await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce())
+    await mesh.dispose()
+  })
+
   it("Given every route reaches an offline device, when dialing exhausts network routes, then UI stays in reconnecting state", async () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
@@ -256,6 +331,23 @@ describe("DurableMesh peer catalog gossip", () => {
 
     expect(onDiagnostic).not.toHaveBeenCalled()
     internal.node = undefined
+    await mesh.dispose()
+  })
+
+  it("skips signed Lighthouse routes for browser-originated dials while keeping browser routes", async () => {
+    const peer = (deviceId: string, userAgent: string) => ({ workspaceId: "workspace", deviceId,
+      personId: `person-${deviceId}`, endpoint: `endpoint-${deviceId}`, transportSecret: "secret", role: "visitor" as const,
+      lastSeen: new Date().toISOString(), advertisement: { advertisement: { payload: { userAgent } } } })
+    const lighthouse = peer("lighthouse-device", "mesh-lighthouse/1.2.3")
+    const browser = peer("browser-device", "Mozilla/5.0 Chrome/140")
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never),
+      store: { listPeerInstances: async () => [lighthouse, browser], listWorkspaceCredentials: async () => [] } as never })
+    const schedulerPeers = await (mesh as any).dialScheduler.host.peers()
+
+    expect(isNativeLighthouseRoute(lighthouse as never)).toBe(true)
+    expect(isNativeLighthouseRoute(browser as never)).toBe(false)
+    expect(schedulerPeers.map((item: { deviceId: string }) => item.deviceId)).toEqual(["browser-device"])
     await mesh.dispose()
   })
 

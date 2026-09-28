@@ -267,7 +267,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
     const unsubscribe = this.options.workspace.subscribe?.(() => {
       void this.publishAll()
     })
-    try { await entry.session.done } finally { unsubscribe?.() }
+    void entry.session.done.then(() => unsubscribe?.(), () => unsubscribe?.())
   }
 
   protected async acceptConnection(connection: SyncConnection, signal?: AbortSignal,

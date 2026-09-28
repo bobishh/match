@@ -46,6 +46,15 @@ shared document.
 Compare the authentication codes and approve on the existing device. Use a fresh
 profile for a demo so you do not enroll someone else's browser into your identity.
 
+Standalone Lighthouse can request an owner connection through the same invitation
+flow. During approval, **Connect all my boards, including future boards** grants
+its separate identity the selected role across owned boards. The checkbox starts
+unchecked. The approving browser issues a signed grant for each new board before replication
+starts. This preference is currently local to that browser; settings synchronization
+between enrolled devices is not implemented yet.
+See [mesh-lighthouse](../mesh-lighthouse/README.md) for provisioning and durable
+state setup.
+
 The [demo guide](docs/demo.md) covers offline edits, attachments, and what to explain
 when showing the project.
 

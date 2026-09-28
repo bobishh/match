@@ -17,7 +17,7 @@ import { DurableMeshHandshake } from "./durableMeshHandshake"
 
 export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
-    peers: () => this.peerInstances(),
+    peers: async () => (await this.peerInstances()).filter(peer => !isNativeLighthouseRoute(peer)),
     hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
     peerKey: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     routeFailures: key => this.routeFailures(key),
@@ -433,4 +433,10 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     const succession = await this.successionViews()
     this.options.onChange?.(workspaces, peers, revoked, succession)
   }
+}
+
+export function isNativeLighthouseRoute(peer: WorkspacePeerRecord): boolean {
+  const advertisement = peer.advertisement as WorkspaceMemberBundle | undefined
+  const userAgent = advertisement?.advertisement?.payload?.userAgent
+  return typeof userAgent === "string" && userAgent.toLowerCase().startsWith("mesh-lighthouse/")
 }

@@ -20,6 +20,7 @@ import { startPersistentNode } from "./persistentNode"
 import { userMessage } from "./deviceSyncState"
 import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
+import type { JoinDecision } from "./deviceSyncJoinApproval"
 
 type WorkspaceOption = { id: string; title: string }
 
@@ -30,7 +31,7 @@ export type WorkspaceHostContext = PairingContext & {
   getNode: () => SyncNode | undefined
   attachLiveSession: (session: LiveWorkspaceSync, run: number) => void
   detachLiveSession: (session: LiveWorkspaceSync) => void
-  waitForJoinDecision: (personId: string, displayName: string) => Promise<"visitor" | "editor" | null>
+  waitForJoinDecision: (personId: string, displayName: string, ownerConnection?: boolean) => Promise<JoinDecision | null>
   replaceDirectSession: (personId: string, session: LiveWorkspaceSync) => LiveWorkspaceSync | undefined
   removeDirectSession: (personId: string, session: LiveWorkspaceSync) => void
 }
@@ -109,7 +110,7 @@ type HostRuntime = HostInput & {
   acceptor: SyncAcceptor
   peers: Map<string, LiveWorkspaceSync>
   connections: Set<SyncConnection>
-  grants: Map<string, { ok: true; grants: WorkspaceGrant[] }>
+  grants: Map<string, { ok: true; grants: WorkspaceGrant[]; ownerConnection?: { controllerPersonId: string } }>
   group: LiveWorkspaceSync
   stopped: () => boolean
   disconnect: () => void
@@ -196,6 +197,7 @@ async function acceptHostPeers(runtime: HostRuntime, connected: () => void) {
 }
 
 async function receivePeer(runtime: HostRuntime, connection: SyncConnection, connected: () => void) {
+  let transferredToMesh = false
   let session: LiveWorkspaceSync | undefined
   let heartbeat: (() => void) | undefined
   let personId = ""
@@ -204,12 +206,20 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
   try {
     const stream = await connection.acceptStream()
     const rawRequest = await stream.read()
-    if (await receiveMeshPeer(runtime, connection, stream, rawRequest)) return
+    if (await receiveMeshPeer(runtime, connection, stream, rawRequest)) {
+      transferredToMesh = true
+      runtime.connections.delete(connection)
+      return
+    }
     const header = inspectPairingFrame(rawRequest)
     if (header.type !== "workspace-join-request" || header.secret !== runtime.invite.secret) return
     const handshake = new BrowserWorkspaceJoinHost(new WasmWorkspaceJoinHandshake(runtime.invite.secret, "host"))
     const result = await handshake.handle(rawRequest, stream, connection, {
-      request: payload => readWorkspaceRequest(runtime, payload),
+      request: payload => {
+        const guest = readWorkspaceRequest(runtime, payload)
+        personId = guest.personId
+        return guest
+      },
       approve: guest => approveWorkspaceAccess(runtime, guest),
       prepare: result => prepareWorkspaceAccess(runtime, result),
       acknowledged: payload => runtime.replica.receive(payload),
@@ -229,8 +239,10 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
     clearTimeout(timeout)
     removePeer(runtime, personId, session)
     runtime.connections.delete(connection)
-    await connection.close()
-    runtime.disconnect()
+    if (!transferredToMesh) {
+      await connection.close()
+      runtime.disconnect()
+    }
   }
 }
 
@@ -243,38 +255,47 @@ async function receiveMeshPeer(runtime: HostRuntime, connection: SyncConnection,
 function readWorkspaceRequest(runtime: HostRuntime, payload: Uint8Array) {
   const guest = JSON.parse(new TextDecoder().decode(payload))
   if (typeof guest.personId !== "string" || !guest.personId || guest.invitationId !== runtime.invite.invitationId) throw new Error("Invalid workspace join request.")
-  return guest as { personId: string; displayName?: unknown; meshPeers?: unknown }
+  return guest as { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }
 }
 
-async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: string; displayName?: unknown; meshPeers?: unknown }) {
+async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }) {
   if (guest.personId === runtime.profile.identity.personId) {
     return { ok: false as const, error: "This invite is for another person, but this browser uses the owner's identity. Use a separate identity to join as an editor." }
   }
   const existing = runtime.grants.get(guest.personId)
-  if (existing) return { ok: true as const, value: { personId: guest.personId, grants: existing.grants } }
+  if (existing) return { ok: true as const, value: { personId: guest.personId, grants: existing.grants,
+    ownerConnection: existing.ownerConnection } }
   if (Date.parse(runtime.invite.expiresAt) <= Date.now()) {
     return { ok: false as const, error: "This invitation has expired." }
   }
   const name = typeof guest.displayName === "string" ? guest.displayName.slice(0, 80) : `Participant ${guest.personId.slice(0, 6)}`
-  const role = await runtime.context.waitForJoinDecision(guest.personId, name)
-  if (!role) {
+  const decision = await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
+  if (!decision) {
     return { ok: false as const, error: "The owner declined this request." }
   }
+  const ownerConnection = decision.followOwner
+    ? { controllerPersonId: runtime.profile.identity.personId } : undefined
   const accessEpochs = new Map(await Promise.all(runtime.workspaces.map(async item => [item.id,
     await runtime.context.durableMesh?.nextAccessEpoch(item.id) ?? 1] as const)))
   const result = await defaultInvitationService.approveWorkspaceJoinSet(runtime.invite.invitationId, guest.personId,
-    runtime.workspaces.map(item => item.id), runtime.profile, runtime.owners, role, accessEpochs)
+    runtime.workspaces.map(item => item.id), runtime.profile, runtime.owners, decision.role, accessEpochs)
   if (!result.ok) throw new Error(result.error)
   for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   await runtime.context.durableMesh?.acceptGuest(runtime.workspaces.map(item => item.id), guest.meshPeers, result.grants)
-  runtime.grants.set(guest.personId, result)
-  return { ok: true as const, value: { personId: guest.personId, grants: result.grants } }
+  if (ownerConnection) {
+    await runtime.context.durableMesh?.connectOwnerKeeper(guest.personId, decision.role)
+  }
+  runtime.grants.set(guest.personId, { ok: true, grants: result.grants, ownerConnection })
+  return { ok: true as const, value: { personId: guest.personId, grants: result.grants, ownerConnection } }
 }
 
-async function prepareWorkspaceAccess(runtime: HostRuntime, approval: { personId: string; grants: WorkspaceGrant[] }) {
+async function prepareWorkspaceAccess(runtime: HostRuntime, approval: {
+  personId: string; grants: WorkspaceGrant[]; ownerConnection?: { controllerPersonId: string }
+}) {
   const injectedFailure = (window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__
   if (injectedFailure) throw new Error(injectedFailure)
   return new TextEncoder().encode(JSON.stringify({ grants: approval.grants,
+    ownerConnection: approval.ownerConnection,
     snapshot: toBase64Url(await runtime.replica.snapshot()),
     meshWorkspaces: await runtime.context.durableMesh?.invitationPayload(runtime.workspaces.map(item => item.id)),
   }))

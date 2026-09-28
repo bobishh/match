@@ -1,6 +1,7 @@
 import { type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import { defaultProofStore } from "../domain/proofs"
+import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
+import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createPeerAdvertisement,
@@ -15,6 +16,7 @@ import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqu
 import { DurableMeshBase } from "./durableMeshBase"
 
 export abstract class DurableMeshCredentials extends DurableMeshBase {
+  private readonly ownerWorkspaceOffers = new Map<string, Promise<void>>()
   protected abstract mergeDepartures(credential: WorkspaceMeshCredential, records: WorkspaceDeparture[], disconnect?: boolean): Promise<void>
   protected abstract mergeDeviceRevocations(credential: WorkspaceMeshCredential, records: WorkspaceDeviceRevocation[]): Promise<void>
 
@@ -92,6 +94,11 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       profile.identity.personId, profile.identity.publicKey)
   }
 
+  async connectOwnerKeeper(personId: string, role: "visitor" | "editor") {
+    const profile = await this.options.getProfile()
+    await saveOwnerKeeper(profile.identity.personId, { personId, role })
+  }
+
   async addOwnerWorkspace(workspaceId: string): Promise<void> {
     const profile = await this.options.getProfile()
     const certificates = uniqueCertificates(
@@ -103,6 +110,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       profile,
       certificates,
     )
+    this.activeWorkspaceIds?.add(workspaceId)
     if (this.node)
       await this.refreshOwnBundle(
         credential,
@@ -116,11 +124,10 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     await this.start()
     await this.notify()
     void Promise.allSettled([...this.sessions.values()].map(async entry => {
-      if (entry.remotePersonId !== profile.identity.personId || !entry.ownerWorkspaceOfferFrame) return
+      if (!entry.ownerWorkspaceOfferFrame) return
       const credential = await this.store.getWorkspaceCredential(entry.workspaceId)
       if (!credential) return
-      await publishOwnerWorkspaceOffer(entry.connection, credential.transportSecret,
-        await this.encodeOwnerWorkspaceOffer(workspaceId), entry.ownerWorkspaceOfferFrame)
+      await this.offerMissingOwnerWorkspaces(entry.connection, credential.transportSecret, [], entry.remotePersonId, entry.ownerWorkspaceOfferFrame, [workspaceId])
     }))
   }
 
@@ -147,12 +154,46 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   }
 
   protected async offerMissingOwnerWorkspaces(connection: SyncConnection, secret: string,
-    remoteWorkspaceIds: unknown, remotePersonId: string, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined) {
+    remoteWorkspaceIds: unknown, remotePersonId: string, ownerWorkspaceOfferFrame: "mesh-owner-workspace-offer" | undefined,
+    onlyWorkspaceIds?: string[]) {
     const profile = await this.options.getProfile()
-    if (remotePersonId !== profile.identity.personId || !ownerWorkspaceOfferFrame) return
-    const missing = meshRustRuntime().state.missingOwnerWorkspaces(await this.ownerWorkspaceIds(profile), remoteWorkspaceIds)
+    if (!ownerWorkspaceOfferFrame) return
+    const keeper = remotePersonId === profile.identity.personId ? undefined :
+      (await ownerKeepers(profile.identity.personId)).find(item => item.personId === remotePersonId)
+    if (remotePersonId !== profile.identity.personId && !keeper) return
+    const ownedIds = this.options.getOwnedWorkspaceIds ? await this.options.getOwnedWorkspaceIds() : await this.ownerWorkspaceIds(profile)
+    if (this.node) await this.ensureOwnerWorkspaces(ownedIds, this.node.endpointId, profile)
+    const missing = meshRustRuntime().state.missingOwnerWorkspaces(ownedIds, remoteWorkspaceIds)
+      .filter(workspaceId => !onlyWorkspaceIds || onlyWorkspaceIds.includes(workspaceId))
     for (const workspaceId of missing) {
-      await publishOwnerWorkspaceOffer(connection, secret, await this.encodeOwnerWorkspaceOffer(workspaceId), ownerWorkspaceOfferFrame)
+      const key = `${remotePersonId}\0${workspaceId}`
+      const pending = this.ownerWorkspaceOffers.get(key)
+      if (pending) {
+        await pending
+        continue
+      }
+      const offerPromise = (async () => {
+        let offer = await this.encodeOwnerWorkspaceOffer(workspaceId)
+        if (keeper) {
+          const credential = await this.store.getWorkspaceCredential(workspaceId)
+          if (credential?.ownerPersonId !== profile.identity.personId) return
+          // Existing revocation/departure always wins over the future-board policy.
+          if (hasLeftWorkspace(credential, remotePersonId) || revocations(credential).some(record => record.payload.personId === remotePersonId)) return
+          const issued = await defaultProofStore.listGrants(workspaceId)
+          let grant = issued.find(record => record.payload.personId === remotePersonId && record.payload.role === keeper.role)
+          if (!grant) {
+            grant = await createWorkspaceGrant(profile, workspaceId, remotePersonId, keeper.role, await this.nextAccessEpoch(workspaceId))
+            await defaultProofStore.putGrant(grant.payload.grantId, grant)
+          }
+          const value = JSON.parse(new TextDecoder().decode(offer))
+          offer = new TextEncoder().encode(JSON.stringify({ ...value, grant, controllerPersonId: profile.identity.personId }))
+        }
+        await publishOwnerWorkspaceOffer(connection, secret, offer, ownerWorkspaceOfferFrame)
+      })()
+      this.ownerWorkspaceOffers.set(key, offerPromise)
+      try { await offerPromise } finally {
+        if (this.ownerWorkspaceOffers.get(key) === offerPromise) this.ownerWorkspaceOffers.delete(key)
+      }
     }
   }
 

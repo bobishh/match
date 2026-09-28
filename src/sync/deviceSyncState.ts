@@ -21,6 +21,8 @@ export type PendingJoin = {
   name: string
   personId: string
   role: "visitor" | "editor"
+  ownerConnectionRequested?: boolean
+  followOwner?: boolean
 }
 
 export function createDeviceSyncState() {

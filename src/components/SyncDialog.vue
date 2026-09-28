@@ -9,7 +9,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import type { SyncStep } from "../app/syncTypes"
 
 const props = defineProps<{
-  pendingJoins?: { id: string; name: string; personId: string; role: "visitor" | "editor" }[]
+  pendingJoins?: { id: string; name: string; personId: string; role: "visitor" | "editor"; ownerConnectionRequested?: boolean; followOwner?: boolean }[]
   step: SyncStep
   title: string
   qrCode: string
@@ -178,6 +178,8 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         <h3>{{ request.name }} wants to join</h3>
         <small>{{ request.personId.slice(0, 12) }}</small>
         <label>Role<select v-model="request.role" aria-label="Participant role"><option value="visitor">Visitor — view only</option><option value="editor">Editor — edit items</option></select></label>
+        <label v-if="request.ownerConnectionRequested" class="sync-checkbox-item"><input v-model="request.followOwner" type="checkbox" aria-label="Connect all my boards, including future boards" />Connect all my boards, including future boards</label>
+        <p v-if="request.followOwner" class="dialog-copy">The selected role applies to all boards you own now and create later. Lighthouse keeps its own identity.</p>
         <div class="dialog-actions"><button class="button button-primary" @click="emit('decideJoin', request.id, true)">Approve access</button><button class="button" @click="emit('decideJoin', request.id, false)">Decline</button></div>
       </section>
       <template v-if="step === 'members'">

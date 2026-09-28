@@ -15,6 +15,7 @@ import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFa
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
 import { recoverLiveSession } from "./deviceSyncLiveRecovery"
 import { meshTrace } from "./meshTrace"
+import { createDeviceSyncJoinApproval } from "./deviceSyncJoinApproval"
 
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
@@ -34,6 +35,7 @@ export function createDeviceSyncController(options: DeviceSyncOptions) {
 
 export class DeviceSyncController {
   private readonly state = createDeviceSyncState()
+  private readonly joinApproval = createDeviceSyncJoinApproval(this.state)
   private readonly workspace: WorkspaceReplica
   private readonly workspaceStore?: WorkspaceSetStore
   private readonly meshWorkspaceStore?: WorkspaceSetStore
@@ -44,7 +46,6 @@ export class DeviceSyncController {
   private readonly workspaceOwner?: (id: string) => Promise<string>
   private readonly displayName?: () => string
   private readonly identityChanged?: () => Promise<void>
-  private readonly joinDecisions = new Map<string, (role: "visitor" | "editor" | null) => void>()
   private readonly leavingWorkspaceIds = new Set<string>()
   private readonly directPeerSessions = new Map<string, LiveWorkspaceSync>()
   private readonly markNetworkOnline = () => { this.state.networkOnline.value = true }
@@ -129,19 +130,10 @@ export class DeviceSyncController {
       })
   }
 
-  private decideJoin(id: string, approve: boolean) {
-    const request = this.state.pendingJoins.value.find(item => item.id === id)
-    this.joinDecisions.get(id)?.(approve ? request?.role ?? "visitor" : null)
-    this.joinDecisions.delete(id)
-    this.state.pendingJoins.value = this.state.pendingJoins.value.filter(item => item.id !== id)
-  }
-
   private async stopNode(reason: string) {
     this.approveResolve?.(false)
     this.approveResolve = undefined
-    for (const resolve of this.joinDecisions.values()) resolve(null)
-    this.joinDecisions.clear()
-    this.state.pendingJoins.value = []
+    this.joinApproval.cancelPending()
     this.stopWatchingWorkspace?.()
     this.stopWatchingWorkspace = undefined
     const session = this.liveSession
@@ -367,20 +359,9 @@ export class DeviceSyncController {
       currentRun: () => this.run, pauseMesh: () => this.pauseDurableMesh(), stopNode: reason => this.stopNode(reason),
       startMesh: node => this.startDurableMesh(node), setNode: node => { this.node = node }, getNode: () => this.node,
       attachLiveSession: (session, run) => this.attachLiveSession(session, run), detachLiveSession: session => this.detachLiveSession(session),
-      waitForJoinDecision: (personId, name) => this.waitForJoinDecision(personId, name),
+      waitForJoinDecision: (personId, name, ownerConnection) => this.joinApproval.waitForJoinDecision(personId, name, ownerConnection),
       replaceDirectSession: (personId, session) => this.replaceDirectSession(personId, session),
       removeDirectSession: (personId, session) => this.removeDirectSession(personId, session),
-    })
-  }
-
-  private waitForJoinDecision(personId: string, name: string) {
-    const requestId = crypto.randomUUID()
-    this.state.pendingJoins.value.push({ id: requestId, personId, name, role: "visitor" })
-    this.state.isOpen.value = true
-    this.state.step.value = "workspace-host"
-    return new Promise<"visitor" | "editor" | null>(resolve => {
-      const timer = setTimeout(() => this.decideJoin(requestId, false), 600_000)
-      this.joinDecisions.set(requestId, value => { clearTimeout(timer); resolve(value) })
     })
   }
 
@@ -523,7 +504,7 @@ export class DeviceSyncController {
   api() {
     const state = this.state
     return {
-      isOpen: state.isOpen, isEnabled: state.isEnabled, pendingJoins: state.pendingJoins, decideJoin: (id: string, approve: boolean) => this.decideJoin(id, approve),
+      isOpen: state.isOpen, isEnabled: state.isEnabled, pendingJoins: state.pendingJoins, decideJoin: this.joinApproval.decideJoin,
       isLive: state.isLive, isWorkspaceLive: (id: string) => (state.directLive.value && state.liveWorkspaceIds.value.includes(id)) || state.meshLiveWorkspaceIds.value.includes(id),
       isWorkspaceAccessRevoked: (id: string) => state.revokedWorkspaceIds.value.includes(id), meshPeers: state.meshPeers, meshDiagnostic: state.meshDiagnostic,
       meshRetryAt: state.meshRetryAt, networkOnline: state.networkOnline, meshSuccession: state.meshSuccession, localDeviceId: state.localDeviceId,
