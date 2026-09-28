@@ -48,9 +48,13 @@ export function startupFailureMessage(stage: AppStartupStage): string {
 }
 
 async function runRequiredStage(stage: AppStartupStage, step: () => Promise<void> | void): Promise<Extract<AppStartupResult, { status: "fatal" }> | undefined> {
+  const started = Date.now()
+  console.info("[match.startup]", stage, "start")
   try {
     await step()
+    console.info("[match.startup]", stage, "done", Date.now() - started)
   } catch (error) {
+    console.error("[match.startup]", stage, "failed", error)
     return { status: "fatal", stage, error }
   }
 }

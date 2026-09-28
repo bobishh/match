@@ -88,12 +88,17 @@ export function updateReactiveState(
 
 export async function hydrate(storage = defaultStorage): Promise<void> {
   try {
+    console.info("[match.startup] hydrate", "automerge")
     await initializeAutomerge();
+    console.info("[match.startup] hydrate", "identity")
     stateRuntime.currentProfile = await bootstrapIdentity();
+    console.info("[match.startup] hydrate", "workspace")
     const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
     updateReactiveState(doc);
+    console.info("[match.startup] hydrate", "personal-root")
     await initializePersonalRoot(storage, stateRuntime.currentProfile);
     applyInjectedFixture();
+    console.info("[match.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
     stateRuntime.ready.value = true;
     for (const waiter of readinessWaiters) waiter.resolve();
