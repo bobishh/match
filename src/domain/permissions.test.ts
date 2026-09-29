@@ -10,7 +10,6 @@ const capabilities: WorkspaceCapability[] = [
   "board.configure",
   "workspace.import",
   "access.manage",
-  "history.repair",
 ]
 
 describe("workspace policy", () => {

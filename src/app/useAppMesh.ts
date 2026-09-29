@@ -1,7 +1,5 @@
-import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from "vue"
+import { computed, onScopeDispose, ref, watch, type Ref } from "vue"
 import type { WorkspaceRole } from "../domain/permissions"
-import { bootstrapIdentity } from "../domain/identity"
-import { pendingHistoryRepair, repairPendingHistory } from "../sync/changeAuthorization"
 import { describeUserAgent } from "../ui/deviceInfo"
 import type { useDeviceSync } from "../sync/useDeviceSync"
 import type { useWorkspaceChat } from "../chat/useWorkspaceChat"
@@ -11,13 +9,11 @@ type MeshContext = {
   chat: ReturnType<typeof useWorkspaceChat>
   currentRole: Ref<WorkspaceRole>
   currentWorkspaceOwnerId: Ref<string>
-  canRepairHistory: ComputedRef<boolean>
   sync: ReturnType<typeof useDeviceSync>
-  mergeAuthorizedWorkspace: (id: string, bytes: Uint8Array, authorization: unknown) => Promise<unknown>
 }
 
 export function useAppMesh(context: MeshContext) {
-  const { activeWorkspace, chat, currentRole, currentWorkspaceOwnerId, canRepairHistory, sync, mergeAuthorizedWorkspace } = context
+  const { activeWorkspace, chat, currentRole, currentWorkspaceOwnerId, sync } = context
   const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
     peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
   ))
@@ -57,12 +53,6 @@ export function useAppMesh(context: MeshContext) {
   })
   const revokingPeer = ref("")
   const peerAccessError = ref("")
-  const historyRepairVersion = ref(0)
-  const repairableHistory = computed(() => {
-    void historyRepairVersion.value
-    void sync.meshDiagnostic.value
-    return canRepairHistory.value ? pendingHistoryRepair(activeWorkspace.id) : 0
-  })
   const meshParticipantDevices = computed(() => sync.meshPeers.value
     .filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value)
     .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
@@ -83,15 +73,6 @@ export function useAppMesh(context: MeshContext) {
   const transferringOwnership = ref("")
   const leavingMesh = ref(false)
 
-  async function repairHistory() {
-    peerAccessError.value = ""
-    try {
-      const recovered = await repairPendingHistory(activeWorkspace.id, await bootstrapIdentity())
-      await mergeAuthorizedWorkspace(activeWorkspace.id, recovered.bytes, recovered.authorization)
-      historyRepairVersion.value++
-      sync.meshDiagnostic.value = ""
-    } catch (error) { peerAccessError.value = error instanceof Error ? error.message : String(error) }
-  }
   async function transferWorkspaceOwnership(personId: string) {
     if (transferringOwnership.value) return
     transferringOwnership.value = personId
@@ -125,7 +106,7 @@ export function useAppMesh(context: MeshContext) {
     catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not revoke access" }
     finally { revokingPeer.value = "" }
   }
-  return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, repairableHistory, repairHistory, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, revokeWorkspacePeer }
+  return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, revokeWorkspacePeer }
 }
 
 function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string, currentRole: WorkspaceRole, reconnecting: boolean) {

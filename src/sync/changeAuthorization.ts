@@ -7,7 +7,6 @@ import { type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
-import { isDiscriminatorCleanup } from "./workspaceHistoryRepair"
 
 import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
@@ -97,29 +96,6 @@ type WorkspaceWriteAuthorityEvidence = {
   departures: Array<{ record: unknown; authority: WorkspaceAuthority }>
 }
 type IncomingAuthorizationBundle = { version: 1; records: unknown[]; authority: WorkspaceWriteAuthorityEvidence }
-type PendingHistoryRepair = { bytes: Uint8Array; hashes: string[]; authorization: Authorization[] }
-const historyRepairs = new Map<string, PendingHistoryRepair>()
-
-export function pendingHistoryRepair(workspaceId: string) {
-  return historyRepairs.get(workspaceId)?.hashes.length ?? 0
-}
-
-export async function repairPendingHistory(workspaceId: string, profile: LocalProfile) {
-  const pending = historyRepairs.get(workspaceId)
-  if (!pending) throw new Error("No repairable history is pending")
-  const doc = Automerge.load<WorkspaceDocumentV2>(pending.bytes)
-  try {
-    assertWorkspaceCapability(await workspaceRole(doc, profile), "history.repair")
-    if (await workspaceWritesBlocked(workspaceId)) throw new Error("Workspace ownership is conflicted")
-    for (let offset = 0; offset < pending.hashes.length; offset += 256) {
-      await authorizeLocalChanges(doc, profile, pending.hashes.slice(offset, offset + 256))
-    }
-    const bundle = await exportAuthorizationBundle(pending.bytes, profile)
-    return { bytes: pending.bytes, authorization: {
-      ...bundle, records: [...pending.authorization, ...bundle.records],
-    } }
-  } finally { Automerge.free(doc) }
-}
 
 export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfile): Promise<WorkspaceRole> {
   const stored = await storedWorkspaceAuthority(doc.id)
@@ -284,17 +260,6 @@ function normalizeAuthorityDepartures(authority: WorkspaceWriteAuthorityEvidence
   return authority
 }
 
-function rejectUnsignedChanges(remote: Automerge.Doc<WorkspaceDocumentV2>, unsigned: Automerge.DecodedChange[],
-  verified: Authorization[], message: string): void {
-  if (!unsigned.length) return
-  historyRepairs.delete(remote.id)
-  if (unsigned.every(change => isDiscriminatorCleanup(remote, change))) {
-    if (historyRepairs.size >= 64) historyRepairs.delete(historyRepairs.keys().next().value!)
-    historyRepairs.set(remote.id, { bytes: Automerge.save(remote), hashes: unsigned.map(change => change.hash), authorization: verified })
-  }
-  throw new WorkspaceChangeRejected(message)
-}
-
 export async function validateIncomingChanges(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, raw: unknown): Promise<void> {
   await validateIncomingChangeAuthorizations(local, remote, raw)
 }
@@ -347,10 +312,7 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   }
   const decodedByHash = new Map(changes.map(change => [change.hash, change]))
   const unsigned = plan.unsignedChanges.map(change => decodedByHash.get(change.hash)!)
-  rejectUnsignedChanges(remote, unsigned, plan.verifiedAuthorizations, plan.unsignedError ?? "Unsigned workspace change rejected")
-  const pending = historyRepairs.get(remote.id)
-  const admittedHashes = new Set(plan.admittedChanges.map(change => change.hash))
-  if (pending?.hashes.every(hash => plan.neededHashes.includes(hash) && admittedHashes.has(hash))) historyRepairs.delete(remote.id)
+  if (unsigned.length) throw new WorkspaceChangeRejected(plan.unsignedError ?? "Unsigned workspace change rejected")
   return plan.verifiedAuthorizations
 }
 

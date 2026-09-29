@@ -8,7 +8,7 @@ import { createWorkspaceDoc } from "../domain/seeds"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, createWorkspaceDeparture, createWorkspaceDeviceRevocation, createWorkspaceRevocation } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
-import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, pendingHistoryRepair, repairPendingHistory, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
+import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
 
@@ -351,29 +351,4 @@ it("Given split owners wrote on separate partitions, when the branches meet, the
   const titles = Object.values(merged.entities).filter(isItem).map(entity => entity.title)
   expect(titles).toEqual(expect.arrayContaining(["A write", "B write"]))
   await expect(validateIncomingChanges(branchA, merged, [])).rejects.toThrow(/conflicting ownership records/i)
-})
-
-
-it("lets only the owner sign verified discriminator cleanup, without accepting a disguised content edit", async () => {
-  let local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Repair", owner.identity.personId, "blank"))
-  const column = Object.values(local.entities).find(e => e.kind === "column")!
-  const added = await executeCommand(local, {kind:"createItem",parentId:column.id,title:"Keep this"}, owner)
-  if (!added.ok) throw new Error(added.error.message)
-  local = Automerge.change(added.value.newDoc, d => { (Object.values(d.entities).find(isItem) as any).kind = "task" })
-  const remote = Automerge.change(Automerge.clone(local), {message:"Remove item discriminators"}, d => {
-    delete (Object.values(d.entities).find(isItem) as any).kind
-  })
-  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, []))).rejects.toThrow("Unsigned workspace change rejected")
-  expect(pendingHistoryRepair(local.id)).toBe(1)
-  await expect(repairPendingHistory(local.id, member)).rejects.toThrow(/owner/i)
-  const repaired = await repairPendingHistory(local.id, owner)
-  await expect(validateIncomingChanges(local, Automerge.load(repaired.bytes), repaired.authorization)).resolves.toBeUndefined()
-  expect(Automerge.getHeads(Automerge.load(repaired.bytes))).toEqual(Automerge.getHeads(remote))
-  const malicious = Automerge.change(Automerge.clone(local), {message:"Remove item discriminators"}, d => {
-    delete (Object.values(d.entities).find(isItem) as any).kind
-    d.title = "Changed behind your back"
-  })
-  await expect(validateIncomingChanges(local, malicious, authorizationBundle(local, []))).rejects.toThrow("Unsigned workspace change rejected")
-  expect(pendingHistoryRepair(local.id)).toBe(0)
-  await expect(repairPendingHistory(local.id, owner)).rejects.toThrow(/No repairable/)
 })

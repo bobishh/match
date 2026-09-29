@@ -127,7 +127,7 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
   })
   configureAttachmentFetcher(descriptor => sync.fetchBlob(match.activeWorkspace.id, descriptor))
   const policy = useWorkspacePolicy(match, ui, sync)
-  const mesh = useAppMesh({ activeWorkspace: match.activeWorkspace, chat, sync, mergeAuthorizedWorkspace: match.mergeAuthorizedWorkspace, ...policy })
+  const mesh = useAppMesh({ activeWorkspace: match.activeWorkspace, chat, sync, ...policy })
   return { chat, sync, ...policy, ...mesh }
 }
 
@@ -222,14 +222,13 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   const canEditBoard = allowed("board.configure")
   const canManageAccess = allowed("access.manage")
   const canImportWorkspace = allowed("workspace.import")
-  const canRepairHistory = allowed("history.repair")
   const canRenameWorkspace = (id: string) => {
     const access = workspaceAccess.value[id]
     return Boolean(access && !access.blocked && canWorkspace(access.role, "workspace.rename"))
   }
   watch(canEditBoard, allowed => { if (!allowed) { ui.isEditingBoard.value = false; ui.editingColumn.value = null; ui.showEntitySettings.value = false } })
   watch(canEditItems, allowed => { if (!allowed) closeRestrictedEditors(ui) })
-  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRepairHistory, canRenameWorkspace }
+  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace }
 }
 
 type WorkspaceAccessResult = { role: WorkspaceRole; blocked: boolean; error?: string }

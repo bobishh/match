@@ -11,7 +11,6 @@ export type WorkspaceCapability =
   | "board.configure"
   | "workspace.import"
   | "access.manage"
-  | "history.repair"
 
 const roleCapabilities: Record<WorkspaceRole, ReadonlySet<WorkspaceCapability>> = {
   owner: new Set<WorkspaceCapability>([
@@ -22,7 +21,6 @@ const roleCapabilities: Record<WorkspaceRole, ReadonlySet<WorkspaceCapability>> 
     "board.configure",
     "workspace.import",
     "access.manage",
-    "history.repair",
   ]),
   editor: new Set<WorkspaceCapability>(["workspace.rename", "content.write", "chat.write", "chat.profile"]),
   visitor: new Set<WorkspaceCapability>(["chat.profile"]),
@@ -36,7 +34,6 @@ const capabilityErrors: Record<WorkspaceCapability, string> = {
   "board.configure": "Only the owner can edit board structure",
   "workspace.import": "Only the owner can import into this workspace",
   "access.manage": "Only the owner can manage workspace access",
-  "history.repair": "Only the owner can repair history signatures",
 }
 
 export function canWorkspace(role: WorkspaceRole, capability: WorkspaceCapability) {

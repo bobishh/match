@@ -49,7 +49,6 @@ const props = defineProps<{
   meshDiagnostic?: string
   retryAt?: number
   networkOnline?: boolean
-  repairableHistory?: number
   live?: boolean
 }>()
 
@@ -64,7 +63,6 @@ const emit = defineEmits<{
   (e: "transferOwnership", personId: string): void
   (e: "leaveMesh"): void
   (e: "promotePeer", personId: string): void
-  (e: "repairHistory"): void
   (e: "setSuccessor", personId: string | null): void
   (e: "voteSuccessor", personId: string): void
   (e: "claimSuccession"): void
@@ -188,10 +186,6 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           · {{ connectionSummary }}
         </p>
         <p v-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
-        <section v-if="repairableHistory" class="dialog-copy">
-          <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
-          <button class="button" type="button" @click="emit('repairHistory')">Sign verified cleanup</button>
-        </section>
         <p class="dialog-copy">People and their known devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
         <p class="mesh-member-help">A person can have more than one device. Select a person to see the devices known here.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
