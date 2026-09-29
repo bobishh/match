@@ -26,6 +26,7 @@ const props = defineProps<{
   availableWorkspaces?: { id: string; title: string }[]
   keeperOwnedWorkspaces?: { id: string; title: string }[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
+  removeKeeper?: (personId: string) => Promise<void>
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
   meshMembers?: MeshMemberView[]
@@ -198,6 +199,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           :owned-workspaces="keeperOwnedWorkspaces ?? []"
           :keepers="keeperMembers"
           :provision-keeper="provisionKeeper"
+          :remove-keeper="currentRole === 'owner' ? removeKeeper : undefined"
           @view-change="keeperView = $event"
         />
         <template v-if="keeperView === 'list'">

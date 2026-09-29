@@ -10,7 +10,7 @@ import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView 
 import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
 import { generateWorkspaceInvite as generateHostInvite, type WorkspaceHostContext } from "./deviceSyncHost"
-import { createKeeperProvisioner } from "./deviceSyncKeeper"
+import { createKeeperProvisioner, removeKeeperAccess } from "./deviceSyncKeeper"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
@@ -207,6 +207,12 @@ export class DeviceSyncController {
     const direct = this.directPeerSessions.get(personId)
     this.directPeerSessions.delete(personId)
     await direct?.close()
+  }
+
+  private async removeKeeper(personId: string) {
+    await removeKeeperAccess(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
+      workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.() })
+    this.state.ownershipRevision.value += 1
   }
 
   private async withActiveWorkspace(action: (workspaceId: string, mesh: DurableMesh) => Promise<void>, changeOwnership = false) {
@@ -528,6 +534,7 @@ export class DeviceSyncController {
       ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
       promotePeer: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.promotePerson(id, personId), true),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
+      removeKeeper: (personId: string) => this.removeKeeper(personId),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),
       setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)),
       voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),

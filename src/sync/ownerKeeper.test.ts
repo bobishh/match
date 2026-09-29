@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { writeLocal } from "../localDb"
-import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
+import { ownerKeepers, removeOwnerKeeper, saveOwnerKeeper } from "./ownerKeeper"
 
 describe("identity-scoped owner-keeper policy", () => {
   it("reloads policy for its owner identity and updates one keeper idempotently", async () => {
@@ -29,5 +29,16 @@ describe("identity-scoped owner-keeper policy", () => {
     await saveOwnerKeeper(owner, { personId: "keeper", role: "visitor", details })
     await saveOwnerKeeper(owner, { personId: "keeper", role: "editor" })
     await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: "keeper", role: "editor", details }])
+  })
+
+  it("removes one keeper only for its owner", async () => {
+    const owner = `owner-${crypto.randomUUID()}`
+    const otherOwner = `owner-${crypto.randomUUID()}`
+    await saveOwnerKeeper(owner, { personId: "old", role: "visitor" })
+    await saveOwnerKeeper(owner, { personId: "current", role: "editor" })
+    await saveOwnerKeeper(otherOwner, { personId: "old", role: "visitor" })
+    await removeOwnerKeeper(owner, "old")
+    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: "current", role: "editor" }])
+    await expect(ownerKeepers(otherOwner)).resolves.toEqual([{ personId: "old", role: "visitor" }])
   })
 })

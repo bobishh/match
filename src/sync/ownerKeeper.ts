@@ -23,3 +23,8 @@ export async function saveOwnerKeeper(ownerPersonId: string, keeper: OwnerKeeper
     { ...previous, ...keeper },
   ]))
 }
+
+export async function removeOwnerKeeper(ownerPersonId: string, personId: string) {
+  const records = await ownerKeepers(ownerPersonId)
+  await writeLocal(key(ownerPersonId), JSON.stringify(records.filter(record => record.personId !== personId)))
+}

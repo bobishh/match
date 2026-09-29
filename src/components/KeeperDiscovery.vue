@@ -8,11 +8,15 @@ const props = defineProps<{
   ownedWorkspaces: KeeperWorkspace[]
   keepers: MeshMemberView[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
+  removeKeeper?: (personId: string) => Promise<void>
 }>()
 const emit = defineEmits<{ (event: "viewChange", view: "list" | "form" | "detail"): void }>()
 const view = ref<"list" | "form" | "detail">("list")
 const selectedKeeperId = ref("")
 const keeperDetails = ref<KeeperDetails | null>(null)
+const confirmRemoval = ref(false)
+const removingKeeper = ref(false)
+const removalError = ref("")
 const originInput = ref("")
 const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired">("idle")
 const error = ref("")
@@ -33,6 +37,8 @@ const pendingPairing = () => pairing.value && ["pairing", "approved", "provision
 async function openKeeper(personId: string) {
   selectedKeeperId.value = personId
   keeperDetails.value = null
+  confirmRemoval.value = false
+  removalError.value = ""
   showView("detail")
   try {
     const details = await keeperApi.keeperDetails(personId)
@@ -43,8 +49,26 @@ async function openKeeper(personId: string) {
 }
 
 function showView(next: "list" | "form" | "detail") {
+  if (next === "list") confirmRemoval.value = false
   view.value = next
   emit("viewChange", next)
+}
+
+async function removeSelectedKeeper() {
+  if (!selectedKeeperId.value || !props.removeKeeper || removingKeeper.value) return
+  removingKeeper.value = true
+  removalError.value = ""
+  try {
+    await props.removeKeeper(selectedKeeperId.value)
+    selectedKeeperId.value = ""
+    keeperDetails.value = null
+    confirmRemoval.value = false
+    showView("list")
+  } catch (cause) {
+    removalError.value = cause instanceof Error ? cause.message : "Could not remove keeper"
+  } finally {
+    removingKeeper.value = false
+  }
 }
 
 function resetFlow() {
@@ -264,6 +288,17 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <p v-if="keeperDetails" class="sync-section-copy">Boards</p>
         <ul v-if="keeperDetails" class="keeper-devices"><li v-for="board in ownedWorkspaces.filter(workspace => keeperDetails?.boardIds.includes(workspace.id))" :key="board.id">{{ board.title }}</li></ul>
         <ul class="keeper-devices"><li v-for="device in selectedKeeper()!.deviceList" :key="device.deviceId"><LighthouseMark :online="device.online" :reconnecting="device.reconnecting" />{{ device.name }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
+        <div v-if="removeKeeper" class="keeper-removal">
+          <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
+          <template v-else>
+            <p class="dialog-copy">Remove access from all owned boards?</p>
+            <div class="dialog-actions">
+              <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : 'Remove access from all boards' }}</button>
+              <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
+            </div>
+          </template>
+          <p v-if="removalError" class="sync-error" role="alert">{{ removalError }}</p>
+        </div>
       </template>
     </div>
   </section>
@@ -288,6 +323,8 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 .keeper-code strong { font: 900 1.5rem/1 ui-monospace, monospace; letter-spacing: .12em; }
 .keeper-pairing { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--soft); }
 .keeper-pairing p { margin: 0; }
+.keeper-removal { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--soft); }
+.keeper-removal p { margin: 0; }
 .keeper-devices { display: grid; gap: 8px; margin: 0; padding-left: 18px; color: var(--muted); }
 .keeper-devices li { display: flex; align-items: center; gap: 8px; }
 .keeper-replacement .pairing-paste { margin-top: 0; }
