@@ -100,7 +100,9 @@ function projectLead(
   source: Item,
   bindings: Bindings,
 ): Lead | undefined {
-  const item = projectItemPriority(board, source);
+  const notesFieldId = board?.preset?.bindings["field.notes"]
+  const textNotesFieldId = notesFieldId && doc.entities[notesFieldId]?.kind === "field" && doc.entities[notesFieldId].valueType === "text" ? notesFieldId : undefined
+  const item = projectItemPriority(board, source, textNotesFieldId)
   const column = findColumn(doc.entities, item.placement.parentId);
   if (!column) return undefined;
   const title = splitTitle(item.title);

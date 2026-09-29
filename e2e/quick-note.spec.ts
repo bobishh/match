@@ -47,14 +47,14 @@ test("Given quick-note persistence fails, when retry succeeds, then the draft st
   await expect(detail.getByText("Do not lose this draft", { exact: true })).toHaveCount(1)
 })
 
-test("Given a Job search lead, when a quick note is added, then it uses the preset Notes field", async ({ page }) => {
+test("Given a Job search lead, when a quick note is added, then it appends to its Description", async ({ page }) => {
   await page.goto("/")
   await createJobSearchWorkspace(page, "Quick lead notes")
   await page.getByRole("region", { name: "Lead" }).getByRole("button", { name: "Add lead to Lead" }).click()
   const form = page.getByRole("dialog", { name: "Add item", exact: true })
   await form.getByLabel("Company *", { exact: true }).fill("Quick Note Corp")
   await form.getByLabel("Role *", { exact: true }).fill("Engineer")
-  await form.getByLabel("Notes", { exact: true }).fill("Existing context")
+  await form.getByLabel("Description", { exact: true }).fill("Existing context")
   await form.getByRole("button", { name: "Create item", exact: true }).click()
   const detail = page.getByRole("dialog", { name: "Lead details", exact: true })
   await expect(detail).toBeVisible()

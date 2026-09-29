@@ -10,6 +10,7 @@ import ItemDocuments from "./ItemDocuments.vue"
 defineProps<{
   readOnly?: boolean
   item: Item
+  narrative: string
   subitems: Item[]
   fields: FieldDefinition[]
   documents: Document[]
@@ -34,7 +35,6 @@ const emit = defineEmits<{
   (e: "restoreVersion", changeHash: string): void
   (e: "update:quickNote", value: string): void
   (e: "saveNote"): void
-  (e: "review", item: Item): void
   (e: "updateMarkdown", item: Item, markdown: string): void
 }>()
 </script>
@@ -48,16 +48,15 @@ const emit = defineEmits<{
           <h2>{{ item.title }}</h2>
         </div>
         <div class="detail-head-actions">
-          <button class="button button-small button-quiet" type="button" :disabled="readOnly" @click="emit('review', item)">Reviewed</button>
           <button class="button button-small" type="button" :disabled="readOnly" @click="emit('edit', item)">Edit</button>
           <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('close')">×</button>
         </div>
       </div>
 
       <div class="detail-scroll detail-content">
-        <div v-if="item.body" class="detail-section">
-          <span class="detail-label">Notes</span>
-          <MarkdownContent class="detail-copy" :source="item.body" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
+        <div v-if="narrative" class="detail-section">
+          <span class="detail-label">Description</span>
+          <MarkdownContent class="detail-copy" :source="narrative" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
         </div>
 
         <QuickNoteForm

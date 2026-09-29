@@ -2,7 +2,7 @@ import type { FileReference } from "./domain/model"
 
 export type LeadStatus = "lead" | "applied" | "interview" | "rejected" | "offer" | "archived"
 export type LeadPriority = "p0" | "p1" | "p2" | "p3"
-export type DocumentKind = "cv" | "cover_letter" | "note" | "attachment"
+type DocumentKind = "cv" | "cover_letter" | "note" | "attachment"
 type DocumentFormat = "markdown" | "html" | "pdf" | "file" | "path"
 export type ArtifactKind = "cv" | "cover_letter"
 

@@ -27,21 +27,17 @@ import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
 import { saveIdentityName } from "./app/identityName"
 import { computed, ref } from "vue"
+import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { useAgingClock } from "./app/useAgingClock"
+import { createNarrativeEditHandler } from "./app/narrativeEditor"
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)
 const showSettings = ref(false)
-async function stopSyncForIdentityRestore() {
-  await app.collaboration.device.sync.shutdown()
-}
-function restoredIdentity() {
-  window.location.reload()
-}
-const {
-  workspace, ready, saveState, availableWorkspaces, activeWorkspace, activeBoard,
-  isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor,
-} = app.workspace
+const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
+const stopSyncForIdentityRestore = () => app.collaboration.device.sync.shutdown()
+const restoredIdentity = () => window.location.reload()
+const { workspace, ready, saveState, availableWorkspaces, activeWorkspace, activeBoard, isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor } = app.workspace
 const { state: ui, controls: uiControls } = app.ui
 const {
   detailDialog, importInput, showArtifactForm, search, filters,
@@ -79,7 +75,7 @@ const { meshPresence, meshPresenceLabel,
 } = app.collaboration.mesh
 const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, reloadPage, openBoardItem,
-  restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, reviewItem,
+  restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate,
   openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
   handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, openAddItem,
@@ -90,6 +86,7 @@ const {
 } = app.actions
 
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
+const editItem = createNarrativeEditHandler(editingFoldSnapshot, activeBoard, leadForItem, () => getActiveDoc()?.entities ?? {}, handleOpenItemEdit)
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const agingNow = useAgingClock()
@@ -351,6 +348,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
     <ItemDetailDialog
       v-if="selectedItem"
       :item="selectedItem"
+      :narrative="selectedItem ? cardNotes(selectedItem) : ''"
       :read-only="!canEditItems"
       :subitems="subitemsForSelectedItem"
       :fields="boardFields"
@@ -366,14 +364,13 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :note-saving="quickNoteSaving"
       :note-error="quickNoteError"
       @close="selectedItemId = null; historyRestoreError = ''; historyRestoreNotice = ''"
-      @edit="handleOpenItemEdit"
+      @edit="editItem"
       @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
       @delete-item="handleDeleteItem"
       @restore-version="restoreSelectedItemVersion"
       @update:quick-note="quickNoteDraft = $event"
       @save-note="saveQuickNote(selectedItem)"
-      @review="reviewItem"
       @update-markdown="updateItemMarkdown"
     />
 
@@ -384,12 +381,15 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :columns="itemFormColumns"
       :item="editingItem"
       :show-core-fields="isBlankBoard"
-      :hidden-field-ids="computedItemFieldIds"
+      :hidden-field-ids="[...computedItemFieldIds, ...(boardFields.some(field => field.id === activeBoard?.preset?.bindings['field.notes'] && field.valueType === 'text') && activeBoard?.preset?.bindings['field.notes'] ? [activeBoard.preset.bindings['field.notes']] : [])]"
+      :initial-body="editingItem ? cardNotes(editingItem) : undefined"
+      :fold-snapshot="editingFoldSnapshot"
+      :required-narrative="Boolean(boardFields.find(field => field.id === activeBoard?.preset?.bindings['field.notes'] && field.valueType === 'text')?.required)"
       :computed-fields-message="computedItemFieldIds.length ? 'Priority and fit are calculated from workspace preferences.' : undefined"
       :option-values="itemFormOptionValues"
       :error-message="itemFormError"
       :saving="savingItem"
-      @cancel="showItemForm = false; editingItemId = null; itemFormError = ''"
+      @cancel="showItemForm = false; editingItemId = null; itemFormError = ''; editingFoldSnapshot = undefined"
       @save="handleSaveItem"
     />
 
@@ -464,8 +464,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         <div class="detail-head">
           <div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div>
           <div class="detail-head-actions">
-            <button v-if="selectedLeadItem" class="button button-small button-quiet" type="button" :disabled="!canEditItems" @click="reviewItem(selectedLeadItem)">Reviewed</button>
-            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="handleOpenItemEdit(selectedLeadItem)">Edit</button>
+            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="editItem(selectedLeadItem)">Edit</button>
             <button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button>
           </div>
         </div>
@@ -480,7 +479,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           <div><span class="detail-label">Work mode</span><strong>{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><MarkdownContent class="detail-copy" :source="selectedLead.notes" :editable-tasks="canEditItems" @task-toggle="selectedLeadItem && updateItemMarkdown(selectedLeadItem, $event)" /></section>
+        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><MarkdownContent class="detail-copy" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"

@@ -12,6 +12,8 @@ import type {
 import type { BoardSchemaDraft } from "./schema";
 import type { WorkspaceSettingsDraft } from "./workspaceSettings";
 
+export type NarrativeFoldSources = { expectedBody: string; notesFieldId?: string; expectedNotes?: FieldValue; notes: Array<{ id: string; title: string; content: string | null; format: "markdown" | "html" | "pdf" | "file" | "path" }> };
+
 export type Command =
   | { kind: "createWorkspace"; title: string; preset: "job-search" | "blank" }
   | { kind: "renameWorkspace"; title: string }
@@ -19,8 +21,7 @@ export type Command =
   | { kind: "createBoard"; title: string; preset: "job-search" | "blank" }
   | { kind: "createColumn"; boardId: string; title: string; beforeId?: string | null }
   | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
-  | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue> }
-  | { kind: "reviewItem"; entityId: string }
+  | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue>; foldNarrativeSources?: NarrativeFoldSources }
   | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
   | { kind: "renameEntity"; entityId: string; title: string }
