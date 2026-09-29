@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { hasEntityKind } from "./model"
 import { createWorkspaceDoc } from "./seeds"
 import { assertWorkspaceTransition, canWorkspace, type WorkspaceCapability, type WorkspaceRole } from "./permissions"
 
@@ -25,8 +26,8 @@ describe("workspace policy", () => {
 
   it("uses the same policy for document transitions", () => {
     const before = createWorkspaceDoc("ws", "Before", "owner", "blank")
-    const board = Object.values(before.entities).find(entity => entity.kind === "board")!
-    const column = Object.values(before.entities).find(entity => entity.kind === "column")!
+    const board = Object.values(before.entities).find(entity => hasEntityKind(entity, "board"))!
+    const column = Object.values(before.entities).find(entity => hasEntityKind(entity, "column"))!
     before.entities.item = {
       id: "item", title: "Item", body: "", placement: { parentId: column.id, rank: "0/1" },
       archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", values: {},

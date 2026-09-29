@@ -13,10 +13,12 @@ async function createBlankBoard(page: import("@playwright/test").Page) {
 test("Given a blank board, when Archive column is enabled and item archived, then one collapsible Archive contains item after reload", async ({ page }) => {
   await createBlankBoard(page)
   await page.getByRole("button", { name: "Edit board" }).click()
-  const addArchive = page.getByRole("button", { name: "Add archive column" })
-  await expect(addArchive).toBeVisible()
-  await addArchive.click()
-  await expect(addArchive).toHaveCount(0)
+  const archiveOption = page.getByRole("checkbox", { name: "Archive column" })
+  await expect(archiveOption).toBeEnabled()
+  await archiveOption.check()
+  await expect(page.getByRole("textbox", { name: "New column" })).toHaveValue("Archive")
+  await page.getByRole("button", { name: "+ Add column" }).click()
+  await expect(archiveOption).toBeDisabled()
   await page.getByRole("button", { name: "Done" }).click()
 
   await page.getByRole("button", { name: "Add item to To do" }).click()
@@ -34,14 +36,16 @@ test("Given a blank board, when Archive column is enabled and item archived, the
   await expect(page.getByRole("region", { name: "Archive" }).getByRole("button", { name: "Open Keep this card" })).toBeVisible()
 })
 
-test("Given archive column save fails, when Add archive column is clicked, then option remains and board has no Archive", async ({ page }) => {
+test("Given archive column save fails, when checked column is added, then draft remains and board has no Archive", async ({ page }) => {
   await createBlankBoard(page)
   await page.getByRole("button", { name: "Edit board" }).click()
   await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
-  await page.getByRole("button", { name: "Add archive column" }).click()
-  await expect(page.getByRole("button", { name: "Add archive column" })).toBeVisible()
+  await page.getByRole("checkbox", { name: "Archive column" }).check()
+  await page.getByRole("button", { name: "+ Add column" }).click()
+  await expect(page.getByRole("checkbox", { name: "Archive column" })).toBeChecked()
+  await expect(page.getByRole("textbox", { name: "New column" })).toHaveValue("Archive")
   await expect(page.getByRole("region", { name: "Archive", exact: true })).toHaveCount(0)
-  await expect(page.getByRole("status").filter({ hasText: "Archive column failed" })).toBeVisible()
+  await expect(page.getByRole("alert")).toContainText("Storage failure injected")
 })
 
 test("Given item archived before Archive column exists, when column is enabled, then item appears and restores", async ({ page }) => {
@@ -54,7 +58,8 @@ test("Given item archived before Archive column exists, when column is enabled, 
   await page.getByRole("dialog", { name: "Item overview" }).getByRole("button", { name: "Archive item" }).click()
 
   await page.getByRole("button", { name: "Edit board" }).click()
-  await page.getByRole("button", { name: "Add archive column" }).click()
+  await page.getByRole("checkbox", { name: "Archive column" }).check()
+  await page.getByRole("button", { name: "+ Add column" }).click()
   await page.getByRole("button", { name: "Done" }).click()
   await page.getByRole("button", { name: "Open Archive with 1 cards" }).click()
   await page.getByRole("region", { name: "Archive", exact: true }).getByRole("button", { name: "Open Earlier card" }).click()

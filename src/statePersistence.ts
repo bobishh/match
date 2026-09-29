@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import * as Automerge from "@automerge/automerge/slim";
 import { initializeAutomerge } from "./crdt";
 import {
@@ -17,7 +18,6 @@ import {
 import { createWorkspaceDoc } from "./domain/seeds";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command } from "./domain/commands";
-import { needsArchiveMigration } from "./domain/archiveMigration";
 import {
   authorizeLocalChanges,
   recordGenesisAuthority,
@@ -76,7 +76,7 @@ export function updateReactiveState(
 ): void {
   stateRuntime.activeDoc = doc;
   const board = Object.values(doc.entities).find(
-    (entity): entity is Board => entity.kind === "board",
+    (entity): entity is Board => hasEntityKind(entity, "board"),
   );
   Object.assign(stateRuntime.activeWorkspaceMeta, {
     id: doc.id,
@@ -92,8 +92,7 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
   try {
     await initializeAutomerge();
     stateRuntime.currentProfile = await bootstrapIdentity();
-    const loaded = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
-    const doc = await migrateWorkspaceArchive(loaded, stateRuntime.currentProfile, storage);
+    const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
     updateReactiveState(doc);
     await initializePersonalRoot(storage, stateRuntime.currentProfile);
     applyInjectedFixture();
@@ -170,16 +169,6 @@ export async function persistAuthorizedCommand(
     Automerge.save(result.value.newDoc),
   );
   return result.value.newDoc;
-}
-
-export async function migrateWorkspaceArchive(
-  doc: Automerge.Doc<WorkspaceDocumentV2>,
-  profile: LocalProfile,
-  storage: WorkspaceStorage,
-): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
-  return needsArchiveMigration(doc)
-    ? persistAuthorizedCommand(doc, { kind: "migrateArchivedAt" }, profile, storage)
-    : doc;
 }
 
 export async function reconcile(storage = defaultStorage, workspaceChanged = false, changedWorkspaceId?: string): Promise<void> {
@@ -317,7 +306,7 @@ function applyInjectedFixture(): void {
   if (!items || !stateRuntime.activeDoc) return;
   const updated = Automerge.change(stateRuntime.activeDoc, (draft) => {
     const board = Object.values(draft.entities).find(
-      (entity): entity is Board => entity.kind === "board",
+      (entity): entity is Board => hasEntityKind(entity, "board"),
     );
     if (!board) return;
     board.preset = { key: "blank", version: 1, bindings: {} };
@@ -330,7 +319,7 @@ function applyInjectedFixture(): void {
 function ensureFixtureColumn(draft: WorkspaceDocumentV2, board: Board): void {
   if (
     Object.values(draft.entities).some(
-      (entity) => entity.kind === "column" && entity.title === "To do",
+      (entity) => hasEntityKind(entity, "column") && entity.title === "To do",
     )
   )
     return;
@@ -340,7 +329,6 @@ function ensureFixtureColumn(draft: WorkspaceDocumentV2, board: Board): void {
     kind: "column",
     title: "To do",
     placement: { parentId: board.id, rank: "0/1" },
-    displayHint: "normal",
     archivedAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),

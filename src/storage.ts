@@ -88,6 +88,22 @@ function parseStoredSnapshot(raw: string, workspaceId: string): StoredSnapshot |
   }
 }
 
+function includesWorkspaceHeads(doc: Automerge.Doc<WorkspaceDocumentV2>, heads: Heads): boolean {
+  const changes = new Map(Automerge.getAllChanges(doc).map(bytes => {
+    const change = Automerge.decodeChange(bytes)
+    return [change.hash, change.deps] as const
+  }))
+  const reachable = new Set<string>()
+  const pending = [...Automerge.getHeads(doc)]
+  while (pending.length) {
+    const hash = pending.pop()!
+    if (reachable.has(hash)) continue
+    reachable.add(hash)
+    pending.push(...(changes.get(hash) ?? []))
+  }
+  return heads.every(hash => reachable.has(hash))
+}
+
 async function readIndexedJournalRecord<T>(
   workspaceId: string,
   storeName: "receipts" | "proofs",
@@ -149,7 +165,10 @@ export class WorkspaceStorage {
     return [...records.values()]
   }
 
-  async registerWorkspace(id: string, title: string, archivedAt: string | null = null): Promise<void> {
+  async registerWorkspace(id: string, title: string, archivedAt: string | null = null, allowRestore = false): Promise<void> {
+    const previous = await getStorageRaw(`${workspaceMetaPrefix}${id}`)
+    if (previous && !archivedAt && !allowRestore && (JSON.parse(previous) as WorkspaceMeta).archivedAt)
+      throw new Error("Workspace was archived in another tab")
     const meta = { id, title, updatedAt: new Date().toISOString(), archivedAt }
     await setStorageRaw(`${workspaceMetaPrefix}${id}`, JSON.stringify(meta))
     this.inMemory.workspaces.set(id, meta)
@@ -267,6 +286,15 @@ export class WorkspaceStorage {
     bytes: Uint8Array
   ): Promise<void> {
     checkStorageFailureHook()
+    const saved = await getStorageRaw(`match.snapshot.${workspaceId}`)
+    if (saved && !doc.archivedAt) {
+      const previous = parseStoredSnapshot(saved, workspaceId)
+      if (previous) {
+        const previousDoc = Automerge.load<WorkspaceDocumentV2>(previous.bytes)
+        if (previousDoc.archivedAt && !includesWorkspaceHeads(doc, Automerge.getHeads(previousDoc)))
+          throw new Error("Workspace was archived in another tab")
+      }
+    }
     const heads = Automerge.getHeads(doc).sort()
     const snapshot = {
       workspaceId,
@@ -278,7 +306,7 @@ export class WorkspaceStorage {
       `match.snapshot.${workspaceId}`,
       JSON.stringify({ heads, bytesBase64: toBase64Url(bytes), savedAt: snapshot.savedAt })
     )
-    await this.registerWorkspace(workspaceId, doc.title, doc.archivedAt)
+    await this.registerWorkspace(workspaceId, doc.title, doc.archivedAt, true)
     this.inMemory.snapshots.set(workspaceId, snapshot)
   }
 

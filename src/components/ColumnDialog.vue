@@ -10,7 +10,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "close"): void
   (e: "save", title: string): void
-  (e: "delete"): void
+  (e: "archive"): void
 }>()
 
 const title = ref(props.initialTitle)
@@ -42,7 +42,7 @@ function handleSave() {
         </div>
 
         <div class="dialog-actions dialog-actions-split">
-          <button class="button button-danger" type="button" @click="emit('delete')">Delete column</button>
+          <button class="button button-danger" type="button" @click="emit('archive')">Archive column</button>
           <div class="dialog-action-group">
             <button class="button button-quiet" type="button" @click="emit('close')">Cancel</button>
             <button class="button button-primary" type="submit">Save</button>

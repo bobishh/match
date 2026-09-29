@@ -128,7 +128,6 @@ async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions
     createWorkspaceAsync: actions.createAndSyncWorkspace,
     switchWorkspaceAsync: core.match.switchWorkspace,
     availableWorkspaces: core.match.availableWorkspaces,
-    archivedWorkspaces: core.match.archivedWorkspaces,
     activeWorkspace: core.match.activeWorkspace,
     placementIssues: core.match.placementIssues,
     sendChatMessage: body => sendChatMessage(core.match.activeWorkspace.id, body),

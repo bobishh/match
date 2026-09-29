@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
@@ -31,7 +32,7 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     const raw = createWorkspaceDoc("ws_test", "Product Roadmap", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)
 
-    const board = Object.values(doc.entities).find((e) => e.kind === "board")!
+    const board = Object.values(doc.entities).find((e) => hasEntityKind(e, "board"))!
     const draft = projectBoardSchema(doc, board.id)
 
     expect(draft.boardId).toBe(board.id)
@@ -105,18 +106,13 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
 
   it("projects one explicit archive role and rejects a second archive column", () => {
     const raw = createWorkspaceDoc("ws_test", "Applications", profile.identity.personId, "job-search")
-    const legacyArchive = Object.values(raw.entities).find(
-      (entity) => entity.kind === "column" && entity.displayHint === "collapsed",
-    )
-    if (legacyArchive?.kind === "column") delete legacyArchive.archive
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)
-    const board = Object.values(doc.entities).find((entity) => entity.kind === "board")!
+    const board = Object.values(doc.entities).find((entity) => hasEntityKind(entity, "board"))!
     const draft = projectBoardSchema(doc, board.id)
     const archiveIndex = draft.columns.findIndex((column) => column.archive)
 
     expect(archiveIndex).toBeGreaterThanOrEqual(0)
     expect(draft.columns[archiveIndex]).toMatchObject({ title: "Archive", archive: true })
-    expect(draft.columns[archiveIndex]).not.toHaveProperty("displayHint")
 
     draft.columns[0].archive = true
     expect(validateBoardSchemaDraft(draft)).toMatchObject({
@@ -125,14 +121,14 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     })
   })
 
-  it("diffs schema draft against canonical doc showing renames, soft-deletions, and option retention", () => {
+  it("diffs schema draft against canonical doc showing renames, archiving, and option retention", () => {
     const raw = createWorkspaceDoc("ws_test", "Test Board", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)
 
-    const board = Object.values(doc.entities).find((e) => e.kind === "board")!
+    const board = Object.values(doc.entities).find((e) => hasEntityKind(e, "board"))!
     const draft = projectBoardSchema(doc, board.id)
 
-    // Rename first column, remove second column (soft delete), add a new column
+    // Rename first column, remove second column (archive), add a new column
     draft.columns[0].title = "Backlog"
     const removedColId = draft.columns[1].id!
     draft.columns.splice(1, 1) // removes "Doing"
@@ -153,23 +149,23 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(diff.columnsRenamed).toEqual([
       { id: draft.columns[0].id!, oldTitle: "To do", newTitle: "Backlog" },
     ])
-    expect(diff.columnsSoftDeleted.map((c) => c.id)).toContain(removedColId)
+    expect(diff.columnsArchived.map((c) => c.id)).toContain(removedColId)
     expect(diff.columnsAdded.map((c) => c.title)).toContain("Archived Columns")
     expect(diff.fieldsAdded.map((f) => f.title)).toContain("Severity")
   })
 
-  it("applies schema draft through atomic updateBoardSchema command retaining stable IDs and soft-deleting removals", async () => {
+  it("applies schema draft through atomic updateBoardSchema command retaining stable IDs and archiving removals", async () => {
     const raw = createWorkspaceDoc("ws_test", "Test Board", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)
 
-    const board = Object.values(doc.entities).find((e) => e.kind === "board")!
+    const board = Object.values(doc.entities).find((e) => hasEntityKind(e, "board"))!
     const initialDraft = projectBoardSchema(doc, board.id)
     const originalCol0Id = initialDraft.columns[0].id!
     const removedColId = initialDraft.columns[1].id!
 
     // Modify schema draft
     initialDraft.columns[0].title = "Inbox"
-    initialDraft.columns.splice(1, 1) // soft delete "Doing"
+    initialDraft.columns.splice(1, 1) // archive "Doing"
     initialDraft.columns.push({ title: "Shipped" })
     initialDraft.fields.push({
       title: "Priority",
@@ -200,19 +196,19 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(updatedCol0?.archivedAt).toBeNull()
 
     // Removed column is soft-archived, NOT destroyed
-    const softDeletedCol = newDoc.entities[removedColId]
-    expect(softDeletedCol).toBeDefined()
-    expect(softDeletedCol?.archivedAt).toEqual(expect.any(String))
+    const archivedCol = newDoc.entities[removedColId]
+    expect(archivedCol).toBeDefined()
+    expect(archivedCol?.archivedAt).toEqual(expect.any(String))
 
     // New column created
     const shippedCol = Object.values(newDoc.entities).find(
-      (e) => e.kind === "column" && e.title === "Shipped" && !e.archivedAt
+      (e) => hasEntityKind(e, "column") && e.title === "Shipped" && !e.archivedAt
     )
     expect(shippedCol).toBeDefined()
 
     // New field created with options
     const priorityField = Object.values(newDoc.entities).find(
-      (e): e is FieldDefinition => e.kind === "field" && e.title === "Priority" && !e.archivedAt
+      (e): e is FieldDefinition => hasEntityKind(e, "field") && e.title === "Priority" && !e.archivedAt
     )
     expect(priorityField).toBeDefined()
     if (priorityField && priorityField.valueType === "select") {
@@ -225,7 +221,7 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     const raw = createWorkspaceDoc("ws_test", "Test Board", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)
 
-    const board = Object.values(doc.entities).find((e) => e.kind === "board")!
+    const board = Object.values(doc.entities).find((e) => hasEntityKind(e, "board"))!
     const draft = projectBoardSchema(doc, board.id)
 
     // Stale expected heads

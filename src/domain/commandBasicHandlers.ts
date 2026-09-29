@@ -1,7 +1,8 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type { Board, CommandErrorCode, FieldDefinition, FieldValue, Item, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
-import { entityKind, isItem, validatePlacementParent } from "./model"
+import { entityKind, hasEntityKind, isItem, validatePlacementParent } from "./model"
 import { getAncestryPath } from "./ancestry"
+import { isArchiveColumn } from "./archive"
 import { validateItemValues } from "./fields"
 import { seedBoard } from "./seeds"
 import { err } from "./commandTypes"
@@ -28,6 +29,7 @@ export const createItem: CommandHandler<"createItem"> = (doc, command, context) 
   if (!command.title.trim()) return err("invalid_input", "Item title is required", "title")
   const parent = doc.entities[command.parentId]
   if (!parent) return err("not_found", `Parent ${command.parentId} not found`)
+  if (hasEntityKind(parent, "column") && isArchiveColumn(parent)) return err("invalid_parent", "Items cannot be created in Archive")
   const parentResult = validatePlacementParent("item", entityKind(parent))
   if (!parentResult.ok) return err("invalid_parent", parentResult.error.message)
   const values = itemValuesForCreate(doc, command)
@@ -64,7 +66,7 @@ function addBoundValue(values: Record<string, FieldValue>, fieldId: string | und
 }
 
 function validateValues(doc: Automerge.Doc<WorkspaceDocumentV2>, boardId: string, values: Record<string, FieldValue>): { ok: true } | CommandFailure {
-  const fields = Object.values(doc.entities).filter((entity): entity is FieldDefinition => entity.kind === "field" && entity.placement.parentId === boardId)
+  const fields = Object.values(doc.entities).filter((entity): entity is FieldDefinition => hasEntityKind(entity, "field") && entity.placement.parentId === boardId)
   const validation = validateItemValues(fields, values)
   if (validation.ok) return { ok: true }
   const field = Object.keys(validation.errors)[0]
@@ -143,6 +145,7 @@ function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: Workspace
   if (getAncestryPath(doc.entities, command.parentId).path.includes(command.entityId)) return err("cycle", "Cannot place an entity under its descendant")
   const parent = doc.entities[command.parentId]
   if (!parent) return err("not_found", `Target parent ${command.parentId} not found`)
+  if (hasEntityKind(parent, "column") && isArchiveColumn(parent)) return err("invalid_parent", "Archive items with setEntityArchived")
   const result = validatePlacementParent(entityKind(entity), entityKind(parent))
   if (!result.ok) return err("invalid_parent", result.error.message)
   if (findRootBoardId(doc.entities, entity.id) !== findRootBoardId(doc.entities, command.parentId)) return err("cross_board_move", "Cross-board moves are not supported")

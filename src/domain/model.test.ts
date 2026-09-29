@@ -44,7 +44,7 @@ describe("model runtime types and validators (Requirement 1.1)", () => {
     }
   })
 
-  it("validates Column entity and displayHint", () => {
+  it("validates Column archive role", () => {
     const validColumn: Column = {
       id: "col_1",
       kind: "column",
@@ -53,13 +53,12 @@ describe("model runtime types and validators (Requirement 1.1)", () => {
       archivedAt: null,
       createdAt: "2026-09-09T10:00:00.000Z",
       updatedAt: "2026-09-09T10:00:00.000Z",
-      displayHint: "normal",
     }
 
     expect(validateEntity(validColumn).ok).toBe(true)
 
-    const invalidHint = { ...validColumn, displayHint: "invalid_hint" }
-    expect(validateEntity(invalidHint).ok).toBe(false)
+    expect(validateEntity({ ...validColumn, archive: true }).ok).toBe(true)
+    expect(validateEntity({ ...validColumn, archive: false }).ok).toBe(false)
   })
 
   it("validates Item entity and custom values map", () => {

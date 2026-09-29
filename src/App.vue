@@ -3,9 +3,10 @@
 import { MarkdownContent } from "./ui/markdownContent"
 import { useAppController } from "./app/useAppController"
 import { isArchiveColumn } from "./domain/archive"
+import { cardStageButtons } from "./domain/cardStageButtons"
 import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
-import { artifactKindLabels, priorityLabels, statusLabels, type DocumentInput } from "./types"
+import { artifactKindLabels, priorityLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
 import SyncDialog from "./components/SyncDialog.vue"
 import LeadFilters from "./components/LeadFilters.vue"
@@ -16,6 +17,7 @@ import WorkspaceChat from "./components/WorkspaceChat.vue"
 import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
+import CardStageStrip from "./components/CardStageStrip.vue"
 import QuickNoteForm from "./components/QuickNoteForm.vue"
 import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
@@ -80,19 +82,19 @@ const { meshPresence, meshPresenceLabel,
 const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, reloadPage, openBoardItem,
   restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, reviewItem,
-  openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason,
+  openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
-  handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleRestoreWorkspace, openAddItem,
+  handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace, openAddItem,
   handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings,
-  handleDeleteItem, handleRestoreItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
-  handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn, addBoardColumn, addArchiveColumn, addingArchiveColumn,
+  handleArchiveItem, handleRestoreItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
+  handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, addingBoardColumn, addBoardColumnError, selectArchiveColumn,
 } = app.actions
 
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const agingNow = useAgingClock()
-function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string; archive?: true; displayHint?: "normal" | "collapsed" }) { return isCardAgingExemptColumn(column) ? null : cardAge(item, activeBoard.value?.cardAgingPolicy, agingNow.value) }
+function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string; archive?: true }) { return isCardAgingExemptColumn(column) ? null : cardAge(item, activeBoard.value?.cardAgingPolicy, agingNow.value) }
 </script>
 
 <template>
@@ -254,18 +256,15 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         </template>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
-      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" /><button class="button button-primary" type="submit">+ Add column</button><button v-if="!genericColumns.some(isArchiveColumn)" class="button button-quiet" type="button" :disabled="addingArchiveColumn" @click="addArchiveColumn">{{ addingArchiveColumn ? 'Adding Archive…' : 'Add archive column' }}</button></form>
+      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(isArchiveColumn) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
     </section>
 
     <!-- Dialogs -->
     <WorkspacesDialog
       v-if="showWorkspaces"
-      :workspaces="availableWorkspaces"
-      :archived-workspaces="archivedWorkspaces"
+      :workspaces="availableWorkspaces" :archived-workspaces="archivedWorkspaces"
       :active-workspace-id="activeWorkspace.id"
-      :rename-workspace="handleRenameWorkspace"
-      :archive-workspace="handleDeleteWorkspace"
-      :restore-workspace="handleRestoreWorkspace"
+      :rename-workspace="handleRenameWorkspace" :archive-workspace="handleArchiveWorkspace" :restore-workspace="handleRestoreWorkspace"
       :can-rename-workspace="canRenameWorkspace"
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
@@ -279,7 +278,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :initial-title="editingColumn.title"
       @close="editingColumn = null"
       @save="handleRenameColumn"
-      @delete="handleDeleteColumn"
+      @archive="handleArchiveColumn"
     />
 
     <SchemaEditorDialog
@@ -351,7 +350,8 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
 
     <ItemDetailDialog
       v-if="selectedItem"
-      :item="selectedItem"
+      :item="selectedItem" :columns="genericColumns" :card-stage-buttons="cardStageButtons(activeBoard, genericColumns)"
+      :move-to-column="moveCardToColumn"
       :archived="Boolean(selectedItem?.archivedAt)"
       :read-only="!canEditItems"
       :subitems="subitemsForSelectedItem"
@@ -371,7 +371,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       @edit="handleOpenItemEdit"
       @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
-      @delete-item="handleDeleteItem" @restore-item="handleRestoreItem"
+      @archive-item="handleArchiveItem" @restore-item="handleRestoreItem"
       @restore-version="restoreSelectedItemVersion"
       @update:quick-note="quickNoteDraft = $event"
       @save-note="saveQuickNote(selectedItem)"
@@ -469,7 +469,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
             <button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button>
           </div>
         </div>
-      <div class="status-strip"><button v-for="(label, status) in statusLabels" :key="status" :disabled="!canEditItems" type="button" :class="{ active: selectedLead.status === status }" @click="setStatus(status)">{{ label }}</button></div>
+      <CardStageStrip v-if="selectedLeadItem" :item="selectedLeadItem" :columns="genericColumns" :buttons="cardStageButtons(activeBoard, genericColumns)" :read-only="!canEditItems" :move="moveCardToColumn" />
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       <button v-if="archiveUndo && archiveUndo.workspaceId === activeWorkspace.id" class="button button-small" type="button" :disabled="undoSaving" @click="undoArchive">{{ undoSaving ? 'Restoring…' : 'Undo archive' }}</button>
       <div class="detail-scroll">

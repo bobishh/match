@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import type { WorkspaceDocumentV2, WorkspaceEntity, Column, FieldDefinition, Board, DocumentTemplate, LegacyWritingTemplate } from "./model"
 import { isItem } from "./model"
 import { calculateRankBetween, getChildren, renumberSiblings } from "./ancestry"
@@ -10,7 +11,7 @@ export function findRootBoardId(entities: Record<string, WorkspaceEntity>, entit
   while (current) {
     if (visited.has(current.id)) return null
     visited.add(current.id)
-    if (!isItem(current) && current.kind === "board") return current.id
+    if (!isItem(current) && hasEntityKind(current, "board")) return current.id
     if (current.placement.parentId === null) return null
     current = entities[current.placement.parentId]
   }
@@ -46,6 +47,7 @@ export function applyBoardSchemaSettings(draft: WorkspaceDocumentV2, boardId: st
   const board = draft.entities[boardId] as Board
   board.title = schema.boardTitle.trim()
   board.entityName = schema.entityName.trim()
+  if (schema.cardStageButtons) board.cardStageButtons = schema.cardStageButtons.map(button => ({ columnId: button.columnId, ...(button.label ? { label: button.label.trim() } : {}) }))
   if (schema.priorityPolicy) board.priorityPolicy = JSON.parse(JSON.stringify(schema.priorityPolicy))
   else delete board.priorityPolicy
   board.cardAgingPolicy = JSON.parse(JSON.stringify(schema.cardAgingPolicy ?? { version: 1, thresholds: { watch: 7, aged: 14, overdue: 30 } }))
@@ -56,13 +58,13 @@ export function applyBoardSchemaSettings(draft: WorkspaceDocumentV2, boardId: st
 }
 
 function applyColumns(draft: WorkspaceDocumentV2, boardId: string, schema: BoardSchemaDraft, nowIso: string, changedIds: string[]) {
-  const existing = Object.values(draft.entities).filter((entity): entity is Column => entity.kind === "column" && entity.placement.parentId === boardId)
+  const existing = Object.values(draft.entities).filter((entity): entity is Column => hasEntityKind(entity, "column") && entity.placement.parentId === boardId)
   const ids = new Set<string>()
   schema.columns.forEach((column, index) => {
     const id = column.id || `col-${crypto.randomUUID()}`
     ids.add(id)
     const target = draft.entities[id]
-    if (target?.kind === "column") updateColumn(target, column.title, column.archive === true, index, nowIso)
+    if (hasEntityKind(target, "column")) updateColumn(target, column.title, column.archive === true, index, nowIso)
     else draft.entities[id] = createColumn(id, boardId, column.title, column.archive === true, index, nowIso)
     changedIds.push(id)
   })
@@ -78,13 +80,13 @@ function updateColumn(column: Column, title: string, archive: boolean, index: nu
 }
 
 function createColumn(id: string, boardId: string, title: string, archive: boolean, index: number, nowIso: string): Column {
-  const column: Column = { id, kind: "column", title: title.trim(), displayHint: archive ? "collapsed" : "normal", placement: { parentId: boardId, rank: `${index}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso }
+  const column: Column = { id, kind: "column", title: title.trim(), placement: { parentId: boardId, rank: `${index}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso }
   if (archive) column.archive = true
   return column
 }
 
 function applyFields(draft: WorkspaceDocumentV2, boardId: string, schema: BoardSchemaDraft, nowIso: string, changedIds: string[]) {
-  const existing = Object.values(draft.entities).filter((entity): entity is FieldDefinition => entity.kind === "field" && entity.placement.parentId === boardId)
+  const existing = Object.values(draft.entities).filter((entity): entity is FieldDefinition => hasEntityKind(entity, "field") && entity.placement.parentId === boardId)
   const ids = new Set<string>()
   schema.fields.forEach((field, index) => {
     const id = field.id || `field-${crypto.randomUUID()}`
@@ -98,7 +100,7 @@ function applyFields(draft: WorkspaceDocumentV2, boardId: string, schema: BoardS
 
 function fieldTarget(draft: WorkspaceDocumentV2, id: string, boardId: string, field: BoardSchemaDraft["fields"][number], index: number, nowIso: string): FieldDefinition {
   const existing = draft.entities[id]
-  if (existing?.kind === "field") {
+  if (hasEntityKind(existing, "field")) {
     if (existing.valueType !== field.valueType) throw new Error("Field type cannot change")
     existing.title = field.title.trim()
     existing.required = field.required
@@ -110,7 +112,7 @@ function fieldTarget(draft: WorkspaceDocumentV2, id: string, boardId: string, fi
   const created = createFieldDefinition(id, boardId, field, index, nowIso)
   draft.entities[id] = created
   const saved = draft.entities[id]
-  if (!saved || saved.kind !== "field") throw new Error("Failed to create field")
+  if (!saved || !hasEntityKind(saved, "field")) throw new Error("Failed to create field")
   return saved
 }
 
@@ -167,13 +169,13 @@ function markRemoved(entities: Array<Column | FieldDefinition | DocumentTemplate
 }
 
 export function applyDocumentTemplates(draft: WorkspaceDocumentV2, templates: Array<{ id?: string; title: string; markdown: string }>, nowIso: string, changedIds: string[]) {
-  const existing = Object.values(draft.entities).filter((entity): entity is DocumentTemplate | LegacyWritingTemplate => entity.kind === "document_template" || entity.kind === "template")
+  const existing = Object.values(draft.entities).filter((entity): entity is DocumentTemplate | LegacyWritingTemplate => hasEntityKind(entity, "document_template") || hasEntityKind(entity, "template"))
   const ids = new Set<string>()
   templates.forEach((template, index) => {
     const id = template.id || `template-${crypto.randomUUID()}`
     ids.add(id)
     const entity = draft.entities[id]
-    if (entity && (entity.kind === "document_template" || entity.kind === "template")) {
+    if (entity && (hasEntityKind(entity, "document_template") || hasEntityKind(entity, "template"))) {
       entity.title = template.title.trim(); entity.markdown = template.markdown; entity.placement = { parentId: null, rank: `${index + 1}/1` }; entity.archivedAt = null; entity.updatedAt = nowIso
     } else draft.entities[id] = { id, kind: "document_template", title: template.title.trim(), markdown: template.markdown, placement: { parentId: null, rank: `${index + 1}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso }
     changedIds.push(id)

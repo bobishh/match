@@ -37,7 +37,7 @@ The system SHALL provide item creation/editing based on board fields, parent/sub
 
 ### Requirement: Archive and placement recovery are reachable
 
-The system SHALL expose archived items through one optional Archive column per board. Archive SHALL use the item's `deleted` flag. Needs placement SHALL remain separate, with explicit recovery for malformed ancestry.
+The system SHALL expose archived items through one optional Archive column per board. Archive SHALL use the item's `archivedAt` timestamp. The Add column form SHALL offer an Archive checkbox that becomes unavailable when an Archive column exists. Needs placement SHALL remain separate, with explicit recovery for malformed ancestry.
 
 #### Scenario: Restore an archived item
 
@@ -185,7 +185,7 @@ Workspace Settings SHALL provide Document templates and an advanced typed JSON v
 - **GIVEN** current settings and CRDT heads from UI or `get_workspace_settings`
 - **WHEN** the complete draft is submitted through UI or `apply_workspace_settings`
 - **THEN** both use the same validator and transaction boundary
-- **AND** stable IDs remain, new IDs are allocated once, omissions soft-delete typed configuration records, and reload preserves the result.
+- **AND** stable IDs remain, new IDs are allocated once, omissions archive typed configuration records, and reload preserves the result.
 
 #### Scenario: Invalid or stale draft creates no change
 
@@ -196,14 +196,14 @@ Workspace Settings SHALL provide Document templates and an advanced typed JSON v
 
 ### Requirement: Entity document templates
 
-The system SHALL store templates as generic `document_template` workspace-root entities containing stable ID, title, Markdown, placement, and deletion metadata. It SHALL NOT require a CV/cover-letter/template-kind enum. Legacy `template` entities remain readable and editable.
+The system SHALL store templates as generic `document_template` workspace-root entities containing stable ID, title, Markdown, placement, and `archivedAt`. It SHALL NOT require a CV/cover-letter/template-kind enum. Legacy `template` entities remain readable and editable.
 
 #### Scenario: Template works without workspace-specific enum
 
 - **GIVEN** any workspace
 - **WHEN** a user creates an entity document template
 - **THEN** it is available to operations that consume templates without declaring a stored template kind
-- **AND** deletion remains reversible and does not delete produced artifacts.
+- **AND** archiving remains reversible and preserves produced artifacts.
 
 ### Requirement: Configurable Rejected column and retrospective notes in Job search
 

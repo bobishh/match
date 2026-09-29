@@ -120,14 +120,14 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.getByRole("button", { name: "Open workspaces" }).click()
       const workspaces = secondPage.getByRole("dialog", { name: "Workspaces" })
       const initialWorkspaceCount = await workspaces.locator(".workspace-item").count()
-      const deletedWorkspaceIds = await secondPage.evaluate(async () => {
+      const archivedWorkspaceIds = await secondPage.evaluate(async () => {
         const { useMatch } = await import("/src/state.ts")
         return useMatch().availableWorkspaces.value.map(workspace => workspace.id)
       })
       for (let index = 0; index < initialWorkspaceCount; index += 1) {
         const workspace = workspaces.locator(".workspace-item").first()
-        await workspace.getByRole("button", { name: "Delete", exact: true }).click()
-        await workspace.getByRole("button", { name: "Delete workspace", exact: true }).click()
+        await workspace.getByRole("button", { name: "Archive", exact: true }).click()
+        await workspace.getByRole("button", { name: "Archive workspace", exact: true }).click()
       }
 
       await workspaces.getByRole("button", { name: "Close", exact: true }).last().click()
@@ -137,7 +137,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
         const { useMatch } = await import("/src/state.ts")
         return useMatch().activeWorkspace.id
       })
-      expect(deletedWorkspaceIds).not.toContain(fallbackId)
+      expect(archivedWorkspaceIds).not.toContain(fallbackId)
       await secondPage.reload()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
       await expect.poll(async () => secondPage.evaluate(async () => {

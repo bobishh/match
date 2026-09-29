@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
@@ -40,10 +41,18 @@ describe("Workspace catalog across browser tabs", () => {
   it("does not resurrect a archived workspace from a stale tab", async () => {
     const id = crypto.randomUUID()
     const stale = tab()
-    await stale.registerWorkspace(id, "Gone")
-    await tab().deleteWorkspace(id)
+    const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc(id, "Gone", "owner", "blank"))
+    await stale.saveSnapshot(id, doc, Automerge.save(doc))
+    const archived = Automerge.change(doc, draft => { draft.archivedAt = new Date().toISOString() })
+    expect(doc.archivedAt).toBeNull()
+    await tab().saveSnapshot(id, archived, Automerge.save(archived))
     expect((await stale.listWorkspaces()).some(workspace => workspace.id === id)).toBe(false)
     await expect(stale.registerWorkspace(id, "Stale edit")).rejects.toThrow(/archived/i)
+    await expect(stale.saveSnapshot(id, doc, Automerge.save(doc))).rejects.toThrow(/archived/i)
+    const loaded = (await tab().loadWorkspaceDoc(id))!.doc
+    const restored = Automerge.change(Automerge.clone(loaded), draft => { draft.archivedAt = null })
+    await tab().saveSnapshot(id, restored, Automerge.save(restored))
+    expect((await tab().listWorkspaces()).some(workspace => workspace.id === id)).toBe(true)
   })
 })
 
@@ -61,7 +70,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
   it("loads stored documents without creating unsigned CRDT changes", async () => {
     const raw = createWorkspaceDoc(crypto.randomUUID(), "Legacy", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(raw)
-    const column = Object.values(doc.entities).find(e => e.kind === "column")!
+    const column = Object.values(doc.entities).find(e => hasEntityKind(e, "column"))!
     const result = await executeCommand(doc, { kind: "createItem", parentId: column.id, title: "Legacy" }, profile)
     if (!result.ok) throw new Error(result.error.message)
     const heads = Automerge.getHeads(doc)
@@ -86,7 +95,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     // Save initial snapshot
     await storage.saveSnapshot("ws_atomic", doc, initialBytes)
 
-    const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
     const cmd: Command = { kind: "createItem", parentId: col.id, title: "Persisted Item" }
 
     const res = await executeCommand(doc, cmd, profile)
@@ -123,7 +132,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const doc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     await storage.saveSnapshot("ws_retry", doc, Automerge.save(doc))
 
-    const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
     const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Idempotent Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
@@ -148,7 +157,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const doc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     await storage.saveSnapshot("ws_fail", doc, Automerge.save(doc))
 
-    const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
     const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Failed Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
@@ -177,7 +186,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const doc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     await storage.saveSnapshot("ws_stale", doc, Automerge.save(doc))
 
-    const todoCol = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const todoCol = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
 
     // Tab 1 creates Item 1
     const actor1 = "11111111111111111111111111111111"
@@ -209,7 +218,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const rawWs = createWorkspaceDoc("ws_compact", "Compact Test", profile.identity.personId, "blank")
     const doc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     await storage.saveSnapshot("ws_compact", doc, Automerge.save(doc))
-    const todoCol = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const todoCol = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
 
     // Save Change 1
     const res1 = await executeCommand(doc, { kind: "createItem", parentId: todoCol.id, title: "Item 1" }, profile)
@@ -277,7 +286,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const heads = Automerge.getHeads(doc).sort()
     const automergeBytes = Automerge.save(doc)
 
-    const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
     const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Exported Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return
@@ -319,7 +328,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
 
     await storage.saveSnapshot("ws_reload", doc, initialBytes)
 
-    const col = Object.values(doc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
     const res = await executeCommand(doc, { kind: "createItem", parentId: col.id, title: "Persisted Item" }, profile)
     expect(res.ok).toBe(true)
     if (!res.ok) return

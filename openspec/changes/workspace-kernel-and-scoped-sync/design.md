@@ -48,7 +48,7 @@ Allowed parent edges:
 | document_template | workspace root (`parentId: null`) |
 | artifact | item |
 
-Containment determines inherited visibility. Non-parent references, such as `artifact.templateId`, preserve provenance but do not propagate deletion. Items/subitems derive their board and column from ancestry; do not also store `status`, `stateId`, `columnId`, `boardId`, or child-ID arrays. Cross-board item moves and cross-workspace moves are rejected in this version; moving between columns or nesting under an item on the same board is supported.
+Containment determines inherited visibility. Non-parent references, such as `artifact.templateId`, preserve provenance but do not propagate archive state. Items/subitems derive their board and column from ancestry; do not also store `status`, `stateId`, `columnId`, `boardId`, or child-ID arrays. Cross-board item moves and cross-workspace moves are rejected in this version; moving between columns or nesting under an item on the same board is supported.
 
 ### Parent and sibling order are one placement value
 
@@ -56,13 +56,13 @@ Store `placement: { parentId, rank }` and replace this small value as one semant
 
 Ranks are canonical reduced rational strings `n/d`, with signed integer numerator, positive denominator, and exact BigInt comparison. Initial ranks are `0/1`, `1/1`, ... . Between distinct ranks use the mediant; before/after endpoints subtract/add one. Equal concurrent ranks sort by entity ID using bytewise ASCII comparison. When a requested insertion is between equal ranks, renumber that sibling group to consecutive integers in current deterministic order inside the same transaction, then allocate the insertion rank. Never compare rational strings lexicographically or use wall-clock time for order. Concurrent reorders may produce a combined order, but no duplicate membership or vanished item.
 
-### Soft deletion
+### Archiving
 
-`deleted` belongs to each mutable entity and the workspace header. Delete/restore toggles only that record. Never walk descendants to rewrite them. Clearing a field uses `null`; removing an option sets its `deleted` flag; deleting an entire field preserves item values. IDs and historical records are never reused.
+`archivedAt` belongs to each mutable entity and the workspace header. It is `null` when active and an ISO timestamp when archived. Archive/restore changes only that record. Never walk descendants to rewrite them. Clearing a field uses `null`; archiving an option or field preserves item values. IDs and historical records are never reused.
 
-`isVisible(id)` is true only if the workspace, entity, and every containment ancestor are live and the ancestry is structurally valid. Restore under a deleted ancestor remains hidden and reports that ancestor. A recovery command can combine restore and move to a live valid parent. An individually deleted descendant remains deleted when its parent is restored.
+`isVisible(id)` is true only if the workspace, entity, and every containment ancestor are active and the ancestry is structurally valid. Restore under an archived ancestor remains hidden and reports that ancestor. A recovery command can combine restore and move to an active valid parent. An individually archived descendant remains archived when its parent is restored.
 
-The private catalog's `forgotten` flag means stop listing/syncing this reference for this person; it does not delete the shared workspace for other people. Label this action "Leave on my devices", never "Delete workspace". Personal identity and signed security proofs are not mutable content records: certificates and successful invitations are immutable facts, and revocation is not implemented by soft-deleting them.
+The private catalog's `forgotten` flag stops listing and syncing a reference for this person; it does not change the shared workspace's `archivedAt`. Label this action "Leave on my devices". Personal identity and signed security proofs are not mutable content records: certificates and successful invitations are immutable facts, and revocation does not use archiving.
 
 ### Concurrent graph conflicts
 
@@ -72,7 +72,7 @@ Validate local parent edges and cycles against the proposed transaction result. 
 
 Fresh workspace creation selects "Job search" or "Blank board". Both use the same entities and Vue renderer. Blank board seeds To do / Doing / Done, no company/role/CV requirements. Job search seeds Lead / Applied / Interview / Offer / Archive and board-owned fields for the existing lead data.
 
-The Archive column has the explicit `archive: true` role. A board permits at most one. Its collapsed presentation is derived from that role; title and preset binding do not define behavior. An item's `deleted` flag is its archived state. The Archive column projects archived items from the same board without moving them, including items archived before the column was enabled. Restore clears that flag. Legacy live items already placed in the Archive column remain visible until archived or moved. Non-item deletion still hides removed schema entities and their descendants.
+The Archive column has the explicit `archive: true` role. A board permits at most one. Its collapsed presentation is derived from that role; title and preset binding do not define behavior. The board editor creates it through the Add column checkbox, disabled while an Archive column exists. The Archive column projects items with `archivedAt` from the same board without moving them, including items archived before the column was enabled. Restore clears the timestamp. Commands reject creating or moving an active item directly into the Archive column. Archiving schema entities hides them and their descendants.
 
 Document templates are generic workspace-root entities with title and Markdown. No template-kind enum is stored; use and generation behavior comes from the operation invoking a template. Job-specific PDF commands remain an adapter over generic items and document-template/artifact records. Do not build a plugin runtime. The preset copies data on creation; later preset updates never rewrite a user's board.
 
@@ -82,7 +82,7 @@ Normal mode drags cards within or across column stacks and persists exact `befor
 
 `Edit board` lives in the desktop header and mobile Settings group. Edit mode exposes inline add, double-click/edit column controls, and `Edit {entityName}` for the singular entity label and typed fields. Workspace Settings contains Document templates plus an advanced JSON view.
 
-The JSON projection contains only `formatVersion`, workspace title, active board title/entity name/ordered columns/ordered fields, and ordered document templates. It excludes items, field values, personal identity, device keys/certificates, grants, invitations, proofs, sync state, and native log data. `get_workspace_settings` returns projection plus current heads. `apply_workspace_settings` validates stable IDs and applies the complete draft through one `updateWorkspaceSettings` Automerge transaction using optional expected heads. Missing columns, fields, options, or templates are soft-deleted; descendants and values remain.
+The JSON projection contains only `formatVersion`, workspace title, active board title/entity name/ordered columns/ordered fields, and ordered document templates. It excludes items, field values, personal identity, device keys/certificates, grants, invitations, proofs, sync state, and native log data. `get_workspace_settings` returns projection plus current heads. `apply_workspace_settings` validates stable IDs and applies the complete draft through one `updateWorkspaceSettings` Automerge transaction using optional expected heads. Missing columns, fields, options, or templates are archived; descendants and values remain.
 
 ## 4. Transactions, history, and durability
 
@@ -122,7 +122,7 @@ Each writable tab/document replica gets a distinct Automerge actor. A device sig
 
 Membership alone is insufficient: check incoming operations against the same immutable/protected-field rules as local commands. Content editors cannot change workspace ID, owner identity, record ID/kind/creation time, legacy inputs, or formatVersion, physically remove records, or replace initialized root maps. Owner-authored format migrations use an explicit supported migration validator. Signed but structurally inconsistent concurrent placement/field edits are retained and projected as issues; never reject a valid concurrent edit merely because its remote context differs from the current local view.
 
-A workspace is created with an owner-signed genesis descriptor binding workspace ID, owner person ID, and initial heads. Owner devices may issue signed workspace grants to another person as `editor`. Editors can edit all content, including structure, but cannot enroll the owner's devices or issue grants. Initial role set is `owner | editor`; no pretend read-only enforcement. New invited members receive existing workspace history, including soft-deleted content. Private root access requires own-device enrollment, not workspace membership.
+A workspace is created with an owner-signed genesis descriptor binding workspace ID, owner person ID, and initial heads. Owner devices may issue signed workspace grants to another person as `editor`. Editors can edit all content, including structure, but cannot enroll the owner's devices or issue grants. Initial role set is `owner | editor`; no pretend read-only enforcement. New invited members receive existing workspace history, including archived content. Private root access requires own-device enrollment, not workspace membership.
 
 Security changes are verified certificate/grant facts, not ordinary editable workspace fields. Public member entries are a display projection of verified grants. Grant/certificate blobs are persisted for verification and portability. This version supports cancellation/expiry of unused invitations and local disconnect; it does not claim distributed revocation of a grant already issued. A later revocation protocol must explicitly decide offline changes and accepted-history frontiers before shipping a Revoke action.
 
@@ -169,7 +169,7 @@ Sync modal opens directly with workspace selection checkboxes, with the active w
 | --- | --- |
 | Fixed lead pipeline / status enum | `workspace-model`, job-search preset only |
 | Flat lead cards / mandatory company and role | Generic items and typed fields seeded by the Job search preset; no preset-specific MCP surface |
-| Physical deletion / delete cascade | `workspace-model` soft deletion |
+| Physical removal / cascading removal | `workspace-model` archiving |
 | One default workspace / import merge into it | `workspace-portability` and private catalog |
 | Automatic QR on opening Sync / Connect to mesh | `scoped-sync` typed chooser and explicit acceptance |
 | Pairing lasts one connection | `personal-identity` durable enrollment/grants |

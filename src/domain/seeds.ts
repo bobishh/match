@@ -25,14 +25,15 @@ export function seedBoard(entities: Record<string, WorkspaceEntity>, title: stri
 }
 
 function createBoard(id: string, title: string, preset: Preset, nowIso: string, bindings: Record<string, string>): Board {
-  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings } }
+  const columns = preset === "job-search" ? jobColumns : blankColumns
+  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings }, cardStageButtons: columns.map(column => ({ columnId: bindings[column.key] })) }
 }
 
 function seedColumns(context: SeedContext, columns: ColumnSeed[]): void {
   columns.forEach((seed, index) => {
     const id = crypto.randomUUID()
     context.bindings[seed.key] = id
-    const column: Column = { id, kind: "column", title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, displayHint: seed.archive ? "collapsed" : "normal", archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
+    const column: Column = { id, kind: "column", title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
     if (seed.archive) column.archive = true
     context.entities[id] = column
   })

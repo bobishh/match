@@ -37,38 +37,38 @@ The system SHALL allocate UUIDv4 IDs for new mutable content, transactions, and 
 - **THEN** it returns the corresponding cycle/invalid-parent/cross-board error
 - **AND** document heads and placements remain unchanged.
 
-### Requirement: Soft deletion preserves relationships
+### Requirement: Archiving preserves relationships
 
-The system SHALL retain mutable records and links when their `deleted` flag changes, and compute inherited visibility through containment. For items, `deleted: true` SHALL mean archived. It SHALL provide explicit restore and restore-with-move operations. An Archive column SHALL project archived items from its board.
+The system SHALL retain mutable records and links when `archivedAt` changes between `null` and an ISO timestamp, and compute inherited visibility through containment. It SHALL provide explicit restore and restore-with-move operations. One optional Archive column SHALL project archived items from its board.
 
-#### Scenario: Delete and restore a populated column
+#### Scenario: Archive and restore a populated column
 
-- **GIVEN** a live column contains live A, live subitem B under A, and separately deleted C
-- **WHEN** the column is deleted
-- **THEN** A, B, and C are hidden from ordinary board/search results without changing their flags or parents
+- **GIVEN** an active column contains active A, active subitem B under A, and separately archived C
+- **WHEN** the column is archived
+- **THEN** A, B, and C are hidden from ordinary board/search results without changing their timestamps or parents
 - **WHEN** the column is restored
-- **THEN** A and B reappear and C remains deleted.
+- **THEN** A and B reappear and C remains archived.
 
-#### Scenario: Restore under deleted ancestor
+#### Scenario: Restore under archived ancestor
 
-- **GIVEN** a deleted item belongs to a deleted column
+- **GIVEN** an archived item belongs to an archived column
 - **WHEN** the item alone is restored
-- **THEN** its own flag is cleared but it remains hidden
-- **AND** the result identifies the deleted ancestor and offers restore-with-move.
+- **THEN** its own timestamp is cleared but it remains hidden
+- **AND** the result identifies the archived ancestor and offers restore-with-move.
 
-#### Scenario: Remote creation under deleted column survives
+#### Scenario: Remote creation under archived column survives
 
-- **GIVEN** two replicas share a live column
-- **WHEN** one deletes it while the other creates an item there offline
+- **GIVEN** two replicas share an active column
+- **WHEN** one archives it while the other creates an item there offline
 - **THEN** after merge the new item is preserved and hidden
 - **AND** restoring the column reveals that item.
 
 #### Scenario: Non-parent provenance does not cascade
 
 - **GIVEN** a PDF artifact references a writing template
-- **WHEN** the template is soft-deleted
-- **THEN** the artifact remains visible under its live item
-- **AND** the template reference remains inspectable as deleted.
+- **WHEN** the template is archived
+- **THEN** the artifact remains visible under its active item
+- **AND** the template reference remains inspectable as archived.
 
 ### Requirement: Deterministic recoverable placement
 
@@ -98,20 +98,20 @@ The system SHALL store parent and rank in one placement register and apply ratio
 
 ### Requirement: Board-owned custom field definitions
 
-The system SHALL support text, URL, date, boolean, bounded number, and single-select fields. Field IDs and select option IDs SHALL remain stable through label changes. Deletion SHALL preserve values. Field type changes SHALL require creating a replacement field.
+The system SHALL support text, URL, date, boolean, bounded number, and single-select fields. Field IDs and select option IDs SHALL remain stable through label changes. Archiving SHALL preserve values. Field type changes SHALL require creating a replacement field.
 
 #### Scenario: Rename and delete a select option
 
 - **GIVEN** an item selects an option by ID
 - **WHEN** its label changes
 - **THEN** the item shows the new label without an item-value write
-- **WHEN** the option is deleted
+- **WHEN** the option is archived
 - **THEN** the old value stays readable with an unavailable marker and cannot be newly selected.
 
 #### Scenario: Field definition changes do not erase data
 
 - **GIVEN** an item contains a numeric value
-- **WHEN** bounds are tightened past that value or the field is deleted
+- **WHEN** bounds are tightened past that value or the field is archived
 - **THEN** its stored value remains unchanged
-- **AND** the UI marks an invalid value or hides the deleted field respectively
+- **AND** the UI marks an invalid value or hides the archived field respectively
 - **AND** restoring the field reveals the retained value.

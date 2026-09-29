@@ -1,3 +1,4 @@
+import { hasEntityKind } from "../domain/model"
 import { registerUtilityTools } from "./webmcpUtilityTools"
 import * as Automerge from "@automerge/automerge/slim"
 import { isItem, type Item, type Board, type FieldValue } from "../domain/model"
@@ -176,7 +177,7 @@ async function registerReadTools(store: ToolStore, register: RegisterTool): Prom
     execute() {
       const doc = store.getActiveDoc?.()
       if (!doc) throw new Error("No active workspace document")
-      const board = Object.values(doc.entities).find((e): e is Board => e.kind === "board")
+      const board = Object.values(doc.entities).find((e): e is Board => hasEntityKind(e, "board"))
       return {
         id: doc.id,
         title: doc.title,
@@ -255,7 +256,7 @@ async function registerReadTools(store: ToolStore, register: RegisterTool): Prom
 
       const doc = store.getActiveDoc?.()
       if (!doc) return []
-      const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.archivedAt)
+      const board = Object.values(doc.entities).find((entity): entity is Board => hasEntityKind(entity, "board") && !entity.archivedAt)
 
       return Object.values(doc.entities)
         .filter((e): e is Item => isItem(e) && isEntityVisible(doc.entities, e.id))
@@ -476,7 +477,7 @@ async function registerRecoveryTools(store: ToolStore, register: RegisterTool): 
     execute() {
       const doc = store.getActiveDoc?.()
       if (!doc) return []
-      const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.archivedAt)
+      const board = Object.values(doc.entities).find((entity): entity is Board => hasEntityKind(entity, "board") && !entity.archivedAt)
       return board ? archivedItemsForBoard(doc, board.id).map(item => ({ id: item.id, title: item.title })) : []
     },
   })

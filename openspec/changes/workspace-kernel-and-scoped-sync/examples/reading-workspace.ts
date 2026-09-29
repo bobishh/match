@@ -19,49 +19,46 @@ export const readingWorkspace = {
   id: "10000000-0000-4000-8000-000000000000",
   title: "Reading",
   ownerPersonId: "fixture-person-not-a-real-key-fingerprint",
-  deleted: false,
+  archivedAt: null,
   migration: null,
   entities: {
     [boardId]: {
-      id: boardId, kind: "board", title: "Reading", deleted: false,
+      id: boardId, kind: "board", title: "Reading", archivedAt: null,
       placement: { parentId: null, rank: "0/1" }, ...timestamps,
       preset: { key: "blank", version: 1, bindings: {} },
     },
     [todoId]: {
-      id: todoId, kind: "column", title: "To read", deleted: false,
+      id: todoId, kind: "column", title: "To read", archivedAt: null,
       placement: { parentId: boardId, rank: "0/1" }, ...timestamps,
-      displayHint: "normal",
     },
     [doingId]: {
-      id: doingId, kind: "column", title: "Reading", deleted: false,
+      id: doingId, kind: "column", title: "Reading", archivedAt: null,
       placement: { parentId: boardId, rank: "1/1" }, ...timestamps,
-      displayHint: "normal",
     },
     [doneId]: {
-      id: doneId, kind: "column", title: "Finished", deleted: false,
+      id: doneId, kind: "column", title: "Finished", archivedAt: null,
       placement: { parentId: boardId, rank: "2/1" }, ...timestamps,
-      displayHint: "normal",
     },
     [authorId]: {
-      id: authorId, kind: "field", title: "Author", deleted: false,
+      id: authorId, kind: "field", title: "Author", archivedAt: null,
       placement: { parentId: boardId, rank: "0/1" }, ...timestamps,
       valueType: "text", required: false,
     },
     [itemId]: {
       id: itemId, title: "Designing Data-Intensive Applications",
       placement: { parentId: doingId, rank: "0/1" }, ...timestamps,
-      deleted: false, body: "Read and record useful ideas.",
+      archivedAt: null, body: "Read and record useful ideas.",
       values: { [authorId]: "Martin Kleppmann" },
     },
     [subitemId]: {
       id: subitemId, title: "Notes on replication",
       placement: { parentId: itemId, rank: "0/1" }, ...timestamps,
-      deleted: false, body: "", values: {},
+      archivedAt: null, body: "", values: {},
     },
   },
 } satisfies WorkspaceDocumentV2
 
-// Deleting doingId changes only that column's deleted flag.
-// Both items then disappear from normal views; their flags and placements stay.
-// Restoring doingId reveals both unless either was independently soft-deleted.
+// Archiving doingId changes only that column.s archivedAt timestamp.
+// Both items then disappear from normal views; their timestamps and placements stay.
+// Restoring doingId reveals both unless either was independently archived.
 // Renaming Author changes one field record; item values remain keyed by authorId.

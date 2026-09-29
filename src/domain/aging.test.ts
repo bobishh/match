@@ -31,7 +31,7 @@ describe("card aging", () => {
 
   it("exempts archive and completed columns from visual aging", () => {
     expect(isCardAgingExemptColumn({ title: "Archive", archive: true })).toBe(true)
-    expect(isCardAgingExemptColumn({ title: "Done", displayHint: "normal" })).toBe(true)
-    expect(isCardAgingExemptColumn({ title: "Doing", displayHint: "normal" })).toBe(false)
+    expect(isCardAgingExemptColumn({ title: "Done" })).toBe(true)
+    expect(isCardAgingExemptColumn({ title: "Doing" })).toBe(false)
   })
 })

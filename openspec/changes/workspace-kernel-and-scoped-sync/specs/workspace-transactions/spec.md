@@ -6,7 +6,7 @@ The system SHALL apply every accepted domain mutation as one native Automerge ch
 
 #### Scenario: Composite restore and move has one history entry
 
-- **GIVEN** a deleted item and a live target column
+- **GIVEN** an archived item and an active target column
 - **WHEN** restoreAndMove succeeds
 - **THEN** one change contains both modifications and one named transaction
 - **AND** UI and agent subscribers observe the complete committed result.

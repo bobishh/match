@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import type { Board, DocumentTemplate, LegacyWritingTemplate, WorkspaceDocumentV2 } from "./model"
 import { compareRanks } from "./ancestry"
 import { projectBoardSchema, validateBoardSchemaDraft, type BoardSchemaDraft, type SchemaValidationError } from "./schema"
@@ -7,10 +8,10 @@ export type WorkspaceSettingsDraft = { formatVersion: 1; workspace: { title: str
 export type WorkspaceSettingsValidationResult = { valid: boolean; errors: SchemaValidationError[] }
 
 export function projectWorkspaceSettings(doc: WorkspaceDocumentV2, boardId?: string): WorkspaceSettingsDraft {
-  const board = boardId ? doc.entities[boardId] as Board | undefined : Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.archivedAt)
-  if (!board || board.kind !== "board") throw new Error("Active board not found")
+  const board = boardId ? doc.entities[boardId] as Board | undefined : Object.values(doc.entities).find((entity): entity is Board => hasEntityKind(entity, "board") && !entity.archivedAt)
+  if (!board || !hasEntityKind(board, "board")) throw new Error("Active board not found")
   const documentTemplates = Object.values(doc.entities)
-    .filter((entity): entity is DocumentTemplate | LegacyWritingTemplate => (entity.kind === "document_template" || entity.kind === "template") && !entity.archivedAt)
+    .filter((entity): entity is DocumentTemplate | LegacyWritingTemplate => (hasEntityKind(entity, "document_template") || hasEntityKind(entity, "template")) && !entity.archivedAt)
     .sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
     .map(template => ({ id: template.id, title: template.title, markdown: template.markdown }))
   return { formatVersion: 1, workspace: { title: doc.title }, board: projectBoardSchema(doc, board.id), documentTemplates }
@@ -44,13 +45,13 @@ function validateBoard(value: unknown, doc: WorkspaceDocumentV2 | undefined, err
   const result = validateBoardSchemaDraft(value, doc)
   errors.push(...result.errors.map(error => ({ path: `/board${error.path}`, message: error.message })))
   if (!isRecord(value)) return
-  rejectUnknown(value, ["boardId", "boardTitle", "entityName", "columns", "fields", "priorityPolicy", "cardAgingPolicy"], "/board", errors)
+  rejectUnknown(value, ["boardId", "boardTitle", "entityName", "columns", "cardStageButtons", "fields", "priorityPolicy", "cardAgingPolicy"], "/board", errors)
   const boardId = value.boardId
   if (typeof boardId !== "string" || !boardId) {
     errors.push({ path: "/board/boardId", message: "boardId is required" })
     return
   }
-  if (doc && doc.entities[boardId]?.kind !== "board") errors.push({ path: "/board/boardId", message: "boardId must identify this workspace board" })
+  if (doc && !hasEntityKind(doc.entities[boardId], "board")) errors.push({ path: "/board/boardId", message: "boardId must identify this workspace board" })
   if (doc) validateBoardReferences(value, boardId, doc, errors)
 }
 
@@ -61,7 +62,7 @@ function validateBoardReferences(value: Record<string, unknown>, boardId: string
   value.fields.forEach((field, index) => {
     if (!isRecord(field) || typeof field.id !== "string") return
     const entity = doc.entities[field.id]
-    if (entity?.kind === "field" && field.valueType !== entity.valueType) errors.push({ path: `/board/fields/${index}/valueType`, message: "Field type cannot change" })
+    if (hasEntityKind(entity, "field") && field.valueType !== entity.valueType) errors.push({ path: `/board/fields/${index}/valueType`, message: "Field type cannot change" })
   })
 }
 
@@ -75,7 +76,8 @@ function validateEntityReferences(values: unknown, kind: "column" | "field", boa
     if (ids.has(value.id)) errors.push({ path: `/board/${name}/${index}/id`, message: `${kind === "column" ? "Column" : "Field"} id is duplicated` })
     ids.add(value.id)
     const entity = doc.entities[value.id]
-    if (!entity || entity.kind !== kind || entity.placement.parentId !== boardId) errors.push({ path: `/board/${name}/${index}/id`, message: `id must identify a ${kind} on this board` })
+    const kindMatches = kind === "column" ? hasEntityKind(entity, "column") : hasEntityKind(entity, "field")
+    if (!entity || !kindMatches || entity.placement.parentId !== boardId) errors.push({ path: `/board/${name}/${index}/id`, message: `id must identify a ${kind} on this board` })
   })
 }
 
@@ -105,7 +107,7 @@ function validateTemplateId(id: string, path: string, ids: Set<string>, doc: Wor
   if (ids.has(id)) errors.push({ path: `${path}/id`, message: "Template id is duplicated" })
   ids.add(id)
   const entity = doc?.entities[id]
-  if (doc && (!entity || (entity.kind !== "document_template" && entity.kind !== "template"))) errors.push({ path: `${path}/id`, message: "id must identify a document template" })
+  if (doc && (!entity || (!hasEntityKind(entity, "document_template") && !hasEntityKind(entity, "template")))) errors.push({ path: `${path}/id`, message: "id must identify a document template" })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

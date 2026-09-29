@@ -3,19 +3,20 @@ import { getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
 import { cardAgingPolicySchema, priorityPolicySchema } from "./entitySchemas"
 import { validatePriorityPolicy } from "./priority"
-import { isItem } from "./model"
+import { entityKind, isItem } from "./model"
+import { cardStageButtons, type CardStageButton } from "./cardStageButtons"
 
 type BoardSchemaColumn = { id?: string; title: string; archive?: true }
 type BoardSchemaSelectOption = { id?: string; title: string }
 type BoardSchemaField = { id?: string; title: string; valueType: "text" | "number" | "boolean" | "select" | "url" | "date" | "datetime"; required: boolean; min?: number | null; max?: number | null; options?: BoardSchemaSelectOption[] }
-export type BoardSchemaDraft = { boardId: string; boardTitle: string; entityName: string; columns: BoardSchemaColumn[]; fields: BoardSchemaField[]; priorityPolicy?: PriorityPolicy | null; cardAgingPolicy?: CardAgingPolicy }
+export type BoardSchemaDraft = { boardId: string; boardTitle: string; entityName: string; columns: BoardSchemaColumn[]; fields: BoardSchemaField[]; cardStageButtons?: CardStageButton[]; priorityPolicy?: PriorityPolicy | null; cardAgingPolicy?: CardAgingPolicy }
 export type SchemaValidationError = { path: string; message: string }
 export type SchemaValidationResult = { valid: boolean; errors: SchemaValidationError[] }
 export type SchemaDiff = {
   cardAgingChange?: { before: string; after: string }
-  columnsRenamed: Array<{ id: string; oldTitle: string; newTitle: string }>; columnsReordered: boolean; columnsAdded: Array<{ title: string }>; columnsSoftDeleted: Array<{ id: string; title: string; retainedItemCount: number }>
-  fieldsAdded: Array<{ title: string; valueType: string }>; fieldsModified: Array<{ id: string; title: string; changes: string[] }>; fieldsSoftDeleted: Array<{ id: string; title: string }>
-  optionsAdded: Array<{ fieldId: string; title: string }>; optionsModified: Array<{ fieldId: string; optionId: string; oldTitle: string; newTitle: string }>; optionsSoftDeleted: Array<{ fieldId: string; optionId: string; title: string }>
+  columnsRenamed: Array<{ id: string; oldTitle: string; newTitle: string }>; columnsReordered: boolean; columnsAdded: Array<{ title: string }>; columnsArchived: Array<{ id: string; title: string; retainedItemCount: number }>
+  fieldsAdded: Array<{ title: string; valueType: string }>; fieldsModified: Array<{ id: string; title: string; changes: string[] }>; fieldsArchived: Array<{ id: string; title: string }>
+  optionsAdded: Array<{ fieldId: string; title: string }>; optionsModified: Array<{ fieldId: string; optionId: string; oldTitle: string; newTitle: string }>; optionsArchived: Array<{ fieldId: string; optionId: string; title: string }>
 }
 
 export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): BoardSchemaDraft {
@@ -27,6 +28,7 @@ export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): B
     boardTitle: board?.title || "Board",
     entityName: board?.entityName || (board?.preset?.key === "job-search" ? "lead" : "item"),
     columns,
+    cardStageButtons: cardStageButtons(board, childEntities<Column>(doc, boardId, "column")),
     fields,
     priorityPolicy: board?.priorityPolicy
       ? { ...JSON.parse(JSON.stringify(board.priorityPolicy)), sort: board.priorityPolicy.sort ?? "fit_desc" }
@@ -36,7 +38,7 @@ export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): B
 }
 
 function childEntities<T extends Column | FieldDefinition>(doc: WorkspaceDocumentV2, parentId: string, kind: T["kind"]): T[] {
-  return getChildren(doc.entities, parentId).filter((entity): entity is T => entity.kind === kind && !entity.archivedAt).sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
+  return getChildren(doc.entities, parentId).filter(entity => entityKind(entity) === kind && !entity.archivedAt).sort((a, b) => compareRanks(a.placement.rank, b.placement.rank)) as T[]
 }
 function projectField(field: FieldDefinition): BoardSchemaField {
   const result: BoardSchemaField = { id: field.id, title: field.title, valueType: field.valueType, required: field.required }
@@ -51,7 +53,7 @@ export function validateBoardSchemaDraft(draft: unknown, doc?: WorkspaceDocument
   const errors: SchemaValidationError[] = []
   requiredText(draft.boardTitle, "/boardTitle", "Board title is required", errors)
   requiredText(draft.entityName, "/entityName", "Entity name is required", errors)
-  validateColumns(draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
+  validateColumns(draft.columns, errors); validateCardStageButtons(draft.cardStageButtons, draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
   return { valid: errors.length === 0, errors }
 }
 function validateAgingPolicy(draft: Record<string, unknown>, errors: SchemaValidationError[]): void {
@@ -78,6 +80,21 @@ function validateColumn(value: unknown, index: number, archive: boolean, errors:
   if (value.archive !== undefined && value.archive !== true) errors.push({ path: `${path}/archive`, message: "archive must be true when present" })
   if (archive && value.archive === true) errors.push({ path: `${path}/archive`, message: "Only one archive column is allowed" })
   return archive || value.archive === true
+}
+function validateCardStageButtons(value: unknown, columns: unknown, errors: SchemaValidationError[]): void {
+  if (value === undefined) return
+  if (!Array.isArray(value)) { errors.push({ path: "/cardStageButtons", message: "Card stage buttons must be an array" }); return }
+  const columnIds = new Set(Array.isArray(columns) ? columns.flatMap(column => record(column) && typeof column.id === "string" ? [column.id] : []) : [])
+  const used = new Set<string>()
+  value.forEach((button, index) => {
+    const path = `/cardStageButtons/${index}`
+    if (!record(button)) { errors.push({ path, message: "Card stage button must be an object" }); return }
+    Object.keys(button).filter(key => !["columnId", "label"].includes(key)).forEach(key => errors.push({ path: `${path}/${key}`, message: "Unknown button setting" }))
+    if (typeof button.columnId !== "string" || !columnIds.has(button.columnId)) errors.push({ path: `${path}/columnId`, message: "Button target must be an active column on this board" })
+    else if (used.has(button.columnId)) errors.push({ path: `${path}/columnId`, message: "Button target is duplicated" })
+    if (typeof button.columnId === "string") used.add(button.columnId)
+    if (button.label !== undefined && (typeof button.label !== "string" || !button.label.trim())) errors.push({ path: `${path}/label`, message: "Button label must contain text" })
+  })
 }
 function validateFields(value: unknown, errors: SchemaValidationError[]): void {
   if (!Array.isArray(value)) {
@@ -133,22 +150,22 @@ export function diffBoardSchema(doc: WorkspaceDocumentV2, boardId: string, draft
   const before = format(current.cardAgingPolicy); const after = format(draft.cardAgingPolicy)
   return { ...columns, ...fields, ...(before !== after ? { cardAgingChange: { before, after } } : {}) }
 }
-function diffColumns(current: BoardSchemaColumn[], draft: BoardSchemaColumn[], doc: WorkspaceDocumentV2): Pick<SchemaDiff, "columnsRenamed" | "columnsReordered" | "columnsAdded" | "columnsSoftDeleted"> {
+function diffColumns(current: BoardSchemaColumn[], draft: BoardSchemaColumn[], doc: WorkspaceDocumentV2): Pick<SchemaDiff, "columnsRenamed" | "columnsReordered" | "columnsAdded" | "columnsArchived"> {
   const known = byId(current); const incoming = byId(draft)
   const columnsRenamed = draft.flatMap(column => column.id && known.get(column.id)?.title !== column.title ? [{ id: column.id, oldTitle: known.get(column.id)!.title, newTitle: column.title }] : [])
   const columnsAdded = draft.filter(column => !column.id || !known.has(column.id)).map(column => ({ title: column.title }))
-  const columnsSoftDeleted = current.flatMap(column => {
+  const columnsArchived = current.flatMap(column => {
     if (!column.id || incoming.has(column.id)) return []
     const retainedItemCount = getChildren(doc.entities, column.id)
       .filter(entity => isItem(entity) && !entity.archivedAt).length
     return [{ id: column.id, title: column.title, retainedItemCount }]
   })
-  return { columnsRenamed, columnsAdded, columnsSoftDeleted, columnsReordered: JSON.stringify(current.map(column => column.id).filter(Boolean)) !== JSON.stringify(draft.map(column => column.id).filter(Boolean)) }
+  return { columnsRenamed, columnsAdded, columnsArchived, columnsReordered: JSON.stringify(current.map(column => column.id).filter(Boolean)) !== JSON.stringify(draft.map(column => column.id).filter(Boolean)) }
 }
-function diffFields(current: BoardSchemaField[], draft: BoardSchemaField[]): Pick<SchemaDiff, "fieldsAdded" | "fieldsModified" | "fieldsSoftDeleted" | "optionsAdded" | "optionsModified" | "optionsSoftDeleted"> {
+function diffFields(current: BoardSchemaField[], draft: BoardSchemaField[]): Pick<SchemaDiff, "fieldsAdded" | "fieldsModified" | "fieldsArchived" | "optionsAdded" | "optionsModified" | "optionsArchived"> {
   const known = byId(current); const incoming = byId(draft); const result = emptyFieldDiff()
   draft.forEach(field => { const previous = field.id ? known.get(field.id) : undefined; if (!previous) result.fieldsAdded.push({ title: field.title, valueType: field.valueType }); else addFieldChanges(previous, field, result) })
-  current.forEach(field => { if (field.id && !incoming.has(field.id)) result.fieldsSoftDeleted.push({ id: field.id, title: field.title }) })
+  current.forEach(field => { if (field.id && !incoming.has(field.id)) result.fieldsArchived.push({ id: field.id, title: field.title }) })
   return result
 }
 function addFieldChanges(previous: BoardSchemaField, next: BoardSchemaField, result: ReturnType<typeof emptyFieldDiff>): void {
@@ -177,16 +194,16 @@ function addOptionChanges(previous: BoardSchemaSelectOption[], next: BoardSchema
       })
     }
   })
-  previous.forEach(option => { if (option.id && !incoming.has(option.id)) result.optionsSoftDeleted.push({ fieldId, optionId: option.id, title: option.title }) })
+  previous.forEach(option => { if (option.id && !incoming.has(option.id)) result.optionsArchived.push({ fieldId, optionId: option.id, title: option.title }) })
 }
-function emptyFieldDiff(): Pick<SchemaDiff, "fieldsAdded" | "fieldsModified" | "fieldsSoftDeleted" | "optionsAdded" | "optionsModified" | "optionsSoftDeleted"> {
+function emptyFieldDiff(): Pick<SchemaDiff, "fieldsAdded" | "fieldsModified" | "fieldsArchived" | "optionsAdded" | "optionsModified" | "optionsArchived"> {
   return {
     fieldsAdded: [],
     fieldsModified: [],
-    fieldsSoftDeleted: [],
+    fieldsArchived: [],
     optionsAdded: [],
     optionsModified: [],
-    optionsSoftDeleted: [],
+    optionsArchived: [],
   }
 }
 function byId<T extends { id?: string }>(values: T[]): Map<string, T> { return new Map(values.flatMap(value => value.id ? [[value.id, value] as [string, T]] : [])) }

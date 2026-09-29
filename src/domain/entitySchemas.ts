@@ -37,13 +37,13 @@ export const priorityPolicySchema = z.strictObject({
 const boardSchema = z.strictObject({
   ...common, kind: z.literal("board"), entityName: z.string().refine(value => Boolean(value.trim())).optional(),
   preset: z.strictObject({ key: z.enum(["job-search", "blank"]), version: z.literal(1), bindings: z.record(z.string(), z.string()) }).nullable(),
+  cardStageButtons: z.array(z.strictObject({ columnId: id, label: z.string().min(1).optional() })).optional(),
   priorityPolicy: priorityPolicySchema.nullable().optional(),
   cardAgingPolicy: cardAgingPolicySchema.optional(),
 })
 const columnSchema = z.strictObject({
   ...common,
   kind: z.literal("column"),
-  displayHint: z.enum(["normal", "collapsed"]),
   archive: z.literal(true).optional(),
 })
 const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional() })
@@ -92,7 +92,7 @@ export type FieldValue = z.infer<typeof fieldValueSchema>
 export type PriorityRule = z.infer<typeof priorityRuleSchema>
 export type PriorityPolicy = z.infer<typeof priorityPolicySchema>
 export type CardAgingPolicy = z.infer<typeof cardAgingPolicySchema>
-export type Item = z.infer<typeof itemSchema> & { readonly kind?: never }
+export type Item = z.infer<typeof itemSchema>
 export type FieldDefinition = z.infer<typeof fieldSchema>
 export type FileReference = z.infer<typeof fileReferenceSchema>
 export type AttachedDocument = z.infer<typeof documentSchema>
@@ -110,6 +110,13 @@ export function isItem(entity: unknown): entity is Item {
   return typeof candidate.id === "string" && typeof candidate.title === "string" &&
     typeof candidate.body === "string" && Boolean(candidate.values) && typeof candidate.values === "object" &&
     Boolean(candidate.placement) && typeof candidate.placement === "object"
+}
+
+export function hasEntityKind<K extends Exclude<EntityKind, "item">>(
+  entity: WorkspaceEntity | null | undefined,
+  kind: K,
+): entity is Extract<Exclude<WorkspaceEntity, Item>, { kind: K }> {
+  return Boolean(entity && "kind" in entity && entity.kind === kind)
 }
 
 export function entityKind(entity: WorkspaceEntity): EntityKind {

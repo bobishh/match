@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
@@ -104,8 +105,8 @@ describe("workspace settings transaction", () => {
     doc = Automerge.from(createWorkspaceDoc("jobs", "Jobs", profile.identity.personId, "job-search"))
     const settings = projectWorkspaceSettings(doc)
     const board = doc.entities[settings.board.boardId]
-    if (board.kind !== "board") throw new Error("board missing")
-    const fields = Object.values(doc.entities).filter(entity => entity.kind === "field")
+    if (!hasEntityKind(board, "board")) throw new Error("board missing")
+    const fields = Object.values(doc.entities).filter(entity => hasEntityKind(entity, "field"))
     settings.board.priorityPolicy = createDefaultPriorityPolicy(board, fields)
 
     const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings }, profile)

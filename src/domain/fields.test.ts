@@ -88,8 +88,8 @@ describe("Field validation and lifecycle (Requirement 1.5)", () => {
     const activeDisplay = resolveSelectDisplay(selectField, "opt_remote")
     expect(activeDisplay).toEqual({ label: "Remote", unavailable: false })
 
-    const deletedDisplay = resolveSelectDisplay(selectField, "opt_deprecated")
-    expect(deletedDisplay).toEqual({ label: "Deprecated", unavailable: true })
+    const archivedDisplay = resolveSelectDisplay(selectField, "opt_deprecated")
+    expect(archivedDisplay).toEqual({ label: "Deprecated", unavailable: true })
 
     const unknownDisplay = resolveSelectDisplay(selectField, "opt_missing")
     expect(unknownDisplay).toEqual({ label: "Unknown (opt_missing)", unavailable: true })
@@ -109,12 +109,12 @@ describe("Field validation and lifecycle (Requirement 1.5)", () => {
     expect(res1.ok).toBe(false)
 
     // Once field is soft-archived, required validation stops blocking
-    const deletedReqField: FieldDefinition = { ...reqField, archivedAt: "2026-01-01T00:00:00.000Z" }
-    const res2 = validateItemValues([deletedReqField], {})
+    const archivedReqField: FieldDefinition = { ...reqField, archivedAt: "2026-01-01T00:00:00.000Z" }
+    const res2 = validateItemValues([archivedReqField], {})
     expect(res2.ok).toBe(true)
 
     // But if a value was previously stored, it is still valid and preserved
-    const res3 = validateItemValues([deletedReqField], { f_req: "Preserved Value" })
+    const res3 = validateItemValues([archivedReqField], { f_req: "Preserved Value" })
     expect(res3.ok).toBe(true)
   })
 

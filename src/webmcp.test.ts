@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import { defaultStorage } from "./storage"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
@@ -20,7 +21,7 @@ describe("generic WebMCP tools", () => {
   let match: ReturnType<typeof useMatch>
 
   beforeEach(async () => {
-    for (const workspace of await defaultStorage.listWorkspaces()) await defaultStorage.deleteWorkspace(workspace.id)
+    for (const workspace of [...await defaultStorage.listWorkspaces(), ...await defaultStorage.listArchivedWorkspaces()]) await defaultStorage.purgeWorkspaceForTest(workspace.id)
     resetIdentityStorageForTest()
     resetStateForTest()
     await bootstrapIdentity("WebMCP Test User")
@@ -152,7 +153,7 @@ describe("generic WebMCP tools", () => {
 
     const createItem = registeredTools.get("create_item")
     const doc = match.getActiveDoc()!
-    const col = Object.values(doc.entities).find((e) => e.kind === "column")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column"))!
     expect(col).toBeDefined()
 
     // 1. Invalid input: missing parentId or empty title
@@ -183,7 +184,7 @@ describe("generic WebMCP tools", () => {
     }, mockContext)
 
     const doc = match.getActiveDoc()!
-    const cols = Object.values(doc.entities).filter((e) => e.kind === "column")
+    const cols = Object.values(doc.entities).filter((e) => hasEntityKind(e, "column"))
     const col1 = cols[0]
     const col2 = cols[1]
 
@@ -214,7 +215,7 @@ describe("generic WebMCP tools", () => {
     }, mockContext)
 
     const doc = match.getActiveDoc()!
-    const col = Object.values(doc.entities).find((e) => e.kind === "column")!
+    const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column"))!
     const createItem = registeredTools.get("create_item")
     const setArchived = registeredTools.get("set_item_archived")
     const listArchived = registeredTools.get("list_archived_items")

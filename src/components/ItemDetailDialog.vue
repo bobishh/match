@@ -6,10 +6,16 @@ import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 import type { Document, DocumentInput } from "../types"
 import ItemDocuments from "./ItemDocuments.vue"
+import CardStageStrip from "./CardStageStrip.vue"
+import type { Column } from "../domain/model"
+import type { CardStageButton } from "../domain/cardStageButtons"
 
 defineProps<{
   readOnly?: boolean
   item: Item
+  columns: Column[]
+  cardStageButtons: CardStageButton[]
+  moveToColumn: (item: Item, columnId: string) => Promise<void>
   archived?: boolean
   subitems: Item[]
   fields: FieldDefinition[]
@@ -31,7 +37,7 @@ const emit = defineEmits<{
   (e: "edit", item: Item): void
   (e: "addSubitem", parentItemId: string): void
   (e: "startMove", item: Item): void
-  (e: "deleteItem", itemId: string): void
+  (e: "archiveItem", itemId: string): void
   (e: "restoreItem", itemId: string): void
   (e: "restoreVersion", changeHash: string): void
   (e: "update:quickNote", value: string): void
@@ -57,6 +63,7 @@ const emit = defineEmits<{
       </div>
 
       <div class="detail-scroll detail-content">
+        <CardStageStrip :item="item" :columns="columns" :buttons="cardStageButtons" :read-only="readOnly" :move="moveToColumn" />
         <div v-if="item.body" class="detail-section">
           <span class="detail-label">Notes</span>
           <MarkdownContent class="detail-copy" :source="item.body" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
@@ -148,7 +155,7 @@ const emit = defineEmits<{
 
       <div class="dialog-actions dialog-actions-split">
         <button v-if="archived" class="button button-small" type="button" :disabled="readOnly" @click="emit('restoreItem', item.id)">Restore item</button>
-        <button v-else class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteItem', item.id)">Archive item</button>
+        <button v-else class="button button-danger" type="button" :disabled="readOnly" @click="emit('archiveItem', item.id)">Archive item</button>
         <div class="dialog-action-group">
           <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
         </div>

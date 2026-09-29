@@ -198,9 +198,9 @@ export function derivePlacementIssues(entities: Record<string, WorkspaceEntity>)
 export function isEntityVisible(
   entities: Record<string, WorkspaceEntity>,
   entityId: string,
-  workspaceDeleted = false
+  workspaceArchived = false
 ): boolean {
-  if (workspaceDeleted) return false
+  if (workspaceArchived) return false
   const entity = entities[entityId]
   if (!entity || entity.archivedAt) return false
 
@@ -220,8 +220,8 @@ export function isEntityVisible(
 export function getVisibleChildren(
   entities: Record<string, WorkspaceEntity>,
   parentId: string | null,
-  workspaceDeleted = false
+  workspaceArchived = false
 ): WorkspaceEntity[] {
   const children = getChildren(entities, parentId)
-  return children.filter((child) => isEntityVisible(entities, child.id, workspaceDeleted))
+  return children.filter((child) => isEntityVisible(entities, child.id, workspaceArchived))
 }

@@ -1,4 +1,5 @@
 import type { CommandHandler } from "./commandHandlerTypes"
+import { hasEntityKind } from "./model"
 import { err } from "./commandTypes"
 import { validateBoardSchemaDraft } from "./schema"
 import { validateWorkspaceSettingsDraft } from "./workspaceSettings"
@@ -6,12 +7,15 @@ import { applyBoardSchemaSettings, applyDocumentTemplates } from "./commandSuppo
 
 export const updateBoardSchema: CommandHandler<"updateBoardSchema"> = (doc, command, context) => {
   const board = doc.entities[command.boardId]
-  if (!board || board.kind !== "board") return err("not_found", `Board ${command.boardId} not found`)
+  if (!board || !hasEntityKind(board, "board")) return err("not_found", `Board ${command.boardId} not found`)
   if (!headsMatch(context.beforeHeads, command.expectedHeads)) return err("conflict", "Concurrent edits arrived while schema draft was open")
-  const validation = validateBoardSchemaDraft(command.schema, doc)
+  const retainedColumns = new Set(Array.isArray(command.schema.columns) ? command.schema.columns.flatMap(column => column?.id ? [column.id] : []) : [])
+  const buttons = command.schema.cardStageButtons
+  const schema = { ...command.schema, cardStageButtons: Array.isArray(buttons) ? buttons.filter(button => !button || retainedColumns.has(button.columnId) || !hasEntityKind(doc.entities[button.columnId], "column")) : buttons }
+  const validation = validateBoardSchemaDraft(schema, doc)
   if (!validation.valid) return validationError(validation.errors)
   const changedEntityIds = [command.boardId]
-  return { ok: true, value: { changedEntityIds, apply: draft => applyBoardSchemaSettings(draft, command.boardId, command.schema, context.nowIso, changedEntityIds) } }
+  return { ok: true, value: { changedEntityIds, apply: draft => applyBoardSchemaSettings(draft, command.boardId, schema, context.nowIso, changedEntityIds) } }
 }
 
 export const updateWorkspaceSettings: CommandHandler<"updateWorkspaceSettings"> = (doc, command, context) => {

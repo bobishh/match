@@ -6,7 +6,7 @@ Status: specification complete; implementation not started by this change.
 
 1. Read [proposal](proposal.md) for scope and exclusions.
 2. Read [model contract](contracts/model.ts) and [command/migration contract](contracts/commands.md) before editing runtime types.
-3. Read [design](design.md) for resolved choices: separate documents, placement, soft deletion, native history, identity, and two sync flows.
+3. Read [design](design.md) for resolved choices: separate documents, placement, archiving, native history, identity, and two sync flows.
 4. Implement [tasks](tasks.md) in order. Gate A must support a second local workflow before collaboration UI is enabled.
 5. Use the capability scenarios as acceptance criteria, not inspiration for another design.
 

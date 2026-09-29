@@ -19,7 +19,7 @@ export type EntityBase = {
   id: EntityId
   title: string
   placement: Placement
-  deleted: boolean
+  archivedAt: IsoTime | null
   createdAt: IsoTime
   updatedAt: IsoTime // display only; never used to resolve conflicts
 }
@@ -37,7 +37,6 @@ export type Board = EntityBase & {
 
 export type Column = EntityBase & {
   kind: "column"
-  displayHint: "normal" | "collapsed"
   archive?: true
 }
 
@@ -52,7 +51,7 @@ export type FieldOption = {
   id: EntityId
   title: string
   rank: Rank
-  deleted: boolean
+  archivedAt: IsoTime | null
 }
 
 export type FieldDefinition = EntityBase & {
@@ -125,7 +124,7 @@ export type WorkspaceDocumentV2 = {
   formatVersion: 2
   id: WorkspaceId
   title: string
-  deleted: boolean
+  archivedAt: IsoTime | null
   ownerPersonId: PersonId
   entities: Record<EntityId, WorkspaceEntity>
   migration: null | {
@@ -158,7 +157,7 @@ export type WorkspaceReference = {
   workspaceId: WorkspaceId
   documentId: string
   grantHash: Hash
-  forgotten: boolean // own catalog scope only, not deletion of shared content
+  forgotten: boolean // own catalog scope only, separate from shared archive state
 }
 
 export type PersonalRootDocumentV1 = {

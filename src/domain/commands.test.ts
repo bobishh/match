@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
@@ -29,10 +30,10 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
 
   it("executes createItem and patchItem, produces native metadata, and signs a change proof", async () => {
     const queue = createCommandQueue(initialDoc, profile)
-    const leadCol = Object.values(initialDoc.entities).find((e) => e.kind === "column" && e.title === "Lead")!
+    const leadCol = Object.values(initialDoc.entities).find((e) => hasEntityKind(e, "column") && e.title === "Lead")!
 
-    const companyField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Company")!
-    const roleField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Role")!
+    const companyField = Object.values(initialDoc.entities).find((e) => hasEntityKind(e, "field") && e.title === "Company")!
+    const roleField = Object.values(initialDoc.entities).find((e) => hasEntityKind(e, "field") && e.title === "Role")!
 
     const createCmd: Command = {
       kind: "createItem",
@@ -87,7 +88,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("aging", "Aging", profile.identity.personId, "blank"))
     const queue = createCommandQueue(blankDoc, profile)
-    const columns = Object.values(blankDoc.entities).filter(entity => entity.kind === "column")
+    const columns = Object.values(blankDoc.entities).filter(entity => hasEntityKind(entity, "column"))
     const created = await queue.transact({ kind: "createItem", parentId: columns[0].id, title: "First" })
     expect(created.ok).toBe(true)
     if (!created.ok) return
@@ -109,10 +110,10 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
 
   it("preserves independent offline title and value edits when merged", async () => {
     const queue = createCommandQueue(initialDoc, profile)
-    const leadCol = Object.values(initialDoc.entities).find((e) => e.kind === "column" && e.title === "Lead")!
-    const companyField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Company")!
+    const leadCol = Object.values(initialDoc.entities).find((e) => hasEntityKind(e, "column") && e.title === "Lead")!
+    const companyField = Object.values(initialDoc.entities).find((e) => hasEntityKind(e, "field") && e.title === "Company")!
 
-    const roleField = Object.values(initialDoc.entities).find((e) => e.kind === "field" && e.title === "Role")!
+    const roleField = Object.values(initialDoc.entities).find((e) => hasEntityKind(e, "field") && e.title === "Role")!
 
     const createRes = await queue.transact({
       kind: "createItem",
@@ -161,7 +162,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
   it("restores any recorded item version through a new compensating change", async () => {
     const raw = createWorkspaceDoc("ws_history", "History", profile.identity.personId, "blank")
     const queue = createCommandQueue(Automerge.from<WorkspaceDocumentV2>(raw), profile)
-    const todo = Object.values(queue.getDocument().entities).find(entity => entity.kind === "column" && entity.title === "To do")!
+    const todo = Object.values(queue.getDocument().entities).find(entity => hasEntityKind(entity, "column") && entity.title === "To do")!
     const created = await queue.transact({ kind: "createItem", parentId: todo.id, title: "Before", body: "Original" })
     expect(created.ok).toBe(true)
     if (!created.ok) return
@@ -187,7 +188,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const rawWs = createWorkspaceDoc("ws_blank_test", "Blank Board", profile.identity.personId, "blank")
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const queue = createCommandQueue(blankDoc, profile)
-    const todoCol = Object.values(blankDoc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const todoCol = Object.values(blankDoc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
 
     // Create Parent Item
     const resP = await queue.transact({
@@ -241,7 +242,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const rawWs = createWorkspaceDoc("ws_blank_concurrent", "Blank Board", profile.identity.personId, "blank")
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const queue = createCommandQueue(blankDoc, profile)
-    const todoCol = Object.values(blankDoc.entities).find((e) => e.kind === "column" && e.title === "To do")!
+    const todoCol = Object.values(blankDoc.entities).find((e) => hasEntityKind(e, "column") && e.title === "To do")!
 
     // Launch 3 concurrent transactions
     const [r1, r2, r3] = await Promise.all([
@@ -266,7 +267,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const rawWs = createWorkspaceDoc("ws_options_test", "Select Board", profile.identity.personId, "blank")
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const queue = createCommandQueue(blankDoc, profile)
-    const board = Object.values(blankDoc.entities).find((e) => e.kind === "board")!
+    const board = Object.values(blankDoc.entities).find((e) => hasEntityKind(e, "board"))!
 
     // 1. Create select field
     const fieldRes = await queue.transact({
@@ -320,8 +321,8 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const rawWs = createWorkspaceDoc("ws_dt_test", "Datetime Board", profile.identity.personId, "blank")
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(rawWs)
     const queue = createCommandQueue(blankDoc, profile)
-    const board = Object.values(blankDoc.entities).find((e) => e.kind === "board")!
-    const col = Object.values(blankDoc.entities).find((e) => e.kind === "column")!
+    const board = Object.values(blankDoc.entities).find((e) => hasEntityKind(e, "board"))!
+    const col = Object.values(blankDoc.entities).find((e) => hasEntityKind(e, "column"))!
 
     const fieldRes = await queue.transact({
       kind: "createField",
@@ -404,7 +405,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
 
   it("allows one archive column per board through createColumn", async () => {
     const queue = createCommandQueue(initialDoc, profile)
-    const firstBoard = Object.values(initialDoc.entities).find(entity => entity.kind === "board")!
+    const firstBoard = Object.values(initialDoc.entities).find(entity => hasEntityKind(entity, "board"))!
     const existing = await queue.transact({ kind: "createColumn", boardId: firstBoard.id, title: "Another archive", archive: true })
     expect(existing).toMatchObject({ ok: false, error: { code: "invalid_input", field: "archive" } })
 
@@ -416,6 +417,20 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(created.ok).toBe(true)
     expect(await queue.transact({ kind: "createColumn", boardId, title: "Duplicate", archive: true }))
       .toMatchObject({ ok: false, error: { code: "invalid_input", field: "archive" } })
+  })
+
+  it("keeps Archive as an item state instead of a placement target", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const columns = Object.values(initialDoc.entities).filter(entity => hasEntityKind(entity, "column"))
+    const archive = columns.find(column => column.archive)!
+    const normal = columns.find(column => !column.archive)!
+    expect(await queue.transact({ kind: "createItem", parentId: archive.id, title: "Direct" }))
+      .toMatchObject({ ok: false, error: { code: "invalid_parent" } })
+    const created = await queue.transact({ kind: "createItem", parentId: normal.id, title: "Card" })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    expect(await queue.transact({ kind: "moveEntity", entityId: created.value.receipt.changedEntityIds[0], parentId: archive.id }))
+      .toMatchObject({ ok: false, error: { code: "invalid_parent" } })
   })
 
   it("rejects createWorkspace on existing workspace document", async () => {

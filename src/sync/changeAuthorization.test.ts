@@ -1,3 +1,4 @@
+import { hasEntityKind } from "../domain/model"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
@@ -33,8 +34,8 @@ beforeEach(async () => {
 })
 async function fixture(command: (board: string, column: string) => Command, role: "visitor" | "editor") {
   const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Permissions", owner.identity.personId, "blank"))
-  const board = Object.values(local.entities).find(e => e.kind === "board")!
-  const column = Object.values(local.entities).find(e => e.kind === "column")!
+  const board = Object.values(local.entities).find(e => hasEntityKind(e, "board"))!
+  const column = Object.values(local.entities).find(e => hasEntityKind(e, "column"))!
   const result = await executeCommand(local, command(board.id, column.id), member)
   if (!result.ok) throw new Error(result.error.message)
   const signed = await signEnvelope(member.privateKeys.devicePrivateKey, {
@@ -136,7 +137,7 @@ it("derives local owner, editor, visitor, revocation, departure, renewal, and de
 it("accepts transferred-owner history on a clean replica only when the supplied authority chain verifies", async () => {
   resetIdentityStorageForTest(); const successor = await bootstrapIdentity("Successor")
   const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Transferred", owner.identity.personId, "blank"))
-  const column = Object.values(local.entities).find(entity => entity.kind === "column")!
+  const column = Object.values(local.entities).find(entity => hasEntityKind(entity, "column"))!
   const transfer = await createWorkspaceOwnershipTransfer(owner, local.id, {
     personId: successor.identity.personId, publicKey: successor.identity.publicKey, certificates: [successor.certificate],
   }, Automerge.getHeads(local), 2)
@@ -329,7 +330,7 @@ it("Given split owners wrote on separate partitions, when the branches meet, the
   resetIdentityStorageForTest(); const first = await bootstrapIdentity("First successor")
   resetIdentityStorageForTest(); const second = await bootstrapIdentity("Second successor")
   const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Partitioned", owner.identity.personId, "blank"))
-  const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+  const column = Object.values(base.entities).find(entity => hasEntityKind(entity, "column"))!
   const write = async (profile: LocalProfile, title: string) => {
     const result = await executeCommand(base, { kind: "createItem", parentId: column.id, title }, profile)
     if (!result.ok) throw new Error(result.error.message)

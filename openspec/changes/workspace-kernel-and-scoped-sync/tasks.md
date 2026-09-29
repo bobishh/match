@@ -10,7 +10,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 
 - [x] 0.1 Capture current `npm test` and `npm run build` results; inventory existing UI/agent/sync scenarios and save representative legacy data covering every field/status, one dangling link, templates, PDF artifacts, and local paths. Do not rewrite old expectations until their replacement scenario exists.
 - [x] 0.2 Add `e2e/workspaces.spec.ts` with Given/When/Then cases for Blank board creation, renamed column persistence, custom-field failure, and subitem movement. Run to demonstrate the new behavior is absent, with failures attributable to missing feature rather than setup.
-- [x] 0.3 Add outer Trash/restore and Needs placement scenarios, including a separately deleted child and a cycle fixture. Add pending/save-failure scenario using a narrowly scoped storage-failure test hook.
+- [x] 0.3 Add outer Archive/restore and Needs placement scenarios, including a separately archived child and a cycle fixture. Add pending/save-failure scenario using a narrowly scoped storage-failure test hook.
 - [x] 0.4 Add separate scoped-sync outer scenarios for own-device approval and workspace join, with an expired invite and a waiting approval state. Keep these unavailable to normal users until Gate C passes; do not ship buttons that claim unsupported access guarantees.
 
 ## 1. Gate A: Reusable local data foundation
@@ -19,13 +19,13 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 - [x] 1.2 Implement local identity/key bootstrap and initial device/actor signing needed for new writes. Private keys stay out of documents/exports. Use temporary test identities in tests. Verify simultaneous first-open tabs create one profile, fresh initialization, and unsupported-crypto failure; broader enrollment/chain verification follows Gate B.
 - [x] 1.3 Implement workspace creation and Job search/Blank seeds. Allocate IDs once; expose stable preset bindings. Verify two workspaces are independent and no Job search fields leak into Blank board.
 - [x] 1.4 Implement ancestry indexes, rational ranks, complete placement updates, and deterministic Needs placement projection. Verify exact rational ordering, equal-rank insertion, concurrent moves, missing parents, cycles, and bounded traversal without repair writes.
-- [x] 1.5 Implement field validation and field/option lifecycle. Verify select IDs survive renames, delete/restore retains values, deleted required fields stop blocking edits, and type-change rejection is non-destructive.
+- [x] 1.5 Implement field validation and field/option lifecycle. Verify select IDs survive renames, archive/restore retains values, archived required fields stop blocking edits, and type-change rejection is non-destructive.
 - [x] 1.6 Implement the transaction wrapper and per-document publication queue in `src/domain/commands.ts` / `src/crdt.ts`. Patch actual draft properties, attach native metadata, and obtain a signed change proof. Verify overlapping same-tab submissions and independent offline title/value edits both survive; invalid commands create no change.
 - [x] 1.7 Replace singleton snapshot writes with document/change-hash persistence and atomic bytes/proof/receipt commits in `src/storage.ts`. Verify storage failure, same-ID retry, crash/reopen, stale-tab concurrent saves, and compaction with an unseen writer.
 - [x] 1.8 Replace `src/state.ts` root-array copy commits with repository-backed projections/subscriptions. Notify replication only after durable commit. Verify focus/BroadcastChannel reconciliation and no outbound change on failed save.
-- [x] 1.9 Implement migration plan/backup/application and v2 bundle validation from `contracts/commands.md`. Verify exact preservation of IDs/relationships/timestamps, archived versus deleted distinction, interrupted resume, different-workspace import, corrupt bundle rejection, and competing migration conflict.
+- [x] 1.9 Implement initial format migration plan/backup/application and v2 bundle validation from `contracts/commands.md`. Verify exact preservation of IDs/relationships/archive timestamps, interrupted resume, different-workspace import, corrupt bundle rejection, and competing migration conflict.
 - [x] 1.10 Build native workspace/board selection and data-driven columns in Vue. Satisfy 0.2's workspace/rename/reorder happy paths and empty-title failure. Preserve mobile snap behavior and 1024px controls.
-- [x] 1.11 Build generic item/custom-field forms, subitem navigation, Trash, and Needs placement recovery. Satisfy 0.2/0.3, including restore-under-deleted-parent explanation and save failure without partial item publication.
+- [x] 1.11 Build generic item/custom-field forms, subitem navigation, Archive, and Needs placement recovery. Satisfy 0.2/0.3, including restore-under-archived-parent explanation and save failure without partial item publication.
 - [x] 1.12 Implement generic WebMCP commands over the workspace store. Verify valid visible mutation, invalid-input/no-mutation paths, and absence of preset-specific aliases.
 - [x] 1.13 Gate A evidence: run focused unit suites, `npm run build`, and new local-workspace Playwright scenarios. Demonstrate a Reading board with Author field and nested item alongside Job search, with reload/export/import. No DSL, extra sync engine, or parallel state authority.
 
@@ -51,7 +51,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 - [x] 4.1 Introduce `ReplicationService` with per-peer/per-document native Automerge sync state. Keep `SyncTransport` transport-only. Verify later edit transfers a delta and no calls to full-document save are used for each live update.
 - [x] 4.2 Implement authorized document negotiation, Sync all live-catalog following, and workspace-only scope. Verify with A/J, A/K, B/L: A's two workspaces reach K; only invited workspace reaches B; future private workspace creation never discloses its ID/title to B.
 - [x] 4.3 Implement reconnect/backoff, bounded framing/reassembly, proof exchange, and backpressure. Verify duplicated/delayed messages, missing dependencies, oversize rejection, known-peer reload, and idle traffic quiescence.
-- [x] 4.4 Implement content-addressed blob storage and resumable 256 KiB chunks with hash verification. Preserve deleted references/blobs. Verify interrupted transfer resumes and corrupted bytes never become available.
+- [x] 4.4 Implement content-addressed blob storage and resumable 256 KiB chunks with hash verification. Preserve archived references/blobs. Verify interrupted transfer resumes and corrupted bytes never become available.
 - [x] 4.5 Implement per-workspace document/file progress and complete-sync aggregation. Verify usable workspace with pending files, unavailable local-path artifacts, and no false "Everything synced" while transfer remains incomplete.
 - [x] 4.6 Add same-browser multi-tab and isolated-profile reconnect regression coverage using the real transport adapter; deterministic transport fault tests complement rather than replace browser pairing.
 - [x] 4.7 Gate D evidence: run relevant complete unit suites, `npm run build`, and scoped-sync/multi-profile Playwright suites. Record first-transfer bytes versus one-edit bytes, document load time, and peak memory for a fixed fixture of 1,000 items / 10,000 changes. Treat numbers as baseline measurements, not unsupported scalability promises.
@@ -65,15 +65,15 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 ## 6. Gate E: Typed JSON and visual structural tree schema editor
 
 - [x] 6.1 Implement domain schema parsing, validation with precise JSON paths, type validation, diff generation, and conflict detection in `src/domain/schema.ts` and `src/domain/schema.test.ts`.
-- [x] 6.2 Implement `updateBoardSchema` atomic command in `src/domain/commands.ts` persisting changes in a single Automerge transaction, soft-deleting removed columns/fields while preserving stable IDs and values.
+- [x] 6.2 Implement `updateBoardSchema` atomic command in `src/domain/commands.ts` persisting changes in a single Automerge transaction, archiving removed columns/fields while preserving stable IDs and values.
 - [x] 6.3 Build `src/components/SchemaEditorDialog.vue` with synchronized dual views (Visual structural tree editor and Typed JSON text editor with error gutter and diff preview).
-- [x] 6.4 Gate E evidence: run unit tests (`src/domain/schema.test.ts`: 5/5 passed) and Playwright E2E suite (`e2e/schema-editor.spec.ts`: 3/3 passed) covering bidirectional editing, rename/reorder persistence across reload, select ID retention, precise JSON path errors, and column soft deletion to Trash.
+- [x] 6.4 Gate E evidence: run unit tests (`src/domain/schema.test.ts`: 5/5 passed) and Playwright E2E suite (`e2e/schema-editor.spec.ts`: 3/3 passed) covering bidirectional editing, rename/reorder persistence across reload, select ID retention, precise JSON path errors, and column archiving.
 
 ## 7. Gate F: Job search Rejected column and retrospective notes
 
 - [x] 7.1 Restore `status.rejected` column definition in Job search preset seeds (`src/domain/seeds.ts`) and schema migrations (`src/domain/migration.ts`).
 - [x] 7.2 Add optional retrospective note field (`field.rejectionReason`) to Job search board schema and card form dialogs (`src/components/ItemFormDialog.vue`, `src/components/ItemDetailDialog.vue`).
-- [x] 7.3 Gate F evidence: run migration and seed unit tests (`src/domain/migration.test.ts`, `src/domain/seeds.test.ts`), and Playwright E2E suite (`e2e/job-search-rejected.spec.ts`: 2/2 passed, `e2e/legacy-migration.spec.ts`: 2/2 passed) proving legacy rejected leads upgrade cleanly, move to Rejected retains retrospective notes across reload, and cards are never lost or mapped to Trash.
+- [x] 7.3 Gate F evidence: run initial format migration and seed unit tests (`src/domain/migration.test.ts`, `src/domain/seeds.test.ts`), and Playwright E2E suite (`e2e/job-search-rejected.spec.ts`: 2/2 passed, `e2e/legacy-migration.spec.ts`: 2/2 passed) proving legacy rejected leads upgrade cleanly, move to Rejected retains retrospective notes across reload, and cards are never lost or unexpectedly archived.
 
 ## 8. User Steering: Direct sync selection and custom workspace sets
 
@@ -113,7 +113,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 
 ## 13. User Steering: Explicit Archive column role
 
-- [x] 13.1 Replace public `displayHint` configuration with one optional `archive: true` column role while retaining legacy collapsed-column reads.
+- [x] 13.1 Replace public collapsed-column configuration with one optional `archive: true` column role.
 - [x] 13.2 Validate at most one Archive column and make generic rendering and archive moves title/ID/preset-independent.
 - [x] 13.3 Verify renamed Archive persistence and exact duplicate-role validation through real Workspace Settings JSON flow.
 

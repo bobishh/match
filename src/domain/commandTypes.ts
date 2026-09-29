@@ -13,7 +13,6 @@ import type { BoardSchemaDraft } from "./schema";
 import type { WorkspaceSettingsDraft } from "./workspaceSettings";
 
 export type Command =
-  | { kind: "migrateArchivedAt" }
   | { kind: "createWorkspace"; title: string; preset: "job-search" | "blank" }
   | { kind: "renameWorkspace"; title: string }
   | { kind: "setWorkspaceArchived"; archived: boolean }

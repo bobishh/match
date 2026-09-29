@@ -5,7 +5,7 @@ Match currently couples one local workspace to a fixed job-search pipeline. A se
 ## What Changes
 
 - **BREAKING** Replace lead/status storage with typed entities identified by stable IDs. Columns are entities; items reference parents. Job search becomes a seeded board with custom fields.
-- **BREAKING** Replace physical record deletion with reversible soft deletion and inherited visibility. Preserve all relationships and historical changes.
+- **BREAKING** Use reversible `archivedAt` state and inherited visibility. Preserve all relationships and historical changes.
 - Introduce a private personal-root document containing public identity, registered devices, and workspace references. Each workspace is a separate Automerge document and sharing boundary.
 - Route UI and WebMCP writes through one validated, durable transaction API. Automerge remains the canonical history, materialized state, and merge engine.
 - Add safe legacy migration and versioned `.match` workspace bundles. Preserve existing IDs, documents, writing templates, artifacts, and old Automerge history.
@@ -18,12 +18,12 @@ Match currently couples one local workspace to a fixed job-search pipeline. A se
 
 ### New Capabilities
 
-- `workspace-model`: Typed workspace entities, configurable fields, parent relationships, ordering, soft deletion, and job-search seed.
+- `workspace-model`: Typed workspace entities, configurable fields, parent relationships, ordering, archiving, and job-search seed.
 - `workspace-transactions`: Atomic commands, native change history, durable persistence, conflict projection, and shared UI/agent boundary.
 - `workspace-portability`: Legacy migration, independent workspace identity, and versioned import/export.
 - `personal-identity`: Private root, separate person/device/actor identities, enrollment, signed attribution, and scoped membership.
 - `scoped-sync`: Separate complete-device and workspace flows, durable trust, document-level incremental replication, and transfer states.
-- `generic-workspace-ui`: Native Vue board and settings, nested items, field controls, trash/recovery, and reusable non-job workflow.
+- `generic-workspace-ui`: Native Vue board and settings, nested items, field controls, Archive/recovery, and reusable non-job workflow.
 
 ### Modified Capabilities
 

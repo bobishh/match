@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import * as Automerge from "@automerge/automerge/slim"
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate"
 import type { CommandResult, FileReference, WorkspaceDocumentV2 } from "./model"
@@ -66,7 +67,7 @@ async function bundleBlobs(doc: WorkspaceDocumentV2, readBlob?: ReadBundleBlob) 
 }
 
 function attachmentReferences(doc: WorkspaceDocumentV2): FileReference[] {
-  return Object.values(doc.entities).flatMap(entity => entity.kind === "document" ? entity.file ? [entity.file] : [] : entity.kind === "artifact" ? [entity.pdf, entity.sourceMarkdown].filter((reference): reference is FileReference => reference !== null) : [])
+  return Object.values(doc.entities).flatMap(entity => hasEntityKind(entity, "document") ? entity.file ? [entity.file] : [] : hasEntityKind(entity, "artifact") ? [entity.pdf, entity.sourceMarkdown].filter((reference): reference is FileReference => reference !== null) : [])
 }
 
 export function referenceBlobId(reference: FileReference): string | undefined {

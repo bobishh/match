@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import { describe, expect, it } from "vitest"
 import { createWorkspaceDoc } from "./seeds"
 import { validateWorkspaceDoc } from "./model"
@@ -16,19 +17,19 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     expect(validation.ok).toBe(true)
 
     const entities = Object.values(ws.entities)
-    const boards = entities.filter((e) => e.kind === "board")
+    const boards = entities.filter((e) => hasEntityKind(e, "board"))
     expect(boards).toHaveLength(1)
     const board = boards[0]
     expect(board.preset?.key).toBe("blank")
 
-    const columns = entities.filter((e) => e.kind === "column")
+    const columns = entities.filter((e) => hasEntityKind(e, "column"))
     expect(columns.map((c) => c.title)).toEqual(["To do", "Doing", "Done"])
     for (const col of columns) {
       expect(col.placement.parentId).toBe(board.id)
     }
 
     // Absolutely no fields in blank board
-    const fields = entities.filter((e) => e.kind === "field")
+    const fields = entities.filter((e) => hasEntityKind(e, "field"))
     expect(fields).toHaveLength(0)
   })
 
@@ -39,17 +40,16 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     expect(validation.ok).toBe(true)
 
     const entities = Object.values(ws.entities)
-    const board = entities.find((e) => e.kind === "board")!
+    const board = entities.find((e) => hasEntityKind(e, "board"))!
     expect(board.preset?.key).toBe("job-search")
 
-    const columns = entities.filter((e) => e.kind === "column")
+    const columns = entities.filter((e) => hasEntityKind(e, "column"))
     expect(columns.map((c) => c.title)).toEqual(["Lead", "Applied", "Interview", "Rejected", "Offer", "Archive"])
 
     const rejectedCol = columns.find((c) => c.title === "Rejected")
-    expect(rejectedCol?.displayHint).toBe("normal")
+    expect(rejectedCol?.archive).toBeUndefined()
 
     const archiveCol = columns.find((c) => c.title === "Archive")
-    expect(archiveCol?.displayHint).toBe("collapsed")
     expect(archiveCol?.archive).toBe(true)
 
     // Check bound status keys
@@ -62,7 +62,7 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     expect(bindings["status.archived"]).toBe(archiveCol?.id)
 
     // Check fields
-    const fields = entities.filter((e) => e.kind === "field")
+    const fields = entities.filter((e) => hasEntityKind(e, "field"))
     const fieldTitles = fields.map((f) => f.title)
     expect(fieldTitles).toContain("Company")
     expect(fieldTitles).toContain("Role")
@@ -90,7 +90,7 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     }
 
     // Ensure no job-search fields leaked into blank
-    const blankFields = Object.values(ws2.entities).filter((e) => e.kind === "field")
+    const blankFields = Object.values(ws2.entities).filter((e) => hasEntityKind(e, "field"))
     expect(blankFields).toHaveLength(0)
   })
 })

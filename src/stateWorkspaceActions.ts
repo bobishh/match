@@ -9,7 +9,6 @@ import { recordGenesisAuthority, workspaceRole } from "./sync/changeAuthorizatio
 import { defaultStorage, type WorkspaceStorage } from "./storage";
 import {
   commitAndPersist,
-  migrateWorkspaceArchive,
   persistAuthorizedCommand,
   refreshAvailableWorkspaces,
   updateReactiveState,
@@ -80,7 +79,7 @@ export async function switchWorkspace(
 ): Promise<void> {
   const loaded = await storage.loadWorkspaceDoc(workspaceId);
   if (!loaded) return;
-  const doc = await migrateWorkspaceArchive(loaded.doc, await requireProfile(), storage);
+  const doc = loaded.doc;
   if (doc.archivedAt) return;
   await saveActiveWorkspaceId(workspaceId);
   updateReactiveState(doc);
@@ -151,7 +150,7 @@ async function archiveWorkspaceAsync(
 async function restoreWorkspaceAsync(workspaceId: string, storage = defaultStorage): Promise<void> {
   const loaded = await storage.loadWorkspaceDoc(workspaceId);
   if (!loaded) throw new Error("Workspace not found");
-  const doc = await migrateWorkspaceArchive(loaded.doc, await requireProfile(), storage);
+  const doc = loaded.doc;
   await persistAuthorizedCommand(doc, { kind: "setWorkspaceArchived", archived: false }, await requireProfile(), storage);
   await refreshAvailableWorkspaces(storage);
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });

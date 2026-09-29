@@ -69,15 +69,6 @@ export type DocumentInput = Omit<Document, "id" | "createdAt" | "updatedAt">
 export type TemplateInput = Omit<Template, "id" | "createdAt" | "updatedAt">
 export type ArtifactInput = Omit<Artifact, "id" | "createdAt" | "updatedAt">
 
-export const statusLabels: Record<LeadStatus, string> = {
-  lead: "Lead",
-  applied: "Applied",
-  interview: "Interview",
-  rejected: "Rejected",
-  offer: "Offer",
-  archived: "Archive",
-}
-
 export const statusOrder: LeadStatus[] = ["lead", "applied", "interview", "rejected", "offer", "archived"]
 
 export const priorityLabels: Record<LeadPriority, string> = {
@@ -90,20 +81,4 @@ export const priorityLabels: Record<LeadPriority, string> = {
 export const artifactKindLabels: Record<ArtifactKind, string> = {
   cv: "CV PDF",
   cover_letter: "Cover letter PDF",
-}
-
-export function normalizeWorkspace(workspace: Partial<Workspace>): Workspace {
-  return {
-    leads: (workspace.leads ?? []).map((lead) => {
-      const raw = lead as unknown as { status?: string }
-      const status = raw.status
-      return {
-        ...lead,
-        status: status === "bin" ? "archived" : (status as LeadStatus),
-      }
-    }),
-    documents: workspace.documents ?? [],
-    templates: workspace.templates ?? [],
-    artifacts: workspace.artifacts ?? [],
-  }
 }

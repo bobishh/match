@@ -142,7 +142,9 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .column-drag-handle { cursor: grab; touch-action: none; }
 .column-drag-handle:active { cursor: grabbing; }
 .add-column-card { flex: 0 0 220px; min-width: 220px; min-height: 160px; display: grid; align-content: center; gap: 10px; padding: 14px; border: 2px dashed var(--line); background: var(--soft); }
-.add-column-card input { width: 100%; min-height: 42px; padding: 8px 10px; border: 2px solid var(--line); background: white; }
+.add-column-card input:not([type="checkbox"]) { width: 100%; min-height: 42px; padding: 8px 10px; border: 2px solid var(--line); background: white; }
+.add-column-card label:not(.sr-only) { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.add-column-card input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--ink); }
 
 .board { width: 100%; margin: 0 auto; padding: clamp(26px, 4vw, 52px) clamp(16px, 4vw, 56px) 100px; display: flex; gap: 20px; align-items: stretch; overflow-x: auto; overscroll-behavior-x: contain; }
 .column { flex: 1 0 220px; min-width: 220px; min-height: 520px; display: flex; flex-direction: column; border: 2px solid var(--line); background: var(--panel); box-shadow: var(--shadow); overflow: hidden; transition: background var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) var(--motion-ease); }

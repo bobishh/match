@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import { computed } from "vue";
 import {
   derivePlacementIssues,
@@ -30,7 +31,7 @@ export function createStateDerived() {
     void stateRuntime.docVersion.value;
     return stateRuntime.activeDoc
       ? (Object.values(stateRuntime.activeDoc.entities).find(
-          (entity): entity is Board => entity.kind === "board",
+          (entity): entity is Board => hasEntityKind(entity, "board"),
         ) ?? null)
       : null;
   });
@@ -60,14 +61,13 @@ function projectGenericColumns(board: Board | null) {
   const archivedItems = archivedItemsForBoard(doc, board.id);
   return getChildren(doc.entities, board.id)
     .filter(
-      (entity): entity is Column => entity.kind === "column" && !entity.archivedAt,
+      (entity): entity is Column => hasEntityKind(entity, "column") && !entity.archivedAt,
     )
     .map((column) => ({
       ...column,
-      items: [
-        ...getVisibleChildren(doc.entities, column.id).filter((entity): entity is Item => isItem(entity)),
-        ...(isArchiveColumn(column) ? archivedItems : []),
-      ]
+      items: (isArchiveColumn(column)
+        ? archivedItems
+        : getVisibleChildren(doc.entities, column.id).filter((entity): entity is Item => isItem(entity)))
         .map((sourceItem) => ({
           ...projectItemPriority(board, sourceItem),
           subitems: getChildren(doc.entities, sourceItem.id).filter(
@@ -83,7 +83,7 @@ function projectBoardFields(board: Board | null): FieldDefinition[] {
   if (!doc || !board) return [];
   return Object.values(doc.entities).filter(
     (entity): entity is FieldDefinition =>
-      entity.kind === "field" &&
+      hasEntityKind(entity, "field") &&
       entity.placement.parentId === board.id &&
       !entity.archivedAt,
   );

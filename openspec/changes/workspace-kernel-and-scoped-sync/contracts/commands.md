@@ -20,38 +20,38 @@ If steps 1-6 fail, the previously committed state remains authoritative. Retryin
 | --- | --- | --- |
 | createWorkspace | title, preset (`job-search` or `blank`) | Allocate new UUID and initial document once; create owner genesis/grant; durably register reference |
 | renameWorkspace | title | Patch title only |
-| setWorkspaceDeleted | deleted | Soft-delete/restore shared workspace; owner only |
+| setWorkspaceArchived | archived | Set or clear workspace `archivedAt`; owner only |
 | createBoard | title, preset | Seed board/columns/fields in one workspace transaction |
-| createColumn | boardId, title, beforeId or null | Create live column under board at requested order |
+| createColumn | boardId, title, archive?, beforeId or null | Create column under board; permit at most one active `archive: true` column |
 | createItem | parentId, title, body?, values? | Parent column/item on a valid live board; validate board fields |
 | patchItem | entityId, title?, body?, values? | Patch supplied fields only; omitted values unchanged; null clears |
 | moveEntity | entityId, parentId, beforeId or null | Column reorder within same board; item move/nesting within same board; replace placement atomically |
 | renameEntity | entityId, title | Rename existing entity without changing ID or links |
-| setEntityDeleted | entityId, deleted | Change only own flag; restore may report hidden ancestor without moving |
+| setEntityArchived | entityId, archived | Set or clear own `archivedAt`; restore may report hidden ancestor without moving |
 | restoreAndMove | entityId, parentId, beforeId or null | Restore and assign valid live placement in one transaction |
 | createField | boardId, title, valueType, required, options?/bounds? | Create field and UUID options; type immutable after creation |
 | patchField | fieldId, title?, required?, min?, max? | Keep stored values; newly invalid existing values show validation issues |
 | createFieldOption | fieldId, title, beforeId or null | Select field only; stable UUID option |
-| patchFieldOption | fieldId, optionId, title?, deleted? | Preserve existing selected option IDs; deleted choice no longer selectable |
+| patchFieldOption | fieldId, optionId, title?, archived? | Preserve existing selected option IDs; archived choice no longer selectable |
 | addDocument / patchDocument | itemId or entityId, typed document fields | Preserve old attached notes/files; parent must be item |
-| createTemplate / patchTemplate | typed template fields | Workspace-root entity; deleting template does not delete artifacts |
-| updateWorkspaceSettings | settings, expectedHeads? | Validate full typed configuration; patch title/board/columns/fields/templates in one change; omissions soft-delete |
-| recordArtifact | itemId, templateId, title, artifactKind, pdf, sourceMarkdown? | Match live template kind when creating; retain reference after later template deletion |
+| createTemplate / patchTemplate | typed template fields | Workspace-root entity; archiving template preserves artifacts |
+| updateWorkspaceSettings | settings, expectedHeads? | Validate full typed configuration; patch title/board/columns/fields/templates in one change; omissions archive |
+| recordArtifact | itemId, templateId, title, artifactKind, pdf, sourceMarkdown? | Match active template kind when creating; retain reference after later template archiving |
 
-Only `moveEntity`, `restoreAndMove`, and creation write placement. `patchItem` cannot alter kind, ID, creation time, parent, or deleted flag. `renameEntity` requires non-empty title after trim. Schema-derived fields are validated only against the containing board; unknown field IDs fail.
+Only `moveEntity`, `restoreAndMove`, and creation write placement. Item creation and moves into the Archive column are rejected; `setEntityArchived` changes archive state without placement. `patchItem` cannot alter kind, ID, creation time, parent, or `archivedAt`. `renameEntity` requires non-empty title after trim. Schema-derived fields are validated only against the containing board; unknown field IDs fail.
 
-New select values store option UUIDs, never option labels. New URL values require http/https; dates use `YYYY-MM-DD`; numbers must be finite and within optional bounds; booleans are true/false. Missing/null optional fields are empty. Required fields reject empty/null on create/update. Soft-deleted fields no longer participate in required validation, but their values remain. Previously stored invalid values caused by a changed definition are displayed with an issue, not coerced or erased. Field type changes return `field_type_change`; create a replacement field explicitly instead. Existing select values whose options were deleted display the retained option label plus an unavailable marker.
+New select values store option UUIDs, never option labels. New URL values require http/https; dates use `YYYY-MM-DD`; numbers must be finite and within optional bounds; booleans are true/false. Missing/null optional fields are empty. Required fields reject empty/null on create/update. Archived fields no longer participate in required validation, but their values remain. Previously stored invalid values caused by a changed definition are displayed with an issue, not coerced or erased. Field type changes return `field_type_change`; create a replacement field explicitly instead. Existing select values whose options were archived display the retained option label plus an unavailable marker.
 
-Structural or field-definition edits by editors are allowed. Identity, grants, signatures, and catalog membership are never writable through these content commands. `setWorkspaceDeleted` is owner-only; ordinary entity soft deletion is available to editors.
+Structural or field-definition edits by editors are allowed. Identity, grants, signatures, and catalog membership are never writable through these content commands. `setWorkspaceArchived` is owner-only; entity archiving is available to editors.
 
 ## Read boundary
 
 - `getWorkspace`, `listWorkspaces`: explicit catalog scope; forgotten references excluded by default.
-- `getEntity(id)`: raw typed entity for authorized callers, including deleted state and computed visibility reason.
-- `children(parentId)`: direct children including deleted; deterministic rank/ID ordering.
-- `visibleChildren(parentId)`: apply workspace/ancestor/own deletion and placement validity.
+- `getEntity(id)`: raw typed entity for authorized callers, including `archivedAt` and computed visibility reason.
+- `children(parentId)`: direct children including archived records; deterministic rank/ID ordering.
+- `visibleChildren(parentId)`: apply workspace/ancestor/own archive state and placement validity.
 - `descendants(parentId)`: bounded traversal with visited set; no infinite recursion.
-- `listTrash`: own-deleted entities and deleted workspace header; identify any deleted ancestor.
+- `listArchived`: archived entities and workspace header; identify any archived ancestor.
 - `listPlacementIssues`: recovery entries, including hidden descendants affected by invalid ancestry.
 - `history(entityId?)`: native changes and verified author/device mapping; legacy changes explicitly unattributed.
 - `getGenerationContext(itemId, templateId)`: current item context + Markdown template; no artifact created.

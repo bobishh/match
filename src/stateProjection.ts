@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import type * as Automerge from "@automerge/automerge/slim";
 import { isEntityVisible } from "./domain/ancestry";
 import { archivedItemsForBoard, isArchiveColumn } from "./domain/archive";
@@ -53,7 +54,7 @@ function findColumn(
 ): Column | undefined {
   let current = parentId ? entities[parentId] : undefined;
   const visited = new Set<string>();
-  while (current && current.kind !== "column") {
+  while (current && !hasEntityKind(current, "column")) {
     if (visited.has(current.id)) return undefined;
     visited.add(current.id);
     current = current.placement.parentId
@@ -104,6 +105,7 @@ function projectLead(
   const item = projectItemPriority(board, source);
   const column = findColumn(doc.entities, item.placement.parentId);
   if (!column) return undefined;
+  if (isArchiveColumn(column) && !item.archivedAt) return undefined;
   const title = splitTitle(item.title);
   const lead: Lead = {
     id: item.id,
@@ -136,7 +138,7 @@ function projectDocuments(doc: Automerge.Doc<WorkspaceDocumentV2>): Document[] {
   return Object.values(doc.entities)
     .filter(
       (entity): entity is AttachedDocument =>
-        entity.kind === "document" && !entity.archivedAt,
+        hasEntityKind(entity, "document") && !entity.archivedAt,
     )
     .map((document) => ({
       id: document.id,
@@ -156,7 +158,7 @@ function projectTemplates(doc: Automerge.Doc<WorkspaceDocumentV2>): Template[] {
   return Object.values(doc.entities)
     .filter(
       (entity): entity is DocumentTemplate | LegacyWritingTemplate =>
-        (entity.kind === "document_template" || entity.kind === "template") &&
+        (hasEntityKind(entity, "document_template") || hasEntityKind(entity, "template")) &&
         !entity.archivedAt,
     )
     .map((template) => ({
@@ -172,7 +174,7 @@ function projectArtifacts(doc: Automerge.Doc<WorkspaceDocumentV2>): Artifact[] {
   return Object.values(doc.entities)
     .filter(
       (entity): entity is PdfArtifact =>
-        entity.kind === "artifact" && !entity.archivedAt,
+        hasEntityKind(entity, "artifact") && !entity.archivedAt,
     )
     .map((artifact) => ({
       id: artifact.id,
@@ -191,10 +193,10 @@ export function projectWorkspace(
   doc: Automerge.Doc<WorkspaceDocumentV2>,
 ): Workspace {
   const board = Object.values(doc.entities).find(
-    (entity): entity is Board => entity.kind === "board",
+    (entity): entity is Board => hasEntityKind(entity, "board"),
   );
   const bindings = invertBindings(board?.preset?.bindings ?? {});
-  const archiveExists = Boolean(board && Object.values(doc.entities).some(entity => entity.kind === "column" && !entity.archivedAt && entity.placement.parentId === board.id && isArchiveColumn(entity)));
+  const archiveExists = Boolean(board && Object.values(doc.entities).some(entity => hasEntityKind(entity, "column") && !entity.archivedAt && entity.placement.parentId === board.id && isArchiveColumn(entity)));
   const archivedIds = new Set(board && archiveExists ? archivedItemsForBoard(doc, board.id).map(item => item.id) : []);
   const leads = Object.values(doc.entities)
     .filter(

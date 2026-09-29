@@ -9,7 +9,7 @@ The system SHALL migrate v0.0.1 using a durable plan and the exact mapping in `c
 - **GIVEN** a legacy bundle includes all five statuses, notes, a template, an artifact, and local paths
 - **WHEN** migration completes
 - **THEN** records retain IDs and references, statuses map to columns, and templates remain workspace-global
-- **AND** Archive is live/collapsed rather than soft-deleted
+- **AND** Archive is active and collapsible
 - **AND** old native history and original migration input remain available.
 
 #### Scenario: Interrupted migration resumes
@@ -39,9 +39,9 @@ The system SHALL export v2 bundles containing the canonical document, manifest, 
 
 #### Scenario: Round trip preserves workspace identity and layout data
 
-- **GIVEN** a board has renamed columns, a nested item, deleted content, and custom fields
+- **GIVEN** a board has renamed columns, a nested item, archived content, and custom fields
 - **WHEN** its bundle is exported and imported into an authorized installation
-- **THEN** the same IDs, ordering, values, history, and deletion states remain
+- **THEN** the same IDs, ordering, values, history, and archive timestamps remain
 - **AND** the receiving UI renders the board from those records.
 
 #### Scenario: Import chooses identity-aware merge behavior
@@ -77,9 +77,9 @@ The system SHALL distinguish replicated blob references from device-local file l
 - **THEN** the artifact and its provenance are visible
 - **AND** its file state says unavailable on this device rather than complete or broken item.
 
-#### Scenario: Deleted attachment stays recoverable
+#### Scenario: Archived attachment stays recoverable
 
-- **GIVEN** a blob-backed attachment is soft-deleted
+- **GIVEN** a blob-backed attachment is archived
 - **WHEN** storage is compacted and the attachment is restored
 - **THEN** its file reference and retained blob remain available
-- **AND** logical deletion has not triggered blob garbage collection.
+- **AND** archiving has not triggered blob garbage collection.

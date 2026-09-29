@@ -85,7 +85,6 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
-      displayHint: "normal",
     }
 
     // Item cycle: A -> B -> A
@@ -176,7 +175,6 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       archivedAt: "2026-01-01T00:00:00.000Z", // Column is archived
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
-      displayHint: "normal",
     }
 
     const liveChild: Item = {
@@ -190,8 +188,8 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       values: {},
     }
 
-    const deletedChild: Item = {
-      id: "child_deleted",
+    const archivedChild: Item = {
+      id: "child_archived",
       title: "Archived Child",
       placement: { parentId: "col_1", rank: "1/1" },
       archivedAt: "2026-01-01T00:00:00.000Z", // Child is separately archived
@@ -205,19 +203,19 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       [board.id]: board,
       [col.id]: col,
       [liveChild.id]: liveChild,
-      [deletedChild.id]: deletedChild,
+      [archivedChild.id]: archivedChild,
     }
 
     // Because column is archived, neither child is visible on board
     expect(isEntityVisible(entities, "child_live")).toBe(false)
-    expect(isEntityVisible(entities, "child_deleted")).toBe(false)
+    expect(isEntityVisible(entities, "child_archived")).toBe(false)
     expect(getVisibleChildren(entities, "col_1")).toHaveLength(0)
 
     // When column is restored (col.archivedAt = false)
     entities["col_1"] = { ...col, archivedAt: null }
     expect(isEntityVisible(entities, "child_live")).toBe(true)
     // Separately archived child must STILL be not visible
-    expect(isEntityVisible(entities, "child_deleted")).toBe(false)
+    expect(isEntityVisible(entities, "child_archived")).toBe(false)
 
     const visibleChildren = getVisibleChildren(entities, "col_1")
     expect(visibleChildren.map((c) => c.id)).toEqual(["child_live"])

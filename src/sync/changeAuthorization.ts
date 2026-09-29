@@ -8,7 +8,7 @@ import { type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
 
-import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
+import { assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
   constructor(message: string) { super(message); this.name = "WorkspaceChangeRejected" }
 }

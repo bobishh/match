@@ -8,7 +8,7 @@ export type Hash = string
 export type Heads = Hash[]
 
 export type { Board, Column, FieldValue, PriorityRule, PriorityPolicy, CardAgingPolicy, Item, FieldDefinition, FileReference, AttachedDocument, DocumentTemplate, LegacyWritingTemplate, PdfArtifact, WorkspaceEntity, WorkspaceDocumentV2, EntityKind } from "./entitySchemas"
-export { isItem, entityKind } from "./entitySchemas"
+export { isItem, entityKind, hasEntityKind } from "./entitySchemas"
 export { isValidRank } from "./rank"
 export { validatePlacementParent, validateEntity, validateWorkspaceDoc } from "./validation"
 
@@ -30,7 +30,7 @@ type WorkspaceReference = {
   workspaceId: WorkspaceId
   documentId: string
   grantHash: Hash
-  forgotten: boolean // own catalog scope only, not deletion of shared content
+  forgotten: boolean // own catalog scope only, separate from shared archive state
 }
 
 export type PersonalRootDocumentV1 = {

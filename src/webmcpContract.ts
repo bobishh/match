@@ -78,7 +78,7 @@ export const workspaceSettingsSchema = {
         columns: {
           type: "array",
           description:
-            "Ordered board columns. Omission soft-deletes an existing column and hides its children.",
+            "Ordered board columns. Omission archives an existing column and hides its children.",
           items: {
             type: "object",
             properties: {
@@ -99,10 +99,20 @@ export const workspaceSettingsSchema = {
             additionalProperties: false,
           },
         },
+        cardStageButtons: {
+          type: "array",
+          description: "Ordered card detail buttons. Empty array hides them. Each button moves a card to its target column; label defaults to column title.",
+          items: {
+            type: "object",
+            properties: { columnId: { type: "string" }, label: { type: "string" } },
+            required: ["columnId"],
+            additionalProperties: false,
+          },
+        },
         fields: {
           type: "array",
           description:
-            "Ordered typed item fields. Omission soft-deletes a field while retaining stored values.",
+            "Ordered typed item fields. Omission archives a field while retaining stored values.",
           items: {
             type: "object",
             properties: {

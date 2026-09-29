@@ -17,7 +17,7 @@ const emit = defineEmits<{
   <div class="schema-tab-content workspace-json-editor">
     <p>
       Advanced workspace configuration. One apply updates workspace title,
-      board, columns, fields, and document templates.
+      board, columns, card stage buttons, fields, and document templates.
     </p>
     <div v-if="errors.length" class="schema-error-banner" role="alert">
       <strong>Validation errors:</strong>

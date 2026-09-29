@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import { defaultStorage } from "./storage"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
@@ -21,7 +22,7 @@ beforeAll(async () => {
 describe("Repository-backed state and projections (Requirement 1.8)", () => {
   beforeEach(async () => {
     setStorageFailureHookForTest(false)
-    for (const workspace of await defaultStorage.listWorkspaces()) await defaultStorage.deleteWorkspace(workspace.id)
+    for (const workspace of [...await defaultStorage.listWorkspaces(), ...await defaultStorage.listArchivedWorkspaces()]) await defaultStorage.purgeWorkspaceForTest(workspace.id)
     resetIdentityStorageForTest()
     setStorageFailureHookForTest(false)
     resetStateForTest()
@@ -102,7 +103,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const match = useMatch()
     const workspaceId = match.activeWorkspace.id
     const doc = match.getActiveDoc()!
-    const column = Object.values(doc.entities).find(entity => entity.kind === "column")
+    const column = Object.values(doc.entities).find(entity => hasEntityKind(entity, "column"))
     if (!column) throw new Error("Test workspace has no column")
     vi.stubGlobal("indexedDB", {})
     const pending = vi.spyOn(peerStore, "getPendingOwnershipTransfer").mockResolvedValue({
@@ -201,11 +202,11 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const firstId = match.activeWorkspace.id
     await match.createWorkspaceAsync("Keep me", "blank")
     const secondId = match.activeWorkspace.id
-    await match.deleteWorkspaceAsync(secondId)
+    await match.archiveWorkspaceAsync(secondId)
     expect(match.activeWorkspace.id).not.toBe(secondId)
     expect(match.availableWorkspaces.value.some(workspace => workspace.id === firstId)).toBe(true)
     expect(match.availableWorkspaces.value.some(workspace => workspace.id === match.activeWorkspace.id)).toBe(true)
     expect(match.availableWorkspaces.value.some(workspace => workspace.id === secondId)).toBe(false)
-    expect(await new WorkspaceStorage().loadWorkspaceDoc(secondId)).toBeNull()
+    expect((await new WorkspaceStorage().loadWorkspaceDoc(secondId))?.doc.archivedAt).toEqual(expect.any(String))
   })
 })

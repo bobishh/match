@@ -1,3 +1,4 @@
+import { hasEntityKind } from "../domain/model"
 import { computed, ref, watch } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
@@ -138,9 +139,9 @@ async function resolveWorkspaceBlob(
 ) {
   const doc = Automerge.load<WorkspaceDocumentV2>(await readWorkspaceBytes(workspaceId))
   for (const entity of Object.values(doc.entities)) {
-    const references = entity.kind === "document"
+    const references = hasEntityKind(entity, "document")
       ? [entity.file]
-      : entity.kind === "artifact"
+      : hasEntityKind(entity, "artifact")
         ? [entity.pdf, entity.sourceMarkdown]
         : []
     for (const reference of references) {
@@ -154,7 +155,7 @@ async function resolveWorkspaceBlob(
 
 async function chatRoomId(readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"], id: string) {
   const doc = Automerge.load<WorkspaceDocumentV2>(await readWorkspaceBytes(id))
-  const board = Object.values(doc.entities).find(entity => entity.kind === "board")
+  const board = Object.values(doc.entities).find(entity => hasEntityKind(entity, "board"))
   if (!board) throw new Error("Workspace has no board")
   return `${doc.ownerPersonId}:${board.id}`
 }

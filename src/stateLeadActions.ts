@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import type { Board, FieldValue } from "./domain/model";
 import { commitAndPersist } from "./statePersistence";
 import { stateRuntime } from "./stateContext";
@@ -12,8 +13,6 @@ export function createLeadActions(
   return {
     createLeadAsync,
     updateLeadAsync,
-    moveLeadAsync,
-    deleteLeadAsync,
   };
 
   async function createLeadAsync(input: LeadInputWithId): Promise<Lead> {
@@ -57,25 +56,6 @@ export function createLeadActions(
     });
   }
 
-  async function moveLeadAsync(
-    leadId: string,
-    status: LeadStatus,
-  ): Promise<void> {
-    await commitAndPersist({
-      kind: "moveEntity",
-      entityId: leadId,
-      parentId: resolveColumnId(status),
-      beforeId: null,
-    });
-  }
-
-  async function deleteLeadAsync(leadId: string): Promise<void> {
-    await commitAndPersist({
-      kind: "setEntityArchived",
-      entityId: leadId,
-      archived: true,
-    });
-  }
 }
 
 function leadValues(
@@ -168,13 +148,13 @@ function resolveColumnId(status: LeadStatus): string {
   const doc = stateRuntime.activeDoc;
   if (!doc) throw new Error("Not hydrated");
   const board = Object.values(doc.entities).find(
-    (entity): entity is Board => entity.kind === "board",
+    (entity): entity is Board => hasEntityKind(entity, "board"),
   );
   const bound = board?.preset?.bindings[`status.${status}`];
   if (bound) return bound;
   const column = Object.values(doc.entities).find(
     (entity) =>
-      entity.kind === "column" &&
+      hasEntityKind(entity, "column") &&
       entity.title.toLowerCase() === status.toLowerCase(),
   );
   if (!column) throw new Error(`Column for status ${status} not found`);
@@ -192,7 +172,7 @@ function resolveOptionId(field: string, value: string): string | undefined {
 function activeBoard(): Board | undefined {
   return stateRuntime.activeDoc
     ? Object.values(stateRuntime.activeDoc.entities).find(
-        (entity): entity is Board => entity.kind === "board",
+        (entity): entity is Board => hasEntityKind(entity, "board"),
       )
     : undefined;
 }

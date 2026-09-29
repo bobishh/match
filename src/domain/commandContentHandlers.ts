@@ -1,21 +1,27 @@
-import type { AttachedDocument, DocumentTemplate, FieldDefinition, WorkspaceDocumentV2 } from "./model"
+import { hasEntityKind } from "./model"
+import type { AttachedDocument, Column, DocumentTemplate, FieldDefinition, WorkspaceDocumentV2 } from "./model"
 import { compareRanks, calculateRankBetween } from "./ancestry"
 import { patchFieldDefinition } from "./fields"
 import { err } from "./commandTypes"
 import type { CommandByKind, CommandContext, CommandHandler } from "./commandHandlerTypes"
 import { applyRenumbering, computeInsertionRank } from "./commandSupport"
 import { isArchiveColumn } from "./archive"
+import { cardStageButtons } from "./cardStageButtons"
 
 export const createColumn: CommandHandler<"createColumn"> = (doc, command, context) => {
   if (!command.title.trim()) return err("invalid_input", "Column title cannot be empty", "title")
   const board = doc.entities[command.boardId]
-  if (!board || board.kind !== "board") return err("not_found", `Board ${command.boardId} not found`)
-  if (command.archive && Object.values(doc.entities).some(entity => entity.kind === "column" && !entity.archivedAt && entity.placement.parentId === command.boardId && isArchiveColumn(entity))) return err("invalid_input", "Only one archive column is allowed", "archive")
+  if (!board || !hasEntityKind(board, "board")) return err("not_found", `Board ${command.boardId} not found`)
+  if (command.archive && Object.values(doc.entities).some(entity => hasEntityKind(entity, "column") && !entity.archivedAt && entity.placement.parentId === command.boardId && isArchiveColumn(entity))) return err("invalid_input", "Only one archive column is allowed", "archive")
   const id = crypto.randomUUID()
   const insertion = computeInsertionRank(doc.entities, command.boardId, command.beforeId)
-  return { ok: true, value: { changedEntityIds: [id], apply: draft => {
+  const existingColumns = Object.values(doc.entities).filter((entity): entity is Column => hasEntityKind(entity, "column") && entity.placement.parentId === command.boardId && !entity.archivedAt).sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
+  const buttons = cardStageButtons(board, existingColumns)
+  return { ok: true, value: { changedEntityIds: [id, command.boardId], apply: draft => {
     applyRenumbering(draft, insertion.renumbered)
-    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, displayHint: command.archive ? "collapsed" : "normal", ...(command.archive ? { archive: true as const } : {}), archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
+    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, ...(command.archive ? { archive: true as const } : {}), archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
+    const targetBoard = draft.entities[command.boardId]
+    if (hasEntityKind(targetBoard, "board")) targetBoard.cardStageButtons = [...buttons, { columnId: id }]
   } } }
 }
 
@@ -24,7 +30,7 @@ export const createField: CommandHandler<"createField"> = (doc, command, context
   const valueType = command.valueType
   if (!isSupportedFieldType(valueType)) return err("invalid_input", "Field type is invalid", "valueType")
   const board = doc.entities[command.boardId]
-  if (!board || board.kind !== "board") return err("not_found", `Board ${command.boardId} not found`)
+  if (!board || !hasEntityKind(board, "board")) return err("not_found", `Board ${command.boardId} not found`)
   const id = crypto.randomUUID()
   const rank = computeInsertionRank(doc.entities, command.boardId).rank
   return { ok: true, value: { changedEntityIds: [id], apply: draft => { draft.entities[id] = fieldEntity(command, valueType, id, rank, context.nowIso) } } }
@@ -76,7 +82,7 @@ function createItemChildResult(
 
 export const patchField: CommandHandler<"patchField"> = (doc, command) => {
   const field = doc.entities[command.fieldId]
-  if (!field || field.kind !== "field") return err("not_found", `Field ${command.fieldId} not found`)
+  if (!field || !hasEntityKind(field, "field")) return err("not_found", `Field ${command.fieldId} not found`)
   const patched = patchFieldDefinition(field, command)
   if (!patched.ok) return patched
   return { ok: true, value: { changedEntityIds: [command.fieldId], apply: draft => { draft.entities[command.fieldId] = patched.value } } }
@@ -94,7 +100,7 @@ export const createTemplate: CommandHandler<"createTemplate"> = (doc, command, c
 
 export const patchTemplate: CommandHandler<"patchTemplate"> = (doc, command, context) => {
   const template = doc.entities[command.templateId]
-  if (!template || (template.kind !== "document_template" && template.kind !== "template")) return err("not_found", `Document template ${command.templateId} not found`)
+  if (!template || (!hasEntityKind(template, "document_template") && !hasEntityKind(template, "template"))) return err("not_found", `Document template ${command.templateId} not found`)
   return { ok: true, value: { changedEntityIds: [command.templateId], apply: draft => {
     const target = draft.entities[command.templateId] as DocumentTemplate
     if (command.title !== undefined) target.title = command.title.trim()
@@ -128,7 +134,7 @@ export const addDocument: CommandHandler<"addDocument"> = (doc, command, context
 }
 
 export const patchDocument: CommandHandler<"patchDocument"> = (doc, command, context) => {
-  if (doc.entities[command.documentId]?.kind !== "document") return err("not_found", `Document ${command.documentId} not found`)
+  if (!hasEntityKind(doc.entities[command.documentId], "document")) return err("not_found", `Document ${command.documentId} not found`)
   return { ok: true, value: { changedEntityIds: [command.documentId], apply: draft => {
     const target = draft.entities[command.documentId] as AttachedDocument
     if (command.title !== undefined) target.title = command.title.trim()
@@ -162,7 +168,7 @@ export const recordArtifact: CommandHandler<"recordArtifact"> = (doc, command, c
 export const createFieldOption: CommandHandler<"createFieldOption"> = (doc, command, context) => {
   if (!command.title.trim()) return err("invalid_input", "Option title is required", "title")
   const field = doc.entities[command.fieldId]
-  if (!field || field.kind !== "field") return err("not_found", `Field ${command.fieldId} not found`)
+  if (!field || !hasEntityKind(field, "field")) return err("not_found", `Field ${command.fieldId} not found`)
   if (field.valueType !== "select") return err("invalid_input", `Field ${command.fieldId} is not a select field`)
   const id = crypto.randomUUID()
   const rank = optionRank(field, command.beforeId)
@@ -184,7 +190,7 @@ function optionRank(field: Extract<FieldDefinition, { valueType: "select" }>, be
 
 export const patchFieldOption: CommandHandler<"patchFieldOption"> = (doc, command, context) => {
   const field = doc.entities[command.fieldId]
-  if (!field || field.kind !== "field") return err("not_found", `Field ${command.fieldId} not found`)
+  if (!field || !hasEntityKind(field, "field")) return err("not_found", `Field ${command.fieldId} not found`)
   if (field.valueType !== "select") return err("invalid_input", `Field ${command.fieldId} is not a select field`)
   if (!field.options?.[command.optionId]) return err("not_found", `Option ${command.optionId} not found`)
   return { ok: true, value: { changedEntityIds: [command.fieldId], apply: draft => {

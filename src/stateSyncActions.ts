@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./domain/model"
 import * as Automerge from "@automerge/automerge/slim";
 import { assertWorkspaceCapability } from "./domain/permissions";
 import type { WorkspaceDocumentV2 } from "./domain/model";
@@ -126,7 +127,7 @@ function sharesBoard(
 ): boolean {
   return Object.values(local.entities).some(
     (entity) =>
-      entity.kind === "board" && remote.entities[entity.id]?.kind === "board",
+      hasEntityKind(entity, "board") && hasEntityKind(remote.entities[entity.id], "board"),
   );
 }
 

@@ -1,3 +1,4 @@
+import { hasEntityKind } from "./model"
 import type { Board, FieldDefinition, FieldValue, PriorityPolicy, PriorityRule, Item, WorkspaceDocumentV2 } from "./model"
 import { compareRanks } from "./ancestry"
 
@@ -98,7 +99,7 @@ export function validatePriorityPolicy(
 function validatePriorityOutputs(policy: PriorityPolicy, doc: WorkspaceDocumentV2 | undefined, boardId: string, errors: Array<{ path: string; message: string }>): void {
   if (!doc) return
   const priority = doc.entities[policy.priorityFieldId]
-  if (!priority || priority.kind !== "field" || priority.archivedAt || priority.valueType !== "select" || priority.placement.parentId !== boardId) {
+  if (!priority || !hasEntityKind(priority, "field") || priority.archivedAt || priority.valueType !== "select" || priority.placement.parentId !== boardId) {
     errors.push({ path: "/priorityPolicy/priorityFieldId", message: "Priority output must be an active select field" })
   } else policy.bands.forEach((band, index) => {
     const option = priority.options[band.optionId]
@@ -106,7 +107,7 @@ function validatePriorityOutputs(policy: PriorityPolicy, doc: WorkspaceDocumentV
   })
   if (!policy.fitFieldId) return
   const fit = doc.entities[policy.fitFieldId]
-  if (!fit || fit.kind !== "field" || fit.archivedAt || fit.valueType !== "number" || fit.placement.parentId !== boardId) errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output must be an active number field" })
+  if (!fit || !hasEntityKind(fit, "field") || fit.archivedAt || fit.valueType !== "number" || fit.placement.parentId !== boardId) errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output must be an active number field" })
 }
 
 function validatePriorityBands(policy: PriorityPolicy, errors: Array<{ path: string; message: string }>): void {
@@ -130,7 +131,7 @@ function validatePriorityRule(rule: PriorityRule, index: number, ids: Set<string
     return
   }
   const field = doc.entities[rule.fieldId]
-  if (!field || field.kind !== "field" || field.archivedAt || field.placement.parentId !== boardId) {
+  if (!field || !hasEntityKind(field, "field") || field.archivedAt || field.placement.parentId !== boardId) {
     errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "Rule field must be active on this board" })
     return
   }

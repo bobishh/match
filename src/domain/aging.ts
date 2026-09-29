@@ -8,7 +8,7 @@ export const defaultCardAgingPolicy: CardAgingPolicy = {
 
 export type CardAge = { days: number; level: "fresh" | "watch" | "aged" | "overdue"; label: string }
 
-export function isCardAgingExemptColumn(column: { title: string; archive?: true; displayHint?: "normal" | "collapsed" }): boolean {
+export function isCardAgingExemptColumn(column: { title: string; archive?: true }): boolean {
   return isArchiveColumn(column) || /^(done|complete|completed)$/i.test(column.title.trim())
 }
 
