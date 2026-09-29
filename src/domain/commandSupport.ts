@@ -73,12 +73,12 @@ function updateColumn(column: Column, title: string, archive: boolean, index: nu
   column.title = title.trim()
   setArchiveColumn(column, archive)
   column.placement = { parentId: column.placement.parentId, rank: `${index}/1` }
-  column.deleted = false
+  column.archivedAt = null
   column.updatedAt = nowIso
 }
 
 function createColumn(id: string, boardId: string, title: string, archive: boolean, index: number, nowIso: string): Column {
-  const column: Column = { id, kind: "column", title: title.trim(), displayHint: archive ? "collapsed" : "normal", placement: { parentId: boardId, rank: `${index}/1` }, deleted: false, createdAt: nowIso, updatedAt: nowIso }
+  const column: Column = { id, kind: "column", title: title.trim(), displayHint: archive ? "collapsed" : "normal", placement: { parentId: boardId, rank: `${index}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso }
   if (archive) column.archive = true
   return column
 }
@@ -90,7 +90,7 @@ function applyFields(draft: WorkspaceDocumentV2, boardId: string, schema: BoardS
     const id = field.id || `field-${crypto.randomUUID()}`
     ids.add(id)
     const target = fieldTarget(draft, id, boardId, field, index, nowIso)
-    applyFieldConstraints(target, field)
+    applyFieldConstraints(target, field, nowIso)
     changedIds.push(id)
   })
   markRemoved(existing, ids, nowIso, changedIds)
@@ -103,7 +103,7 @@ function fieldTarget(draft: WorkspaceDocumentV2, id: string, boardId: string, fi
     existing.title = field.title.trim()
     existing.required = field.required
     existing.placement = { parentId: boardId, rank: `${index}/1` }
-    existing.deleted = false
+    existing.archivedAt = null
     existing.updatedAt = nowIso
     return existing
   }
@@ -127,7 +127,7 @@ function createFieldDefinition(
     title: field.title.trim(),
     required: field.required,
     placement: { parentId: boardId, rank: `${index}/1` },
-    deleted: false,
+    archivedAt: null,
     createdAt: nowIso,
     updatedAt: nowIso,
   }
@@ -138,7 +138,7 @@ function createFieldDefinition(
   return { ...base, valueType: field.valueType }
 }
 
-function applyFieldConstraints(target: FieldDefinition, field: BoardSchemaDraft["fields"][number]) {
+function applyFieldConstraints(target: FieldDefinition, field: BoardSchemaDraft["fields"][number], nowIso: string) {
   if (target.valueType === "number" && field.valueType === "number") {
     target.min = field.min ?? null
     target.max = field.max ?? null
@@ -149,17 +149,17 @@ function applyFieldConstraints(target: FieldDefinition, field: BoardSchemaDraft[
     ;(field.options ?? []).forEach((option, index) => {
       const id = option.id || `opt-${crypto.randomUUID()}`
       optionIds.add(id)
-      target.options[id] = { id, title: option.title.trim(), rank: `${index}/1`, deleted: false }
+      target.options[id] = { id, title: option.title.trim(), rank: `${index}/1`, archivedAt: null }
     })
-    Object.entries(target.options).forEach(([id, option]) => { if (!optionIds.has(id)) option.deleted = true })
+    Object.entries(target.options).forEach(([id, option]) => { if (!optionIds.has(id)) option.archivedAt = nowIso })
     return
   }
 }
 
 function markRemoved(entities: Array<Column | FieldDefinition | DocumentTemplate | LegacyWritingTemplate>, ids: Set<string>, nowIso: string, changedIds: string[]) {
   entities.forEach(entity => {
-    if (!ids.has(entity.id) && !entity.deleted) {
-      entity.deleted = true
+    if (!ids.has(entity.id) && !entity.archivedAt) {
+      entity.archivedAt = nowIso
       entity.updatedAt = nowIso
       changedIds.push(entity.id)
     }
@@ -174,8 +174,8 @@ export function applyDocumentTemplates(draft: WorkspaceDocumentV2, templates: Ar
     ids.add(id)
     const entity = draft.entities[id]
     if (entity && (entity.kind === "document_template" || entity.kind === "template")) {
-      entity.title = template.title.trim(); entity.markdown = template.markdown; entity.placement = { parentId: null, rank: `${index + 1}/1` }; entity.deleted = false; entity.updatedAt = nowIso
-    } else draft.entities[id] = { id, kind: "document_template", title: template.title.trim(), markdown: template.markdown, placement: { parentId: null, rank: `${index + 1}/1` }, deleted: false, createdAt: nowIso, updatedAt: nowIso }
+      entity.title = template.title.trim(); entity.markdown = template.markdown; entity.placement = { parentId: null, rank: `${index + 1}/1` }; entity.archivedAt = null; entity.updatedAt = nowIso
+    } else draft.entities[id] = { id, kind: "document_template", title: template.title.trim(), markdown: template.markdown, placement: { parentId: null, rank: `${index + 1}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso }
     changedIds.push(id)
   })
   markRemoved(existing, ids, nowIso, changedIds)

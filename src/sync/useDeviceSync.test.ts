@@ -12,10 +12,10 @@ const waitFor = async (predicate: () => boolean) => {
 }
 
 describe("device sync errors", () => {
-  it("explains a deleted local copy without blaming another open tab", () => {
-    const cause = "Workspace issues: Workspace was deleted in another tab"
+  it("explains a archived local copy without blaming another open tab", () => {
+    const cause = "Workspace issues: Workspace was archived in another tab"
     expect(userMessage(new Error(cause), "Try again.")).toBe(
-      `This board was deleted on this device. Rejoining cannot restore that local copy yet. Use a new board or a fresh browser profile. Details: ${cause}`,
+      `This board was archived on this device. Rejoining cannot restore that local copy yet. Use a new board or a fresh browser profile. Details: ${cause}`,
     )
   })
 

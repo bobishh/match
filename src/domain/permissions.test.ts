@@ -30,7 +30,7 @@ describe("workspace policy", () => {
     const column = Object.values(before.entities).find(entity => entity.kind === "column")!
     before.entities.item = {
       id: "item", title: "Item", body: "", placement: { parentId: column.id, rank: "0/1" },
-      deleted: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", values: {},
+      archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", values: {},
     }
 
     const renamed = structuredClone(before)

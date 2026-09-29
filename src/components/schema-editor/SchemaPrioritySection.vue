@@ -30,7 +30,7 @@ function optionsForRule(fieldId: string) {
   const field = fieldForRule(fieldId);
   if (!field || field.valueType !== "select") return [];
   return Object.values(field.options)
-    .filter((option) => !option.deleted)
+    .filter((option) => !option.archivedAt)
     .map((option) => ({ id: option.id, title: option.title }));
 }
 
@@ -78,7 +78,7 @@ function resetRule(index: number) {
 function defaultRuleValue(field: FieldDefinition): boolean | number | string {
   if (field.valueType === "select") {
     return (
-      Object.values(field.options).find((option) => !option.deleted)?.id ?? ""
+      Object.values(field.options).find((option) => !option.archivedAt)?.id ?? ""
     );
   }
   if (field.valueType === "boolean") return true;

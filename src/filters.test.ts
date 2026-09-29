@@ -3,7 +3,7 @@ import { defaultBoardFilters, matchesItemFilters } from "./filters"
 import type { Item } from "./domain/model"
 
 const item: Item = {
-  id: "item-1", title: "Dune", body: "", deleted: false,
+  id: "item-1", title: "Dune", body: "", archivedAt: null,
   placement: { parentId: "todo", rank: "0/1" }, createdAt: "2026-09-08", updatedAt: "2026-09-08",
   values: { genre: "sci-fi", score: 9, read: true, due: "2026-09-30" },
 }

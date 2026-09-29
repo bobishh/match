@@ -33,7 +33,7 @@ function useBoardPresentation(core: AppBoardContext) {
     const bindings = match.activeBoard.value?.preset?.bindings
     return bindings ? (Object.entries(bindings).find(([, id]) => id === columnId)?.[0].replace("status.", "") as LeadStatus | undefined) ?? null : null
   }
-  const itemFormColumns = computed(() => match.genericColumns.value.map(column => ({ ...column, formValue: match.isBlankBoard.value ? column.id : columnStatus(column.id) ?? column.id })))
+  const itemFormColumns = computed(() => match.genericColumns.value.filter(column => !isArchiveColumn(column)).map(column => ({ ...column, formValue: match.isBlankBoard.value ? column.id : columnStatus(column.id) ?? column.id })))
   const itemFormParentValue = computed(() => match.isBlankBoard.value ? itemFormParentId.value : columnStatus(itemFormParentId.value) ?? itemFormParentId.value)
   const computedItemFieldIds = computed(() => {
     const policy = match.activeBoard.value?.priorityPolicy
@@ -68,7 +68,7 @@ function cardFieldValues(item: Item, fields: ReturnType<typeof useAppCore>["matc
   const summaryFields = lead ? ["company", "role", "priority", "location", "fitScore"].map(name => bindings[`field.${name}`]) : []
   return fields.flatMap(field => {
     const value = item.values[field.id]
-    if (field.deleted || summaryFields.includes(field.id) || value === null || value === undefined || value === "") return []
+    if (field.archivedAt || summaryFields.includes(field.id) || value === null || value === undefined || value === "") return []
     const label = field.valueType === "select" ? field.options[String(value)]?.title : typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)
     return label ? [{ id: field.id, title: field.title, value: label }] : []
   })
@@ -175,13 +175,19 @@ function moveSortableCard(event: Sortable.SortableEvent, board: HTMLElement, cor
   const cards = [...target.querySelectorAll<HTMLElement>(":scope > .lead-card[data-item-id]")]
   const beforeId = cards[cards.findIndex(card => card.dataset.itemId === itemId) + 1]?.dataset.itemId ?? null
   const sourceColumn = core.match.genericColumns.value.find(column => column.id === event.from.dataset.columnId)
-  const sourceIndex = sourceColumn?.items.findIndex(candidate => candidate.id === itemId) ?? -1
-  const sourceBeforeId = sourceIndex >= 0 ? sourceColumn?.items[sourceIndex + 1]?.id ?? null : null
   const archiveTarget = core.match.genericColumns.value.find(column => column.id === parentId)
-  void core.match.executeCommandAsync({ kind: "moveEntity", entityId: itemId, parentId, beforeId }).then(() => {
+  const targetIsArchive = Boolean(archiveTarget && isArchiveColumn(archiveTarget))
+  const sourceItem = core.match.getActiveDoc()?.entities[itemId]
+  if (targetIsArchive && sourceItem && isItem(sourceItem) && sourceItem.archivedAt) { core.boardRenderKey.value += 1; return }
+  const command = targetIsArchive
+    ? { kind: "setEntityArchived" as const, entityId: itemId, archived: true }
+    : sourceItem && isItem(sourceItem) && sourceItem.archivedAt
+      ? { kind: "restoreAndMove" as const, entityId: itemId, parentId, beforeId }
+      : { kind: "moveEntity" as const, entityId: itemId, parentId, beforeId }
+  void core.match.executeCommandAsync(command).then(() => {
     presentation.highlightMoved(itemId, "item")
-    if (archiveTarget && isArchiveColumn(archiveTarget) && sourceColumn) {
-      core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId, title: item.querySelector(".card-open-button")?.getAttribute("aria-label")?.replace(/^Open /, "") || "item", action: "move", parentId: sourceColumn.id, beforeId: sourceBeforeId }
+    if (targetIsArchive && sourceColumn) {
+      core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId, title: item.querySelector(".card-open-button")?.getAttribute("aria-label")?.replace(/^Open /, "") || "item" }
       core.notice.value = "Item archived"
     } else core.notice.value = "Item moved"
   }).catch(error => { core.notice.value = `Move failed: ${error.message}`; core.boardRenderKey.value += 1 })
@@ -223,11 +229,11 @@ function readItem(core: AppBoardContext, id: string) {
 
 function readSubitems(core: AppBoardContext, parentId: string) {
   const doc = core.match.getActiveDoc()
-  return doc ? Object.values(doc.entities).filter((entity): entity is Item => isItem(entity) && entity.placement.parentId === parentId && !entity.deleted) : []
+  return doc ? Object.values(doc.entities).filter((entity): entity is Item => isItem(entity) && entity.placement.parentId === parentId && !entity.archivedAt) : []
 }
 
 function itemParents(core: AppBoardContext) {
   const current = core.itemToMove.value
   const doc = core.match.getActiveDoc()
-  return current && doc ? Object.values(doc.entities).filter((entity): entity is Item => isItem(entity) && entity.id !== current.id && !entity.deleted).map(item => ({ id: item.id, title: item.title })) : []
+  return current && doc ? Object.values(doc.entities).filter((entity): entity is Item => isItem(entity) && entity.id !== current.id && !entity.archivedAt).map(item => ({ id: item.id, title: item.title })) : []
 }

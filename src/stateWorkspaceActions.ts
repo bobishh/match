@@ -9,6 +9,7 @@ import { recordGenesisAuthority, workspaceRole } from "./sync/changeAuthorizatio
 import { defaultStorage, type WorkspaceStorage } from "./storage";
 import {
   commitAndPersist,
+  migrateWorkspaceArchive,
   persistAuthorizedCommand,
   refreshAvailableWorkspaces,
   updateReactiveState,
@@ -23,7 +24,8 @@ export function createWorkspaceActions() {
     switchWorkspace,
     getWorkspaceRole,
     renameWorkspaceAsync,
-    deleteWorkspaceAsync,
+    archiveWorkspaceAsync,
+    restoreWorkspaceAsync,
   };
 }
 
@@ -78,7 +80,8 @@ export async function switchWorkspace(
 ): Promise<void> {
   const loaded = await storage.loadWorkspaceDoc(workspaceId);
   if (!loaded) return;
-  const doc = loaded.doc;
+  const doc = await migrateWorkspaceArchive(loaded.doc, await requireProfile(), storage);
+  if (doc.archivedAt) return;
   await saveActiveWorkspaceId(workspaceId);
   updateReactiveState(doc);
 }
@@ -129,24 +132,29 @@ async function renameInactiveWorkspace(
   );
 }
 
-async function deleteWorkspaceAsync(
+async function archiveWorkspaceAsync(
   workspaceId: string,
   storage = defaultStorage,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2> | undefined> {
   const wasActive = stateRuntime.activeDoc?.id === workspaceId;
-  await storage.deleteWorkspace(workspaceId);
-  const root = await storage.loadPersonalRoot();
-  if (root?.workspaces[workspaceId]) {
-    delete root.workspaces[workspaceId];
-    await storage.savePersonalRoot(root);
+  if (wasActive) await commitAndPersist({ kind: "setWorkspaceArchived", archived: true }, storage);
+  else {
+    const loaded = await storage.loadWorkspaceDoc(workspaceId);
+    if (!loaded) throw new Error("Workspace not found");
+    await persistAuthorizedCommand(loaded.doc, { kind: "setWorkspaceArchived", archived: true }, await requireProfile(), storage);
   }
   await refreshAvailableWorkspaces(storage);
-  stateRuntime.availableWorkspaces.value =
-    stateRuntime.availableWorkspaces.value.filter(
-      (workspace) => workspace.id !== workspaceId,
-    );
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });
   if (wasActive) return selectWorkspaceReplacement(storage);
+}
+
+async function restoreWorkspaceAsync(workspaceId: string, storage = defaultStorage): Promise<void> {
+  const loaded = await storage.loadWorkspaceDoc(workspaceId);
+  if (!loaded) throw new Error("Workspace not found");
+  const doc = await migrateWorkspaceArchive(loaded.doc, await requireProfile(), storage);
+  await persistAuthorizedCommand(doc, { kind: "setWorkspaceArchived", archived: false }, await requireProfile(), storage);
+  await refreshAvailableWorkspaces(storage);
+  stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });
 }
 
 async function selectWorkspaceReplacement(

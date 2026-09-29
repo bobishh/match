@@ -5,10 +5,12 @@ import type { CommandContext, CommandHandler, PreparedCommand } from "./commandH
 import * as basic from "./commandBasicHandlers"
 import * as content from "./commandContentHandlers"
 import * as schema from "./commandSchemaHandlers"
+import { migrateArchivedAt } from "./archiveMigration"
 
 const handlers = {
+  migrateArchivedAt,
   createWorkspace: basic.createWorkspace,
-  setWorkspaceDeleted: basic.setWorkspaceDeleted,
+  setWorkspaceArchived: basic.setWorkspaceArchived,
   renameWorkspace: basic.renameWorkspace,
   createBoard: basic.createBoard,
   createItem: basic.createItem,
@@ -18,7 +20,7 @@ const handlers = {
   moveEntity: basic.moveEntity,
   restoreAndMove: basic.restoreAndMove,
   renameEntity: basic.renameEntity,
-  setEntityDeleted: basic.setEntityDeleted,
+  setEntityArchived: basic.setEntityArchived,
   createColumn: content.createColumn,
   createField: content.createField,
   patchField: content.patchField,

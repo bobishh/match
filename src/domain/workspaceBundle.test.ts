@@ -96,7 +96,7 @@ function documentWithAttachment(): Automerge.Doc<WorkspaceDocumentV2> {
       kind: "document",
       title: "Attachment",
       placement: { parentId: "missing-item", rank: "1/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
       documentKind: "attachment",

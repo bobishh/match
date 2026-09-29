@@ -16,6 +16,7 @@ export function createMatchActions() {
     saveState: stateRuntime.saveState,
     ...derived,
     availableWorkspaces: stateRuntime.availableWorkspaces,
+    archivedWorkspaces: stateRuntime.archivedWorkspaces,
     activeWorkspace: stateRuntime.activeWorkspaceMeta,
     docVersion: stateRuntime.docVersion,
     ...createWorkspaceActions(),

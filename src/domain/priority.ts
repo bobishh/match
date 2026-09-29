@@ -69,7 +69,7 @@ export function createDefaultPriorityPolicy(board: Board, fields: FieldDefinitio
   const priority = fields.find(field => field.id === priorityFieldId && field.valueType === "select")
   if (!priority || priority.valueType !== "select") return null
   const byTitle = new Map(Object.values(priority.options)
-    .filter(option => !option.deleted)
+    .filter(option => !option.archivedAt)
     .sort((a, b) => compareRanks(a.rank, b.rank))
     .map(option => [option.title.toLowerCase(), option.id]))
   const bands = [["p0", 8], ["p1", 6], ["p2", 3], ["p3", 0]].flatMap(([name, minScore]) => {
@@ -98,15 +98,15 @@ export function validatePriorityPolicy(
 function validatePriorityOutputs(policy: PriorityPolicy, doc: WorkspaceDocumentV2 | undefined, boardId: string, errors: Array<{ path: string; message: string }>): void {
   if (!doc) return
   const priority = doc.entities[policy.priorityFieldId]
-  if (!priority || priority.kind !== "field" || priority.deleted || priority.valueType !== "select" || priority.placement.parentId !== boardId) {
+  if (!priority || priority.kind !== "field" || priority.archivedAt || priority.valueType !== "select" || priority.placement.parentId !== boardId) {
     errors.push({ path: "/priorityPolicy/priorityFieldId", message: "Priority output must be an active select field" })
   } else policy.bands.forEach((band, index) => {
     const option = priority.options[band.optionId]
-    if (!option || option.deleted) errors.push({ path: `/priorityPolicy/bands/${index}/optionId`, message: "Priority band must target an active option" })
+    if (!option || option.archivedAt) errors.push({ path: `/priorityPolicy/bands/${index}/optionId`, message: "Priority band must target an active option" })
   })
   if (!policy.fitFieldId) return
   const fit = doc.entities[policy.fitFieldId]
-  if (!fit || fit.kind !== "field" || fit.deleted || fit.valueType !== "number" || fit.placement.parentId !== boardId) errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output must be an active number field" })
+  if (!fit || fit.kind !== "field" || fit.archivedAt || fit.valueType !== "number" || fit.placement.parentId !== boardId) errors.push({ path: "/priorityPolicy/fitFieldId", message: "Fit output must be an active number field" })
 }
 
 function validatePriorityBands(policy: PriorityPolicy, errors: Array<{ path: string; message: string }>): void {
@@ -130,7 +130,7 @@ function validatePriorityRule(rule: PriorityRule, index: number, ids: Set<string
     return
   }
   const field = doc.entities[rule.fieldId]
-  if (!field || field.kind !== "field" || field.deleted || field.placement.parentId !== boardId) {
+  if (!field || field.kind !== "field" || field.archivedAt || field.placement.parentId !== boardId) {
     errors.push({ path: `/priorityPolicy/rules/${index}/fieldId`, message: "Rule field must be active on this board" })
     return
   }
@@ -141,7 +141,7 @@ function validateRuleOperator(rule: PriorityRule, field: FieldDefinition, index:
   const base = `/priorityPolicy/rules/${index}`
   if ((rule.operator === "at_least" || rule.operator === "at_most") && field.valueType !== "number") errors.push({ path: `${base}/operator`, message: "Numeric comparison requires a number field" })
   if (rule.operator === "contains" && field.valueType !== "text" && field.valueType !== "url") errors.push({ path: `${base}/operator`, message: "Contains requires a text or URL field" })
-  if (field.valueType === "select" && rule.operator === "equals" && (!field.options[String(rule.value)] || field.options[String(rule.value)].deleted)) errors.push({ path: `${base}/value`, message: "Rule value must be an active option" })
+  if (field.valueType === "select" && rule.operator === "equals" && (!field.options[String(rule.value)] || field.options[String(rule.value)].archivedAt)) errors.push({ path: `${base}/value`, message: "Rule value must be an active option" })
   if (rule.operator === "equals" && !matchesFieldValue(field.valueType, rule.value)) errors.push({ path: `${base}/value`, message: "Rule value must match the field type" })
 }
 

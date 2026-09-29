@@ -5,7 +5,7 @@ import type { Item } from "./model"
 
 const item = (lastActivityAt?: string): Item => ({
   id: "card", title: "Card", body: "", values: {}, placement: { parentId: "column", rank: "0/1" },
-  deleted: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-03-01T00:00:00.000Z", ...(lastActivityAt ? { lastActivityAt } : {}),
+  archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-03-01T00:00:00.000Z", ...(lastActivityAt ? { lastActivityAt } : {}),
 })
 
 describe("card aging", () => {

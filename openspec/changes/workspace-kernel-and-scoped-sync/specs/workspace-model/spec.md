@@ -39,7 +39,7 @@ The system SHALL allocate UUIDv4 IDs for new mutable content, transactions, and 
 
 ### Requirement: Soft deletion preserves relationships
 
-The system SHALL retain mutable records and links on delete, toggle only the target's `deleted` flag, and compute inherited visibility through containment. It SHALL provide explicit restore and restore-with-move operations. It SHALL distinguish a live Archive column from Trash.
+The system SHALL retain mutable records and links when their `deleted` flag changes, and compute inherited visibility through containment. For items, `deleted: true` SHALL mean archived. It SHALL provide explicit restore and restore-with-move operations. An Archive column SHALL project archived items from its board.
 
 #### Scenario: Delete and restore a populated column
 

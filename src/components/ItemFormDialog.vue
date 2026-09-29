@@ -41,7 +41,7 @@ const showSaving = useDelayedFlag(() => Boolean(props.saving))
 
 function invalidFieldMessage(): string | undefined {
   for (const field of props.fields) {
-    if (field.deleted || props.hiddenFieldIds?.includes(field.id)) continue
+    if (field.archivedAt || props.hiddenFieldIds?.includes(field.id)) continue
     const value = values[field.id]
     const selected = field.valueType === "select" && typeof value === "string"
       ? Object.values(field.options).find(option => props.optionValues?.[option.id] === value)
@@ -113,7 +113,7 @@ function handleSave() {
           <p v-if="computedFieldsMessage" class="wide computed-priority-note">{{ computedFieldsMessage }}</p>
 
           <template v-for="field in fields" :key="field.id">
-            <label v-if="!field.deleted && !hiddenFieldIds?.includes(field.id)">
+            <label v-if="!field.archivedAt && !hiddenFieldIds?.includes(field.id)">
               <span>{{ field.title }}{{ field.required ? " *" : "" }}</span>
               <input
                 v-if="field.valueType === 'text' || field.valueType === 'url'"
@@ -153,7 +153,7 @@ function handleSave() {
               >
                 <option value="">Select option</option>
                 <option
-                  v-for="opt in Object.values(field.options || {}).filter(o => !o.deleted)"
+                  v-for="opt in Object.values(field.options || {}).filter(o => !o.archivedAt)"
                   :key="opt.id"
                   :value="optionValues?.[opt.id] ?? opt.id"
                 >

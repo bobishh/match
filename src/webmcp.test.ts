@@ -55,8 +55,8 @@ describe("generic WebMCP tools", () => {
     expect(registeredTools.has("patch_item")).toBe(true)
     expect(registeredTools.has("move_entity")).toBe(true)
     expect(registeredTools.has("rename_entity")).toBe(true)
-    expect(registeredTools.has("set_entity_deleted")).toBe(true)
-    expect(registeredTools.has("list_trash")).toBe(true)
+    expect(registeredTools.has("set_item_archived")).toBe(true)
+    expect(registeredTools.has("list_archived_items")).toBe(true)
     expect(registeredTools.has("list_placement_issues")).toBe(true)
     expect(registeredTools.has("get_workspace_settings")).toBe(true)
     expect(registeredTools.has("apply_workspace_settings")).toBe(true)
@@ -204,7 +204,7 @@ describe("generic WebMCP tools", () => {
     expect(match.getActiveDoc()!.entities[itemId].placement.parentId).toBe(col2.id)
   })
 
-  it("executes set_entity_deleted and reflects in list_trash", async () => {
+  it("archives an item and lists it through the same archive state", async () => {
     await registerWebMcp({
       getActiveDoc: match.getActiveDoc,
       executeCommandAsync: match.executeCommandAsync,
@@ -216,17 +216,17 @@ describe("generic WebMCP tools", () => {
     const doc = match.getActiveDoc()!
     const col = Object.values(doc.entities).find((e) => e.kind === "column")!
     const createItem = registeredTools.get("create_item")
-    const setDeleted = registeredTools.get("set_entity_deleted")
-    const listTrash = registeredTools.get("list_trash")
+    const setArchived = registeredTools.get("set_item_archived")
+    const listArchived = registeredTools.get("list_archived_items")
 
-    const res = await createItem.execute({ parentId: col.id, title: "To Delete" })
+    const res = await createItem.execute({ parentId: col.id, title: "To Archive" })
     const itemId = res.id
 
-    await setDeleted.execute({ entityId: itemId, deleted: true })
-    expect(match.getActiveDoc()!.entities[itemId].deleted).toBe(true)
+    await setArchived.execute({ itemId, archived: true })
+    expect(match.getActiveDoc()!.entities[itemId].archivedAt).toEqual(expect.any(String))
 
-    const trash = await listTrash.execute({})
-    expect(trash.some((item: any) => item.id === itemId)).toBe(true)
+    const archived = await listArchived.execute({})
+    expect(archived.some((item: any) => item.id === itemId)).toBe(true)
   })
 
 })

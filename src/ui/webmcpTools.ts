@@ -1,6 +1,7 @@
 import { registerUtilityTools } from "./webmcpUtilityTools"
 import * as Automerge from "@automerge/automerge/slim"
-import { entityKind, isItem, type Item, type Board, type FieldValue } from "../domain/model"
+import { isItem, type Item, type Board, type FieldValue } from "../domain/model"
+import { archivedItemsForBoard } from "../domain/archive"
 import { isEntityVisible } from "../domain/ancestry"
 import { projectWorkspaceSettings } from "../domain/workspaceSettings"
 import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
@@ -203,7 +204,7 @@ async function registerReadTools(store: ToolStore, register: RegisterTool): Prom
   await register({
     name: "apply_workspace_settings",
     title: "Apply workspace settings",
-    description: "Validate and apply the complete workspace configuration in one conflict-safe CRDT transaction. Omitted columns, fields, and document templates are soft-deleted.",
+    description: "Validate and apply the complete workspace configuration in one conflict-safe CRDT transaction. Omitted columns, fields, and document templates are soft-archived.",
     inputSchema: {
       type: "object",
       properties: {
@@ -236,7 +237,7 @@ async function registerReadTools(store: ToolStore, register: RegisterTool): Prom
   await register({
     name: "list_items",
     title: "List items",
-    description: "List visible non-deleted items in the active workspace. Supports filtering by parent column or search text.",
+    description: "List visible non-archived items in the active workspace. Supports filtering by parent column or search text.",
     inputSchema: {
       type: "object",
       properties: {
@@ -254,7 +255,7 @@ async function registerReadTools(store: ToolStore, register: RegisterTool): Prom
 
       const doc = store.getActiveDoc?.()
       if (!doc) return []
-      const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.deleted)
+      const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.archivedAt)
 
       return Object.values(doc.entities)
         .filter((e): e is Item => isItem(e) && isEntityVisible(doc.entities, e.id))
@@ -423,32 +424,33 @@ async function registerEntityTools(store: ToolStore, register: RegisterTool): Pr
   })
 
   await register({
-    name: "set_entity_deleted",
-    title: "Delete or restore entity",
-    description: "Soft-delete or restore an entity in the active workspace.",
+    name: "set_item_archived",
+    title: "Archive or restore item",
+    description: "Set archived state of an item in the active workspace.",
     inputSchema: {
       type: "object",
       properties: {
-        entityId: { type: "string" },
-        deleted: { type: "boolean" },
+        itemId: { type: "string" },
+        archived: { type: "boolean" },
       },
-      required: ["entityId", "deleted"],
+      required: ["itemId", "archived"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false },
     async execute(input) {
       const value = objectInput(input)
-      noUnknown(value, ["entityId", "deleted"])
-      const entityId = requiredString(value, "entityId")
-      if (typeof value.deleted !== "boolean") throw new Error("deleted must be a boolean")
+      noUnknown(value, ["itemId", "archived"])
+      const itemId = requiredString(value, "itemId")
+      if (typeof value.archived !== "boolean") throw new Error("archived must be a boolean")
+      if (!isItem(store.getActiveDoc?.()?.entities[itemId])) throw new Error("Item not found")
 
       if (store.executeCommandAsync) {
         await store.executeCommandAsync({
-          kind: "setEntityDeleted",
-          entityId,
-          deleted: value.deleted,
+          kind: "setEntityArchived",
+          entityId: itemId,
+          archived: value.archived,
         })
-        return { updated: true, entityId, deleted: value.deleted }
+        return { updated: true, itemId, archived: value.archived }
       }
       throw new Error("Command execution not supported by store")
     },
@@ -460,32 +462,22 @@ async function registerRecoveryTools(store: ToolStore, register: RegisterTool): 
   await registerRelocationTool(store, register, {
     name: "restore_and_move",
     title: "Restore and move entity",
-    description: "Restore a deleted entity and reassign it to a valid live parent in one transaction.",
+    description: "Restore a archived entity and reassign it to a valid live parent in one transaction.",
     kind: "restoreAndMove",
     resultKey: "restored",
   })
 
   await register({
-    name: "list_trash",
-    title: "List trash",
-    description: "List all soft-deleted entities in the active workspace.",
+    name: "list_archived_items",
+    title: "List archived items",
+    description: "List archived items on the active board, including when its Archive column is hidden.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true },
     execute() {
-      if (store.trashItems) {
-        const list = Array.isArray(store.trashItems) ? store.trashItems : store.trashItems.value ?? []
-        return list.map((entry) => ({
-          id: entry.entity?.id ?? entry.id,
-          title: entry.entity?.title ?? entry.title,
-          kind: entry.entity ? entityKind(entry.entity) : "unknown",
-          parentTitle: entry.parentTitle,
-        }))
-      }
       const doc = store.getActiveDoc?.()
       if (!doc) return []
-      return Object.values(doc.entities)
-        .filter((e) => e.deleted)
-        .map((e) => ({ id: e.id, title: e.title, kind: entityKind(e) }))
+      const board = Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.archivedAt)
+      return board ? archivedItemsForBoard(doc, board.id).map(item => ({ id: item.id, title: item.title })) : []
     },
   })
 

@@ -367,23 +367,23 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(updatedItem.values[fieldId]).toBe("2026-09-12T03:30:00Z")
   })
 
-  it("handles setWorkspaceDeleted to soft-delete and restore workspace", async () => {
+  it("records workspace archive time and clears it on restore", async () => {
     const queue = createCommandQueue(initialDoc, profile)
-    expect(queue.getDocument().deleted).toBe(false)
+    expect(queue.getDocument().archivedAt).toBeNull()
 
     const deleteRes = await queue.transact({
-      kind: "setWorkspaceDeleted",
-      deleted: true,
+      kind: "setWorkspaceArchived",
+      archived: true,
     })
     expect(deleteRes.ok).toBe(true)
-    expect(queue.getDocument().deleted).toBe(true)
+    expect(queue.getDocument().archivedAt).toEqual(expect.any(String))
 
     const restoreRes = await queue.transact({
-      kind: "setWorkspaceDeleted",
-      deleted: false,
+      kind: "setWorkspaceArchived",
+      archived: false,
     })
     expect(restoreRes.ok).toBe(true)
-    expect(queue.getDocument().deleted).toBe(false)
+    expect(queue.getDocument().archivedAt).toBeNull()
   })
 
   it("handles createBoard by adding a new board entity", async () => {
@@ -399,7 +399,23 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const createdBoard = queue.getDocument().entities[boardId] as any
     expect(createdBoard.kind).toBe("board")
     expect(createdBoard.title).toBe("Secondary Board")
-    expect(createdBoard.deleted).toBe(false)
+    expect(createdBoard.archivedAt).toBeNull()
+  })
+
+  it("allows one archive column per board through createColumn", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const firstBoard = Object.values(initialDoc.entities).find(entity => entity.kind === "board")!
+    const existing = await queue.transact({ kind: "createColumn", boardId: firstBoard.id, title: "Another archive", archive: true })
+    expect(existing).toMatchObject({ ok: false, error: { code: "invalid_input", field: "archive" } })
+
+    const board = await queue.transact({ kind: "createBoard", title: "Second", preset: "blank" })
+    expect(board.ok).toBe(true)
+    if (!board.ok) return
+    const boardId = board.value.receipt.changedEntityIds[0]
+    const created = await queue.transact({ kind: "createColumn", boardId, title: "Archive", archive: true })
+    expect(created.ok).toBe(true)
+    expect(await queue.transact({ kind: "createColumn", boardId, title: "Duplicate", archive: true }))
+      .toMatchObject({ ok: false, error: { code: "invalid_input", field: "archive" } })
   })
 
   it("rejects createWorkspace on existing workspace document", async () => {

@@ -10,7 +10,7 @@ export function validateFieldValue(
   allowDeprecatedOptions = false
 ): { valid: boolean; issue?: string } {
   if (value === undefined || value === null || value === "") {
-    if (field.required && !field.deleted) {
+    if (field.required && !field.archivedAt) {
       return { valid: false, issue: `${field.title} is required` }
     }
     return { valid: true }
@@ -43,7 +43,7 @@ function validateSelect(field: Extract<FieldDefinition, { valueType: "select" }>
   if (typeof value !== "string") return invalid(`${field.title} must be an option ID`)
   const option = field.options[value]
   if (!option) return invalid(`${field.title} has an invalid option selected`)
-  return option.deleted && !allowDeprecated ? invalid(`${field.title} option "${option.title}" is no longer available`) : valid()
+  return option.archivedAt && !allowDeprecated ? invalid(`${field.title} option "${option.title}" is no longer available`) : valid()
 }
 
 export function validateItemValues(
@@ -83,7 +83,7 @@ export function resolveSelectDisplay(
   if (!option) {
     return { label: `Unknown (${optionId})`, unavailable: true }
   }
-  if (option.deleted) {
+  if (option.archivedAt) {
     return { label: option.title, unavailable: true }
   }
   return { label: option.title, unavailable: false }

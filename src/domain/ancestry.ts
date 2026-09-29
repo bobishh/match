@@ -202,16 +202,16 @@ export function isEntityVisible(
 ): boolean {
   if (workspaceDeleted) return false
   const entity = entities[entityId]
-  if (!entity || entity.deleted) return false
+  if (!entity || entity.archivedAt) return false
 
   const { issue } = getAncestryPath(entities, entityId)
   if (issue) return false
 
-  // Verify no ancestor is deleted
+  // Verify no ancestor is archived
   let curr: WorkspaceEntity | undefined = entity
   while (curr && curr.placement.parentId !== null) {
     curr = entities[curr.placement.parentId]
-    if (!curr || curr.deleted) return false
+    if (!curr || curr.archivedAt) return false
   }
 
   return true

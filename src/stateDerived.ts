@@ -12,6 +12,7 @@ import {
   type Item,
 } from "./domain/model";
 import { projectItemPriority } from "./domain/priority";
+import { archivedItemsForBoard, isArchiveColumn } from "./domain/archive";
 import { stateRuntime } from "./stateContext";
 import { statusOrder } from "./types";
 
@@ -40,7 +41,6 @@ export function createStateDerived() {
     projectGenericColumns(activeBoard.value),
   );
   const boardFields = computed(() => projectBoardFields(activeBoard.value));
-  const trashItems = computed(() => projectTrashItems());
   const placementIssues = computed(() => projectPlacementIssues());
 
   return {
@@ -49,7 +49,6 @@ export function createStateDerived() {
     isBlankBoard,
     genericColumns,
     boardFields,
-    trashItems,
     placementIssues,
   };
 }
@@ -58,18 +57,21 @@ function projectGenericColumns(board: Board | null) {
   void stateRuntime.docVersion.value;
   const doc = stateRuntime.activeDoc;
   if (!doc || !board) return [];
+  const archivedItems = archivedItemsForBoard(doc, board.id);
   return getChildren(doc.entities, board.id)
     .filter(
-      (entity): entity is Column => entity.kind === "column" && !entity.deleted,
+      (entity): entity is Column => entity.kind === "column" && !entity.archivedAt,
     )
     .map((column) => ({
       ...column,
-      items: getVisibleChildren(doc.entities, column.id)
-        .filter((entity): entity is Item => isItem(entity))
+      items: [
+        ...getVisibleChildren(doc.entities, column.id).filter((entity): entity is Item => isItem(entity)),
+        ...(isArchiveColumn(column) ? archivedItems : []),
+      ]
         .map((sourceItem) => ({
           ...projectItemPriority(board, sourceItem),
           subitems: getChildren(doc.entities, sourceItem.id).filter(
-            (entity): entity is Item => isItem(entity) && !entity.deleted,
+            (entity): entity is Item => isItem(entity) && !entity.archivedAt,
           ),
         })),
     }));
@@ -83,17 +85,8 @@ function projectBoardFields(board: Board | null): FieldDefinition[] {
     (entity): entity is FieldDefinition =>
       entity.kind === "field" &&
       entity.placement.parentId === board.id &&
-      !entity.deleted,
+      !entity.archivedAt,
   );
-}
-
-function projectTrashItems() {
-  void stateRuntime.docVersion.value;
-  return stateRuntime.activeDoc
-    ? Object.values(stateRuntime.activeDoc.entities).filter(
-        (entity) => entity.deleted,
-      )
-    : [];
 }
 
 function projectPlacementIssues() {

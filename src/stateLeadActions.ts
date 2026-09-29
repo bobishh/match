@@ -71,9 +71,9 @@ export function createLeadActions(
 
   async function deleteLeadAsync(leadId: string): Promise<void> {
     await commitAndPersist({
-      kind: "setEntityDeleted",
+      kind: "setEntityArchived",
       entityId: leadId,
-      deleted: true,
+      archived: true,
     });
   }
 }

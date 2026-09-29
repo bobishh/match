@@ -13,7 +13,7 @@ describe("Field validation and lifecycle (Requirement 1.5)", () => {
     kind: "field" as const,
     title: "Notes",
     placement: { parentId: "b_1", rank: "0/1" },
-    deleted: false,
+    archivedAt: null,
     createdAt: "2026-09-09T00:00:00Z",
     updatedAt: "2026-09-09T00:00:00Z",
   }
@@ -69,9 +69,9 @@ describe("Field validation and lifecycle (Requirement 1.5)", () => {
       required: true,
       valueType: "select",
       options: {
-        opt_remote: { id: "opt_remote", title: "Remote", rank: "0/1", deleted: false },
-        opt_onsite: { id: "opt_onsite", title: "Onsite", rank: "1/1", deleted: false },
-        opt_deprecated: { id: "opt_deprecated", title: "Deprecated", rank: "2/1", deleted: true },
+        opt_remote: { id: "opt_remote", title: "Remote", rank: "0/1", archivedAt: null },
+        opt_onsite: { id: "opt_onsite", title: "Onsite", rank: "1/1", archivedAt: null },
+        opt_deprecated: { id: "opt_deprecated", title: "Deprecated", rank: "2/1", archivedAt: "2026-01-01T00:00:00.000Z" },
       },
     }
 
@@ -81,10 +81,10 @@ describe("Field validation and lifecycle (Requirement 1.5)", () => {
     // Option label instead of ID must fail
     expect(validateFieldValue(selectField, "Remote").valid).toBe(false)
 
-    // Newly selecting a soft-deleted option fails
+    // Newly selecting a soft-archived option fails
     expect(validateFieldValue(selectField, "opt_deprecated").valid).toBe(false)
 
-    // Display helper resolves label and indicates unavailable if deleted
+    // Display helper resolves label and indicates unavailable if archived
     const activeDisplay = resolveSelectDisplay(selectField, "opt_remote")
     expect(activeDisplay).toEqual({ label: "Remote", unavailable: false })
 
@@ -95,21 +95,21 @@ describe("Field validation and lifecycle (Requirement 1.5)", () => {
     expect(unknownDisplay).toEqual({ label: "Unknown (opt_missing)", unavailable: true })
   })
 
-  it("ensures soft-deleted required fields stop blocking item edits but preserve values", () => {
+  it("ensures soft-archived required fields stop blocking item edits but preserve values", () => {
     const reqField: FieldDefinition = {
       ...baseField,
       id: "f_req",
       required: true,
       valueType: "text",
-      deleted: false,
+      archivedAt: null,
     }
 
     // Initially fails when missing
     const res1 = validateItemValues([reqField], {})
     expect(res1.ok).toBe(false)
 
-    // Once field is soft-deleted, required validation stops blocking
-    const deletedReqField: FieldDefinition = { ...reqField, deleted: true }
+    // Once field is soft-archived, required validation stops blocking
+    const deletedReqField: FieldDefinition = { ...reqField, archivedAt: "2026-01-01T00:00:00.000Z" }
     const res2 = validateItemValues([deletedReqField], {})
     expect(res2.ok).toBe(true)
 

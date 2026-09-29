@@ -61,15 +61,15 @@ async function persistedLeadExists(page: Page, workspaceId: string, title: strin
   return page.evaluate(async ({ id, expectedTitle }) => {
     const { WorkspaceStorage } = await import("/src/storage.ts")
     const stored = await new WorkspaceStorage().loadWorkspaceDoc(id)
-    return Object.values(stored?.doc.entities ?? {}).some((entity: any) => !entity.deleted && entity.title === expectedTitle)
+    return Object.values(stored?.doc.entities ?? {}).some((entity: any) => !entity.archivedAt && entity.title === expectedTitle)
   }, { id: workspaceId, expectedTitle: title })
 }
 
 async function targetDocumentReceives(page: Page, title: string) {
   const records = await documentReceiveAttempts(page)
   return records.filter(record => {
-    const doc = Automerge.load<{ entities: Record<string, { deleted?: boolean; title?: string }> }>(new Uint8Array(record.document))
-    try { return Object.values(doc.entities).some(entity => !entity.deleted && entity.title === title) }
+    const doc = Automerge.load<{ entities: Record<string, { archived?: boolean; title?: string }> }>(new Uint8Array(record.document))
+    try { return Object.values(doc.entities).some(entity => !entity.archivedAt && entity.title === title) }
     finally { Automerge.free(doc) }
   })
 }

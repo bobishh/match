@@ -36,12 +36,12 @@ export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): B
 }
 
 function childEntities<T extends Column | FieldDefinition>(doc: WorkspaceDocumentV2, parentId: string, kind: T["kind"]): T[] {
-  return getChildren(doc.entities, parentId).filter((entity): entity is T => entity.kind === kind && !entity.deleted).sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
+  return getChildren(doc.entities, parentId).filter((entity): entity is T => entity.kind === kind && !entity.archivedAt).sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
 }
 function projectField(field: FieldDefinition): BoardSchemaField {
   const result: BoardSchemaField = { id: field.id, title: field.title, valueType: field.valueType, required: field.required }
   if (field.valueType === "number") Object.assign(result, { min: field.min, max: field.max })
-  if (field.valueType === "select") result.options = Object.values(field.options).filter(option => !option.deleted).sort((a, b) => compareRanks(a.rank, b.rank)).map(option => ({ id: option.id, title: option.title }))
+  if (field.valueType === "select") result.options = Object.values(field.options).filter(option => !option.archivedAt).sort((a, b) => compareRanks(a.rank, b.rank)).map(option => ({ id: option.id, title: option.title }))
   return result
 }
 
@@ -140,7 +140,7 @@ function diffColumns(current: BoardSchemaColumn[], draft: BoardSchemaColumn[], d
   const columnsSoftDeleted = current.flatMap(column => {
     if (!column.id || incoming.has(column.id)) return []
     const retainedItemCount = getChildren(doc.entities, column.id)
-      .filter(entity => isItem(entity) && !entity.deleted).length
+      .filter(entity => isItem(entity) && !entity.archivedAt).length
     return [{ id: column.id, title: column.title, retainedItemCount }]
   })
   return { columnsRenamed, columnsAdded, columnsSoftDeleted, columnsReordered: JSON.stringify(current.map(column => column.id).filter(Boolean)) !== JSON.stringify(draft.map(column => column.id).filter(Boolean)) }

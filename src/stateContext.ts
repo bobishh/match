@@ -17,6 +17,7 @@ export type StateRuntime = {
   saveState: Ref<"idle" | "saving" | "saved" | "error">;
   docVersion: Ref<number>;
   availableWorkspaces: Ref<WorkspaceSummary[]>;
+  archivedWorkspaces: Ref<WorkspaceSummary[]>;
   activeWorkspaceMeta: ActiveWorkspaceMeta;
   activeDoc: Automerge.Doc<WorkspaceDocumentV2> | null;
   currentProfile: LocalProfile | null;
@@ -43,6 +44,7 @@ export const stateRuntime: StateRuntime = {
   saveState: ref("idle"),
   docVersion: ref(0),
   availableWorkspaces: ref([]),
+  archivedWorkspaces: ref([]),
   activeWorkspaceMeta: reactive({
     id: "",
     title: "Untitled",

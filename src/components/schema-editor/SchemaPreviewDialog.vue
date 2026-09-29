@@ -58,14 +58,14 @@ const emit = defineEmits<{
           </ul>
         </section>
         <section v-if="diff.columnsSoftDeleted.length">
-          <h4 class="preview-danger">Soft-Deleted Columns</h4>
+          <h4 class="preview-danger">Soft-Archived Columns</h4>
           <ul>
             <li v-for="column in diff.columnsSoftDeleted" :key="column.id">
               Soft delete: Column "{{ column.title }}" ({{
                 column.retainedItemCount
               }}
               card{{ column.retainedItemCount === 1 ? "" : "s" }} will be
-              retained in trash)
+              retained for recovery)
             </li>
           </ul>
         </section>
@@ -86,7 +86,7 @@ const emit = defineEmits<{
           </ul>
         </section>
         <section v-if="diff.fieldsSoftDeleted.length">
-          <h4 class="preview-danger">Soft-Deleted Fields</h4>
+          <h4 class="preview-danger">Soft-Archived Fields</h4>
           <ul>
             <li v-for="field in diff.fieldsSoftDeleted" :key="field.id">
               Soft delete: Field "{{ field.title }}" (values will be retained)

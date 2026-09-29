@@ -10,7 +10,7 @@ import { applyRenumbering, computeInsertionRank, findRootBoardId } from "./comma
 
 export const createWorkspace: CommandHandler<"createWorkspace"> = () => err("invalid_input", "createWorkspace cannot be executed on an existing workspace document")
 
-export const setWorkspaceDeleted: CommandHandler<"setWorkspaceDeleted"> = (_doc, command) => ({ ok: true, value: { changedEntityIds: [], apply: draft => { draft.deleted = command.deleted } } })
+export const setWorkspaceArchived: CommandHandler<"setWorkspaceArchived"> = (_doc, command, context) => ({ ok: true, value: { changedEntityIds: [], apply: draft => { draft.archivedAt = command.archived ? context.nowIso : null } } })
 
 export const renameWorkspace: CommandHandler<"renameWorkspace"> = (_doc, command) => {
   if (!command.title.trim()) return err("invalid_input", "Workspace name is required", "title")
@@ -73,7 +73,7 @@ function validateValues(doc: Automerge.Doc<WorkspaceDocumentV2>, boardId: string
 
 function createItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"createItem">, id: string, values: Record<string, FieldValue>, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string) {
   applyRenumbering(draft, insertion.renumbered)
-  draft.entities[id] = { id, title: command.title.trim(), body: command.body ?? "", placement: { parentId: command.parentId, rank: insertion.rank }, deleted: false, createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso, values }
+  draft.entities[id] = { id, title: command.title.trim(), body: command.body ?? "", placement: { parentId: command.parentId, rank: insertion.rank }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso, values }
 }
 
 export const patchItem: CommandHandler<"patchItem"> = (doc, command, context) => {
@@ -123,7 +123,7 @@ export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, co
 
 function restoreItemInDraft(draft: WorkspaceDocumentV2, id: string, restored: Item, nowIso: string) {
   const item = draft.entities[id] as Item
-  item.title = restored.title; item.body = restored.body; item.values = restored.values; item.placement = restored.placement; item.deleted = restored.deleted; item.updatedAt = nowIso; item.lastActivityAt = nowIso
+  item.title = restored.title; item.body = restored.body; item.values = restored.values; item.placement = restored.placement; item.archivedAt = restored.archivedAt; item.updatedAt = nowIso; item.lastActivityAt = nowIso
 }
 
 export const moveEntity: CommandHandler<"moveEntity"> = (doc, command, context) => moveEntityResult(doc, command, context, false)
@@ -153,7 +153,7 @@ function moveEntityInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"m
   applyRenumbering(draft, insertion.renumbered)
   const entity = draft.entities[command.entityId]
   const movedToNewParent = entity.placement.parentId !== command.parentId
-  if (restore) entity.deleted = false
+  if (restore) entity.archivedAt = null
   entity.placement = { parentId: command.parentId, rank: insertion.rank }
   entity.updatedAt = nowIso
   if (isItem(entity) && movedToNewParent) entity.lastActivityAt = nowIso
@@ -165,7 +165,7 @@ export const renameEntity: CommandHandler<"renameEntity"> = (doc, command, conte
   return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => { draft.entities[command.entityId].title = command.title.trim(); draft.entities[command.entityId].updatedAt = context.nowIso } } }
 }
 
-export const setEntityDeleted: CommandHandler<"setEntityDeleted"> = (doc, command, context) => {
+export const setEntityArchived: CommandHandler<"setEntityArchived"> = (doc, command, context) => {
   if (!doc.entities[command.entityId]) return err("not_found", `Entity ${command.entityId} not found`)
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => { draft.entities[command.entityId].deleted = command.deleted; draft.entities[command.entityId].updatedAt = context.nowIso } } }
+  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => { draft.entities[command.entityId].archivedAt = command.archived ? context.nowIso : null; draft.entities[command.entityId].updatedAt = context.nowIso } } }
 }

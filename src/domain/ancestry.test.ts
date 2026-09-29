@@ -39,7 +39,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "item_a",
       title: "Item A",
       placement: { parentId: "col_1", rank: "1/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -49,7 +49,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "item_b",
       title: "Item B",
       placement: { parentId: "col_1", rank: "1/1" }, // same rank
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -71,7 +71,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       kind: "board",
       title: "Board",
       placement: { parentId: null, rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       preset: null,
@@ -82,7 +82,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       kind: "column",
       title: "Col",
       placement: { parentId: "board_1", rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       displayHint: "normal",
@@ -93,7 +93,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "item_a",
       title: "A",
       placement: { parentId: "item_b", rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -103,7 +103,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "item_b",
       title: "B",
       placement: { parentId: "item_a", rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -115,7 +115,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "item_orphan",
       title: "Orphan",
       placement: { parentId: "non_existent_id", rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -127,7 +127,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "item_bad_parent",
       title: "Bad Parent",
       placement: { parentId: "board_1", rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -156,13 +156,13 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
     expect(badParentIssue?.type).toBe("invalid-parent-kind")
   })
 
-  it("enforces inherited visibility: child is hidden if parent is deleted, and separately deleted child stays deleted on parent restore", () => {
+  it("enforces inherited visibility: child is hidden if parent is archived, and separately archived child stays archived on parent restore", () => {
     const board: Board = {
       id: "board_1",
       kind: "board",
       title: "Board",
       placement: { parentId: null, rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       preset: null,
@@ -173,7 +173,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       kind: "column",
       title: "Col",
       placement: { parentId: "board_1", rank: "0/1" },
-      deleted: true, // Column is deleted
+      archivedAt: "2026-01-01T00:00:00.000Z", // Column is archived
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       displayHint: "normal",
@@ -183,7 +183,7 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       id: "child_live",
       title: "Live Child",
       placement: { parentId: "col_1", rank: "0/1" },
-      deleted: false, // Child is NOT deleted, but parent column is deleted
+      archivedAt: null, // Child is NOT archived, but parent column is archived
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -192,9 +192,9 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
 
     const deletedChild: Item = {
       id: "child_deleted",
-      title: "Deleted Child",
+      title: "Archived Child",
       placement: { parentId: "col_1", rank: "1/1" },
-      deleted: true, // Child is separately deleted
+      archivedAt: "2026-01-01T00:00:00.000Z", // Child is separately archived
       createdAt: "2026-09-09T00:00:00Z",
       updatedAt: "2026-09-09T00:00:00Z",
       body: "",
@@ -208,15 +208,15 @@ describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)",
       [deletedChild.id]: deletedChild,
     }
 
-    // Because column is deleted, neither child is visible on board
+    // Because column is archived, neither child is visible on board
     expect(isEntityVisible(entities, "child_live")).toBe(false)
     expect(isEntityVisible(entities, "child_deleted")).toBe(false)
     expect(getVisibleChildren(entities, "col_1")).toHaveLength(0)
 
-    // When column is restored (col.deleted = false)
-    entities["col_1"] = { ...col, deleted: false }
+    // When column is restored (col.archivedAt = false)
+    entities["col_1"] = { ...col, archivedAt: null }
     expect(isEntityVisible(entities, "child_live")).toBe(true)
-    // Separately deleted child must STILL be not visible
+    // Separately archived child must STILL be not visible
     expect(isEntityVisible(entities, "child_deleted")).toBe(false)
 
     const visibleChildren = getVisibleChildren(entities, "col_1")

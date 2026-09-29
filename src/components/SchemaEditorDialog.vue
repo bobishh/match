@@ -90,7 +90,7 @@ const priorityPolicy = computed(
 const criterionFields = computed(() =>
   props.fields.filter(
     (field) =>
-      !field.deleted &&
+      !field.archivedAt &&
       field.id !== priorityPolicy.value?.priorityFieldId &&
       field.id !== priorityPolicy.value?.fitFieldId,
   ),
@@ -101,7 +101,7 @@ const priorityOptions = computed(() => {
   );
   if (!field || field.valueType !== "select") return [];
   return Object.values(field.options)
-    .filter((option) => !option.deleted)
+    .filter((option) => !option.archivedAt)
     .sort((left, right) => compareRanks(left.rank, right.rank))
     .map((option) => ({ id: option.id, title: option.title }));
 });
@@ -215,7 +215,7 @@ function defaultRuleOperator(field: FieldDefinition) {
 function defaultRuleValue(field: FieldDefinition): boolean | number | string {
   if (field.valueType === "select")
     return (
-      Object.values(field.options).find((option) => !option.deleted)?.id ?? ""
+      Object.values(field.options).find((option) => !option.archivedAt)?.id ?? ""
     );
   if (field.valueType === "boolean") return true;
   if (field.valueType === "number") return field.min ?? 0;

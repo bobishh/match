@@ -9,7 +9,7 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     expect(ws.id).toBe("ws_blank")
     expect(ws.title).toBe("Personal Items")
     expect(ws.ownerPersonId).toBe("person_123")
-    expect(ws.deleted).toBe(false)
+    expect(ws.archivedAt).toBeNull()
     expect(ws.migration).toBeNull()
 
     const validation = validateWorkspaceDoc(ws)

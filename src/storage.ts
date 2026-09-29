@@ -72,8 +72,7 @@ const memoryStore: InMemoryStore = {
 }
 
 const workspaceMetaPrefix = "match.workspace-meta."
-const workspaceDeletedPrefix = "match.workspace-deleted."
-type WorkspaceMeta = { id: string; title: string; updatedAt: string }
+type WorkspaceMeta = { id: string; title: string; updatedAt: string; archivedAt?: string | null }
 
 function parseStoredSnapshot(raw: string, workspaceId: string): StoredSnapshot | null {
   try {
@@ -110,7 +109,15 @@ export class WorkspaceStorage {
     this.inMemory = store
   }
 
-  async listWorkspaces(): Promise<{ id: string; title: string; updatedAt: string }[]> {
+  async listWorkspaces(): Promise<WorkspaceMeta[]> {
+    return (await this.workspaceRecords()).filter(record => !record.archivedAt)
+  }
+
+  async listArchivedWorkspaces(): Promise<WorkspaceMeta[]> {
+    return (await this.workspaceRecords()).filter(record => Boolean(record.archivedAt))
+  }
+
+  private async workspaceRecords(): Promise<WorkspaceMeta[]> {
     // Each workspace owns a separate key: saving one can never erase another.
     // Discover snapshots whose catalog record is missing.
     const records = new Map<string, WorkspaceMeta>()
@@ -130,7 +137,7 @@ export class WorkspaceStorage {
       try {
         const saved = JSON.parse((await getStorageRaw(key))!)
         doc = Automerge.load<WorkspaceDocumentV2>(saved.bytesBase64 ? fromBase64Url(saved.bytesBase64) : new Uint8Array(saved))
-        if (doc.id === id && typeof doc.title === "string") accept({ id, title: doc.title, updatedAt: saved.savedAt ?? "" })
+        if (doc.id === id && typeof doc.title === "string") accept({ id, title: doc.title, updatedAt: saved.savedAt ?? "", archivedAt: doc.archivedAt ?? null })
       } catch { /* Preserve unreadable data for manual recovery. */ }
       finally { if (doc) Automerge.free(doc) }
     }
@@ -138,14 +145,12 @@ export class WorkspaceStorage {
       const key = `${workspaceMetaPrefix}${record.id}`
       if (await getStorageRaw(key) === null) await setStorageRaw(key, JSON.stringify(record))
     }
-    for (const id of records.keys()) if (await getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) records.delete(id)
     this.inMemory.workspaces = records
     return [...records.values()]
   }
 
-  async registerWorkspace(id: string, title: string): Promise<void> {
-    if (await getStorageRaw(`${workspaceDeletedPrefix}${id}`) !== null) throw new Error("Workspace was deleted in another tab")
-    const meta = { id, title, updatedAt: new Date().toISOString() }
+  async registerWorkspace(id: string, title: string, archivedAt: string | null = null): Promise<void> {
+    const meta = { id, title, updatedAt: new Date().toISOString(), archivedAt }
     await setStorageRaw(`${workspaceMetaPrefix}${id}`, JSON.stringify(meta))
     this.inMemory.workspaces.set(id, meta)
   }
@@ -179,9 +184,7 @@ export class WorkspaceStorage {
     return moved
   }
 
-  async deleteWorkspace(workspaceId: string): Promise<void> {
-    checkStorageFailureHook()
-    await setStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`, new Date().toISOString())
+  async purgeWorkspaceForTest(workspaceId: string): Promise<void> {
     await removeStorageRaw(`${workspaceMetaPrefix}${workspaceId}`)
     this.inMemory.snapshots.delete(workspaceId)
     this.inMemory.workspaces.delete(workspaceId)
@@ -271,19 +274,17 @@ export class WorkspaceStorage {
       bytes: new Uint8Array(bytes),
       savedAt: new Date().toISOString(),
     }
-    if (await getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) throw new Error("Workspace was deleted in another tab")
     await setStorageRaw(
       `match.snapshot.${workspaceId}`,
       JSON.stringify({ heads, bytesBase64: toBase64Url(bytes), savedAt: snapshot.savedAt })
     )
-    await this.registerWorkspace(workspaceId, doc.title)
+    await this.registerWorkspace(workspaceId, doc.title, doc.archivedAt)
     this.inMemory.snapshots.set(workspaceId, snapshot)
   }
 
   async loadWorkspaceDoc(
     workspaceId: string
   ): Promise<{ doc: Automerge.Doc<WorkspaceDocumentV2>; heads: Heads } | null> {
-    if (await getStorageRaw(`${workspaceDeletedPrefix}${workspaceId}`) !== null) return null
     const rawSnapshot = await getStorageRaw(`match.snapshot.${workspaceId}`)
     const parsedSnapshot = rawSnapshot ? parseStoredSnapshot(rawSnapshot, workspaceId) : null
     if (parsedSnapshot) this.inMemory.snapshots.set(workspaceId, parsedSnapshot)

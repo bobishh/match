@@ -17,6 +17,7 @@ import {
 import { createWorkspaceDoc } from "./domain/seeds";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command } from "./domain/commands";
+import { needsArchiveMigration } from "./domain/archiveMigration";
 import {
   authorizeLocalChanges,
   recordGenesisAuthority,
@@ -60,6 +61,7 @@ export function resetStateForTest(): void {
   stateRuntime.reconcileWorkspaceUnknown = false;
   clearWorkspaceProjection();
   stateRuntime.availableWorkspaces.value = [];
+  stateRuntime.archivedWorkspaces.value = [];
   Object.assign(stateRuntime.activeWorkspaceMeta, {
     id: "",
     title: "Untitled",
@@ -90,7 +92,8 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
   try {
     await initializeAutomerge();
     stateRuntime.currentProfile = await bootstrapIdentity();
-    const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
+    const loaded = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
+    const doc = await migrateWorkspaceArchive(loaded, stateRuntime.currentProfile, storage);
     updateReactiveState(doc);
     await initializePersonalRoot(storage, stateRuntime.currentProfile);
     applyInjectedFixture();
@@ -169,6 +172,16 @@ export async function persistAuthorizedCommand(
   return result.value.newDoc;
 }
 
+export async function migrateWorkspaceArchive(
+  doc: Automerge.Doc<WorkspaceDocumentV2>,
+  profile: LocalProfile,
+  storage: WorkspaceStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  return needsArchiveMigration(doc)
+    ? persistAuthorizedCommand(doc, { kind: "migrateArchivedAt" }, profile, storage)
+    : doc;
+}
+
 export async function reconcile(storage = defaultStorage, workspaceChanged = false, changedWorkspaceId?: string): Promise<void> {
   if (!stateRuntime.ready.value || !stateRuntime.activeDoc)
     return;
@@ -202,9 +215,10 @@ export async function refreshAvailableWorkspaces(
   storage = defaultStorage,
 ): Promise<void> {
   stateRuntime.availableWorkspaces.value = await storage.listWorkspaces();
+  stateRuntime.archivedWorkspaces.value = await storage.listArchivedWorkspaces();
   const meta = stateRuntime.activeWorkspaceMeta;
   if (
-    meta.id &&
+    meta.id && !stateRuntime.activeDoc?.archivedAt &&
     !stateRuntime.availableWorkspaces.value.some(
       (workspace) => workspace.id === meta.id,
     )
@@ -244,10 +258,10 @@ async function loadPreferredWorkspace(
   storage: WorkspaceStorage,
   initialId: string,
 ) {
-  return (
-    (await storage.loadWorkspaceDoc(initialId)) ??
-    (initialId === "default" ? null : storage.loadWorkspaceDoc("default"))
-  );
+  const preferred = await storage.loadWorkspaceDoc(initialId);
+  if (preferred && !preferred.doc.archivedAt) return preferred;
+  const fallback = initialId === "default" ? null : await storage.loadWorkspaceDoc("default");
+  return fallback && !fallback.doc.archivedAt ? fallback : null;
 }
 
 async function initializeFirstWorkspace(
@@ -327,7 +341,7 @@ function ensureFixtureColumn(draft: WorkspaceDocumentV2, board: Board): void {
     title: "To do",
     placement: { parentId: board.id, rank: "0/1" },
     displayHint: "normal",
-    deleted: false,
+    archivedAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -343,7 +357,7 @@ function addFixtureItems(
       title: item.title,
       body: "",
       placement: { parentId: item.parentId, rank: "0/1" },
-      deleted: false,
+      archivedAt: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       values: {},

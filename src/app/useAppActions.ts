@@ -1,4 +1,4 @@
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import * as Automerge from "@automerge/automerge/slim"
 import { verifyBlobBytes } from "@meta-uber/mesh-blob"
 import type { useAppCore } from "./useAppCore"
@@ -123,24 +123,20 @@ async function moveItemToStatus(core: ReturnType<typeof useAppCore>, board: Retu
   if (!isItem(item)) return
   const target = core.match.genericColumns.value.find(column => board.columnStatus(column.id) === status)
   if (!target) return
-  const previous = previousPlacement(core, item)
+  if (status !== "archived" && target.id === item.placement.parentId && !item.archivedAt) return
   try {
     core.archiveError.value = ""
-    await core.match.executeCommandAsync({ kind: "moveEntity", entityId: item.id, parentId: target.id, beforeId: null })
-    if (isArchiveColumn(target) && previous) {
-      core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId: item.id, title: item.title, action: "move", ...previous }
+    if (isArchiveColumn(target)) {
+      if (item.archivedAt) return
+      await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: item.id, archived: true })
+      core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId: item.id, title: item.title }
       core.notice.value = "Item archived"
-    }
+    } else await core.match.executeCommandAsync({ kind: item.archivedAt ? "restoreAndMove" : "moveEntity", entityId: item.id, parentId: target.id, beforeId: null })
   } catch (error) { reportArchiveFailure(core, error) }
 }
 
-function previousPlacement(core: ReturnType<typeof useAppCore>, item: Item) {
-  const column = core.match.genericColumns.value.find(candidate => candidate.id === item.placement.parentId)
-  const index = column?.items.findIndex(candidate => candidate.id === item.id) ?? -1
-  return column && index >= 0 ? { parentId: column.id, beforeId: column.items[index + 1]?.id ?? null } : null
-}
-
 function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
+  const addingArchiveColumn = ref(false)
   const openBoardItem = (item: Item) => { if (!core.match.isBlankBoard.value && board.leadForItem(item)) core.selectedLeadId.value = item.id; else handleOpenItem(item) }
   const closeDetail = () => {
     core.selectedLeadId.value = null
@@ -158,6 +154,7 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   const handleApplySchema = (payload: { schema: BoardSchemaDraft; expectedHeads?: Heads }) => applySchema(core, payload)
   const handleApplyWorkspaceSettings = (payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }) => applyWorkspaceSettings(core, payload)
   const handleDeleteItem = (itemId: string) => archiveItem(core, board.selectedItem.value, itemId)
+  const handleRestoreItem = (itemId: string) => restoreItem(core, itemId)
   const undoArchive = () => restoreArchivedItem(core, board.highlightMoved)
   const handleOpenItem = (item: Item) => { core.selectedItemId.value = item.id }
   const handleOpenItemEdit = (item: Item) => openItemEdit(core, item)
@@ -167,7 +164,16 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   const handleRenameColumn = (newTitle: string) => renameColumn(core, newTitle)
   const handleDeleteColumn = () => deleteColumn(core)
   const addBoardColumn = async () => { await addColumn(core, core.newBoardColumnTitle.value); core.newBoardColumnTitle.value = "" }
-  return { openBoardItem, closeDetail, openAddItem, handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings, handleDeleteItem, undoArchive, handleOpenItem, handleOpenItemEdit, handleAddSubitem, handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn, addBoardColumn }
+  const addArchiveColumn = async () => {
+    if (addingArchiveColumn.value || !core.match.activeBoard.value || core.match.genericColumns.value.some(isArchiveColumn)) return
+    addingArchiveColumn.value = true
+    try {
+      await core.match.executeCommandAsync({ kind: "createColumn", boardId: core.match.activeBoard.value.id, title: "Archive", archive: true })
+      core.notice.value = "Archive column added"
+    } catch (error) { core.notice.value = `Archive column failed: ${messageFrom(error)}` }
+    finally { addingArchiveColumn.value = false }
+  }
+  return { openBoardItem, closeDetail, openAddItem, handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings, handleDeleteItem, handleRestoreItem, undoArchive, handleOpenItem, handleOpenItemEdit, handleAddSubitem, handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn, addBoardColumn, addArchiveColumn, addingArchiveColumn }
 }
 
 type ItemSavePayload = { title: string; body: string; parentId?: string; values: Record<string, FieldValue> }
@@ -176,7 +182,7 @@ function initialItemParent(core: ReturnType<typeof useAppCore>) {
   const columns = core.match.genericColumns.value
   if (columns[0]) return columns[0].id
   const doc = core.match.getActiveDoc()
-  return doc ? Object.values(doc.entities).find((entity): entity is Column => entity.kind === "column" && !entity.deleted)?.id ?? core.match.activeBoard.value?.id ?? "" : core.match.activeBoard.value?.id ?? ""
+  return doc ? Object.values(doc.entities).find((entity): entity is Column => entity.kind === "column" && !entity.archivedAt)?.id ?? core.match.activeBoard.value?.id ?? "" : core.match.activeBoard.value?.id ?? ""
 }
 
 async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, payload: ItemSavePayload) {
@@ -244,11 +250,27 @@ async function applyWorkspaceSettings(core: ReturnType<typeof useAppCore>, paylo
 async function archiveItem(core: ReturnType<typeof useAppCore>, item: Item | null, itemId: string) {
   try {
     core.archiveError.value = ""
-    await core.match.executeCommandAsync({ kind: "setEntityDeleted", entityId: itemId, deleted: true })
-    core.archiveUndo.value = item ? { workspaceId: core.match.activeWorkspace.id, itemId, title: item.title, action: "restore" } : null
+    await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: itemId, archived: true })
+    core.archiveUndo.value = item ? { workspaceId: core.match.activeWorkspace.id, itemId, title: item.title } : null
     core.selectedItemId.value = null
     core.notice.value = "Item archived"
   } catch (error) { reportArchiveFailure(core, error) }
+}
+
+async function restoreItem(core: ReturnType<typeof useAppCore>, itemId: string) {
+  const item = core.match.getActiveDoc()?.entities[itemId]
+  if (!isItem(item)) return
+  const source = core.match.genericColumns.value.find(column => column.id === item.placement.parentId)
+  try {
+    if (source && isArchiveColumn(source)) {
+      const target = core.match.genericColumns.value.find(column => !isArchiveColumn(column))
+      if (!target) throw new Error("No active column to restore into")
+      await core.match.executeCommandAsync({ kind: "restoreAndMove", entityId: itemId, parentId: target.id, beforeId: null })
+    } else await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: itemId, archived: false })
+    core.selectedItemId.value = null
+    core.archiveUndo.value = null
+    core.notice.value = `Restored ${item.title}`
+  } catch (error) { core.archiveError.value = `Restore failed: ${messageFrom(error)}` }
 }
 
 async function restoreArchivedItem(core: ReturnType<typeof useAppCore>, highlightMoved: ReturnType<typeof useAppBoard>["highlightMoved"]) {
@@ -256,8 +278,7 @@ async function restoreArchivedItem(core: ReturnType<typeof useAppCore>, highligh
   if (!archived || archived.workspaceId !== core.match.activeWorkspace.id || core.undoSaving.value) return
   core.undoSaving.value = true
   try {
-    if (archived.action === "restore") await core.match.executeCommandAsync({ kind: "setEntityDeleted", entityId: archived.itemId, deleted: false })
-    else await core.match.executeCommandAsync({ kind: "moveEntity", entityId: archived.itemId, parentId: archived.parentId, beforeId: archived.beforeId })
+    await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: archived.itemId, archived: false })
     core.archiveUndo.value = null
     core.archiveError.value = ""
     core.notice.value = `Restored ${archived.title}`
@@ -293,9 +314,9 @@ async function renameColumn(core: ReturnType<typeof useAppCore>, title: string) 
 
 async function deleteColumn(core: ReturnType<typeof useAppCore>) {
   if (!core.editingColumn.value) return
-  await core.match.executeCommandAsync({ kind: "setEntityDeleted", entityId: core.editingColumn.value.id, deleted: true })
+  await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: core.editingColumn.value.id, archived: true })
   core.editingColumn.value = null
-  core.notice.value = "Column moved to trash"
+  core.notice.value = "Column removed"
 }
 
 async function addColumn(core: ReturnType<typeof useAppCore>, title: string) {
@@ -321,12 +342,15 @@ function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
   const handleSwitchWorkspace = async (id: string) => { await core.match.switchWorkspace(id); core.notice.value = "Switched workspace" }
   const handleRenameWorkspace = async (payload: { id: string; title: string }) => { await core.match.renameWorkspaceAsync(payload.id, payload.title); core.notice.value = `Workspace renamed to "${payload.title}"` }
   const handleDeleteWorkspace = async (id: string) => {
-    const fallback = await core.match.deleteWorkspaceAsync(id)
-    await core.sync.leaveWorkspace(id)
+    const fallback = await core.match.archiveWorkspaceAsync(id)
     if (fallback) await core.sync.addOwnerWorkspace(fallback.id)
-    core.notice.value = "Workspace deleted"
+    core.notice.value = "Workspace archived"
   }
-  return { reloadPage, exportWorkspace, openImport, importWorkspace, createAndSyncWorkspace, handleCreateWorkspace, handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace }
+  const handleRestoreWorkspace = async (id: string) => {
+    await core.match.restoreWorkspaceAsync(id)
+    core.notice.value = "Workspace restored"
+  }
+  return { reloadPage, exportWorkspace, openImport, importWorkspace, createAndSyncWorkspace, handleCreateWorkspace, handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleRestoreWorkspace }
 }
 
 async function createWorkspaceWithOwnerCredential(core: ReturnType<typeof useAppCore>, title: string,

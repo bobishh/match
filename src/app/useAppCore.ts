@@ -14,9 +14,7 @@ import { meshTrace } from "../sync/meshTrace"
 import { useAppMesh } from "./useAppMesh"
 import { blobDescriptor, configureAttachmentFetcher, readStoredAttachment, writeStoredAttachment } from "../attachments"
 
-type ArchiveUndo =
-  | { workspaceId: string; itemId: string; title: string; action: "restore" }
-  | { workspaceId: string; itemId: string; title: string; action: "move"; parentId: string; beforeId: string | null }
+type ArchiveUndo = { workspaceId: string; itemId: string; title: string }
 
 export function useAppCore() {
   const match = useMatch()

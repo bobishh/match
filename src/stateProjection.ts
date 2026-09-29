@@ -1,5 +1,6 @@
 import type * as Automerge from "@automerge/automerge/slim";
 import { isEntityVisible } from "./domain/ancestry";
+import { archivedItemsForBoard, isArchiveColumn } from "./domain/archive";
 import {
   isItem,
   type AttachedDocument,
@@ -108,7 +109,7 @@ function projectLead(
     id: item.id,
     company: title.company,
     role: title.role,
-    status: bindings.columnStatuses[column.id] ?? "lead",
+    status: item.archivedAt ? "archived" : bindings.columnStatuses[column.id] ?? "lead",
     description: item.body,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -135,7 +136,7 @@ function projectDocuments(doc: Automerge.Doc<WorkspaceDocumentV2>): Document[] {
   return Object.values(doc.entities)
     .filter(
       (entity): entity is AttachedDocument =>
-        entity.kind === "document" && !entity.deleted,
+        entity.kind === "document" && !entity.archivedAt,
     )
     .map((document) => ({
       id: document.id,
@@ -156,7 +157,7 @@ function projectTemplates(doc: Automerge.Doc<WorkspaceDocumentV2>): Template[] {
     .filter(
       (entity): entity is DocumentTemplate | LegacyWritingTemplate =>
         (entity.kind === "document_template" || entity.kind === "template") &&
-        !entity.deleted,
+        !entity.archivedAt,
     )
     .map((template) => ({
       id: template.id,
@@ -171,7 +172,7 @@ function projectArtifacts(doc: Automerge.Doc<WorkspaceDocumentV2>): Artifact[] {
   return Object.values(doc.entities)
     .filter(
       (entity): entity is PdfArtifact =>
-        entity.kind === "artifact" && !entity.deleted,
+        entity.kind === "artifact" && !entity.archivedAt,
     )
     .map((artifact) => ({
       id: artifact.id,
@@ -193,10 +194,12 @@ export function projectWorkspace(
     (entity): entity is Board => entity.kind === "board",
   );
   const bindings = invertBindings(board?.preset?.bindings ?? {});
+  const archiveExists = Boolean(board && Object.values(doc.entities).some(entity => entity.kind === "column" && !entity.archivedAt && entity.placement.parentId === board.id && isArchiveColumn(entity)));
+  const archivedIds = new Set(board && archiveExists ? archivedItemsForBoard(doc, board.id).map(item => item.id) : []);
   const leads = Object.values(doc.entities)
     .filter(
       (entity): entity is Item =>
-        isItem(entity) && isEntityVisible(doc.entities, entity.id),
+        isItem(entity) && (isEntityVisible(doc.entities, entity.id) || archivedIds.has(entity.id)),
     )
     .map((item) => projectLead(doc, board, item, bindings))
     .filter((lead): lead is Lead => lead !== undefined);

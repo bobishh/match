@@ -45,7 +45,7 @@ test.describe("Visual board and entity editing", () => {
     await editor.getByRole("button", { name: "Dismiss" }).click()
   })
 
-  test("Given a column with an item, when it is deleted from visual edit mode, then its item is hidden", async ({ page }) => {
+  test("Given a column with an item, when it is archived from visual edit mode, then its item is hidden", async ({ page }) => {
     await page.goto("/")
     await createBlankWorkspace(page, "Item Retention Board")
 

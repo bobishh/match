@@ -11,7 +11,7 @@ export function createWorkspaceDoc(id: string, title: string, ownerPersonId: str
   seedColumns(context, presetKey === "blank" ? blankColumns : jobColumns)
   if (presetKey === "job-search") seedFields(context, jobFields)
   context.entities[boardId] = createBoard(boardId, title, presetKey, nowIso, context.bindings)
-  return { kind: "workspace", formatVersion: 2, id, title, deleted: false, ownerPersonId, entities: context.entities, migration: null }
+  return { kind: "workspace", formatVersion: 2, id, title, archivedAt: null, ownerPersonId, entities: context.entities, migration: null }
 }
 
 export function seedBoard(entities: Record<string, WorkspaceEntity>, title: string, presetKey: Preset, nowIso = new Date().toISOString()): Board {
@@ -25,14 +25,14 @@ export function seedBoard(entities: Record<string, WorkspaceEntity>, title: stri
 }
 
 function createBoard(id: string, title: string, preset: Preset, nowIso: string, bindings: Record<string, string>): Board {
-  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, deleted: false, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings } }
+  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings } }
 }
 
 function seedColumns(context: SeedContext, columns: ColumnSeed[]): void {
   columns.forEach((seed, index) => {
     const id = crypto.randomUUID()
     context.bindings[seed.key] = id
-    const column: Column = { id, kind: "column", title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, displayHint: seed.archive ? "collapsed" : "normal", deleted: false, createdAt: context.nowIso, updatedAt: context.nowIso }
+    const column: Column = { id, kind: "column", title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, displayHint: seed.archive ? "collapsed" : "normal", archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
     if (seed.archive) column.archive = true
     context.entities[id] = column
   })
@@ -42,7 +42,7 @@ function seedFields(context: SeedContext, fields: FieldSeed[]): void {
   fields.forEach((seed, index) => {
     const id = crypto.randomUUID()
     context.bindings[seed.key] = id
-    const base = { id, kind: "field" as const, title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, deleted: false, createdAt: context.nowIso, updatedAt: context.nowIso, required: seed.required ?? false }
+    const base = { id, kind: "field" as const, title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso, required: seed.required ?? false }
     const field = seed.valueType === "number" ? { ...base, valueType: "number" as const, min: seed.min ?? null, max: seed.max ?? null }
       : seed.valueType === "select" ? { ...base, valueType: "select" as const, options: seedOptions(context, seed.options ?? []) }
         : { ...base, valueType: seed.valueType }
@@ -50,11 +50,11 @@ function seedFields(context: SeedContext, fields: FieldSeed[]): void {
   })
 }
 
-function seedOptions(context: SeedContext, options: Array<[string, string]>): Record<string, { id: string; title: string; rank: string; deleted: boolean }> {
+function seedOptions(context: SeedContext, options: Array<[string, string]>): Record<string, { id: string; title: string; rank: string; archivedAt: string | null }> {
   return Object.fromEntries(options.map(([key, title], index) => {
     const id = crypto.randomUUID()
     context.bindings[key] = id
-    return [id, { id, title, rank: `${index}/1`, deleted: false }]
+    return [id, { id, title, rank: `${index}/1`, archivedAt: null }]
   }))
 }
 

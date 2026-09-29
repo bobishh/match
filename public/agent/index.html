@@ -72,8 +72,8 @@
         <ul>
           <li>Every entity has a stable UUID. Titles are display text and may change.</li>
           <li><code>placement.parentId</code> links a column to its board, an item to a column or parent item, and an artifact to its item. <code>placement.rank</code> orders siblings.</li>
-          <li><strong>Soft deletion</strong> applies to entities. Deleting a column hides its descendant items; restoring the column reveals them with their relationships intact.</li>
-          <li>Archive is a normal workspace column. Trash contains explicitly deleted entities. Broken or cyclic ancestry appears through placement issues.</li>
+          <li><strong>Archive</strong> marks items archived. Enable one Archive column per board to show and restore them.</li>
+          <li>Removing a column hides its descendants; restoring the column reveals them with their relationships intact. Broken or cyclic ancestry appears through placement issues.</li>
           <li>Job search is one preset. Its lead vocabulary and pipeline are workspace-specific, never kernel assumptions.</li>
         </ul>
       </section>
@@ -92,7 +92,7 @@
       <section class="guide-card">
         <h2>Complete workspace settings</h2>
         <p><code>get_workspace_settings</code> returns <code>settings</code> plus <code>heads</code>. Settings contain <code>formatVersion</code>, <code>workspace.title</code>, the board title and item name, ordered columns, typed fields and select options, and <code>documentTemplates</code>. Templates belong to that workspace and describe documents generated for its items; they have no fixed CV/cover-letter kind enum.</p>
-        <p>To change the complete configuration, edit the returned object and call <code>apply_workspace_settings</code> with those <code>heads</code> as <code>expectedHeads</code>. The apply is one validated CRDT transaction. Omitted columns, fields, and templates are soft-deleted. Existing descendants and field values remain stored.</p>
+        <p>To change the complete configuration, edit the returned object and call <code>apply_workspace_settings</code> with those <code>heads</code> as <code>expectedHeads</code>. The apply is one validated CRDT transaction. Omitted columns, fields, and templates are soft-archived. Existing descendants and field values remain stored.</p>
         <p class="note">Keep IDs returned by Match when editing. Omit an ID only when adding a column, field, field option, or document template. A field's <code>valueType</code> cannot change in place.</p>
       </section>
 
@@ -116,9 +116,9 @@
           <article class="tool"><span class="tool-name">patch_item</span><p>Update item title, body, or field values.</p></article>
           <article class="tool"><span class="tool-name">move_entity</span><p>Move or reorder an entity using parent and optional sibling IDs.</p></article>
           <article class="tool"><span class="tool-name">rename_entity</span><p>Rename an entity without changing placement.</p></article>
-          <article class="tool"><span class="tool-name">set_entity_deleted</span><p>Soft-delete or restore an entity.</p></article>
+          <article class="tool"><span class="tool-name">set_item_archived</span><p>Archive or restore an item.</p></article>
           <article class="tool"><span class="tool-name">restore_and_move</span><p>Restore and place under a valid parent atomically.</p></article>
-          <article class="tool"><span class="tool-name">list_trash</span><p>List explicitly soft-deleted entities.</p></article>
+          <article class="tool"><span class="tool-name">list_archived_items</span><p>List archived items on the active board.</p></article>
           <article class="tool"><span class="tool-name">list_placement_issues</span><p>List missing-parent and cyclic ancestry problems.</p></article>
           <article class="tool"><span class="tool-name">create_column</span><p>Create a column under a board.</p></article>
         </div>
@@ -130,7 +130,7 @@
           <li>Unknown fields are rejected without mutation. Send command inputs, never raw Automerge objects or changes.</li>
           <li>Keep returned IDs. Names are editable labels and cannot identify an entity safely.</li>
           <li>Use <code>expectedHeads</code> for settings writes. On a conflict, re-read settings, reapply the intended edit, and submit the new heads.</li>
-          <li>Use <code>restore_and_move</code> when an entity's former parent is deleted or missing. Do not repair ancestry by recreating the entity.</li>
+          <li>Use <code>restore_and_move</code> when an entity's former parent is archived or missing. Do not repair ancestry by recreating the entity.</li>
           <li>Inspect <code>list_placement_issues</code> only for recovery. Normal parent/child relationships need no repair.</li>
         </ul>
       </section>

@@ -197,22 +197,22 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     const newDoc = result.value.newDoc
     const updatedCol0 = newDoc.entities[originalCol0Id]
     expect(updatedCol0?.title).toBe("Inbox")
-    expect(updatedCol0?.deleted).toBe(false)
+    expect(updatedCol0?.archivedAt).toBeNull()
 
-    // Removed column is soft-deleted, NOT destroyed
+    // Removed column is soft-archived, NOT destroyed
     const softDeletedCol = newDoc.entities[removedColId]
     expect(softDeletedCol).toBeDefined()
-    expect(softDeletedCol?.deleted).toBe(true)
+    expect(softDeletedCol?.archivedAt).toEqual(expect.any(String))
 
     // New column created
     const shippedCol = Object.values(newDoc.entities).find(
-      (e) => e.kind === "column" && e.title === "Shipped" && !e.deleted
+      (e) => e.kind === "column" && e.title === "Shipped" && !e.archivedAt
     )
     expect(shippedCol).toBeDefined()
 
     // New field created with options
     const priorityField = Object.values(newDoc.entities).find(
-      (e): e is FieldDefinition => e.kind === "field" && e.title === "Priority" && !e.deleted
+      (e): e is FieldDefinition => e.kind === "field" && e.title === "Priority" && !e.archivedAt
     )
     expect(priorityField).toBeDefined()
     if (priorityField && priorityField.valueType === "select") {

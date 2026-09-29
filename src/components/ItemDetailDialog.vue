@@ -10,6 +10,7 @@ import ItemDocuments from "./ItemDocuments.vue"
 defineProps<{
   readOnly?: boolean
   item: Item
+  archived?: boolean
   subitems: Item[]
   fields: FieldDefinition[]
   documents: Document[]
@@ -31,6 +32,7 @@ const emit = defineEmits<{
   (e: "addSubitem", parentItemId: string): void
   (e: "startMove", item: Item): void
   (e: "deleteItem", itemId: string): void
+  (e: "restoreItem", itemId: string): void
   (e: "restoreVersion", changeHash: string): void
   (e: "update:quickNote", value: string): void
   (e: "saveNote"): void
@@ -145,7 +147,8 @@ const emit = defineEmits<{
       </div>
 
       <div class="dialog-actions dialog-actions-split">
-        <button class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteItem', item.id)">Archive item</button>
+        <button v-if="archived" class="button button-small" type="button" :disabled="readOnly" @click="emit('restoreItem', item.id)">Restore item</button>
+        <button v-else class="button button-danger" type="button" :disabled="readOnly" @click="emit('deleteItem', item.id)">Archive item</button>
         <div class="dialog-action-group">
           <button class="button button-quiet" type="button" aria-label="Close detail" @click="emit('close')">Close detail</button>
         </div>

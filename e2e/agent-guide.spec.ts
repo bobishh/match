@@ -15,7 +15,8 @@ test.describe("Agent guide", () => {
       "create_item",
       "patch_item",
       "move_entity",
-      "set_entity_deleted",
+      "set_item_archived",
+      "list_archived_items",
       "restore_and_move",
       "list_placement_issues",
     ]) {
@@ -24,7 +25,7 @@ test.describe("Agent guide", () => {
 
     await expect(guide).toContainText("documentTemplates")
     await expect(guide).toContainText("expectedHeads")
-    await expect(guide).toContainText("Soft deletion")
+    await expect(guide).toContainText("Archive")
     await expect(guide).toContainText("current workspace")
     await expect(guide).toContainText("Add my device")
     await expect(guide.getByText("move_item", { exact: true })).toHaveCount(0)

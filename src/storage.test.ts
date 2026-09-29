@@ -37,13 +37,13 @@ describe("Workspace catalog across browser tabs", () => {
     expect((await tab().listWorkspaces()).map(w => w.id)).toEqual(expect.arrayContaining([existingId, newId]))
   })
 
-  it("does not resurrect a deleted workspace from a stale tab", async () => {
+  it("does not resurrect a archived workspace from a stale tab", async () => {
     const id = crypto.randomUUID()
     const stale = tab()
     await stale.registerWorkspace(id, "Gone")
     await tab().deleteWorkspace(id)
     expect((await stale.listWorkspaces()).some(workspace => workspace.id === id)).toBe(false)
-    await expect(stale.registerWorkspace(id, "Stale edit")).rejects.toThrow(/deleted/i)
+    await expect(stale.registerWorkspace(id, "Stale edit")).rejects.toThrow(/archived/i)
   })
 })
 
@@ -227,7 +227,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     // Tab 1 compacts only based on res1.value.newDoc (which does not have unseen change yet)
     await storage.compactWorkspace("ws_compact", res1.value.newDoc)
 
-    // The unseen writer's change chunk must NOT be deleted!
+    // The unseen writer's change chunk must NOT be archived!
     const remainingChanges = await storage.listChanges("ws_compact")
     expect(remainingChanges.some((c) => c.changeHash === resUnseen.value.receipt.changeHash)).toBe(true)
 

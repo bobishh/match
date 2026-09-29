@@ -39,7 +39,7 @@ function restoredIdentity() {
   window.location.reload()
 }
 const {
-  workspace, ready, saveState, availableWorkspaces, activeWorkspace, activeBoard,
+  workspace, ready, saveState, availableWorkspaces, archivedWorkspaces, activeWorkspace, activeBoard,
   isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor,
 } = app.workspace
 const { state: ui, controls: uiControls } = app.ui
@@ -82,11 +82,10 @@ const {
   restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, reviewItem,
   openArtifactForm, submitArtifact, setStatus, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
-  handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, openAddItem,
+  handleSwitchWorkspace, handleRenameWorkspace, handleDeleteWorkspace, handleRestoreWorkspace, openAddItem,
   handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings,
-  handleDeleteItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
-  handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn,
-  addBoardColumn,
+  handleDeleteItem, handleRestoreItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
+  handleStartMove, handleConfirmMove, handleRenameColumn, handleDeleteColumn, addBoardColumn, addArchiveColumn, addingArchiveColumn,
 } = app.actions
 
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
@@ -251,25 +250,27 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
             </article>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
-          <button v-if="!isEditingBoard && canEditItems" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
+          <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
         </template>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
-      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" /><button class="button button-primary" type="submit">+ Add column</button></form>
+      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" /><button class="button button-primary" type="submit">+ Add column</button><button v-if="!genericColumns.some(isArchiveColumn)" class="button button-quiet" type="button" :disabled="addingArchiveColumn" @click="addArchiveColumn">{{ addingArchiveColumn ? 'Adding Archive…' : 'Add archive column' }}</button></form>
     </section>
 
     <!-- Dialogs -->
     <WorkspacesDialog
       v-if="showWorkspaces"
       :workspaces="availableWorkspaces"
+      :archived-workspaces="archivedWorkspaces"
       :active-workspace-id="activeWorkspace.id"
       :rename-workspace="handleRenameWorkspace"
+      :archive-workspace="handleDeleteWorkspace"
+      :restore-workspace="handleRestoreWorkspace"
       :can-rename-workspace="canRenameWorkspace"
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
       @create="handleCreateWorkspace"
       @import="openImport"
-      @delete="handleDeleteWorkspace"
     />
 
     <ColumnDialog
@@ -351,6 +352,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
     <ItemDetailDialog
       v-if="selectedItem"
       :item="selectedItem"
+      :archived="Boolean(selectedItem?.archivedAt)"
       :read-only="!canEditItems"
       :subitems="subitemsForSelectedItem"
       :fields="boardFields"
@@ -369,7 +371,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       @edit="handleOpenItemEdit"
       @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
-      @delete-item="handleDeleteItem"
+      @delete-item="handleDeleteItem" @restore-item="handleRestoreItem"
       @restore-version="restoreSelectedItemVersion"
       @update:quick-note="quickNoteDraft = $event"
       @save-note="saveQuickNote(selectedItem)"

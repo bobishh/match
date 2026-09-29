@@ -4,16 +4,18 @@ import { patchFieldDefinition } from "./fields"
 import { err } from "./commandTypes"
 import type { CommandByKind, CommandContext, CommandHandler } from "./commandHandlerTypes"
 import { applyRenumbering, computeInsertionRank } from "./commandSupport"
+import { isArchiveColumn } from "./archive"
 
 export const createColumn: CommandHandler<"createColumn"> = (doc, command, context) => {
   if (!command.title.trim()) return err("invalid_input", "Column title cannot be empty", "title")
   const board = doc.entities[command.boardId]
   if (!board || board.kind !== "board") return err("not_found", `Board ${command.boardId} not found`)
+  if (command.archive && Object.values(doc.entities).some(entity => entity.kind === "column" && !entity.archivedAt && entity.placement.parentId === command.boardId && isArchiveColumn(entity))) return err("invalid_input", "Only one archive column is allowed", "archive")
   const id = crypto.randomUUID()
   const insertion = computeInsertionRank(doc.entities, command.boardId, command.beforeId)
   return { ok: true, value: { changedEntityIds: [id], apply: draft => {
     applyRenumbering(draft, insertion.renumbered)
-    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, displayHint: "normal", deleted: false, createdAt: context.nowIso, updatedAt: context.nowIso }
+    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, displayHint: command.archive ? "collapsed" : "normal", ...(command.archive ? { archive: true as const } : {}), archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
   } } }
 }
 
@@ -29,7 +31,7 @@ export const createField: CommandHandler<"createField"> = (doc, command, context
 }
 
 function fieldEntity(command: CommandByKind<"createField">, valueType: FieldDefinition["valueType"], id: string, rank: string, nowIso: string): FieldDefinition {
-  const base = { id, kind: "field" as const, title: command.title.trim(), placement: { parentId: command.boardId, rank }, deleted: false, createdAt: nowIso, updatedAt: nowIso, required: command.required }
+  const base = { id, kind: "field" as const, title: command.title.trim(), placement: { parentId: command.boardId, rank }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, required: command.required }
   if (valueType === "select") return { ...base, valueType, options: fieldOptions(command) }
   if (valueType === "number") return { ...base, valueType, min: command.min ?? null, max: command.max ?? null }
   return { ...base, valueType }
@@ -44,7 +46,7 @@ function isSupportedFieldType(
 function fieldOptions(command: CommandByKind<"createField">) {
   return Object.fromEntries(Object.values(command.options ?? {}).map((option, index) => {
     const id = crypto.randomUUID()
-    return [id, { id, title: option.title, rank: `${index}/1`, deleted: false }]
+    return [id, { id, title: option.title, rank: `${index}/1`, archivedAt: null }]
   }))
 }
 
@@ -86,7 +88,7 @@ export const createTemplate: CommandHandler<"createTemplate"> = (doc, command, c
   const insertion = computeInsertionRank(doc.entities, null)
   return { ok: true, value: { changedEntityIds: [id], apply: draft => {
     applyRenumbering(draft, insertion.renumbered)
-    draft.entities[id] = { id, kind: "document_template", title: command.title.trim(), markdown: command.markdown, placement: { parentId: null, rank: insertion.rank }, deleted: false, createdAt: context.nowIso, updatedAt: context.nowIso }
+    draft.entities[id] = { id, kind: "document_template", title: command.title.trim(), markdown: command.markdown, placement: { parentId: null, rank: insertion.rank }, archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
   } } }
 }
 
@@ -118,7 +120,7 @@ export const addDocument: CommandHandler<"addDocument"> = (doc, command, context
         ? { type: "local-file", fileId: crypto.randomUUID(), fileName: command.localPath }
         : null),
       placement: { parentId: command.itemId, rank: insertion.rank },
-      deleted: false,
+      archivedAt: null,
       createdAt: context.nowIso,
       updatedAt: context.nowIso,
     }
@@ -150,7 +152,7 @@ export const recordArtifact: CommandHandler<"recordArtifact"> = (doc, command, c
       pdf: command.pdf,
       sourceMarkdown: command.sourceMarkdown ?? null,
       placement: { parentId: command.itemId, rank: insertion.rank },
-      deleted: false,
+      archivedAt: null,
       createdAt: context.nowIso,
       updatedAt: context.nowIso,
     }
@@ -167,13 +169,13 @@ export const createFieldOption: CommandHandler<"createFieldOption"> = (doc, comm
   return { ok: true, value: { changedEntityIds: [command.fieldId], apply: draft => {
     const target = draft.entities[command.fieldId] as Extract<FieldDefinition, { valueType: "select" }>
     target.options ??= {}
-    target.options[id] = { id, title: command.title.trim(), rank, deleted: false }
+    target.options[id] = { id, title: command.title.trim(), rank, archivedAt: null }
     target.updatedAt = context.nowIso
   } } }
 }
 
 function optionRank(field: Extract<FieldDefinition, { valueType: "select" }>, beforeId?: string | null): string {
-  const options = Object.values(field.options ?? {}).filter(option => !option.deleted).sort((left, right) => compareRanks(left.rank, right.rank))
+  const options = Object.values(field.options ?? {}).filter(option => !option.archivedAt).sort((left, right) => compareRanks(left.rank, right.rank))
   const index = beforeId ? options.findIndex(option => option.id === beforeId) : -1
   if (index === 0) return calculateRankBetween(null, options[0].rank)
   if (index > 0) return calculateRankBetween(options[index - 1].rank, options[index].rank)
@@ -189,7 +191,7 @@ export const patchFieldOption: CommandHandler<"patchFieldOption"> = (doc, comman
     const target = draft.entities[command.fieldId] as Extract<FieldDefinition, { valueType: "select" }>
     const option = target.options[command.optionId]
     if (command.title !== undefined) option.title = command.title.trim()
-    if (command.deleted !== undefined) option.deleted = command.deleted
+    if (command.archived !== undefined) option.archivedAt = command.archived ? context.nowIso : null
     target.updatedAt = context.nowIso
   } } }
 }

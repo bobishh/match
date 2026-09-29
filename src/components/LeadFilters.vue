@@ -19,7 +19,7 @@ mobileQuery.addEventListener("change", updateMobile)
 onBeforeUnmount(() => mobileQuery.removeEventListener("change", updateMobile))
 const activeCount = computed(() => activeFilterCount(props.modelValue))
 const filterableFields = computed(() => props.fields.filter((field) =>
-  !field.deleted && ["select", "number", "boolean", "date", "datetime"].includes(field.valueType)
+  !field.archivedAt && ["select", "number", "boolean", "date", "datetime"].includes(field.valueType)
 ))
 
 function updateColumn(columnId: string) {
@@ -43,7 +43,7 @@ function updateRange(kind: "numberRanges" | "dateRanges", fieldId: string, edge:
 
 function optionsFor(field: FieldDefinition) {
   if (field.valueType !== "select") return []
-  return Object.values(field.options).filter((option) => !option.deleted).sort((a, b) => compareRanks(a.rank, b.rank))
+  return Object.values(field.options).filter((option) => !option.archivedAt).sort((a, b) => compareRanks(a.rank, b.rank))
 }
 </script>
 

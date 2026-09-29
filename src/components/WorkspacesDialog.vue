@@ -4,8 +4,11 @@ import { ref } from "vue"
 
 const props = defineProps<{
   workspaces: { id: string; title: string; updatedAt: string }[]
+  archivedWorkspaces: { id: string; title: string; updatedAt: string }[]
   activeWorkspaceId: string
   renameWorkspace: (payload: { id: string; title: string }) => Promise<void>
+  archiveWorkspace: (id: string) => Promise<void>
+  restoreWorkspace: (id: string) => Promise<void>
   canRenameWorkspace: (id: string) => boolean
 }>()
 
@@ -14,7 +17,6 @@ const emit = defineEmits<{
   (e: "switch", id: string): void
   (e: "create", payload: { title: string; preset: "blank" | "job-search" }): void
   (e: "import"): void
-  (e: "delete", id: string): void
 }>()
 
 const isCreating = ref(false)
@@ -25,7 +27,10 @@ const editingId = ref("")
 const editingTitle = ref("")
 const renameError = ref("")
 const renaming = ref(false)
-const deletingId = ref("")
+const archivingId = ref("")
+const archiveError = ref("")
+const archiveBusy = ref(false)
+const showArchived = ref(false)
 
 function handleCreate() {
   if (!title.value.trim()) {
@@ -66,15 +71,36 @@ async function handleRename() {
   }
 }
 
-function startDelete(id: string) {
-  deletingId.value = id
+function startArchive(id: string) {
+  archivingId.value = id
+  archiveError.value = ""
   editingId.value = ""
   renameError.value = ""
 }
 
-function confirmDelete(id: string) {
-  emit("delete", id)
-  deletingId.value = ""
+async function confirmArchive(id: string) {
+  archiveBusy.value = true
+  archiveError.value = ""
+  try {
+    await props.archiveWorkspace(id)
+    archivingId.value = ""
+  } catch (error) {
+    archiveError.value = error instanceof Error ? error.message : "Could not archive workspace"
+  } finally {
+    archiveBusy.value = false
+  }
+}
+
+async function restoreArchived(id: string) {
+  archiveBusy.value = true
+  archiveError.value = ""
+  try {
+    await props.restoreWorkspace(id)
+  } catch (error) {
+    archiveError.value = error instanceof Error ? error.message : "Could not restore workspace"
+  } finally {
+    archiveBusy.value = false
+  }
 }
 
 function displayTitle(title: string) {
@@ -106,7 +132,7 @@ function displayTitle(title: string) {
           </button>
           <div class="workspace-item-actions">
             <button v-if="canRenameWorkspace(ws.id)" type="button" aria-label="Rename" @click="startRename(ws)">Rename</button>
-            <button type="button" aria-label="Delete" @click="startDelete(ws.id)">Delete</button>
+            <button type="button" aria-label="Archive" @click="startArchive(ws.id)">Archive</button>
           </div>
           <form v-if="editingId === ws.id" class="workspace-rename-form" :aria-busy="renaming" @submit.prevent="handleRename">
             <label>
@@ -117,12 +143,22 @@ function displayTitle(title: string) {
             <button class="button button-quiet" type="button" :disabled="renaming" @click="editingId = ''; renameError = ''">Cancel</button>
             <p v-if="renameError" class="form-error" role="alert">{{ renameError }}</p>
           </form>
-          <div v-if="deletingId === ws.id" class="workspace-delete-confirm" role="group" :aria-label="`Delete ${ws.title}`">
-            <p>Delete “{{ ws.title }}” and its local cards and documents?</p>
-            <button class="button button-danger" type="button" @click="confirmDelete(ws.id)">Delete workspace</button>
-            <button class="button button-quiet" type="button" @click="deletingId = ''">Cancel</button>
+          <div v-if="archivingId === ws.id" class="workspace-delete-confirm" role="group" :aria-label="`Archive ${ws.title}`">
+            <p>Archive “{{ ws.title }}” and hide it from active workspaces? Its cards and documents remain saved.</p>
+            <button class="button button-danger" type="button" :disabled="archiveBusy" @click="confirmArchive(ws.id)">{{ archiveBusy ? 'Archiving…' : 'Archive workspace' }}</button>
+            <button class="button button-quiet" type="button" :disabled="archiveBusy" @click="archivingId = ''">Cancel</button>
+            <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
           </div>
         </div>
+      </div>
+
+      <button v-if="archivedWorkspaces.length" class="button button-quiet" type="button" @click="showArchived = !showArchived">{{ showArchived ? 'Hide archived' : 'Show archived' }}</button>
+      <div v-if="showArchived" class="workspace-list" aria-label="Archived workspaces">
+        <div v-for="ws in archivedWorkspaces" :key="ws.id" class="workspace-item">
+          <strong>{{ displayTitle(ws.title) }}</strong>
+          <button type="button" :disabled="archiveBusy" @click="restoreArchived(ws.id)">{{ archiveBusy ? 'Restoring…' : 'Restore workspace' }}</button>
+        </div>
+        <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       </div>
 
       <div class="dialog-actions">

@@ -13,18 +13,19 @@ import type { BoardSchemaDraft } from "./schema";
 import type { WorkspaceSettingsDraft } from "./workspaceSettings";
 
 export type Command =
+  | { kind: "migrateArchivedAt" }
   | { kind: "createWorkspace"; title: string; preset: "job-search" | "blank" }
   | { kind: "renameWorkspace"; title: string }
-  | { kind: "setWorkspaceDeleted"; deleted: boolean }
+  | { kind: "setWorkspaceArchived"; archived: boolean }
   | { kind: "createBoard"; title: string; preset: "job-search" | "blank" }
-  | { kind: "createColumn"; boardId: string; title: string; beforeId?: string | null }
+  | { kind: "createColumn"; boardId: string; title: string; archive?: true; beforeId?: string | null }
   | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
   | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue> }
   | { kind: "reviewItem"; entityId: string }
   | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
   | { kind: "renameEntity"; entityId: string; title: string }
-  | { kind: "setEntityDeleted"; entityId: string; deleted: boolean }
+  | { kind: "setEntityArchived"; entityId: string; archived: boolean }
   | { kind: "restoreAndMove"; entityId: string; parentId: string; beforeId?: string | null }
   | {
       kind: "createField";
@@ -38,7 +39,7 @@ export type Command =
     }
   | { kind: "patchField"; fieldId: string; title?: string; required?: boolean; min?: number | null; max?: number | null; valueType?: string }
   | { kind: "createFieldOption"; fieldId: string; title: string; beforeId?: string | null }
-  | { kind: "patchFieldOption"; fieldId: string; optionId: string; title?: string; deleted?: boolean }
+  | { kind: "patchFieldOption"; fieldId: string; optionId: string; title?: string; archived?: boolean }
   | {
       kind: "addDocument";
       id?: string;

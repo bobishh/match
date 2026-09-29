@@ -6,7 +6,7 @@ const rank = z.string().refine(isValidRank, "Invalid canonical rank")
 const placementSchema = z.strictObject({ parentId: z.string().nullable(), rank })
 const entityBaseSchema = z.strictObject({
   id, title: z.string(), placement: placementSchema,
-  deleted: z.boolean(), createdAt: z.string(), updatedAt: z.string(),
+  archivedAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string(),
 })
 const common = entityBaseSchema.shape
 const fieldValueSchema = z.union([z.string(), z.number(), z.boolean(), z.null()])
@@ -47,7 +47,7 @@ const columnSchema = z.strictObject({
   archive: z.literal(true).optional(),
 })
 const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional() })
-const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, deleted: z.boolean() })
+const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, archivedAt: z.string().nullable() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
 const fieldSchema = z.discriminatedUnion("valueType", [
   z.strictObject({ ...fieldBase, valueType: z.enum(["text", "url", "date", "datetime", "boolean"]) }),
@@ -80,7 +80,7 @@ export const entitySchema = z.union([
   boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema,
 ])
 export const workspaceSchema = z.strictObject({
-  kind: z.literal("workspace"), formatVersion: z.literal(2), id, title: z.string(), deleted: z.boolean(), ownerPersonId: z.string(),
+  kind: z.literal("workspace"), formatVersion: z.literal(2), id, title: z.string(), archivedAt: z.string().nullable(), ownerPersonId: z.string(),
   entities: z.record(z.string(), entitySchema),
   migration: z.strictObject({ migrationId: z.string(), sourceFormat: z.literal("match-0.0.1"), sourceHeads: z.array(z.string()) }).nullable(),
   leads: z.array(z.unknown()).optional(), documents: z.array(z.unknown()).optional(),

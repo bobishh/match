@@ -35,16 +35,15 @@ The system SHALL provide item creation/editing based on board fields, parent/sub
 - **THEN** the form identifies that field and preserves the draft
 - **AND** neither the board nor its peer shows a partial item.
 
-### Requirement: Trash and placement recovery are reachable
+### Requirement: Archive and placement recovery are reachable
 
-The system SHALL expose Trash and Needs placement outside normal board columns. It SHALL explain inherited hiding and allow explicit recovery without modifying unrelated descendant deletion flags.
+The system SHALL expose archived items through one optional Archive column per board. Archive SHALL use the item's `deleted` flag. Needs placement SHALL remain separate, with explicit recovery for malformed ancestry.
 
-#### Scenario: Restore a column through Trash
+#### Scenario: Restore an archived item
 
-- **GIVEN** a populated column was deleted
-- **WHEN** the user opens Trash and restores it
-- **THEN** its live descendants reappear in the same positions
-- **AND** separately deleted descendants stay in Trash.
+- **GIVEN** an item was archived before its board enabled Archive
+- **WHEN** the user enables Archive and restores that item
+- **THEN** the item reappears in its original column and position.
 
 #### Scenario: Placement recovery survives malformed ancestry
 
@@ -208,7 +207,7 @@ The system SHALL store templates as generic `document_template` workspace-root e
 
 ### Requirement: Configurable Rejected column and retrospective notes in Job search
 
-The system SHALL provide a standard configurable Rejected column (`status.rejected`) and an optional retrospective note field (`field.rejectionReason`) within the Job search preset. Rejected SHALL remain an active business pipeline status distinct from Archive and Trash, retaining full card data, attachments, timestamps, and history without automatic deletion.
+The system SHALL provide a standard configurable Rejected column (`status.rejected`) and an optional retrospective note field (`field.rejectionReason`) within the Job search preset. Rejected SHALL remain an active business pipeline status distinct from Archive, retaining full card data, attachments, timestamps, and history without automatic archival.
 
 #### Scenario: Moving a lead to Rejected with retrospective note persists across reload
 

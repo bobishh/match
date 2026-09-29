@@ -7,10 +7,10 @@ export type WorkspaceSettingsDraft = { formatVersion: 1; workspace: { title: str
 export type WorkspaceSettingsValidationResult = { valid: boolean; errors: SchemaValidationError[] }
 
 export function projectWorkspaceSettings(doc: WorkspaceDocumentV2, boardId?: string): WorkspaceSettingsDraft {
-  const board = boardId ? doc.entities[boardId] as Board | undefined : Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.deleted)
+  const board = boardId ? doc.entities[boardId] as Board | undefined : Object.values(doc.entities).find((entity): entity is Board => entity.kind === "board" && !entity.archivedAt)
   if (!board || board.kind !== "board") throw new Error("Active board not found")
   const documentTemplates = Object.values(doc.entities)
-    .filter((entity): entity is DocumentTemplate | LegacyWritingTemplate => (entity.kind === "document_template" || entity.kind === "template") && !entity.deleted)
+    .filter((entity): entity is DocumentTemplate | LegacyWritingTemplate => (entity.kind === "document_template" || entity.kind === "template") && !entity.archivedAt)
     .sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
     .map(template => ({ id: template.id, title: template.title, markdown: template.markdown }))
   return { formatVersion: 1, workspace: { title: doc.title }, board: projectBoardSchema(doc, board.id), documentTemplates }

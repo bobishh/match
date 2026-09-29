@@ -1,5 +1,5 @@
 import type { Command } from "./domain/commands";
-import type { WorkspaceDocumentV2, WorkspaceEntity } from "./domain/model";
+import type { WorkspaceDocumentV2 } from "./domain/model";
 
 export type ModelContext = {
   registerTool: (
@@ -28,7 +28,6 @@ export type ToolStore = {
   switchWorkspaceAsync?: (workspaceId: string) => Promise<void>;
   availableWorkspaces?: { value: WorkspaceSummary[] } | WorkspaceSummary[];
   activeWorkspace?: WorkspaceSummary;
-  trashItems?: { value: TrashEntry[] } | TrashEntry[];
   placementIssues?: { value: PlacementIssue[] } | PlacementIssue[];
   sendChatMessage?: (body: string) => Promise<void>;
   getSyncTrace?: () => unknown[];
@@ -38,13 +37,6 @@ type WorkspaceSummary = {
   id: string;
   title: string;
   updatedAt?: string;
-};
-
-type TrashEntry = {
-  entity?: WorkspaceEntity;
-  id?: string;
-  title?: string;
-  parentTitle?: string;
 };
 
 type PlacementIssue = {
