@@ -1,5 +1,6 @@
 import { BrowserMeshScopeSync, createLiveWorkspaceSession, type RustLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
 import { inspectPairingFrame } from "@meta-uber/mesh-pairing"
+import { HandoffConfirmationInbox } from "./handoffConfirmation"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
@@ -44,7 +45,7 @@ export type WorkspaceSetStore = {
 }
 
 type LiveWorkspaceOptions = {
-  onHandoffRequest?: (stream: DuplexStream, frame: Uint8Array) => Promise<void>
+  onHandoffRequest?: (stream: DuplexStream, frame: Uint8Array, acceptConfirmation: SyncConnection["acceptStream"]) => Promise<void>
   ownerWorkspaceOfferFrame?: OwnerWorkspaceOfferFrame
   onOwnerWorkspaceOffer?: (bytes: Uint8Array) => Promise<void>
   onGossipPacket?: (packet: Uint8Array) => Promise<void>
@@ -223,14 +224,21 @@ export function liveWorkspaceSetSync(
   let queue = Promise.resolve()
   let heartbeatQueue = Promise.resolve()
   let knownChat = new Map<string, Set<string>>()
+  const handoffConfirmations = new HandoffConfirmationInbox()
   const done = (async () => {
     while (!stopped) {
       const stream = await connection.acceptStream()
       if (stopped) return
       const frame = await stream.read()
+      try {
+        if (inspectPairingFrame(frame).type === "mesh-handoff-confirmed") {
+          handoffConfirmations.push(stream, frame)
+          continue
+        }
+      } catch { /* Not a pairing frame; decode as workspace-set protocol below. */ }
       const operation = protocol.receiveWithPlan(frame)
       if (!operation) { await stream.closeSend(); continue }
-      await applyWorkspaceSetReceivePlan(protocol, operation, stream, frame, bytes => replica.receive(bytes, false), options)
+      await applyWorkspaceSetReceivePlan(protocol, operation, stream, frame, bytes => replica.receive(bytes, false), options, handoffConfirmations)
     }
   })().catch(error => { if (!stopped) throw error })
   return {
@@ -280,6 +288,7 @@ async function applyWorkspaceSetReceivePlan(
   frame: Uint8Array,
   merge: (bytes: Uint8Array) => Promise<void>,
   options: LiveWorkspaceOptions,
+  handoffConfirmations?: HandoffConfirmationInbox,
 ): Promise<void> {
   const bytes = Uint8Array.from(operation.action.payload ?? [])
   const effects: Record<string, () => Promise<void>> = {
@@ -298,7 +307,8 @@ async function applyWorkspaceSetReceivePlan(
       await requiredHandler(options.onBlobRequest, "Unsupported blob request")(stream, frame)
     },
     handleHandoffRequest: async () => {
-      await requiredHandler(options.onHandoffRequest, "Unsupported handoff request")(stream, frame)
+      await requiredHandler(options.onHandoffRequest, "Unsupported handoff request")(stream, frame,
+        handoffConfirmations?.acceptStream ?? (async () => { throw new Error("No handoff confirmation reader") }))
     },
     closeSend: async () => { await stream.closeSend() },
     unsupportedControl: async () => { throw new Error("Unsupported live workspace action: control") },
@@ -376,7 +386,7 @@ export function liveAutomergeWorkspaceSync(
         () => options.onBlobRequest!(stream, frame), frame.byteLength) : undefined,
     onHandoffRequest: options.onHandoffRequest
       ? (stream, frame) => measureScopePhase("callback.handoff-request", workspaceId, remoteDeviceId,
-        () => options.onHandoffRequest!(stream, frame), frame.byteLength) : undefined,
+        () => options.onHandoffRequest!(stream, frame, connection.acceptStream), frame.byteLength) : undefined,
   })
   scope.startDocumentSync(localDeviceId, remoteDeviceId)
   const responseStream: DuplexStream = {

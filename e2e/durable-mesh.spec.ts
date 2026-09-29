@@ -40,19 +40,11 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
 
 async function journalChangeIds(page: Page, workspaceId: string): Promise<string[]> {
   return page.evaluate(async id => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("match-workspace-journal-v1")
-      request.onsuccess = () => resolve(request.result)
-      request.onerror = () => reject(request.error)
-    })
+    const { openWorkspaceJournal, recordsForWorkspace } = await import("/src/storageJournal.ts")
+    const db = await openWorkspaceJournal()
     try {
-      const transaction = db.transaction("changes", "readonly")
-      const records = await new Promise<Array<{ id: string }>>((resolve, reject) => {
-        const request = transaction.objectStore("changes").index("workspaceId").getAll(id)
-        request.onsuccess = () => resolve(request.result)
-        request.onerror = () => reject(request.error)
-      })
-      return records.map(record => record.id).sort()
+      const records = await recordsForWorkspace<{ changeHash: string }>(db, "changes", id)
+      return records.map(record => record.changeHash).sort()
     } finally { db.close() }
   }, workspaceId)
 }
@@ -106,6 +98,11 @@ test("Given paired browsers, when a lead changes, then production iroh gossip dr
   try {
     await Promise.all([page.goto("/"), guest.goto("/")])
     await pairWorkspace(page, guest)
+    const handoffTrace = await page.evaluate(async () => {
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return meshTraceSnapshot().filter(event => event.event === "live.session.failed")
+    })
+    expect(handoffTrace.filter(event => String(event.reason ?? "").includes("mesh-handoff-confirmed")), JSON.stringify(handoffTrace)).toHaveLength(0)
     await expect.poll(async () => (await Promise.all([page, guest].map(target => target.evaluate(async () => {
       const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
       return meshTraceSnapshot().some(event => event.event === "gossip.neighbor.up")

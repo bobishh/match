@@ -305,8 +305,8 @@ async function startPeerSession(runtime: HostRuntime, connection: SyncConnection
   if (runtime.run !== runtime.context.currentRun() || runtime.stopped()) throw new Error("Invitation superseded")
   const handoff = new BrowserWorkspaceJoinHandoffHost(new WasmWorkspaceJoinHandoff(runtime.invite.secret, "host"))
   const session = liveWorkspaceSetSync(connection, runtime.invite.secret, runtime.replica, {
-    onHandoffRequest: async (stream, requestFrame) => {
-      await handoff.run(stream, requestFrame, connection)
+    onHandoffRequest: async (stream, requestFrame, acceptConfirmation) => {
+      await handoff.run(stream, requestFrame, { ...connection, acceptStream: acceptConfirmation })
       await runtime.handoff()
     },
   })

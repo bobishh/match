@@ -41,7 +41,7 @@ export async function captureSavedAcknowledgements(page: Page) {
     const response = await route.fetch()
     const source = await response.text()
     const prepared = /if \(prepared\.kind !== ["']documentReceive["']\) throw new Error\([\s\S]*?\);?/
-    const persisted = /persisted = !prepared\.shouldPersist \|\| await this\.host\.persistDocument\(toBytes\(prepared\.document\), prepared\.proof\) !== false;/
+    const persisted = /persisted = !prepared\.shouldPersist \|\| \(await this\.host\.persistDocument\(toBytes\(prepared\.document\), prepared\.proof\)\) !== false;?/
     const acknowledgement = /if \(completion\.response\) await stream\.send\(toBytes\(completion\.response\)\);?/
     if (!/let pending = true;?/.test(source) || !prepared.test(source) || !persisted.test(source) || !acknowledgement.test(source)) throw new Error(`Could not instrument the real document receive: ${source.slice(0, 500)}`)
     const instrumented = source
