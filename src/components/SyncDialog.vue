@@ -104,6 +104,16 @@ const isEnrollmentHost = computed(
   () => props.step === "enroll-host" || props.step === "enroll-host-pending",
 )
 const selectedMemberId = ref("")
+const rejectedSource = computed(() => {
+  const diagnostic = props.meshDiagnostic ?? ""
+  const source = diagnostic.match(/^Workspace .+ from ([A-Za-z0-9_-]{8,})\s*:/)?.[1]
+  if (!source || !/Unsigned workspace change rejected/i.test(diagnostic)) return null
+  const member = (props.meshMembers ?? []).find(candidate =>
+    candidate.deviceList.some(device => device.deviceId.startsWith(source)),
+  )
+  const device = member?.deviceList.find(candidate => candidate.deviceId.startsWith(source))
+  return { diagnostic, source, member, device }
+})
 const keeperView = ref<"list" | "form" | "detail">("list")
 const visiblePendingJoins = computed(() => keeperView.value === "list" ? props.pendingJoins ?? [] : [])
 const confirmingLeave = ref(false)
@@ -152,6 +162,11 @@ function toggleWorkspace(id: string) {
   } else {
     emit("update:selectedWorkspaceId", "")
   }
+}
+
+function reviewRejectedSource() {
+  if (!rejectedSource.value?.member) return
+  selectedMemberId.value = rejectedSource.value.member.personId
 }
 
 const guestWorkspaces = computed(() => {
@@ -203,7 +218,20 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           @view-change="keeperView = $event"
         />
         <template v-if="keeperView === 'list'">
-        <p v-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
+        <section v-if="networkOnline !== false && rejectedSource" class="sync-error" role="status" aria-label="Changes rejected">
+          <p><strong>Changes rejected by this board.</strong>
+            <template v-if="rejectedSource.device"> Source: {{ rejectedSource.device.name }} ({{ rejectedSource.source }}).</template>
+            <template v-else> Source device {{ rejectedSource.source }}.</template>
+          </p>
+          <p>This board kept its accepted data. The source still has rejected changes. Removing its access stops attempts for this workspace; review its local copy first if needed.</p>
+          <button v-if="rejectedSource.member" class="button" type="button" @click="reviewRejectedSource">Review source device</button>
+          <p v-else>Source device is not currently listed among known members.</p>
+          <details>
+            <summary>Technical details</summary>
+            <code>{{ rejectedSource.diagnostic }}</code>
+          </details>
+        </section>
+        <p v-else-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
         <section v-if="repairableHistory" class="dialog-copy">
           <p>{{ repairableHistory }} old cleanup change(s) lack a signature. Verified: only obsolete item markers were removed; card content and permissions were not changed.</p>
           <button class="button" type="button" @click="emit('repairHistory')">Sign verified cleanup</button>

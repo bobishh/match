@@ -29,6 +29,30 @@ function rustReplacesSession(
 }
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("clears a rejected workspace diagnostic only when its peer session is removed", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never, onDiagnostic })
+    const internal = mesh as any
+    internal.removeAuthenticatedPeer = vi.fn()
+    internal.refreshWorkspaceGossip = vi.fn(async () => {})
+    internal.notify = vi.fn(async () => {})
+    const removed = internal.browserSessions.host.currentRemoved
+
+    internal.lastDiagnostic = "Workspace workspac from remote-a: unsigned changes rejected"
+    await removed({ workspaceId: "workspace", deviceId: "remote-b", endpoint: "endpoint-b" })
+    expect(internal.lastDiagnostic).toBe("Workspace workspac from remote-a: unsigned changes rejected")
+
+    await removed({ workspaceId: "workspace", deviceId: "remote-a", endpoint: "endpoint-a" })
+    expect(internal.lastDiagnostic).toBe("")
+    expect(onDiagnostic).toHaveBeenLastCalledWith("")
+
+    internal.lastDiagnostic = "Handshake remote-a: invalid grant"
+    await removed({ workspaceId: "workspace", deviceId: "remote-a", endpoint: "endpoint-a" })
+    expect(internal.lastDiagnostic).toBe("Handshake remote-a: invalid grant")
+    await mesh.dispose()
+  })
+
   it("skips empty revocation planning only when no stored revocations exist", async () => {
     const plan = vi.spyOn(meshRustRuntime().state as any, "planAuthorityMerge")
     const getProfile = vi.fn(async () => ({ identity: { personId: "owner" }, device: { deviceId: "owner-device" } } as never))

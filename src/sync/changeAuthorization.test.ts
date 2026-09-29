@@ -205,6 +205,40 @@ it("derives local owner, editor, visitor, revocation, departure, renewal, and de
     member.identity.personId, member.device.deviceId, Automerge.getHeads(doc), [owner.certificate])] }
   await expect(workspaceRole(doc, member)).resolves.toBe("visitor")
 })
+
+it("admits a revoked device's signed change at its revocation frontier and rejects a later signed change", async () => {
+  const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Device revocation frontier", owner.identity.personId, "blank"))
+  const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+  const grant = await createWorkspaceGrant(owner, base.id, member.identity.personId, "editor", 1)
+  let frontier = base
+  const atFrontier = await executeCommand(frontier, { kind: "createItem", parentId: column.id, title: "Before revocation" }, member)
+  if (!atFrontier.ok) throw new Error(atFrontier.error.message)
+  frontier = atFrontier.value.newDoc
+  const frontierHash = atFrontier.value.receipt.changeHash
+  const revocation = await createWorkspaceDeviceRevocation(owner, base.id, member.identity.personId,
+    member.device.deviceId, Automerge.getHeads(frontier), [owner.certificate])
+
+  const afterFrontier = await executeCommand(frontier, { kind: "createItem", parentId: column.id, title: "After revocation" }, member)
+  if (!afterFrontier.ok) throw new Error(afterFrontier.error.message)
+  const later = afterFrontier.value.newDoc
+  const changes = [frontierHash, afterFrontier.value.receipt.changeHash]
+  const records = await Promise.all(changes.map(async hash => ({
+    signed: await signEnvelope(member.privateKeys.devicePrivateKey, {
+      kind: "workspace-changes" as const, version: 1 as const, workspaceId: base.id,
+      personId: member.identity.personId, deviceId: member.device.deviceId, hashes: [hash],
+    }, member.device.deviceId),
+    publicKey: member.identity.publicKey, certificates: [member.certificate], ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [owner.certificate], grant,
+  })))
+  const bundle = authorizationBundle(base, records)
+  const revokedBundle = { ...bundle, authority: { ...bundle.authority,
+    deviceRevocations: [{ record: revocation.record, signer: revocation.authority }] } }
+
+  // The frontier change itself remains admissible on a replica that has not seen it.
+  await expect(validateIncomingChanges(base, frontier, revokedBundle)).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(frontier, later, revokedBundle)).rejects.toThrow(/revok|unsigned|authorization/i)
+})
+
 it("accepts transferred-owner history on a clean replica only when the supplied authority chain verifies", async () => {
   resetIdentityStorageForTest(); const successor = await bootstrapIdentity("Successor")
   const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Transferred", owner.identity.personId, "blank"))
