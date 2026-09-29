@@ -198,7 +198,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <span aria-hidden="true">›</span>
         </button>
       </div>
-      <div v-if="pairing && status !== 'active'" class="keeper-list" role="list" aria-label="Pending keeper requests">
+      <div v-if="pendingPairing()" class="keeper-list" role="list" aria-label="Pending keeper requests">
         <button class="keeper-row" type="button" @click="showView('detail')">
           <span class="keeper-dot" data-state="reconnecting" aria-hidden="true"></span>
           <span class="keeper-row-copy"><strong>{{ discovery?.displayName ?? "Lighthouse" }}</strong><small>Approval pending · no access yet</small></span>
