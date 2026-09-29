@@ -7,11 +7,9 @@ import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, statusLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
-import SyncDialog from "./components/SyncDialog.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import WorkspacesDialog from "./components/WorkspacesDialog.vue"
 import ColumnDialog from "./components/ColumnDialog.vue"
-import SchemaEditorDialog from "./components/SchemaEditorDialog.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
 import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
@@ -26,10 +24,13 @@ import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
 import { saveIdentityName } from "./app/identityName"
-import { computed, ref } from "vue"
+import { computed, defineAsyncComponent, ref } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { useAgingClock } from "./app/useAgingClock"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
+
+const SyncDialog = defineAsyncComponent(() => import("./components/SyncDialog.vue"))
+const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)

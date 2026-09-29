@@ -1,6 +1,5 @@
 import { onBeforeUnmount, onMounted, watch } from "vue"
 import { hydrate } from "../state"
-import { registerWebMcp } from "../webmcp"
 import { sendChatMessage } from "../chat/service"
 import { runAppStartup, startupFailureMessage } from "./startup"
 import { useAppActions } from "./useAppActions"
@@ -122,6 +121,7 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
 }
 
 async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions: ReturnType<typeof useAppActions>) {
+  const { registerWebMcp } = await import("../webmcp")
   const unregister = await registerWebMcp({
     getActiveDoc: core.match.getActiveDoc,
     executeCommandAsync: core.match.executeCommandAsync,
