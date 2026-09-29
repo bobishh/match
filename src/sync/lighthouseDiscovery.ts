@@ -16,15 +16,18 @@ export type LighthouseDiscovery = {
   }
 }
 
-function normalizeOrigin(input: string) {
+function isLoopback(hostname: string) { return ["localhost", "127.0.0.1", "[::1]"].includes(hostname) }
+
+function normalizeOrigin(input: string, allowLoopbackHttp = false) {
   const value = input.trim()
   const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `https://${value}`
   const url = new URL(candidate)
   if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
     throw new Error("Enter a hostname without a path, login or query string.")
   }
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
-  if (url.protocol !== "https:" && !(import.meta.env.DEV && loopback && url.protocol === "http:")) {
+  const loopback = isLoopback(url.hostname)
+  const localHttp = url.protocol === "http:" && loopback && (import.meta.env.DEV || allowLoopbackHttp && typeof window !== "undefined" && isLoopback(window.location.hostname))
+  if (url.protocol !== "https:" && !localHttp) {
     throw new Error("Keeper discovery requires HTTPS. Plain HTTP works only on loopback during local development.")
   }
   return url.origin
@@ -64,8 +67,8 @@ async function publicKeyFingerprint(publicKey: string) {
   return [...new Uint8Array(digest)].slice(0, 12).map(byte => byte.toString(16).padStart(2, "0")).join("").match(/.{1,4}/g)?.join(":") ?? "unavailable"
 }
 
-export async function discoverLighthouse(input: string): Promise<LighthouseDiscovery> {
-  const origin = normalizeOrigin(input)
+export async function discoverLighthouse(input: string, options: { allowLoopbackHttp?: boolean } = {}): Promise<LighthouseDiscovery> {
+  const origin = normalizeOrigin(input, options.allowLoopbackHttp === true)
   const response = await fetch(`${origin}/.well-known/mesh-lighthouse`, { redirect: "error", headers: { Accept: "application/json" } })
   if (!response.ok) {
     const detail = await response.json().catch(() => null) as { message?: string } | null

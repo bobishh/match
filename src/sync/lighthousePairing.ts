@@ -72,7 +72,7 @@ export async function getEligibleKeeperWorkspaces(workspaces: KeeperWorkspace[])
   return workspaces.filter((_, index) => checked[index])
 }
 
-async function signedRequest(profile: LocalProfile, discovery: LighthouseDiscovery, kind: string, body: Record<string, unknown>) {
+export async function signKeeperControllerRequest(profile: LocalProfile, discovery: LighthouseDiscovery, kind: string, body: Record<string, unknown>) {
   const payload = {
     kind,
     version: 1,
@@ -97,7 +97,7 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
   return body as T
 }
 
-async function verifyServiceEnvelope(discovery: LighthouseDiscovery, envelope: unknown, expectedKind: string) {
+export async function verifyKeeperServiceEnvelope(discovery: LighthouseDiscovery, envelope: unknown, expectedKind: string) {
   if (!envelope || typeof envelope !== "object") throw new Error("Keeper returned an invalid signed challenge.")
   const signed = envelope as { payload?: Record<string, unknown>; signerKeyId?: string; signature?: string }
   if (!signed.payload || typeof signed.signerKeyId !== "string" || typeof signed.signature !== "string" || signed.signerKeyId !== discovery.deviceId || signed.payload.kind !== expectedKind) {
@@ -141,7 +141,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
     }
     return { workspaceId: workspace.id, title: workspace.title, genesisAnchor: canonicalizeJson(snapshot.genesis), mode: "replicate" }
   }))
-  const signedRequestBody = await signedRequest(profile, discovery, "lighthouse-pairing-offer", {
+  const signedRequestBody = await signKeeperControllerRequest(profile, discovery, "lighthouse-pairing-offer", {
     body: { scopes, policy: { futureBoards } },
   })
   const transcriptHash = await sha256Base64Url(new TextEncoder().encode(canonicalizeJson(signedRequestBody.signed.payload)))
@@ -152,7 +152,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   if (!result.pairingId || result.transcriptHash !== transcriptHash || !Number.isSafeInteger(result.expiresAt) || typeof result.comparisonCode !== "string") {
     throw new Error("Keeper returned a pairing response that does not match this request.")
   }
-  const challenge = await verifyServiceEnvelope(discovery, result.challenge, "lighthouse-pairing-challenge")
+  const challenge = await verifyKeeperServiceEnvelope(discovery, result.challenge, "lighthouse-pairing-challenge")
   if (challenge.pairingId !== result.pairingId || challenge.transcriptHash !== transcriptHash || challenge.servicePersonId !== discovery.personId || challenge.serviceOrigin !== discovery.origin || challenge.expiresAt !== result.expiresAt || typeof challenge.nonce !== "string") {
     throw new Error("Keeper challenge is not bound to this pairing, identity and origin.")
   }
@@ -163,7 +163,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
 
 export async function decideKeeperPairing(pairing: KeeperPairing, approve: boolean): Promise<void> {
   const profile = await bootstrapIdentity()
-  const signed = await signedRequest(profile, pairing.discovery, "lighthouse-pairing-decision", {
+  const signed = await signKeeperControllerRequest(profile, pairing.discovery, "lighthouse-pairing-decision", {
     pairingId: pairing.pairingId,
     transcriptHash: pairing.transcriptHash,
     challengeNonce: pairing.challengeNonce,
@@ -174,12 +174,12 @@ export async function decideKeeperPairing(pairing: KeeperPairing, approve: boole
 
 export async function getKeeperPairingStatus(pairing: KeeperPairing): Promise<KeeperPairingStatus> {
   const profile = await bootstrapIdentity()
-  const signed = await signedRequest(profile, pairing.discovery, "lighthouse-pairing-status", {
+  const signed = await signKeeperControllerRequest(profile, pairing.discovery, "lighthouse-pairing-status", {
     pairingId: pairing.pairingId,
     transcriptHash: pairing.transcriptHash,
   })
   const envelope = await request<unknown>(`${pairing.discovery.origin}/v1/pairings/${encodeURIComponent(pairing.pairingId)}/status`, { method: "POST", body: JSON.stringify(signed) })
-  const payload = await verifyServiceEnvelope(pairing.discovery, envelope, "lighthouse-pairing-status")
+  const payload = await verifyKeeperServiceEnvelope(pairing.discovery, envelope, "lighthouse-pairing-status")
   if (payload.pairingId !== pairing.pairingId || payload.transcriptHash !== pairing.transcriptHash || payload.serviceOrigin !== pairing.discovery.origin || !["pending", "approved", "provisioning", "active", "rejected", "expired"].includes(String(payload.status))) {
     throw new Error("Keeper returned a status for another pairing or an unsupported state.")
   }
@@ -192,7 +192,7 @@ export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation
   if (!body) {
     const profile = await bootstrapIdentity()
     const approvedScopes = pairing.workspaces.map(workspace => ({ workspaceId: workspace.id, mode: "replicate" }))
-    const signed = await signedRequest(profile, pairing.discovery, "lighthouse-pairing-provision", {
+    const signed = await signKeeperControllerRequest(profile, pairing.discovery, "lighthouse-pairing-provision", {
       body: {
         pairingId: pairing.pairingId,
         transcriptHash: pairing.transcriptHash,
@@ -209,7 +209,7 @@ export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation
     method: "POST",
     body,
   })
-  const payload = await verifyServiceEnvelope(pairing.discovery, result, "lighthouse-pairing-status")
+  const payload = await verifyKeeperServiceEnvelope(pairing.discovery, result, "lighthouse-pairing-status")
   if (payload.pairingId !== pairing.pairingId
     || payload.transcriptHash !== pairing.transcriptHash
     || payload.serviceOrigin !== pairing.discovery.origin
