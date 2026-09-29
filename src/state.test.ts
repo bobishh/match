@@ -11,6 +11,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { isItem } from "./domain/model"
 import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations } from "./sync/changeAuthorization"
+import { executeCommand } from "./domain/commands"
 import { peerStore } from "./sync/peerStore"
 
 beforeAll(async () => {
@@ -71,6 +72,35 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(titles).toEqual(expect.arrayContaining(["Concurrent A — Engineer", "Concurrent B — Engineer"]))
   })
 
+  it("Given two accepted peer branches, when merges overlap, then reopened storage retains both", async () => {
+    const match = useMatch()
+    const base = match.getActiveDoc()!
+    const profile = match.getCurrentProfile()!
+    const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+    const branches = await Promise.all(["Peer A", "Peer B"].map(async title => {
+      const result = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title }, profile)
+      if (!result.ok) throw new Error(result.error.message)
+      await authorizeLocalChanges(result.value.newDoc, profile, [result.value.receipt.changeHash])
+      const bytes = Automerge.save(result.value.newDoc)
+      return { bytes, authorization: await exportAuthorizationBundle(bytes, profile) }
+    }))
+    await Promise.all(branches.map(branch => match.mergeAuthorizedWorkspace(base.id, branch.bytes, branch.authorization)))
+    const reopened = await new WorkspaceStorage().loadWorkspaceDoc(base.id)
+    expect(Object.values(reopened!.doc.entities).filter(isItem).map(item => item.title)).toEqual(expect.arrayContaining(["Peer A", "Peer B"]))
+  })
+
+  it("Given local commit fails, when command is rejected, then no authorization or change leaks", async () => {
+    const match = useMatch()
+    const before = match.getAutomergeBytes()
+    const authorizations = await exportAuthorizations(before)
+    setStorageFailureHookForTest(true)
+    try {
+      await expect(match.createLeadAsync({ company: "Atomic rejection", role: "Engineer", status: "lead" })).rejects.toThrow(/Storage failure/)
+    } finally { setStorageFailureHookForTest(false) }
+    expect(await exportAuthorizations(before)).toEqual(authorizations)
+    expect(Automerge.getHeads((await defaultStorage.loadWorkspaceDoc(match.activeWorkspace.id))!.doc)).toEqual(Automerge.getHeads(match.getActiveDoc()!))
+  })
+
   it("does not notify replication or adopt change when save fails", async () => {
     const match = useMatch()
     let changeNotified = false
@@ -106,6 +136,8 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const column = Object.values(doc.entities).find(entity => hasEntityKind(entity, "column"))
     if (!column) throw new Error("Test workspace has no column")
     vi.stubGlobal("indexedDB", {})
+    vi.stubGlobal("navigator", { locks: { request: async (_name: string, operation: () => Promise<unknown>) => operation() } })
+    const load = vi.spyOn(defaultStorage, "loadWorkspaceDoc").mockResolvedValue(null)
     const pending = vi.spyOn(peerStore, "getPendingOwnershipTransfer").mockResolvedValue({
       version: 1,
       workspaceId,
@@ -124,6 +156,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
         .some(entity => entity.title === "Deferred edit")).toBe(false)
     } finally {
       pending.mockRestore()
+      load.mockRestore()
       vi.unstubAllGlobals()
     }
   })

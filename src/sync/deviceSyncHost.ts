@@ -21,8 +21,10 @@ import { userMessage } from "./deviceSyncState"
 import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
 import type { JoinDecision } from "./deviceSyncJoinApproval"
+import { keeperCommitReceiptVerifier, type KeeperCommitReceiptVerifier } from "./keeperCommitReceipt"
 
 type WorkspaceOption = { id: string; title: string }
+type KeeperAdmission = { servicePersonId: string; workspaceIds: string[]; followOwner: boolean }
 
 export type WorkspaceHostContext = PairingContext & {
   workspace: WorkspaceReplica
@@ -88,11 +90,16 @@ function clearHostNotice(context: WorkspaceHostContext) {
 }
 
 async function createHostInvite(context: WorkspaceHostContext, node: SyncNode, profile: LocalProfile, workspaces: WorkspaceOption[]) {
+  const invite = await issueWorkspaceInvite(context, node, profile, workspaces)
+  await showInviteQr(context.state, invitationUrl(context.origin(), invite))
+  context.state.step.value = "workspace-host"
+  return invite
+}
+
+async function issueWorkspaceInvite(context: WorkspaceHostContext, node: SyncNode, profile: LocalProfile, workspaces: WorkspaceOption[]) {
   const secret = createPairingSecret()
   const invite = createWorkspaceJoinInvite(node.endpointId, secret, profile, workspaces)
   await defaultInvitationService.saveIssuedInvitation(invite)
-  await showInviteQr(context.state, invitationUrl(context.origin(), invite))
-  context.state.step.value = "workspace-host"
   return invite
 }
 
@@ -105,6 +112,7 @@ type HostInput = {
   owners: Map<string, string>
   workspaces: WorkspaceOption[]
   replica: ReturnType<typeof workspaceSet>
+  keeperAdmission?: KeeperAdmission
 }
 type HostRuntime = HostInput & {
   acceptor: SyncAcceptor
@@ -136,7 +144,7 @@ async function startWorkspaceHostController(input: HostInput) {
     if (input.run !== input.context.currentRun() || stopped || peers.size) return
     input.context.state.directLive.value = false
     if (!everConnected) return
-    input.context.state.step.value = "workspace-reconnecting"
+    if (!input.keeperAdmission) input.context.state.step.value = "workspace-reconnecting"
     if (handoffStarted) return
     handoffStarted = true
     void handoffDisconnectedPeer(input)
@@ -173,6 +181,37 @@ function createHostGroup(done: Promise<void>, peers: Map<string, LiveWorkspaceSy
   }
 }
 
+export async function createKeeperWorkspaceHost(
+  context: WorkspaceHostContext,
+  workspaces: WorkspaceOption[],
+  servicePersonId: string,
+  followOwner = false,
+) {
+  if (!workspaces.length || !servicePersonId) throw new Error("Keeper scopes and service identity are required.")
+  const profile = await context.getProfile()
+  const owners = await workspaceOwners(context, workspaces, profile)
+  await context.pauseMesh()
+  await context.stopNode("Starting Lighthouse invitation host")
+  const run = context.nextRun()
+  clearHostNotice(context)
+  const node = await startPersistentNode(context.transport)
+  if (run !== context.currentRun()) {
+    await node.close("Keeper provisioning superseded")
+    throw new Error("Keeper provisioning was cancelled.")
+  }
+  context.setNode(node)
+  await context.durableMesh?.ensureOwnerWorkspaces(workspaces.map(item => item.id), node.endpointId, profile)
+  const invite = await issueWorkspaceInvite(context, node, profile, workspaces)
+  if (!context.workspaceStore) throw new Error("Workspace sync is unavailable.")
+  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore, workspaces)
+  context.state.liveWorkspaceIds.value = workspaces.map(item => item.id)
+  await startWorkspaceHostController({
+    context, run, node, profile, invite, owners, workspaces, replica,
+    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id), followOwner },
+  })
+  return invite
+}
+
 async function publishPeer(session: LiveWorkspaceSync) {
   try { await session.publish() } catch (error) {
     await session.close()
@@ -201,6 +240,7 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
   let session: LiveWorkspaceSync | undefined
   let heartbeat: (() => void) | undefined
   let personId = ""
+  let verifyKeeperCommit: KeeperCommitReceiptVerifier | undefined
   const timeout = setTimeout(() => { void connection.close() }, 600_000)
   runtime.connections.add(connection)
   try {
@@ -221,8 +261,18 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
         return guest
       },
       approve: guest => approveWorkspaceAccess(runtime, guest),
-      prepare: result => prepareWorkspaceAccess(runtime, result),
-      acknowledged: payload => runtime.replica.receive(payload),
+      prepare: result => prepareWorkspaceAccess(runtime, result, runtime.keeperAdmission ? async snapshot => {
+        verifyKeeperCommit = await keeperCommitReceiptVerifier(runtime.keeperAdmission!.workspaceIds, snapshot)
+      } : undefined),
+      beforeAckFrame: (frame, stream) => runtime.replica.serveProofPage(frame, stream, runtime.invite.secret),
+      acknowledged: async payload => {
+        if (runtime.keeperAdmission) {
+          if (!verifyKeeperCommit) throw new Error("Keeper commit receipt was not negotiated")
+          verifyKeeperCommit(payload)
+        } else {
+          await runtime.replica.receive(await runtime.replica.resolveProofs(payload, connection, runtime.invite.secret))
+        }
+      },
     })
     if (result.kind !== "accepted" || !("value" in result)) return
     personId = result.value.personId
@@ -255,6 +305,9 @@ async function receiveMeshPeer(runtime: HostRuntime, connection: SyncConnection,
 function readWorkspaceRequest(runtime: HostRuntime, payload: Uint8Array) {
   const guest = JSON.parse(new TextDecoder().decode(payload))
   if (typeof guest.personId !== "string" || !guest.personId || guest.invitationId !== runtime.invite.invitationId) throw new Error("Invalid workspace join request.")
+  if (runtime.keeperAdmission && (guest.followOwner === true) !== runtime.keeperAdmission.followOwner) {
+    throw new Error("Keeper future-board policy does not match the approved pairing.")
+  }
   return guest as { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }
 }
 
@@ -268,8 +321,13 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   if (Date.parse(runtime.invite.expiresAt) <= Date.now()) {
     return { ok: false as const, error: "This invitation has expired." }
   }
+  if (runtime.keeperAdmission && !matchesKeeperAdmission(runtime, guest.personId)) {
+    return { ok: false as const, error: "Keeper join does not match the approved identity and scope set." }
+  }
   const name = typeof guest.displayName === "string" ? guest.displayName.slice(0, 80) : `Participant ${guest.personId.slice(0, 6)}`
-  const decision = await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
+  const decision = runtime.keeperAdmission
+    ? { role: "visitor" as const, followOwner: runtime.keeperAdmission.followOwner }
+    : await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
   if (!decision) {
     return { ok: false as const, error: "The owner declined this request." }
   }
@@ -289,14 +347,25 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   return { ok: true as const, value: { personId: guest.personId, grants: result.grants, ownerConnection } }
 }
 
+function matchesKeeperAdmission(runtime: HostRuntime, personId: string) {
+  const admission = runtime.keeperAdmission
+  if (!admission || personId !== admission.servicePersonId) return false
+  const actualScopes = runtime.workspaces.map(workspace => workspace.id).sort()
+  const approvedScopes = [...admission.workspaceIds].sort()
+  return actualScopes.length === approvedScopes.length
+    && actualScopes.every((workspaceId, index) => workspaceId === approvedScopes[index])
+}
+
 async function prepareWorkspaceAccess(runtime: HostRuntime, approval: {
   personId: string; grants: WorkspaceGrant[]; ownerConnection?: { controllerPersonId: string }
-}) {
+}, keeperSnapshot?: (snapshot: Uint8Array) => Promise<void>) {
   const injectedFailure = (window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__
   if (injectedFailure) throw new Error(injectedFailure)
+  const snapshot = await runtime.replica.snapshot()
+  await keeperSnapshot?.(snapshot)
   return new TextEncoder().encode(JSON.stringify({ grants: approval.grants,
     ownerConnection: approval.ownerConnection,
-    snapshot: toBase64Url(await runtime.replica.snapshot()),
+    snapshot: toBase64Url(snapshot),
     meshWorkspaces: await runtime.context.durableMesh?.invitationPayload(runtime.workspaces.map(item => item.id)),
   }))
 }
@@ -314,7 +383,7 @@ async function startPeerSession(runtime: HostRuntime, connection: SyncConnection
   runtime.peers.set(personId, session)
   await previous?.close()
   runtime.context.state.directLive.value = true
-  runtime.context.state.step.value = "synced"
+  if (!runtime.keeperAdmission) runtime.context.state.step.value = "synced"
   return session
 }
 

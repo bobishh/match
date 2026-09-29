@@ -9,7 +9,9 @@ import { blobDescriptor, readStoredAttachment, writeStoredAttachment } from "../
 import type { BoardSchemaDraft } from "../domain/schema"
 import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
 import { isArchiveColumn } from "../domain/archive"
-import { isItem, type Column, type FieldValue, type Heads, type Item, type WorkspaceDocumentV2 } from "../domain/model"
+import { isInlineNarrativeNote, type NarrativeNoteSource } from "../domain/narrative"
+import type { NarrativeFoldSources } from "../domain/commandTypes"
+import { isItem, type AttachedDocument, type Column, type FieldValue, type Heads, type Item, type WorkspaceDocumentV2 } from "../domain/model"
 import type { DocumentInput } from "../types"
 
 export function useAppActions(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
@@ -53,7 +55,9 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
     core.quickNoteError.value = ""
     const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
     try {
-      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, ...(notesFieldId ? { values: { [notesFieldId]: appendQuickNote(item.values[notesFieldId], note) } } : { body: appendQuickNote(item.body, note) }) })
+      const fieldId = notesFieldId && board.leadForItem(item) && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
+      const narrative = appendQuickNote(board.cardNotes(item), note)
+      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, body: narrative, ...(fieldId ? { values: { [fieldId]: "" } } : {}), foldNarrativeSources: foldSources(core, item, fieldId) })
       core.quickNoteDraft.value = ""
       core.notice.value = "Note added"
     } catch (error) { core.quickNoteError.value = `Note not saved: ${messageFrom(error)}` }
@@ -66,9 +70,9 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
   const updateDocumentMarkdown = (documentId: string, markdown: string) => core.match.updateDocumentAsync(documentId, markdown)
   const updateItemMarkdown = async (item: Item, markdown: string) => {
     const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
-    const updatesLeadNotes = Boolean(notesFieldId && board.leadForItem(item))
+    const fieldId = notesFieldId && board.leadForItem(item) && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
     try {
-      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, ...(updatesLeadNotes ? { values: { [notesFieldId!]: markdown } } : { body: markdown }) })
+      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, body: markdown, ...(fieldId ? { values: { [fieldId]: "" } } : {}), foldNarrativeSources: foldSources(core, item, fieldId) })
       core.notice.value = "Checklist updated"
     } catch (error) {
       core.notice.value = `Checklist not saved: ${messageFrom(error)}`
@@ -89,16 +93,27 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
   const handleUpdateRejectionReason = async (reason: string) => {
     if (selection.selectedLead.value) await core.match.updateLeadAsync(selection.selectedLead.value.id, { rejectionReason: reason })
   }
-  const reviewItem = async (item: Item) => {
-    await core.match.executeCommandAsync({ kind: "reviewItem", entityId: item.id })
-    core.notice.value = "Card reviewed"
-  }
-  return { restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason, reviewItem }
+  return { restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason }
 }
 
 function appendQuickNote(existing: unknown, note: string) {
-  const current = typeof existing === "string" ? existing.trimEnd() : ""
-  return current ? `${current}\n\n${note}` : note
+  const current = typeof existing === "string" ? existing : ""
+  return current.length ? `${current}\n\n${note}` : note
+}
+
+function isPresetTextNotesField(core: ReturnType<typeof useAppCore>, fieldId: string): boolean {
+  return core.match.boardFields.value.some(field => field.id === fieldId && field.valueType === "text")
+}
+
+function foldSources(core: ReturnType<typeof useAppCore>, item: Item, notesFieldId?: string) {
+  const entities = core.match.getActiveDoc()?.entities ?? {}
+  const notes = Object.values(entities).filter((entity): entity is AttachedDocument =>
+    entity.kind === "document" && entity.placement.parentId === item.id && !entity.archivedAt && isInlineNarrativeNote(entity as NarrativeNoteSource))
+  return {
+    expectedBody: item.body,
+    ...(notesFieldId ? { notesFieldId, expectedNotes: item.values[notesFieldId] } : {}),
+    notes: notes.map(({ id, title, content, format }) => ({ id, title, content, format })),
+  }
 }
 
 async function saveArtifact(core: ReturnType<typeof useAppCore>, lead: ReturnType<typeof useLeadSelection>["selectedLead"]["value"]) {
@@ -181,7 +196,7 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   return { openBoardItem, closeDetail, openAddItem, handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings, handleArchiveItem, handleRestoreItem, undoArchive, handleOpenItem, handleOpenItemEdit, handleAddSubitem, handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, addingBoardColumn, addBoardColumnError, selectArchiveColumn }
 }
 
-type ItemSavePayload = { title: string; body: string; parentId?: string; values: Record<string, FieldValue> }
+type ItemSavePayload = { title: string; body: string; parentId?: string; values: Record<string, FieldValue>; foldSnapshot?: NarrativeFoldSources }
 
 function initialItemParent(core: ReturnType<typeof useAppCore>) {
   const columns = core.match.genericColumns.value
@@ -196,8 +211,12 @@ async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<t
   try {
     core.storageError.value = ""
     core.itemFormError.value = ""
-    const details = itemSaveDetails(core, board, payload)
-    if (details.item) await saveExistingItem(core, details.item, details, payload.body)
+    const narrativePayload = { ...payload, values: { ...payload.values } }
+    const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
+    const fieldId = notesFieldId && !core.match.isBlankBoard.value && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
+    if (fieldId) narrativePayload.values[fieldId] = ""
+    const details = itemSaveDetails(core, board, narrativePayload)
+    if (details.item) await saveExistingItem(core, details.item, details, payload.body, fieldId, payload.foldSnapshot)
     else await saveNewItem(core, details, payload.body)
     core.showItemForm.value = false
     core.notice.value = "Item saved"
@@ -217,8 +236,8 @@ function itemSaveDetails(core: ReturnType<typeof useAppCore>, board: ReturnType<
   return { item, parentId, values, title: core.match.isBlankBoard.value ? payload.title || item?.title || "Untitled item" : titleParts.join(" — ") || item?.title || "Untitled item" }
 }
 
-async function saveExistingItem(core: ReturnType<typeof useAppCore>, item: Item, details: ReturnType<typeof itemSaveDetails>, body: string) {
-  await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, title: details.title, body, values: details.values })
+async function saveExistingItem(core: ReturnType<typeof useAppCore>, item: Item, details: ReturnType<typeof itemSaveDetails>, body: string, notesFieldId?: string, snapshot?: NarrativeFoldSources) {
+  await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, title: details.title, body, values: details.values, foldNarrativeSources: snapshot ?? foldSources(core, item, notesFieldId) })
   if (details.parentId && details.parentId !== item.placement.parentId) await core.match.executeCommandAsync({ kind: "moveEntity", entityId: item.id, parentId: details.parentId, beforeId: null })
   core.editingItemId.value = null
   if (!core.match.isBlankBoard.value) core.selectedLeadId.value = item.id

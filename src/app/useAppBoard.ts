@@ -4,9 +4,10 @@ import type { useAppCore } from "./useAppCore"
 import { activeFilterCount, defaultBoardFilters, matchesItemFilters } from "../filters"
 import { isArchiveColumn } from "../domain/archive"
 import { projectEntityHistory } from "../domain/history"
-import { isItem, type Item } from "../domain/model"
+import { isItem, type AttachedDocument, type Item } from "../domain/model"
 import type { LeadStatus } from "../types"
 import { orderItemsByPriority } from "../domain/priority"
+import { itemNarrative } from "../domain/narrative"
 
 export type AppBoardContext = Pick<ReturnType<typeof useAppCore>,
   | "match"
@@ -41,10 +42,18 @@ function useBoardPresentation(core: AppBoardContext) {
   })
   const itemFormOptionValues = computed(() => Object.fromEntries(Object.entries(match.activeBoard.value?.preset?.bindings ?? {}).filter(([binding]) => binding.startsWith("option.")).map(([binding, optionId]) => [optionId, binding.split(".").at(-1)!])))
   const leadForItem = (item: Item) => match.isBlankBoard.value ? undefined : match.workspace.leads.find(lead => lead.id === item.id)
-  const cardNotes = (item: Item) => leadForItem(item)?.notes || item.body
+  const textNotesFieldId = () => {
+    const id = match.activeBoard.value?.preset?.bindings["field.notes"]
+    return id && match.boardFields.value.some(field => field.id === id && field.valueType === "text") ? id : undefined
+  }
+  const cardNotes = (item: Item) => {
+    const notes = Object.values(match.getActiveDoc()?.entities ?? {}).filter((entity): entity is AttachedDocument =>
+      entity.kind === "document" && entity.placement.parentId === item.id && !entity.archivedAt && entity.documentKind === "note")
+    return itemNarrative(item, leadForItem(item) ? textNotesFieldId() : undefined, notes)
+  }
   const cardFields = (item: Item) => cardFieldValues(item, match.boardFields.value, match.activeBoard.value?.preset?.bindings ?? {}, leadForItem(item))
-  const itemIsVisible = (item: Item, columnId: string) => matchesSearchAndFilters(item, columnId, search.value, filters.value, leadForItem(item))
-  const itemsForColumn = (column: { id: string; items: Item[] }) => orderItemsByPriority(match.activeBoard.value, column.items.filter(item => itemIsVisible(item, column.id)))
+  const itemIsVisible = (item: Item, columnId: string) => matchesSearchAndFilters(item, columnId, search.value, filters.value, leadForItem(item), cardNotes(item))
+  const itemsForColumn = (column: { id: string; items: Item[] }) => orderItemsByPriority(match.activeBoard.value, column.items.filter(item => itemIsVisible(item, column.id)), textNotesFieldId())
   const totalItems = computed(() => match.genericColumns.value.reduce((total, column) => total + column.items.length, 0))
   const visibleItems = computed(() => match.genericColumns.value.reduce((total, column) => total + itemsForColumn(column).length, 0))
   const hasFilters = computed(() => Boolean(search.value.trim()) || activeFilterCount(filters.value) > 0)
@@ -74,10 +83,10 @@ function cardFieldValues(item: Item, fields: ReturnType<typeof useAppCore>["matc
   })
 }
 
-function matchesSearchAndFilters(item: Item, columnId: string, search: string, filters: ReturnType<typeof useAppCore>["filters"]["value"], lead: ReturnType<typeof useAppCore>["match"]["workspace"]["leads"][number] | undefined) {
+function matchesSearchAndFilters(item: Item, columnId: string, search: string, filters: ReturnType<typeof useAppCore>["filters"]["value"], lead: ReturnType<typeof useAppCore>["match"]["workspace"]["leads"][number] | undefined, narrative: string) {
   const query = search.trim().toLowerCase()
   const fieldText = Object.values(item.values).filter(value => value !== null).join(" ")
-  const searchable = lead ? `${lead.company} ${lead.role} ${lead.notes ?? ""} ${fieldText}` : `${item.title} ${item.body} ${fieldText}`
+  const searchable = lead ? `${lead.company} ${lead.role} ${narrative} ${fieldText}` : `${item.title} ${narrative} ${fieldText}`
   return (!query || searchable.toLowerCase().includes(query)) && matchesItemFilters(item, columnId, filters)
 }
 

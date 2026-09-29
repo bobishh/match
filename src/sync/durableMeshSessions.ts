@@ -20,6 +20,13 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly workspacePublishTasks = new Map<string, Promise<void>>()
   private readonly dirtyWorkspacePublishes = new Set<string>()
   private authorityReadFailure = 0
+
+  private clearWorkspaceDiagnostic(workspaceId: string, deviceId: string) {
+    const stage = `Workspace ${workspaceId.slice(0, 8)} from ${deviceId.slice(0, 8)}`
+    if (!this.lastDiagnostic.startsWith(`${stage}:`)) return
+    this.lastDiagnostic = ""
+    this.options.onDiagnostic?.("")
+  }
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
     peers: async () => (await this.peerInstances()).filter(peer => !isNativeLighthouseRoute(peer)),
     hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
@@ -257,7 +264,8 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         }, {
           ownerWorkspaceOfferFrame: input.ownerWorkspaceOfferFrame,
           onOwnerWorkspaceOffer: input.ownerWorkspaceOfferFrame && input.remotePersonId === input.profile.identity.personId
-            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId) : undefined,
+            ? bytes => this.receiveOwnerWorkspaceOffer(bytes, input.remotePersonId,
+              input.connection, credential.transportSecret) : undefined,
           onGossipPacket: input.remoteEndpoint
             ? packet => this.receiveWorkspaceGossipPacket(input.workspaceId, input.remoteEndpoint, packet) : undefined,
           onBlobRequest: input.blobTransferSupported
@@ -277,6 +285,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       }
     },
     currentRemoved: async entry => {
+      this.clearWorkspaceDiagnostic(entry.workspaceId, entry.deviceId)
       this.removeAuthenticatedPeer(entry.workspaceId, entry.endpoint)
       await this.refreshWorkspaceGossip(entry.workspaceId)
       if (!this.stopped) queueMicrotask(() => { void this.publishAll() })

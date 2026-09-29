@@ -1,5 +1,5 @@
 import { hasEntityKind } from "../domain/model"
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
 import type { WorkspaceOwnershipTransfer } from "@meta-uber/mesh-workspace"
@@ -12,6 +12,7 @@ import { executeCommand, type Command } from "../domain/commands"
 import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
+import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 
 const peerStoreState = vi.hoisted(() => ({ credential: null as any, authority: null as any }))
 vi.mock("./peerStore", () => ({ peerStore: {
@@ -54,6 +55,59 @@ function authorizationBundle(doc: Automerge.Doc<WorkspaceDocumentV2>, records: u
   currentEpoch: 1,
   ownershipTransfers: [] as WorkspaceOwnershipTransfer[], successionClaims: [], revocations: [], deviceRevocations: [], departures: [] } }
 }
+
+it.runIf(process.env.MATCH_PROOF_BENCHMARK === "1")("benchmarks complete TS/WASM admission and one delta on deterministic signed histories", async () => {
+  const timings: unknown[] = []
+  for (const count of [100, 1000, 20_001]) {
+    let doc = Automerge.from(createWorkspaceDoc(`proof-benchmark-${count}`, "Proof benchmark", owner.identity.personId, "blank"))
+    const records: unknown[] = []
+    for (let index = 0; index < count; index++) {
+      if (index) {
+        doc = Automerge.change(doc, draft => { draft.title = `Proof benchmark ${index}` })
+      }
+      const change = Automerge.decodeChange(Automerge.getLastLocalChange(doc)!)
+      const signed = await signEnvelope(owner.privateKeys.devicePrivateKey, {
+        kind: "workspace-changes" as const, version: 1 as const, workspaceId: doc.id,
+        personId: owner.identity.personId, deviceId: owner.device.deviceId, hashes: [change.hash],
+      }, owner.device.deviceId)
+      records.push({ signed, publicKey: owner.identity.publicKey, certificates: [owner.certificate] })
+    }
+    const legacy = authorizationBundle(doc, records)
+    if (count > 20_000) await expect(validateIncomingChangeAuthorizations(undefined, doc, legacy)).rejects.toThrow(/size limit/)
+    const pages: unknown[][] = [[]]
+    let pageBytes = 2
+    for (const record of records) {
+      const recordBytes = new TextEncoder().encode(JSON.stringify(record)).length
+      if (pageBytes + recordBytes + 1 > 200 * 1024) { pages.push([]); pageBytes = 2 }
+      pages.at(-1)!.push(record)
+      pageBytes += recordBytes + 1
+    }
+    const bundle = { version: 2, authority: legacy.authority, pages }
+    const sourceStarted = performance.now()
+    const manifest = meshRustRuntime().state.authorizationExport(Automerge.save(doc), legacy)
+    const sourceExportMs = performance.now() - sourceStarted
+    expect(manifest).toHaveProperty("kind", "workspace-authorization-manifest")
+    const started = performance.now()
+    expect(await validateIncomingChangeAuthorizations(undefined, doc, bundle)).toHaveLength(count)
+    const fullAdmissionMs = performance.now() - started
+    const remote = Automerge.change(Automerge.clone(doc), draft => { draft.title = "New delta" })
+    const hash = Automerge.decodeChange(Automerge.getLastLocalChange(remote)!).hash
+    const signed = await signEnvelope(owner.privateKeys.devicePrivateKey, {
+      kind: "workspace-changes" as const, version: 1 as const, workspaceId: doc.id,
+      personId: owner.identity.personId, deviceId: owner.device.deviceId, hashes: [hash],
+    }, owner.device.deviceId)
+    const deltaStarted = performance.now()
+    expect(await validateIncomingChangeAuthorizations(doc, remote, { version: 2, authority: legacy.authority,
+      pages: [[{ signed, publicKey: owner.identity.publicKey, certificates: [owner.certificate] }]] })).toHaveLength(1)
+    timings.push({ history: count, proofs: count, aggregateBytes: new TextEncoder().encode(JSON.stringify(legacy)).length,
+      pages: pages.length, sourceExportMs, fullAdmissionMs, deltaHistory: count + 1, deltaProofs: 1,
+      deltaAdmissionMs: performance.now() - deltaStarted })
+    Automerge.free(remote)
+    Automerge.free(doc)
+  }
+  console.info("proof_admission_benchmark", JSON.stringify(timings))
+  await writeFile("/tmp/match-proof-admission-benchmark.json", JSON.stringify(timings, null, 2))
+}, 180_000)
 it("rejects visitor writes even with a valid device signature and owner-issued visitor grant", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
   await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).rejects.toThrow(/Visitors/)
@@ -65,6 +119,24 @@ it("defaults an omitted optional departures list before calling Rust", async () 
   const bundle = authorizationBundle(local, [record])
   delete (bundle.authority as any).departures
   await expect(validateIncomingChanges(local, remote, bundle)).rejects.toThrow(/Visitors/)
+})
+
+it("Given divergent durable branches, metadata admission retains dependency coverage and rejects missing parent proof", async () => {
+  const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Divergence", owner.identity.personId, "blank"))
+  const local = Automerge.change(Automerge.clone(base), draft => { draft.title = "Local branch" })
+  const parent = Automerge.change(Automerge.clone(base), draft => { draft.title = "Remote parent" })
+  const remote = Automerge.change(parent, draft => { draft.title = "Remote child" })
+  const remoteMetadata = Automerge.getChangesMetaSince(remote, Automerge.getHeads(base))
+  const records = await Promise.all(remoteMetadata.map(async change => ({
+    signed: await signEnvelope(owner.privateKeys.devicePrivateKey, { kind: "workspace-changes" as const,
+      version: 1 as const, workspaceId: base.id, personId: owner.identity.personId,
+      deviceId: owner.device.deviceId, hashes: [change.hash] }, owner.device.deviceId),
+    publicKey: owner.identity.publicKey, certificates: [owner.certificate],
+  })))
+  expect(await validateIncomingChangeAuthorizations(local, remote,
+    { version: 2, authority: authorizationBundle(base, []).authority, pages: [records] })).toHaveLength(2)
+  await expect(validateIncomingChangeAuthorizations(local, remote,
+    { version: 2, authority: authorizationBundle(base, []).authority, pages: [[records[1]]] })).rejects.toThrow(/Unsigned/)
 })
 
 it("admits a valid editor bundle when optional departures are omitted", async () => {
@@ -134,6 +206,40 @@ it("derives local owner, editor, visitor, revocation, departure, renewal, and de
     member.identity.personId, member.device.deviceId, Automerge.getHeads(doc), [owner.certificate])] }
   await expect(workspaceRole(doc, member)).resolves.toBe("visitor")
 })
+
+it("admits a revoked device's signed change at its revocation frontier and rejects a later signed change", async () => {
+  const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Device revocation frontier", owner.identity.personId, "blank"))
+  const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+  const grant = await createWorkspaceGrant(owner, base.id, member.identity.personId, "editor", 1)
+  let frontier = base
+  const atFrontier = await executeCommand(frontier, { kind: "createItem", parentId: column.id, title: "Before revocation" }, member)
+  if (!atFrontier.ok) throw new Error(atFrontier.error.message)
+  frontier = atFrontier.value.newDoc
+  const frontierHash = atFrontier.value.receipt.changeHash
+  const revocation = await createWorkspaceDeviceRevocation(owner, base.id, member.identity.personId,
+    member.device.deviceId, Automerge.getHeads(frontier), [owner.certificate])
+
+  const afterFrontier = await executeCommand(frontier, { kind: "createItem", parentId: column.id, title: "After revocation" }, member)
+  if (!afterFrontier.ok) throw new Error(afterFrontier.error.message)
+  const later = afterFrontier.value.newDoc
+  const changes = [frontierHash, afterFrontier.value.receipt.changeHash]
+  const records = await Promise.all(changes.map(async hash => ({
+    signed: await signEnvelope(member.privateKeys.devicePrivateKey, {
+      kind: "workspace-changes" as const, version: 1 as const, workspaceId: base.id,
+      personId: member.identity.personId, deviceId: member.device.deviceId, hashes: [hash],
+    }, member.device.deviceId),
+    publicKey: member.identity.publicKey, certificates: [member.certificate], ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [owner.certificate], grant,
+  })))
+  const bundle = authorizationBundle(base, records)
+  const revokedBundle = { ...bundle, authority: { ...bundle.authority,
+    deviceRevocations: [{ record: revocation.record, signer: revocation.authority }] } }
+
+  // The frontier change itself remains admissible on a replica that has not seen it.
+  await expect(validateIncomingChanges(base, frontier, revokedBundle)).resolves.toBeUndefined()
+  await expect(validateIncomingChanges(frontier, later, revokedBundle)).rejects.toThrow(/revok|unsigned|authorization/i)
+})
+
 it("accepts transferred-owner history on a clean replica only when the supplied authority chain verifies", async () => {
   resetIdentityStorageForTest(); const successor = await bootstrapIdentity("Successor")
   const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Transferred", owner.identity.personId, "blank"))

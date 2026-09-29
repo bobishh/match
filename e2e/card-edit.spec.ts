@@ -8,7 +8,7 @@ async function createLead(page: Page, company = "OpenProject") {
   const form = page.getByRole("dialog", { name: "Add item" })
   await form.getByLabel("Company *").fill(company)
   await form.getByLabel("Role *").fill("Senior Ruby on Rails Developer")
-  await form.getByLabel("Notes", { exact: true }).fill("Already applied. ".repeat(60))
+  await form.getByLabel("Description", { exact: true }).fill("Already applied. ".repeat(60))
   await form.getByLabel("Work mode").selectOption({ label: "Remote" })
   await form.getByRole("button", { name: "Create item" }).click()
   await expect(form).toBeHidden()
@@ -35,7 +35,7 @@ test.describe("schema-driven lead editing", () => {
     await form.getByLabel("Company *").fill("OpenProject GmbH")
     await form.getByLabel("Location").fill("Remote / Berlin")
     await form.getByLabel("Work mode").selectOption({ label: "Hybrid" })
-    await form.getByLabel("Notes", { exact: true }).fill("Updated from the shared schema form")
+    await form.getByLabel("Description", { exact: true }).fill("Updated from the shared schema form")
     await form.getByRole("button", { name: "Save changes" }).click()
 
     await expect(form).toBeHidden()

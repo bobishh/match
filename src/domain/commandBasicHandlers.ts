@@ -4,6 +4,7 @@ import { entityKind, hasEntityKind, isItem, validatePlacementParent } from "./mo
 import { getAncestryPath } from "./ancestry"
 import { isArchiveColumn } from "./archive"
 import { validateItemValues } from "./fields"
+import { isInlineNarrativeNote } from "./narrative"
 import { seedBoard } from "./seeds"
 import { err } from "./commandTypes"
 import type { CommandByKind, CommandContext, CommandHandler, PreparedCommand } from "./commandHandlerTypes"
@@ -45,7 +46,7 @@ function itemValuesForCreate(doc: Automerge.Doc<WorkspaceDocumentV2>, command: C
   const boardId = findRootBoardId(doc.entities, command.parentId)
   if (!boardId) return { ok: true, value: command.values ?? {} }
   const values = addPresetValues(doc, boardId, command.title, command.values ?? {})
-  const validation = validateValues(doc, boardId, values)
+  const validation = validateValues(doc, boardId, values, command.body)
   if (!validation.ok) return validation
   return { ok: true, value: values }
 }
@@ -65,9 +66,16 @@ function addBoundValue(values: Record<string, FieldValue>, fieldId: string | und
   values[fieldId] = segment ? (parts.slice(segment).join(" — ").trim() || title.trim()) : parts[0].trim()
 }
 
-function validateValues(doc: Automerge.Doc<WorkspaceDocumentV2>, boardId: string, values: Record<string, FieldValue>): { ok: true } | CommandFailure {
+function validateValues(doc: Automerge.Doc<WorkspaceDocumentV2>, boardId: string, values: Record<string, FieldValue>, body?: string): { ok: true } | CommandFailure {
   const fields = Object.values(doc.entities).filter((entity): entity is FieldDefinition => hasEntityKind(entity, "field") && entity.placement.parentId === boardId)
-  const validation = validateItemValues(fields, values)
+  const board = doc.entities[boardId]
+  const notesFieldId = hasEntityKind(board, "board") ? board.preset?.bindings["field.notes"] : undefined
+  const valuesForValidation = { ...values }
+  if (notesFieldId && fields.find(field => field.id === notesFieldId)?.valueType === "text" && fields.find(field => field.id === notesFieldId)?.required) {
+    const legacyNote = values[notesFieldId]
+    valuesForValidation[notesFieldId] = typeof legacyNote === "string" && legacyNote.trim() ? legacyNote : body ?? ""
+  }
+  const validation = validateItemValues(fields, valuesForValidation)
   if (validation.ok) return { ok: true }
   const field = Object.keys(validation.errors)[0]
   return err("invalid_input", validation.errors[field], field)
@@ -82,15 +90,34 @@ export const patchItem: CommandHandler<"patchItem"> = (doc, command, context) =>
   const item = doc.entities[command.entityId]
   if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
   if (command.title !== undefined && !command.title.trim()) return err("invalid_input", "Item title cannot be empty", "title")
+  const foldError = validateNarrativeFold(doc, item, command)
+  if (!foldError.ok) return foldError
   const validation = validateItemPatch(doc, item, command)
   if (!validation.ok) return validation
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => patchItemInDraft(draft, command, context.nowIso) } }
+  const changedEntityIds = [command.entityId, ...(command.foldNarrativeSources?.notes.map(note => note.id) ?? [])]
+  return { ok: true, value: { changedEntityIds, apply: draft => patchItemInDraft(draft, command, context.nowIso) } }
+}
+
+function validateNarrativeFold(doc: Automerge.Doc<WorkspaceDocumentV2>, item: Item, command: CommandByKind<"patchItem">): PreparedCommand | { ok: true } {
+  const fold = command.foldNarrativeSources
+  if (!fold) return { ok: true }
+  if (command.body === undefined) return err("invalid_input", "Narrative fold requires a replacement description")
+  if (fold.notesFieldId && command.values?.[fold.notesFieldId] !== "") return err("invalid_input", "Narrative fold must clear preset Notes")
+  if (item.body !== fold.expectedBody) return err("conflict", "Card description changed. Reopen card and retry.")
+  if (fold.notesFieldId && item.values[fold.notesFieldId] !== fold.expectedNotes) return err("conflict", "Card notes changed. Reopen card and retry.")
+  const currentNotes = Object.values(doc.entities).filter(entity => entity.kind === "document" && entity.placement.parentId === item.id && !entity.archivedAt && isInlineNarrativeNote(entity))
+  if (JSON.stringify(currentNotes.map(note => note.id).sort()) !== JSON.stringify(fold.notes.map(note => note.id).sort())) return err("conflict", "Attached notes changed. Reopen card and retry.")
+  const unchanged = fold.notes.every(source => {
+    const note = doc.entities[source.id]
+    return note?.kind === "document" && note.placement.parentId === item.id && !note.archivedAt && isInlineNarrativeNote(note) && note.title === source.title && note.content === source.content && note.format === source.format
+  })
+  return unchanged ? { ok: true } : err("conflict", "Attached note changed. Reopen card and retry.")
 }
 
 function validateItemPatch(doc: Automerge.Doc<WorkspaceDocumentV2>, item: Item, command: CommandByKind<"patchItem">): PreparedCommand | { ok: true } {
-  if (!command.values) return { ok: true }
+  if (!command.values && command.body === undefined) return { ok: true }
   const boardId = findRootBoardId(doc.entities, item.id)
-  return boardId ? validateValues(doc, boardId, { ...item.values, ...command.values }) : { ok: true }
+  return boardId ? validateValues(doc, boardId, { ...item.values, ...command.values }, command.body ?? item.body) : { ok: true }
 }
 
 function patchItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"patchItem">, nowIso: string) {
@@ -98,18 +125,12 @@ function patchItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"pa
   if (command.title !== undefined) item.title = command.title.trim()
   if (command.body !== undefined) item.body = command.body
   Object.assign(item.values, command.values ?? {})
+  if (command.foldNarrativeSources) for (const note of command.foldNarrativeSources.notes) {
+    const target = draft.entities[note.id]
+    if (target?.kind === "document") { target.archivedAt = nowIso; target.updatedAt = nowIso }
+  }
   item.updatedAt = nowIso
   item.lastActivityAt = nowIso
-}
-
-export const reviewItem: CommandHandler<"reviewItem"> = (doc, command, context) => {
-  const item = doc.entities[command.entityId]
-  if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => {
-    const target = draft.entities[command.entityId] as Item
-    target.lastActivityAt = context.nowIso
-    target.updatedAt = context.nowIso
-  } } }
 }
 
 export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, command, context) => {

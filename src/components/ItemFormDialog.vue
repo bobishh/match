@@ -4,6 +4,7 @@ import { reactive, ref } from "vue"
 import { useDelayedFlag } from "../ui/useDelayedFlag"
 import type { Column, FieldDefinition, FieldValue, Item } from "../domain/model"
 import { validateFieldValue } from "../domain/fields"
+import type { NarrativeFoldSources } from "../domain/commandTypes"
 
 const props = defineProps<{
   parentId: string
@@ -13,9 +14,11 @@ const props = defineProps<{
   showCoreFields?: boolean
   hiddenFieldIds?: string[]
   computedFieldsMessage?: string
+  requiredNarrative?: boolean
   optionValues?: Record<string, string>
   initialTitle?: string
   initialBody?: string
+  foldSnapshot?: NarrativeFoldSources
   initialValues?: Record<string, FieldValue>
   errorMessage?: string
   saving?: boolean
@@ -23,12 +26,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "cancel"): void
-  (e: "save", payload: { title: string; body: string; parentId?: string; values: Record<string, FieldValue> }): void
+  (e: "save", payload: { title: string; body: string; parentId?: string; values: Record<string, FieldValue>; foldSnapshot?: NarrativeFoldSources }): void
 }>()
 
 const selectedParentId = ref(props.parentId)
 const title = ref(props.item?.title ?? props.initialTitle ?? "")
-const body = ref(props.item?.body ?? props.initialBody ?? "")
+const body = ref(props.initialBody ?? props.item?.body ?? "")
 const values = reactive<Record<string, FieldValue>>({ ...(props.initialValues ?? props.item?.values ?? {}) })
 for (const field of props.fields) {
   const fieldValue = values[field.id]
@@ -66,6 +69,7 @@ function handleSave() {
   if (props.saving) return
   localError.value = ""
   if (props.showCoreFields !== false && !title.value.trim()) { localError.value = "Title is required"; return }
+  if (props.requiredNarrative && !body.value.trim()) { localError.value = "Description is required"; return }
   const invalidMessage = invalidFieldMessage()
   if (invalidMessage) { localError.value = invalidMessage; return }
 
@@ -74,6 +78,7 @@ function handleSave() {
     body: body.value,
     parentId: selectedParentId.value,
     values: savedFieldValues(),
+    foldSnapshot: props.foldSnapshot,
   })
 }
 </script>
@@ -106,7 +111,7 @@ function handleSave() {
           </label>
 
           <label class="wide">
-            <span>{{ showCoreFields !== false ? 'Body' : 'Description' }}</span>
+            <span>{{ showCoreFields !== false ? 'Body' : `Description${requiredNarrative ? ' *' : ''}` }}</span>
             <textarea v-model="body" rows="3" placeholder="Description or notes..."></textarea>
           </label>
 

@@ -26,10 +26,10 @@ export function evaluatePriority(policy: PriorityPolicy, values: Record<string, 
   return { score, optionId: band?.optionId ?? null, matchedRuleIds: matched.map(rule => rule.id) }
 }
 
-export function projectItemPriority(board: Board | null | undefined, item: Item): Item {
+export function projectItemPriority(board: Board | null | undefined, item: Item, notesFieldId?: string): Item {
   const policy = board?.priorityPolicy
   if (!policy) return item
-  const evaluation = evaluatePriority(policy, item.values)
+  const evaluation = evaluatePriority(policy, priorityValues(item, notesFieldId))
   return {
     ...item,
     values: {
@@ -40,14 +40,21 @@ export function projectItemPriority(board: Board | null | undefined, item: Item)
   }
 }
 
-export function orderItemsByPriority(board: Board | null | undefined, items: Item[]): Item[] {
+export function orderItemsByPriority(board: Board | null | undefined, items: Item[], notesFieldId?: string): Item[] {
   const policy = board?.priorityPolicy
   const order = policy?.sort ?? "fit_desc"
   if (!policy || order === "manual") return items
   const direction = order === "fit_desc" ? -1 : 1
-  return items.map((item, index) => ({ item, index, score: evaluatePriority(policy, item.values).score }))
+  return items.map((item, index) => ({ item, index, score: evaluatePriority(policy, priorityValues(item, notesFieldId)).score }))
     .sort((a, b) => direction * (a.score - b.score) || a.index - b.index)
     .map(item => item.item)
+}
+
+function priorityValues(item: Item, notesFieldId?: string): Record<string, FieldValue> {
+  const notes = notesFieldId ? item.values[notesFieldId] : undefined
+  if (!notesFieldId) return item.values
+  const narrative = [item.body, typeof notes === "string" ? notes : ""].filter(value => value.length > 0)
+  return { ...item.values, [notesFieldId]: [...new Set(narrative)].join("\n\n") }
 }
 
 export function createDefaultPriorityPolicy(board: Board, fields: FieldDefinition[]): PriorityPolicy | null {

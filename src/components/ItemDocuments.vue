@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MarkdownContent } from "../ui/markdownContent"
-import { onBeforeUnmount, ref } from "vue"
+import { computed, onBeforeUnmount, ref } from "vue"
 import {
   attachmentMediaType,
   attachmentName,
@@ -8,7 +8,8 @@ import {
   readAttachment,
   storeAttachment,
 } from "../attachments"
-import type { Document, DocumentInput, DocumentKind } from "../types"
+import type { Document, DocumentInput } from "../types"
+import { isInlineNarrativeNote } from "../domain/narrative"
 import ModalLayer from "./ModalLayer.vue"
 
 type DocumentDraft = Omit<DocumentInput, "leadId">
@@ -21,10 +22,7 @@ const props = defineProps<{
 }>()
 
 const formOpen = ref(false)
-const kind = ref<DocumentKind>("note")
 const title = ref("")
-const format = ref<"markdown" | "html">("markdown")
-const content = ref("")
 const file = ref<File | null>(null)
 const saving = ref(false)
 const error = ref("")
@@ -34,6 +32,7 @@ const previewUrl = ref("")
 const previewError = ref("")
 const previewSaving = ref(false)
 const previewStatus = ref("")
+const visibleDocuments = computed(() => props.documents.filter(document => !isInlineNarrativeNote({ ...document, content: document.content ?? null, documentKind: document.kind })))
 
 async function attach() {
   const trimmedTitle = title.value.trim()
@@ -41,26 +40,17 @@ async function attach() {
   saving.value = true
   error.value = ""
   try {
-    if (kind.value === "attachment") {
-      if (!file.value) {
-        error.value = "Choose a file"
-        return
-      }
-      const reference = await storeAttachment(file.value)
-      await props.save({
-        kind: "attachment",
-        title: trimmedTitle,
-        format: attachmentMediaType(reference) === "application/pdf" ? "pdf" : "file",
-        file: reference,
-      })
-    } else {
-      await props.save({
-        kind: kind.value,
-        title: trimmedTitle,
-        format: format.value,
-        content: content.value,
-      })
+    if (!file.value) {
+      error.value = "Choose a file"
+      return
     }
+    const reference = await storeAttachment(file.value)
+    await props.save({
+      kind: "attachment",
+      title: trimmedTitle,
+      format: attachmentMediaType(reference) === "application/pdf" ? "pdf" : "file",
+      file: reference,
+    })
     resetForm()
   } catch (caught) {
     error.value = caught instanceof Error ? caught.message : String(caught)
@@ -75,10 +65,7 @@ function selectFile(event: Event) {
 
 function resetForm() {
   formOpen.value = false
-  kind.value = "note"
   title.value = ""
-  format.value = "markdown"
-  content.value = ""
   file.value = null
   error.value = ""
 }
@@ -210,45 +197,23 @@ onBeforeUnmount(closePreview)
   <section class="detail-section documents-section">
     <div class="section-heading">
       <div>
-        <span class="detail-label">Notes & files</span>
-        <h3>{{ documents.length ? `${documents.length} attached` : "Nothing attached" }}</h3>
+        <span class="detail-label">Attached documents</span>
+        <h3>{{ visibleDocuments.length ? `${visibleDocuments.length} attached` : "Nothing attached" }}</h3>
       </div>
       <button class="button button-small" type="button" :disabled="readOnly" @click="formOpen = !formOpen">
-        + Document
+        + File
       </button>
     </div>
 
     <form v-if="formOpen" class="document-form" aria-label="Attach document" @submit.prevent="attach">
       <label>
-        <span>Kind</span>
-        <select v-model="kind">
-          <option value="note">Note</option>
-          <option value="attachment">Attachment</option>
-        </select>
-      </label>
-      <label>
         <span>Title</span>
         <input v-model="title" required />
       </label>
-      <template v-if="kind === 'attachment'">
-        <label>
-          <span>File</span>
-          <input type="file" aria-label="File" required @change="selectFile" />
-        </label>
-      </template>
-      <template v-else>
-        <label>
-          <span>Format</span>
-          <select v-model="format">
-            <option value="markdown">Markdown</option>
-            <option value="html">HTML</option>
-          </select>
-        </label>
-        <label>
-          <span>Content</span>
-          <textarea v-model="content" rows="5" placeholder="Write note…"></textarea>
-        </label>
-      </template>
+      <label>
+        <span>File</span>
+        <input type="file" aria-label="File" required @change="selectFile" />
+      </label>
       <p v-if="error" class="form-error" role="alert">{{ error }}</p>
       <button class="button button-primary" type="submit" :disabled="saving">
         {{ saving ? "Attaching…" : "Attach" }}
@@ -257,7 +222,7 @@ onBeforeUnmount(closePreview)
 
     <p v-else-if="error" class="form-error" role="alert">{{ error }}</p>
     <div
-      v-for="document in documents"
+      v-for="document in visibleDocuments"
       :key="document.id"
       class="document-row"
       role="group"

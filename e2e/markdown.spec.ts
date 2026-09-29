@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-test("Markdown notes, documents, and templates render consistently without executing HTML", async ({ page }, testInfo) => {
+test("Markdown descriptions and templates render consistently without executing HTML", async ({ page }, testInfo) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Open workspaces" }).click()
   await page.getByRole("button", { name: "New workspace" }).click()
@@ -11,7 +11,7 @@ test("Markdown notes, documents, and templates render consistently without execu
   await page.getByRole("button", { name: "Add item to To do", exact: true }).click()
   const form = page.getByRole("dialog", { name: "Item details" })
   await form.getByLabel("Title *", { exact: true }).fill("Wallet checklist")
-  const markdown = "- [ ] Issue a **new card**\n- [x] Block the previous card\n\nFirst line\nSecond line"
+  const markdown = "- [ ] Issue a **new card**\n- [x] Block the previous card\n\nFirst line\nSecond line\n\n<script>window.markdownExecuted = true</script>"
   await form.getByLabel("Body", { exact: true }).fill(markdown)
   await form.getByRole("button", { name: "Save item" }).click()
   const card = page.getByRole("button", { name: "Open Wallet checklist", exact: true })
@@ -30,25 +30,10 @@ test("Markdown notes, documents, and templates render consistently without execu
   await expect(detail.getByRole("checkbox")).toHaveCount(2)
   await expect(detail.getByRole("checkbox").first()).toBeEnabled()
   await expect(detail.getByRole("checkbox").last()).toBeChecked()
-  await detail.getByRole("button", { name: "+ Document", exact: true }).click()
-  const attachment = detail.getByRole("form", { name: "Attach document" })
-  await attachment.getByLabel("Title", { exact: true }).fill("Instructions")
-  await attachment.getByLabel("Content", { exact: true }).fill("# Instructions\n\n" + markdown + '\n\n<script>window.markdownExecuted = true</script>')
-  await attachment.getByRole("button", { name: "Attach", exact: true }).click()
-  await detail.getByRole("group", { name: "Instructions", exact: true }).getByRole("button", { name: "Preview", exact: true }).click()
-  const preview = page.getByRole("dialog", { name: "Document preview" })
-  await expect(preview.getByRole("heading", { name: "Instructions", level: 1 })).toBeVisible()
-  await expect(preview.locator("script")).toHaveCount(0)
-  await expect(preview.getByRole("checkbox")).toHaveCount(2)
-  await preview.getByRole("checkbox").first().click()
-  await expect(preview.getByRole("checkbox").first()).toBeChecked()
-  await expect(preview.getByText("Checklist saved", { exact: true })).toBeVisible()
-  await preview.getByRole("button", { name: "Close", exact: true }).click()
-  await detail.getByRole("group", { name: "Instructions", exact: true }).getByRole("button", { name: "Preview", exact: true }).click()
-  await expect(page.getByRole("dialog", { name: "Document preview" }).getByRole("checkbox").first()).toBeChecked()
+  await expect(detail.locator("script")).toHaveCount(0)
+  await expect(page.evaluate(() => (window as any).markdownExecuted)).resolves.toBeUndefined()
   await page.locator(".overlay").evaluateAll(elements => Promise.all(elements.flatMap(element => element.getAnimations({ subtree: true }).map(animation => animation.finished.catch(() => {})))))
-  await page.screenshot({ path: testInfo.outputPath("markdown-document.png"), fullPage: true })
-  await preview.getByRole("button", { name: "Close", exact: true }).click()
+  await page.screenshot({ path: testInfo.outputPath("markdown-description.png"), fullPage: true })
   await detail.getByRole("button", { name: "Close detail", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()
   const settings = page.getByRole("dialog", { name: "Settings", exact: true })

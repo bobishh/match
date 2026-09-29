@@ -3,6 +3,8 @@ import LighthouseMark from "./LighthouseMark.vue"
 import { isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
+import KeeperDiscovery from "./KeeperDiscovery.vue"
+import type { KeeperPairing, KeeperPairingStatus } from "../app/keeperApi"
 import ModalLayer from "./ModalLayer.vue"
 import WorkspaceFileActions from "./WorkspaceFileActions.vue"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
@@ -22,6 +24,9 @@ const props = defineProps<{
   invitationWorkspaceTitle?: string
   invitationWorkspaces?: { id: string; title: string }[]
   availableWorkspaces?: { id: string; title: string }[]
+  keeperOwnedWorkspaces?: { id: string; title: string }[]
+  provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
+  removeKeeper?: (personId: string) => Promise<void>
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
   meshMembers?: MeshMemberView[]
@@ -97,9 +102,22 @@ const isEnrollmentHost = computed(
   () => props.step === "enroll-host" || props.step === "enroll-host-pending",
 )
 const selectedMemberId = ref("")
+const rejectedSource = computed(() => {
+  const diagnostic = props.meshDiagnostic ?? ""
+  const source = diagnostic.match(/^Workspace .+ from ([A-Za-z0-9_-]{8,})\s*:/)?.[1]
+  if (!source || !/Unsigned workspace change rejected/i.test(diagnostic)) return null
+  const member = (props.meshMembers ?? []).find(candidate =>
+    candidate.deviceList.some(device => device.deviceId.startsWith(source)),
+  )
+  const device = member?.deviceList.find(candidate => candidate.deviceId.startsWith(source))
+  return { diagnostic, source, member, device }
+})
+const keeperView = ref<"list" | "form" | "detail">("list")
+const visiblePendingJoins = computed(() => keeperView.value === "list" ? props.pendingJoins ?? [] : [])
 const confirmingLeave = ref(false)
-
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
+const peopleMembers = computed(() => (props.meshMembers ?? []).filter(member => !member.deviceList.some(device => isLighthouse(device.userAgent))))
+const keeperMembers = computed(() => (props.meshMembers ?? []).filter(member => member.deviceList.some(device => isLighthouse(device.userAgent))))
 const currentVote = computed(() => props.succession?.votes.find(vote => vote.voterPersonId === props.currentPersonId))
 const canVoteForSelectedMember = computed(() => {
   const succession = props.succession
@@ -144,6 +162,11 @@ function toggleWorkspace(id: string) {
   }
 }
 
+function reviewRejectedSource() {
+  if (!rejectedSource.value?.member) return
+  selectedMemberId.value = rejectedSource.value.member.personId
+}
+
 const guestWorkspaces = computed(() => {
   if (props.invitationWorkspaces && props.invitationWorkspaces.length > 0) {
     return props.invitationWorkspaces
@@ -172,7 +195,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         <button class="icon-button" type="button" aria-label="Close" :disabled="leavingMesh" @click="emit('dismiss')">×</button>
       </div>
 
-      <section v-for="request in pendingJoins" :key="request.id" class="join-request" aria-label="Access request">
+      <section v-for="request in visiblePendingJoins" :key="request.id" class="join-request" aria-label="Access request">
         <h3>{{ request.name }} wants to join</h3>
         <small>{{ request.personId.slice(0, 12) }}</small>
         <label>Role<select v-model="request.role" aria-label="Participant role"><option value="visitor">Visitor — view only</option><option value="editor">Editor — edit items</option></select></label>
@@ -181,16 +204,37 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         <div class="dialog-actions"><button class="button button-primary" @click="emit('decideJoin', request.id, true)">Approve access</button><button class="button" @click="emit('decideJoin', request.id, false)">Decline</button></div>
       </section>
       <template v-if="step === 'members'">
-        <p class="dialog-copy mesh-connection-summary" role="status">
+        <p v-if="keeperView === 'list'" class="dialog-copy mesh-connection-summary" role="status">
           <strong>{{ workspaceConnected ? "Connected here" : workspaceReconnecting ? "Reconnecting" : "Offline" }}</strong>
           · {{ connectionSummary }}
         </p>
-        <p v-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
+        <KeeperDiscovery
+          :owned-workspaces="keeperOwnedWorkspaces ?? []"
+          :keepers="keeperMembers"
+          :provision-keeper="provisionKeeper"
+          :remove-keeper="currentRole === 'owner' ? removeKeeper : undefined"
+          @view-change="keeperView = $event"
+        />
+        <template v-if="keeperView === 'list'">
+        <section v-if="networkOnline !== false && rejectedSource" class="sync-error" role="status" aria-label="Changes rejected">
+          <p><strong>Changes rejected by this board.</strong>
+            <template v-if="rejectedSource.device"> Source: {{ rejectedSource.device.name }} ({{ rejectedSource.source }}).</template>
+            <template v-else> Source device {{ rejectedSource.source }}.</template>
+          </p>
+          <p>This board kept its accepted data. The source still has rejected changes. Removing its access stops attempts for this workspace; review its local copy first if needed.</p>
+          <button v-if="rejectedSource.member" class="button" type="button" @click="reviewRejectedSource">Review source device</button>
+          <p v-else>Source device is not currently listed among known members.</p>
+          <details>
+            <summary>Technical details</summary>
+            <code>{{ rejectedSource.diagnostic }}</code>
+          </details>
+        </section>
+        <p v-else-if="networkOnline !== false && meshDiagnostic && (meshMembers || []).some(member => !member.self)" class="sync-error" role="status">{{ workspaceConnected ? "Sync issue:" : "Reconnect:" }} {{ meshDiagnostic }}</p>
         <p class="dialog-copy">People and their known devices trusted by {{ invitationWorkspaceTitle || "this workspace" }}.</p>
         <p class="mesh-member-help">A person can have more than one device. Select a person to see the devices known here.</p>
         <div class="mesh-member-list" role="list" aria-label="Mesh members">
           <button
-            v-for="member in (meshMembers || [])"
+            v-for="member in peopleMembers"
             :key="member.personId"
             class="mesh-member"
             :class="{ 'is-selected': selectedMemberId === member.personId }"
@@ -203,7 +247,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
             <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} known {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
             <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
-          <p v-if="!(meshMembers || []).length" class="mesh-member-empty">No mesh members yet.</p>
+          <p v-if="!peopleMembers.length" class="mesh-member-empty">No people connected to this board.</p>
         </div>
 
         <section v-if="selectedMember" class="mesh-member-action" aria-label="Selected mesh member">
@@ -284,6 +328,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           <button v-if="hasMesh" class="button button-danger" type="button" @click="confirmingLeave = true">Leave mesh</button>
         </div>
         <WorkspaceFileActions @export="emit('export')" @import="emit('import')" />
+        </template>
       </template>
       <!-- Step: Direct Workspace Selection (supersedes former preliminary chooser) -->
       <template v-else-if="step === 'workspace-select' || step === 'workspace-host-select' || step === 'chooser'">
@@ -459,56 +504,4 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
   </ModalLayer>
 </template>
 
-<style scoped>
-.sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 16px 0; overflow-y: auto; }
-.mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; padding: 3px 5px 5px 3px; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
-.mesh-member { width: 100%; min-height: 58px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); background: white; color: var(--ink); text-align: left; }
-.mesh-member:not(:disabled) { cursor: pointer; }
-.mesh-member:disabled { opacity: 1; }
-.mesh-member:focus { outline: none; }
-.mesh-member:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
-.mesh-member.is-selected { background: var(--yellow); box-shadow: 3px 3px 0 var(--ink); transform: translate(-2px, -2px); }
-.mesh-member-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
-.mesh-member-presence.is-online { background: var(--green); }
-.mesh-member-presence.is-reconnecting { background: var(--yellow); }
-.mesh-member-name { min-width: 0; display: grid; gap: 4px; }
-.mesh-member-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mesh-member-name small, .mesh-member-role { color: var(--muted); font: 800 .64rem/1.2 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
-.mesh-member-help { margin: -8px 0 12px; color: var(--muted); font-size: .78rem; }
-.mesh-member-action { display: grid; gap: 10px; padding: 14px; border: 2px solid var(--line); background: var(--panel); }
-.mesh-member-action p { margin: 0; }
-.mesh-member-action .button { justify-self: start; }
-.mesh-member-empty { margin: 0; padding: 16px; border: 2px dashed var(--soft); color: var(--muted); }
-.mesh-device-list { display: grid; gap: 8px; max-height: min(42dvh, 320px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; list-style: none; }
-.mesh-device { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--soft); background: white; min-width: 0; }
-.mesh-device-presence { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
-.mesh-device-presence.is-online { background: var(--green); }
-.mesh-device-presence.is-reconnecting { background: var(--yellow); }
-.mesh-device-head { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-width: 0; }
-.mesh-member:has(> .lighthouse-mark), .mesh-device-head:has(> .lighthouse-mark) { grid-template-columns: 24px minmax(0, 1fr) auto; }
-.mesh-device-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mesh-device-head code, .mesh-device small { color: var(--muted); }
-.mesh-device small { font: 700 .72rem/1.3 ui-monospace, monospace; }
-.mesh-device-platform, .mesh-device-status { display: block; }
-.mesh-device-status { color: var(--ink) !important; font-weight: 850 !important; }
-.mesh-device-ua summary { cursor: pointer; color: var(--muted); font: 800 .68rem/1.3 ui-monospace, monospace; text-transform: uppercase; }
-.mesh-device-ua code { display: block; margin-top: 6px; overflow-wrap: anywhere; white-space: normal; font-size: .68rem; }
-.sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 750; }
-.sync-checkbox-item:has(input:checked) { background: var(--yellow); }
-.sync-workspace-detail { display: block; overflow-wrap: anywhere; font-size: 0.75rem; font-weight: 400; }
-.sync-primary-actions { justify-content: flex-start; margin-top: 16px; }
-.sync-section { display: grid; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 2px solid var(--line); }
-.sync-section-copy { margin: 0; color: var(--muted); font: 800 .68rem/1.45 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
-.sync-section-action { min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 2px solid var(--line); background: white; font-weight: 850; text-align: left; }
-.sync-section-action:hover { background: var(--yellow); }
-.sync-section-action small { color: var(--muted); font: 800 .65rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-.sync-step-title { margin-bottom: 8px; font-weight: 700; }
-.sync-wrap-actions { flex-wrap: wrap; }
-.sync-step-actions { margin-top: 16px; }
-.approval-card { margin-top: 16px; padding: 16px; border: 2px solid var(--line); background: white; }
-.auth-code { margin: 10px 0; font: 900 1.5rem/1 ui-monospace, monospace; letter-spacing: .12em; }
-.sync-help { margin-bottom: 12px; font-size: .85rem; }
-.sync-result { font-size: 1.1rem; font-weight: 700; }
-.guest-workspace-list { margin: 8px 0 16px 20px; padding: 0; }
-.guest-workspace-list li { margin: 4px 0; font-weight: 650; }
-</style>
+<style scoped src="./SyncDialog.css"></style>

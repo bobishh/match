@@ -96,13 +96,19 @@ function applyLeadValue(lead: Lead, fieldName: string, value: unknown): void {
   else if (fieldName === "priority") lead.priority = priority(value);
 }
 
+function textNotesFieldId(doc: Automerge.Doc<WorkspaceDocumentV2>, board: Board | undefined): string | undefined {
+  const notesFieldId = board?.preset?.bindings["field.notes"]
+  const field = notesFieldId ? doc.entities[notesFieldId] : undefined
+  return field?.kind === "field" && field.valueType === "text" ? notesFieldId : undefined
+}
+
 function projectLead(
   doc: Automerge.Doc<WorkspaceDocumentV2>,
   board: Board | undefined,
   source: Item,
   bindings: Bindings,
 ): Lead | undefined {
-  const item = projectItemPriority(board, source);
+  const item = projectItemPriority(board, source, textNotesFieldId(doc, board))
   const column = findColumn(doc.entities, item.placement.parentId);
   if (!column) return undefined;
   if (isArchiveColumn(column) && !item.archivedAt) return undefined;

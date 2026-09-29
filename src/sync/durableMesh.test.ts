@@ -29,6 +29,30 @@ function rustReplacesSession(
 }
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("clears a rejected workspace diagnostic only when its peer session is removed", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never, onDiagnostic })
+    const internal = mesh as any
+    internal.removeAuthenticatedPeer = vi.fn()
+    internal.refreshWorkspaceGossip = vi.fn(async () => {})
+    internal.notify = vi.fn(async () => {})
+    const removed = internal.browserSessions.host.currentRemoved
+
+    internal.lastDiagnostic = "Workspace workspac from remote-a: unsigned changes rejected"
+    await removed({ workspaceId: "workspace", deviceId: "remote-b", endpoint: "endpoint-b" })
+    expect(internal.lastDiagnostic).toBe("Workspace workspac from remote-a: unsigned changes rejected")
+
+    await removed({ workspaceId: "workspace", deviceId: "remote-a", endpoint: "endpoint-a" })
+    expect(internal.lastDiagnostic).toBe("")
+    expect(onDiagnostic).toHaveBeenLastCalledWith("")
+
+    internal.lastDiagnostic = "Handshake remote-a: invalid grant"
+    await removed({ workspaceId: "workspace", deviceId: "remote-a", endpoint: "endpoint-a" })
+    expect(internal.lastDiagnostic).toBe("Handshake remote-a: invalid grant")
+    await mesh.dispose()
+  })
+
   it("skips empty revocation planning only when no stored revocations exist", async () => {
     const plan = vi.spyOn(meshRustRuntime().state as any, "planAuthorityMerge")
     const getProfile = vi.fn(async () => ({ identity: { personId: "owner" }, device: { deviceId: "owner-device" } } as never))
@@ -236,7 +260,7 @@ describe("DurableMesh peer catalog gossip", () => {
   it("offers a new owner workspace over the renamed frame only after v2 negotiation", async () => {
     const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
-    const offer = new Uint8Array([1])
+    const offer = new TextEncoder().encode(JSON.stringify({ workspaceId: "new-workspace", workspace: { id: "new-workspace", bytes: "AA" } }))
     const receipt = new TextEncoder().encode(await sha256Base64Url(offer))
     const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
       read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }
@@ -265,7 +289,7 @@ describe("DurableMesh peer catalog gossip", () => {
   it("shares one owner-workspace offer when concurrent sessions see the same missing scope", async () => {
     const credential = { workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "owner-key",
       ownerCertificates: [], transportSecret: "secret", epoch: 1, updatedAt: new Date().toISOString() }
-    const offer = new Uint8Array([1])
+    const offer = new TextEncoder().encode(JSON.stringify({ workspaceId: "new-workspace", workspace: { id: "new-workspace", bytes: "AA" } }))
     const receipt = new TextEncoder().encode(await sha256Base64Url(offer))
     const stream = { send: vi.fn<(data: Uint8Array) => Promise<void>>(async () => {}), closeSend: vi.fn(async () => {}),
       read: vi.fn(async () => encodePairingFrame("mesh-durable-ack", "secret", receipt)) }

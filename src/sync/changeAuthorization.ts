@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge/slim"
-import { publicKeyId, signEnvelope, type LocalProfile } from "../domain/identity"
+import { canonicalizeJson, publicKeyId, signEnvelope, type LocalProfile } from "../domain/identity"
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore, type WorkspaceAuthorityRecord, type WorkspaceMeshCredential } from "./peerStore"
@@ -7,8 +7,10 @@ import { type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionClaim, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
+import { runWorkspaceAdmission } from "./workspaceAdmissionClient"
+import type { IncomingAuthorizationBundle, WorkspaceWriteAuthorityEvidence } from "./workspaceAdmissionCore"
 
-import { assertWorkspaceTransition, type WorkspaceRole } from "../domain/permissions"
+import type { WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
   constructor(message: string) { super(message); this.name = "WorkspaceChangeRejected" }
 }
@@ -84,18 +86,6 @@ export async function recordGenesisAuthority(doc: Automerge.Doc<WorkspaceDocumen
 }
 
 type Authorization = WorkspaceChangeAuthorization
-type WorkspaceWriteAuthorityEvidence = {
-  genesisOwner: WorkspaceAuthority
-  genesisEpoch: number
-  currentOwner: WorkspaceAuthority
-  currentEpoch: number
-  ownershipTransfers: WorkspaceOwnershipTransfer[]
-  successionClaims: WorkspaceSuccessionClaim[]
-  revocations: unknown[]
-  deviceRevocations: Array<{ record: unknown; signer: WorkspaceAuthority }>
-  departures: Array<{ record: unknown; authority: WorkspaceAuthority }>
-}
-type IncomingAuthorizationBundle = { version: 1; records: unknown[]; authority: WorkspaceWriteAuthorityEvidence }
 
 export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfile): Promise<WorkspaceRole> {
   const stored = await storedWorkspaceAuthority(doc.id)
@@ -164,7 +154,7 @@ function authorities(credential: StoredWorkspaceAuthority | null) {
   ...((credential.ownerHistory ?? []) as WorkspaceAuthority[])]
 }
 
-export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocumentV2>, profile: LocalProfile, hashes: string[]) {
+export async function prepareLocalChangeAuthorizations(doc: Automerge.Doc<WorkspaceDocumentV2>, profile: LocalProfile, hashes: string[]) {
   const credential = typeof indexedDB === "undefined" ? undefined : (await storedWorkspaceAuthority(doc.id)).authority
   if (typeof indexedDB !== "undefined" && !credential) throw new Error("Workspace authority is unavailable. Import this board as a new board.")
   const ownerPersonId = credential?.ownerPersonId ?? doc.ownerPersonId
@@ -174,11 +164,15 @@ export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocument
     kind: "workspace-changes" as const, version: 1 as const, workspaceId: doc.id, hashes,
     personId: profile.identity.personId, deviceId: profile.device.deviceId,
   }, profile.device.deviceId)
-  await putRecords(doc.id, [{ signed, publicKey: profile.identity.publicKey, certificates,
+  return [{ signed, publicKey: profile.identity.publicKey, certificates,
     ...(profile.identity.personId !== ownerPersonId ? { grant: credential?.localGrant as WorkspaceGrant } : {}),
     ownerPublicKey: credential?.ownerPublicKey ?? profile.identity.publicKey,
     ownerCertificates: credential?.ownerCertificates as DeviceCertificate[] ?? certificates,
-  }])
+  }] satisfies Authorization[]
+}
+
+export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocumentV2>, profile: LocalProfile, hashes: string[]) {
+  return putRecords(doc.id, await prepareLocalChangeAuthorizations(doc, profile, hashes))
 }
 export async function exportAuthorizations(bytes: Uint8Array) {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
@@ -190,7 +184,7 @@ export async function exportAuthorizations(bytes: Uint8Array) {
  * them. The receiver verifies this evidence before it uses any of it and does
  * not store it as a side effect of validation.
  */
-export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<IncomingAuthorizationBundle> {
+export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<Extract<IncomingAuthorizationBundle, { version: 1 }>> {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
   let authority = (await storedWorkspaceAuthority(doc.id)).authority
   if (!authority && typeof indexedDB === "undefined" && knownProfile?.identity.personId === doc.ownerPersonId) {
@@ -247,7 +241,8 @@ async function incomingCredential(workspaceId: string): Promise<StoredWorkspaceA
 
 function authorizationBundle(raw: unknown): IncomingAuthorizationBundle {
   const bundle = raw as IncomingAuthorizationBundle
-  if (!bundle || bundle.version !== 1 || !Array.isArray(bundle.records) || !bundle.authority) {
+  if (!bundle || ![1, 2].includes(bundle.version) || !bundle.authority ||
+    (bundle.version === 1 ? !Array.isArray(bundle.records) : !Array.isArray(bundle.pages))) {
     throw new Error("The peer needs an update: missing workspace authority evidence")
   }
   return bundle
@@ -272,52 +267,27 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   if (credential && meshRustRuntime().state.hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
-  const authority = meshRustRuntime().state.prepareWriteEvidence({ incoming: bundle.authority,
-    known: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
-    records: bundle.records, genesisPersonId: local?.ownerPersonId ?? remote.ownerPersonId,
-    remoteOwnerPersonId: remote.ownerPersonId }) as WorkspaceWriteAuthorityEvidence
-  if (bundle.records.length > 20000 || new TextEncoder().encode(JSON.stringify(bundle)).length > 16 * 1024 * 1024) throw new Error("The peer needs an update: missing write authorizations")
-  const knownHashes = local ? Automerge.getAllChanges(local).map(change => Automerge.decodeChange(change).hash) : []
-  const changes = Automerge.getAllChanges(remote).map(change => Automerge.decodeChange(change))
-  const snapshot = {
-    workspaceId: remote.id,
-    genesisOwner: authority.genesisOwner,
-    genesisEpoch: authority.genesisEpoch,
-    expectedCurrentOwner: authority.currentOwner,
-    // Known local transition heads must remain available while Rust verifies a
-    // stale peer's earlier history; never let incoming evidence erase them.
-    document: Array.from(Automerge.save(local ? Automerge.merge(Automerge.clone(local), remote) : remote)),
-    ownershipTransfers: authority.ownershipTransfers,
-    successionClaims: authority.successionClaims,
-    revocations: authority.revocations,
-    deviceRevocations: authority.deviceRevocations,
-    departures: authority.departures,
+  const frozenCredential = canonicalizeJson(credential)
+  const plan = await runWorkspaceAdmission({ workspaceId: remote.id,
+    local: local ? Automerge.save(local) : undefined, remote: Automerge.save(remote),
+    authorization: bundle, knownAuthority: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
+    now: Date.now(),
+  })
+  // Off-thread validation yields while control evidence can change. A result
+  // verified against earlier rights cannot authorize a commit under new rights.
+  const currentCredential = await incomingCredential(remote.id)
+  if (canonicalizeJson(currentCredential) !== frozenCredential ||
+    (currentCredential && meshRustRuntime().state.hasAuthorityConflict(currentCredential))) {
+    throw new Error("Workspace authority changed during validation. Retry synchronization.")
   }
-  const plan = meshRustRuntime().state.planChangeAdmissionFlow({
-    records: bundle.records,
-    knownHashes,
-    changes: changes.map(change => ({ hash: change.hash, dependencies: change.deps, actor: change.actor,
-      message: change.message ?? "" })),
-    snapshot,
-  }, Date.now()) as {
-    neededHashes: string[]
-    verifiedAuthorizations: Authorization[]
-    admittedChanges: Array<{ hash: string }>
-    editorChanges: Array<{ hash: string; dependencies: string[] }>
-    unsignedChanges: Array<{ hash: string }>
-    unsignedError?: string | null
+  if (plan.unsignedHashes.length) {
+    throw new WorkspaceChangeRejected(plan.unsignedError)
   }
-  for (const change of plan.editorChanges) {
-    assertWorkspaceTransition("editor", Automerge.view(remote, change.dependencies), Automerge.view(remote, [change.hash]))
-  }
-  const decodedByHash = new Map(changes.map(change => [change.hash, change]))
-  const unsigned = plan.unsignedChanges.map(change => decodedByHash.get(change.hash)!)
-  if (unsigned.length) throw new WorkspaceChangeRejected(plan.unsignedError ?? "Unsigned workspace change rejected")
   return plan.verifiedAuthorizations
 }
 
 /** Persists only proofs that a completed admission has already verified. */
-export async function persistIncomingChangeAuthorizations(workspaceId: string, verified: unknown[]): Promise<boolean> {
+async function persistIncomingChangeAuthorizations(workspaceId: string, verified: unknown[]): Promise<boolean> {
   return putRecords(workspaceId, verified as Authorization[])
 }
 

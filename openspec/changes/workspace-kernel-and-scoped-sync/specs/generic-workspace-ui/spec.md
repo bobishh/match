@@ -205,6 +205,17 @@ The system SHALL store templates as generic `document_template` workspace-root e
 - **THEN** it is available to operations that consume templates without declaring a stored template kind
 - **AND** archiving remains reversible and preserves produced artifacts.
 
+### Requirement: One editable narrative per card
+
+The system SHALL present a card's description, legacy preset Notes, and attached inline notes as one editable Description. Opening the editor SHALL include all source text. Saving its draft or adding a quick note SHALL consolidate the sources atomically; the user MAY intentionally edit or remove text from the draft. File-backed notes and other real attachments SHALL remain attached documents. The card detail SHALL NOT expose a Reviewed action; edits and moves continue to update card activity.
+
+#### Scenario: Legacy narrative sources are consolidated
+
+- **GIVEN** a card has description text, preset Notes, and an attached plain-text note
+- **WHEN** the user edits or appends to its Description
+- **THEN** the saved draft remains in the editable Description after reload
+- **AND** source note fields are retired in the same durable command
+
 ### Requirement: Configurable Rejected column and retrospective notes in Job search
 
 The system SHALL provide a standard configurable Rejected column (`status.rejected`) and an optional retrospective note field (`field.rejectionReason`) within the Job search preset. Rejected SHALL remain an active business pipeline status distinct from Archive, retaining full card data, attachments, timestamps, and history without automatic archival.

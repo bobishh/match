@@ -9,7 +9,8 @@ import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore }
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
 import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
-import { generateWorkspaceInvite as generateHostInvite } from "./deviceSyncHost"
+import { generateWorkspaceInvite as generateHostInvite, type WorkspaceHostContext } from "./deviceSyncHost"
+import { createKeeperProvisioner, removeKeeperAccess } from "./deviceSyncKeeper"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
@@ -208,6 +209,12 @@ export class DeviceSyncController {
     await direct?.close()
   }
 
+  private async removeKeeper(personId: string) {
+    await removeKeeperAccess(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
+      workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.() })
+    this.state.ownershipRevision.value += 1
+  }
+
   private async withActiveWorkspace(action: (workspaceId: string, mesh: DurableMesh) => Promise<void>, changeOwnership = false) {
     const workspaceId = this.activeWorkspaceId?.()
     const mesh = await this.ensureDurableMesh()
@@ -354,7 +361,11 @@ export class DeviceSyncController {
 
   private async generateWorkspaceInvite() {
     await this.ensureDurableMesh()
-    await generateHostInvite({
+    await generateHostInvite(this.workspaceHostContext())
+  }
+
+  private workspaceHostContext(): WorkspaceHostContext {
+    return {
       state: this.state, workspace: this.workspace, workspaceStore: this.workspaceStore, meshWorkspaceStore: this.meshWorkspaceStore,
       durableMesh: this.durableMesh, availableWorkspaces: this.availableWorkspaces.value, workspaceOwner: this.workspaceOwner,
       origin: this.origin, transport: this.transport, getProfile: () => this.getProfile(), nextRun: () => ++this.run,
@@ -364,7 +375,7 @@ export class DeviceSyncController {
       waitForJoinDecision: (personId, name, ownerConnection) => this.joinApproval.waitForJoinDecision(personId, name, ownerConnection),
       replaceDirectSession: (personId, session) => this.replaceDirectSession(personId, session),
       removeDirectSession: (personId, session) => this.removeDirectSession(personId, session),
-    })
+    }
   }
 
   private replaceDirectSession(personId: string, session: LiveWorkspaceSync) {
@@ -515,6 +526,7 @@ export class DeviceSyncController {
       selectedWorkspaceId: state.selectedWorkspaceId, selectedWorkspaceIds: state.selectedWorkspaceIds, invitationWorkspaceTitle: state.invitationWorkspaceTitle,
       invitationWorkspaces: state.invitationWorkspaces, availableWorkspaces: this.availableWorkspaces, open: () => this.open(),
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
+      provisionKeeperPairing: createKeeperProvisioner(() => this.ensureDurableMesh(), () => this.workspaceHostContext()),
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
       requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
       joinFromLocation: (raw: string) => isWorkspacePairingLocation(raw, url => { void this.prepareJoin(url) }), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
@@ -522,6 +534,7 @@ export class DeviceSyncController {
       ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
       promotePeer: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.promotePerson(id, personId), true),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
+      removeKeeper: (personId: string) => this.removeKeeper(personId),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),
       setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)),
       voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),

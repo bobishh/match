@@ -29,9 +29,8 @@ test("Given a workspace attachment, when another peer opens it, then verified by
   await item.getByRole("button", { name: "Save item" }).click()
   await page.getByRole("button", { name: "Open Architecture" }).click()
   const detail = page.getByRole("dialog", { name: "Item overview" })
-  await detail.getByRole("button", { name: "+ Document" }).click()
+  await detail.getByRole("button", { name: "+ File" }).click()
   const attachment = detail.getByRole("form", { name: "Attach document" })
-  await attachment.getByLabel("Kind").selectOption("attachment")
   await attachment.getByLabel("Title").fill("Mesh design")
   await attachment.getByLabel("File").setInputFiles({
     name: "mesh-design.txt",

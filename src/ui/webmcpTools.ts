@@ -260,7 +260,11 @@ async function registerReadTools(store: ToolStore, register: RegisterTool): Prom
 
       return Object.values(doc.entities)
         .filter((e): e is Item => isItem(e) && isEntityVisible(doc.entities, e.id))
-        .map(item => projectItemPriority(board, item))
+        .map(item => {
+          const notesId = board?.preset?.bindings["field.notes"]
+          const textNotesId = notesId && doc.entities[notesId]?.kind === "field" && doc.entities[notesId].valueType === "text" ? notesId : undefined
+          return projectItemPriority(board, item, textNotesId)
+        })
         .filter((t) => (!parentId || t.placement.parentId === parentId))
         .filter((t) => (!search || `${t.title} ${t.body}`.toLowerCase().includes(search)))
         .map((t) => ({

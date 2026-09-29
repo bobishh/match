@@ -8,11 +8,11 @@ import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
-import SyncDialog from "./components/SyncDialog.vue"
+import MatchPageLayout from "./components/MatchPageLayout.vue"
+import MatchHeading from "./components/MatchHeading.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import WorkspacesDialog from "./components/WorkspacesDialog.vue"
 import ColumnDialog from "./components/ColumnDialog.vue"
-import SchemaEditorDialog from "./components/SchemaEditorDialog.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
 import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
@@ -28,22 +28,21 @@ import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
 import { saveIdentityName } from "./app/identityName"
-import { computed, ref } from "vue"
+import { computed, defineAsyncComponent, ref } from "vue"
+import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { useAgingClock } from "./app/useAgingClock"
+import { createNarrativeEditHandler } from "./app/narrativeEditor"
+
+const SyncDialog = defineAsyncComponent(() => import("./components/SyncDialog.vue"))
+const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)
 const showSettings = ref(false)
-async function stopSyncForIdentityRestore() {
-  await app.collaboration.device.sync.shutdown()
-}
-function restoredIdentity() {
-  window.location.reload()
-}
-const {
-  workspace, ready, saveState, availableWorkspaces, archivedWorkspaces, activeWorkspace, activeBoard,
-  isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor,
-} = app.workspace
+const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
+const stopSyncForIdentityRestore = () => app.collaboration.device.sync.shutdown()
+const restoredIdentity = () => window.location.reload()
+const { workspace, ready, saveState, availableWorkspaces, archivedWorkspaces, activeWorkspace, activeBoard, isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor } = app.workspace
 const { state: ui, controls: uiControls } = app.ui
 const {
   detailDialog, importInput, showArtifactForm, search, filters,
@@ -69,7 +68,7 @@ const {
   sync, chat,
 } = app.collaboration.device
 const {
-  currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
+  currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
 } = app.collaboration.permissions
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
 const { meshPresence, meshPresenceLabel,
@@ -81,7 +80,7 @@ const { meshPresence, meshPresenceLabel,
 } = app.collaboration.mesh
 const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, reloadPage, openBoardItem,
-  restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, reviewItem,
+  restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate,
   openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
   handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace, openAddItem,
@@ -91,6 +90,7 @@ const {
 } = app.actions
 
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
+const editItem = createNarrativeEditHandler(editingFoldSnapshot, activeBoard, leadForItem, () => getActiveDoc()?.entities ?? {}, handleOpenItemEdit)
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const agingNow = useAgingClock()
@@ -98,8 +98,8 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
 </script>
 
 <template>
-  <main class="shell" :aria-busy="!uiReady && !startupError">
-    <header class="topbar">
+  <MatchPageLayout :busy="!uiReady && !startupError">
+    <template #header>
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!uiReady" @click="showWorkspaces = true">
         <span class="brand-presence">
           <span v-if="ready.value && workspaceRoleStatus === 'verified' && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
@@ -115,7 +115,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           <span class="brand-mark" :class="`is-${meshPresence}`" role="img" :aria-label="meshPresenceLabel">M</span>
         </span>
         <div>
-          <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
+          <MatchHeading :label="ready.value ? workspaceLabel : '…'" />
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -142,7 +142,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
         <input ref="importInput" class="sr-only" type="file" accept=".match,application/vnd.match+zip" @change="importWorkspace" />
       </div>
-    </header>
+    </template>
 
     <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
       <div class="boot-toolbar">
@@ -351,8 +351,8 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
     <ItemDetailDialog
       v-if="selectedItem"
       :item="selectedItem" :columns="genericColumns" :card-stage-buttons="cardStageButtons(activeBoard, genericColumns)"
-      :move-to-column="moveCardToColumn"
-      :archived="Boolean(selectedItem?.archivedAt)"
+      :move-to-column="moveCardToColumn" :archived="Boolean(selectedItem?.archivedAt)"
+      :narrative="selectedItem ? cardNotes(selectedItem) : ''"
       :read-only="!canEditItems"
       :subitems="subitemsForSelectedItem"
       :fields="boardFields"
@@ -368,14 +368,13 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :note-saving="quickNoteSaving"
       :note-error="quickNoteError"
       @close="selectedItemId = null; historyRestoreError = ''; historyRestoreNotice = ''"
-      @edit="handleOpenItemEdit"
+      @edit="editItem"
       @add-subitem="handleAddSubitem"
       @start-move="handleStartMove"
       @archive-item="handleArchiveItem" @restore-item="handleRestoreItem"
       @restore-version="restoreSelectedItemVersion"
       @update:quick-note="quickNoteDraft = $event"
       @save-note="saveQuickNote(selectedItem)"
-      @review="reviewItem"
       @update-markdown="updateItemMarkdown"
     />
 
@@ -386,12 +385,15 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :columns="itemFormColumns"
       :item="editingItem"
       :show-core-fields="isBlankBoard"
-      :hidden-field-ids="computedItemFieldIds"
+      :hidden-field-ids="[...computedItemFieldIds, ...(boardFields.some(field => field.id === activeBoard?.preset?.bindings['field.notes'] && field.valueType === 'text') && activeBoard?.preset?.bindings['field.notes'] ? [activeBoard.preset.bindings['field.notes']] : [])]"
+      :initial-body="editingItem ? cardNotes(editingItem) : undefined"
+      :fold-snapshot="editingFoldSnapshot"
+      :required-narrative="Boolean(boardFields.find(field => field.id === activeBoard?.preset?.bindings['field.notes'] && field.valueType === 'text')?.required)"
       :computed-fields-message="computedItemFieldIds.length ? 'Priority and fit are calculated from workspace preferences.' : undefined"
       :option-values="itemFormOptionValues"
       :error-message="itemFormError"
       :saving="savingItem"
-      @cancel="showItemForm = false; editingItemId = null; itemFormError = ''"
+      @cancel="showItemForm = false; editingItemId = null; itemFormError = ''; editingFoldSnapshot = undefined"
       @save="handleSaveItem"
     />
 
@@ -416,14 +418,13 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :auth-code="sync.authCode.value"
       :invitation-workspace-title="sync.invitationWorkspaceTitle.value"
       :invitation-workspaces="sync.invitationWorkspaces.value"
-      :available-workspaces="sync.availableWorkspaces.value"
-      :selected-workspace-ids="sync.selectedWorkspaceIds.value"
+      :available-workspaces="sync.availableWorkspaces.value" :selected-workspace-ids="sync.selectedWorkspaceIds.value"
       :selected-workspace-id="sync.selectedWorkspaceId.value"
       :mesh-members="meshMembers"
       v-bind="{ activeWorkspaceId: activeWorkspace.id, localDeviceId: sync.localDeviceId.value,
-        removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value }"
-      :has-mesh="meshMembers.length > 0"
-      :current-person-id="chat.personId.value"
+        removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value,
+        keeperOwnedWorkspaces, provisionKeeper: sync.provisionKeeperPairing, removeKeeper: sync.removeKeeper }"
+      :has-mesh="meshMembers.length > 0" :current-person-id="chat.personId.value"
       :current-role="currentRole"
       :succession="activeSuccession"
       :can-claim-succession="canClaimSuccession"
@@ -464,8 +465,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         <div class="detail-head">
           <div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div>
           <div class="detail-head-actions">
-            <button v-if="selectedLeadItem" class="button button-small button-quiet" type="button" :disabled="!canEditItems" @click="reviewItem(selectedLeadItem)">Reviewed</button>
-            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="handleOpenItemEdit(selectedLeadItem)">Edit</button>
+            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="editItem(selectedLeadItem)">Edit</button>
             <button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button>
           </div>
         </div>
@@ -480,7 +480,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           <div><span class="detail-label">Work mode</span><strong>{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLead.notes" class="detail-section"><span class="detail-label">Notes</span><MarkdownContent class="detail-copy" :source="selectedLead.notes" :editable-tasks="canEditItems" @task-toggle="selectedLeadItem && updateItemMarkdown(selectedLeadItem, $event)" /></section>
+        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><MarkdownContent class="detail-copy" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"
@@ -517,6 +517,6 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       </section>
     </ModalLayer>
     </template>
-  </main>
+  </MatchPageLayout>
   <BuildFooter />
 </template>

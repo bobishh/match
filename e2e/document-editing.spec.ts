@@ -45,9 +45,8 @@ test("Given a real file attachment, when it is reopened, then Match can preview 
   await item.getByLabel("Role *").fill("Product Engineer")
   await item.getByRole("button", { name: "Create item" }).click()
 
-  await page.getByRole("button", { name: "+ Document" }).click()
+  await page.getByRole("button", { name: "+ File" }).click()
   const form = page.getByRole("form", { name: "Attach document" })
-  await form.getByLabel("Kind").selectOption("attachment")
   await form.getByLabel("Title").fill("Architecture notes")
   await form.getByLabel("File").setInputFiles({
     name: "architecture.txt",

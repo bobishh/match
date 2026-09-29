@@ -13,7 +13,6 @@ const handlers = {
   createBoard: basic.createBoard,
   createItem: basic.createItem,
   patchItem: basic.patchItem,
-  reviewItem: basic.reviewItem,
   restoreItemVersion: basic.restoreItemVersion,
   moveEntity: basic.moveEntity,
   restoreAndMove: basic.restoreAndMove,

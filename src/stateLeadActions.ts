@@ -1,5 +1,5 @@
-import { hasEntityKind } from "./domain/model"
-import type { Board, FieldValue } from "./domain/model";
+import { hasEntityKind, isItem, type AttachedDocument, type Board, type FieldValue, type WorkspaceEntity } from "./domain/model";
+import { isInlineNarrativeNote } from "./domain/narrative";
 import { commitAndPersist } from "./statePersistence";
 import { stateRuntime } from "./stateContext";
 import type { createStateDerived } from "./stateDerived";
@@ -21,12 +21,13 @@ export function createLeadActions(
       input,
       activeBoard.value?.priorityPolicy !== undefined,
     );
+    const canonicalBody = distinctText([input.description ?? "", input.notes ?? ""]);
     await commitAndPersist({
       kind: "createItem",
       id,
       parentId: resolveColumnId(input.status),
       title: `${input.company} — ${input.role}`,
-      body: input.description ?? "",
+      body: canonicalBody,
       values,
     });
     return (
@@ -47,15 +48,36 @@ export function createLeadActions(
     const existing = stateRuntime.workspace.leads.find(
       (lead) => lead.id === leadId,
     );
+    const item = stateRuntime.activeDoc.entities[leadId];
+    const notesFieldId = presetTextNotesFieldId();
+    const noteSources = inlineNotesForLead(stateRuntime.activeDoc.entities, leadId);
+    const canonicalBody = leadNarrativeBody(item, patch, notesFieldId, noteSources);
+    if (notesFieldId) values[notesFieldId] = "";
     await commitAndPersist({
       kind: "patchItem",
       entityId: leadId,
       title: updatedLeadTitle(patch, existing),
-      body: patch.description,
+      body: canonicalBody,
       values,
+      ...(item && "body" in item ? { foldNarrativeSources: {
+        expectedBody: item.body,
+        ...(notesFieldId ? { notesFieldId, expectedNotes: item.values[notesFieldId] } : {}),
+        notes: noteSources.map(({ id, title, content, format }) => ({ id, title, content, format })),
+      } } : {}),
     });
   }
 
+}
+
+function inlineNotesForLead(entities: Record<string, WorkspaceEntity>, leadId: string): AttachedDocument[] {
+  return Object.values(entities).filter((entity): entity is AttachedDocument =>
+    entity.kind === "document" && entity.placement.parentId === leadId && !entity.archivedAt && isInlineNarrativeNote(entity))
+}
+
+function leadNarrativeBody(item: WorkspaceEntity | undefined, patch: Partial<LeadInput>, notesFieldId: string | undefined, notes: AttachedDocument[]): string {
+  if (!isItem(item)) return distinctText([patch.description ?? "", patch.notes ?? ""])
+  const legacyNotes = notesFieldId && typeof item.values[notesFieldId] === "string" ? item.values[notesFieldId] as string : ""
+  return distinctText([patch.description ?? item.body, patch.notes ?? legacyNotes, ...notes.map(note => `## ${note.title}\n\n${note.content ?? ""}`)])
 }
 
 function leadValues(
@@ -76,7 +98,6 @@ function setStringLeadValues(
   setFieldValue(values, "role", input.role);
   setFieldValue(values, "url", input.url);
   setFieldValue(values, "location", input.location);
-  setFieldValue(values, "notes", input.notes);
   setFieldValue(values, "rejectionReason", input.rejectionReason);
   setFieldValue(values, "sourceText", input.sourceText);
 }
@@ -105,7 +126,6 @@ function leadPatchValues(
     if (patch.fitScore !== undefined)
       setFieldValue(values, "fitScore", patch.fitScore);
   }
-  setFieldValue(values, "notes", patch.notes);
   setFieldValue(values, "rejectionReason", patch.rejectionReason);
   return values;
 }
@@ -175,4 +195,13 @@ function activeBoard(): Board | undefined {
         (entity): entity is Board => hasEntityKind(entity, "board"),
       )
     : undefined;
+}
+
+function presetTextNotesFieldId(): string | undefined {
+  const id = activeBoard()?.preset?.bindings["field.notes"];
+  return id && stateRuntime.activeDoc?.entities[id]?.kind === "field" && stateRuntime.activeDoc.entities[id].valueType === "text" ? id : undefined;
+}
+
+function distinctText(parts: string[]): string {
+  return [...new Set(parts.filter(part => part.length > 0))].join("\n\n");
 }

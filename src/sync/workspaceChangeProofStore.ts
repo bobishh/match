@@ -1,3 +1,4 @@
+import { openWorkspaceJournal, readLocalJournal, writeLocalJournal, withLocalJournalLock, requestResult, transactionDone } from "../storageJournal"
 import { canonicalizeJson, type SignedEnvelope } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 
@@ -11,7 +12,6 @@ export type WorkspaceChangeAuthorization = {
 }
 
 let dbPromise: Promise<IDBDatabase> | undefined
-const memory = new Map<string, WorkspaceChangeAuthorization[]>()
 
 function database() {
   return dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
@@ -24,8 +24,8 @@ function database() {
   })
 }
 
-export async function records(workspaceId: string): Promise<WorkspaceChangeAuthorization[]> {
-  if (typeof indexedDB === "undefined") return memory.get(workspaceId) ?? []
+async function legacyRecords(workspaceId: string): Promise<WorkspaceChangeAuthorization[]> {
+  if (typeof indexedDB === "undefined") return []
   const db = await database()
   return new Promise((resolve, reject) => {
     const request = db.transaction("records").objectStore("records").get(workspaceId)
@@ -61,7 +61,7 @@ function mergeAuthorization(current: WorkspaceChangeAuthorization, incoming: Wor
     ownerCertificates: mergeCertificates(current.ownerCertificates, incoming.ownerCertificates) }
 }
 
-function merged(existing: WorkspaceChangeAuthorization[], incoming: WorkspaceChangeAuthorization[]) {
+export function mergeAuthorizationRecords(existing: WorkspaceChangeAuthorization[], incoming: WorkspaceChangeAuthorization[]) {
   const result = new Map<string, WorkspaceChangeAuthorization>()
   for (const record of [...existing, ...incoming]) {
     const current = result.get(record.signed.signature)
@@ -70,25 +70,40 @@ function merged(existing: WorkspaceChangeAuthorization[], incoming: WorkspaceCha
   return [...result.values()].sort((left, right) => left.signed.signature.localeCompare(right.signed.signature))
 }
 
+export async function records(workspaceId: string): Promise<WorkspaceChangeAuthorization[]> {
+  if (typeof indexedDB === "undefined") return (readLocalJournal(workspaceId).authorizations ?? []) as WorkspaceChangeAuthorization[]
+  const db = await openWorkspaceJournal()
+  const transaction = db.transaction("authorizations", "readonly")
+  const completion = transactionDone(transaction)
+  const stored = await requestResult(transaction.objectStore("authorizations").get(workspaceId)) as { records: WorkspaceChangeAuthorization[] } | undefined
+  await completion
+  return stored?.records ?? legacyRecords(workspaceId)
+}
+
 export async function putRecords(workspaceId: string, incoming: WorkspaceChangeAuthorization[]): Promise<boolean> {
-  if (typeof indexedDB === "undefined") {
-    const existing = memory.get(workspaceId) ?? []
-    const next = merged(existing, incoming)
+  const previous = await records(workspaceId)
+  if (typeof indexedDB === "undefined") return withLocalJournalLock(workspaceId, async () => {
+    const journal = readLocalJournal(workspaceId)
+    const existing = mergeAuthorizationRecords(previous, (journal.authorizations ?? []) as WorkspaceChangeAuthorization[])
+    const next = mergeAuthorizationRecords(existing, incoming)
     const changed = canonicalizeJson(existing) !== canonicalizeJson(next)
-    if (changed) memory.set(workspaceId, next)
+    journal.authorizations = next
+    writeLocalJournal(workspaceId, journal)
     return changed
-  }
-  const db = await database()
+  })
+  const db = await openWorkspaceJournal()
   return new Promise<boolean>((resolve, reject) => {
     let changed = false
-    const transaction = db.transaction("records", "readwrite")
-    const store = transaction.objectStore("records")
+    const transaction = db.transaction("authorizations", "readwrite")
+    const store = transaction.objectStore("authorizations")
     const get = store.get(workspaceId)
     get.onsuccess = () => {
-      const existing = get.result ?? [] as WorkspaceChangeAuthorization[]
-      const next = merged(existing, incoming)
-      changed = canonicalizeJson(existing) !== canonicalizeJson(next)
-      if (changed) store.put(next, workspaceId)
+      try {
+        const existing = mergeAuthorizationRecords(previous, get.result?.records ?? [])
+        const next = mergeAuthorizationRecords(existing, incoming)
+        changed = canonicalizeJson(existing) !== canonicalizeJson(next)
+        store.put({ id: workspaceId, workspaceId, records: next })
+      } catch (error) { transaction.abort(); reject(error) }
     }
     transaction.oncomplete = () => resolve(changed)
     transaction.onerror = () => reject(transaction.error)

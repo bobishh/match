@@ -55,7 +55,7 @@ recovery-envelope export, key rotation, or stolen-device recovery flow.
 ## Connection protocol
 
 A session authenticates its remote identity and negotiates capabilities. Owner
-workspace offers use `mesh-owner-workspace-offer` / `owner-workspace-v2` and are
+workspace offers use `mesh-owner-workspace-offer` / `owner-workspace` and are
 sent only to a supported same-person session. `mesh-iroh-gossip` carries actual
 Iroh gossip packets. These are different messages and have different receivers.
 Logs associate session closure and receive failures with a connection, workspace,
@@ -75,3 +75,39 @@ a temporary session replacement is not proof of a whole-device network outage.
 
 For a short demonstration, use [the demo guide](demo.md). For the full current
 feature/tool catalog, see [the protocol reference](protocol-and-tools.md).
+
+## Workspace commit boundary
+
+Local commands and incoming replication share `withWorkspaceMutation`. Its queue
+serializes one workspace in a runtime; the Web Lock
+`match-workspace-command:<workspaceId>` serializes independent tabs. The lock
+covers loading the durable base, validation, merge, and commit. Browsers with
+IndexedDB but no Web Locks reject writes instead of silently accepting unsafe
+cross-tab writes. Other workspaces use separate locks.
+
+`WorkspaceStorage.commitWorkspace` writes the snapshot and signed change
+authorizations in one IndexedDB transaction. Local commands include their
+change bytes, change proof, and transaction receipt in that same transaction.
+Signing prepares evidence without publishing it. Reactive state, tab invalidation,
+replication notifications, and a successful replication return follow completion
+of the transaction. An abort preserves the previous document and proofs.
+
+The workspace journal now includes `snapshots` and `authorizations` stores beside
+`changes`, `proofs`, and `receipts`. Snapshot records contain catalog metadata,
+so a successful document commit does not depend on a second catalog write.
+Legacy local snapshots and the separate authorization database remain readable;
+the next commit migrates their content into the journal transaction. Legacy
+records are retained for recovery. Once an authorization record is migrated,
+the journal is authoritative for that workspace.
+
+Rollout requires reloading old Match tabs. An old tab holding the previous journal
+schema can block its upgrade; the error asks users to close other tabs and reload.
+A pre-migration build cannot safely consume new journal snapshots and
+authorizations, so rollback requires a compatible reader or exporting workspace
+state with its proofs before switching builds. No deployment is implied by this
+storage change.
+
+Authorization export still returns the complete history and retains the existing
+record/byte limits. Paging, restart-safe transfer cursors, and any authenticated
+history checkpoint remain separate protocol work. This commit boundary does not
+fix transport timeout causes or establish replication coverage on Lighthouse.

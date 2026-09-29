@@ -26,8 +26,8 @@ work. Browser storage is a local copy, not a hosted backup service.
 
 Inactive cards gradually turn olive and then brown after 7, 14, and 30 days.
 Owners can change these thresholds under **Edit board → Edit item/lead**.
-Editing a card, adding a note, moving it to another column, or choosing
-**Reviewed** restarts its activity clock. Reordering within a column does not.
+Editing a card, adding a note, or moving it to another column restarts its
+activity clock. Reordering within a column does not.
 Archived cards and columns named Done, Complete, or Completed are excluded.
 The display calculates age locally; the passage of time does not write to the
 shared document.
@@ -52,6 +52,12 @@ its separate identity the selected role across owned boards. The checkbox starts
 unchecked. The approving browser issues a signed grant for each new board before replication
 starts. This preference is currently local to that browser; settings synchronization
 between enrolled devices is not implemented yet.
+
+For a standalone Lighthouse keeper, Match discovers the configured HTTPS origin,
+shows its identity and capabilities, and requires controller and authenticated
+operator approval for the same transcript. Match then sends a short-lived visitor
+invitation for the exact selected boards. Pairing stays pending until Lighthouse
+returns signed evidence that every selected board committed durably.
 See [mesh-lighthouse](../mesh-lighthouse/README.md) for provisioning and durable
 state setup.
 

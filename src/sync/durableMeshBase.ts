@@ -363,6 +363,7 @@ export abstract class DurableMeshBase {
   protected abstract stop(releaseInstance?: boolean): Promise<void>
   protected abstract notify(): Promise<void>
   protected abstract publishAll(): Promise<void>
+  protected abstract publishWorkspace(workspaceId: string): Promise<void>
 }
 
 export function deviceRevocations(credential: WorkspaceMeshCredential): WorkspaceDeviceRevocation[] {

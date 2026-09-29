@@ -65,23 +65,13 @@ pub fn admit_match_candidate(
     now_ms: i128,
 ) -> Result<Vec<Value>, String> {
     let proof = proof.ok_or("The peer needs an update: missing workspace authority evidence")?;
-    if proof.get("version").and_then(Value::as_u64) != Some(1)
+    if !matches!(proof.get("version").and_then(Value::as_u64), Some(1 | 2))
         || !proof.get("authority").is_some_and(Value::is_object)
     {
         return Err("The peer needs an update: missing workspace authority evidence".into());
     }
-    let records = proof
-        .get("records")
-        .and_then(Value::as_array)
-        .ok_or("The peer needs an update: missing workspace authority evidence")?
-        .clone();
-    if serde_json::to_vec(proof)
-        .map_err(|error| error.to_string())?
-        .len()
-        > 16 * 1024 * 1024
-    {
-        return Err("The peer needs an update: missing write authorizations".into());
-    }
+    let pages = meta_mesh_core::authorization_record_pages(proof)?;
+    let paged = proof.get("version").and_then(Value::as_u64) == Some(2);
     let mut document =
         AutoCommit::load(candidate).map_err(|error| format!("Invalid Match document: {error}"))?;
     let json =
@@ -139,7 +129,8 @@ pub fn admit_match_candidate(
     authority.document = candidate.to_vec();
     let plan = plan_change_admission_flow(
         ChangeAdmissionFlowInput {
-            records,
+            records: if paged { Vec::new() } else { pages[0].clone() },
+            record_pages: if paged { Some(pages) } else { None },
             known_hashes,
             changes,
             snapshot: authority,

@@ -387,10 +387,9 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (action === "publish") await this.publishAll()
     }
   }
-
   async revokePerson(workspaceId: string, personId: string): Promise<void> {
-    const profile = await this.options.getProfile()
-    let current = await this.store.getWorkspaceCredential(workspaceId)
+    const profile = await this.options.getProfile(); let current = await this.store.getWorkspaceCredential(workspaceId)
+    if (current && revocations(current).some(item => item.payload.personId === personId)) { await this.mergeRevocations(current, [], true); await this.notify(); return }
     const actions = meshRustRuntime().state.planAuthorityCommand({ kind: "revoke", localPersonId: profile.identity.personId,
       ownerPersonId: current?.ownerPersonId ?? null })
     let record!: WorkspaceRevocation
@@ -402,13 +401,12 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       }
       if (action === "mergeRevocation") await this.mergeRevocations(current!, [record], false)
       if (action === "refreshSuccessionPolicy") await this.refreshSuccessionPolicy(workspaceId)
-      if (action === "publish") await this.publishAll()
+      if (action === "publish") queueMicrotask(() => { void this.publishWorkspace(workspaceId).catch(error => this.report("Publish revocation", error)) })
       if (action === "reloadCredential") current = await this.store.getWorkspaceCredential(workspaceId) ?? current
       if (action === "disconnectRevoked") await this.mergeRevocations(current!, [record], true)
       if (action === "notify") await this.notify()
     }
   }
-
   async transferOwnership(workspaceId: string, personId: string): Promise<void> {
     await this.transferOwnershipWithReceipt(workspaceId, personId)
   }

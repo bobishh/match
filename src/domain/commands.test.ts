@@ -83,7 +83,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(patchedItem.lastActivityAt).toBeTruthy()
   })
 
-  it("records review and column-status changes as activity, but does not reset activity when reordering", async () => {
+  it("records column-status changes as activity, but does not reset activity when reordering", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"))
     const blankDoc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("aging", "Aging", profile.identity.personId, "blank"))
@@ -102,9 +102,6 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     await queue.transact({ kind: "moveEntity", entityId: itemId, parentId: columns[1].id, beforeId: null })
     expect((queue.getDocument().entities[itemId] as Item).lastActivityAt).toBe("2026-01-02T00:00:00.000Z")
 
-    vi.setSystemTime(new Date("2026-01-03T00:00:00.000Z"))
-    await queue.transact({ kind: "reviewItem", entityId: itemId })
-    expect((queue.getDocument().entities[itemId] as Item).lastActivityAt).toBe("2026-01-03T00:00:00.000Z")
     vi.useRealTimers()
   })
 
@@ -157,6 +154,68 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(mergedItem.title).toBe("Title by Tab A")
     expect(mergedItem.values[companyField.id]).toBe("Company by Tab B")
     expect(mergedItem.body).toBe("Base Body")
+  })
+
+  it("folds preset Notes and inline note documents into Description atomically", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const board = Object.values(initialDoc.entities).find(entity => entity.kind === "board")!
+    const todo = Object.values(initialDoc.entities).find(entity => entity.kind === "column" && entity.title === "Lead")!
+    const notesField = board.kind === "board" ? board.preset!.bindings["field.notes"] : ""
+    const created = await queue.transact({ kind: "createItem", parentId: todo.id, title: "Legacy", body: "Description", values: { [notesField]: "Preset Notes" } })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const itemId = created.value.receipt.changedEntityIds[0]
+    const added = await queue.transact({ kind: "addDocument", itemId, documentKind: "note", title: "Interview", format: "html", content: "<b>HTML text</b>" })
+    expect(added.ok).toBe(true)
+    if (!added.ok) return
+    const noteId = added.value.receipt.changedEntityIds[0]
+    const note = queue.getDocument().entities[noteId]
+    if (note.kind !== "document") return
+
+    const folded = await queue.transact({
+      kind: "patchItem", entityId: itemId,
+      body: "Description\n\nPreset Notes\n\n## Interview\n\n<b>HTML text</b>",
+      values: { [notesField]: "" },
+      foldNarrativeSources: { expectedBody: "Description", notesFieldId: notesField, expectedNotes: "Preset Notes", notes: [{ id: note.id, title: note.title, content: note.content, format: note.format }] },
+    })
+    expect(folded.ok).toBe(true)
+    expect((queue.getDocument().entities[itemId] as Item).body).toContain("<b>HTML text</b>")
+    expect((queue.getDocument().entities[itemId] as Item).values[notesField]).toBe("")
+    expect((queue.getDocument().entities[noteId] as any).archivedAt).toBeTruthy()
+    expect(folded.ok && folded.value.receipt.changedEntityIds).toEqual(expect.arrayContaining([itemId, noteId]))
+  })
+
+  it("rejects stale narrative sources without retiring note content and validates required Notes through Description", async () => {
+    const requiredDoc = Automerge.change(initialDoc, draft => {
+      const notes = Object.values(draft.entities).find(entity => entity.kind === "field" && entity.title === "Notes")
+      if (notes?.kind === "field") notes.required = true
+    })
+    const queue = createCommandQueue(requiredDoc, profile)
+    const lead = Object.values(requiredDoc.entities).find(entity => entity.kind === "column" && entity.title === "Lead")!
+    const notesField = Object.values(requiredDoc.entities).find(entity => entity.kind === "field" && entity.title === "Notes")!
+    const invalid = await queue.transact({ kind: "createItem", parentId: lead.id, title: "Empty", body: "", values: {} })
+    expect(invalid).toMatchObject({ ok: false, error: { code: "invalid_input" } })
+    const created = await queue.transact({ kind: "createItem", parentId: lead.id, title: "Legacy", body: "Description", values: { [notesField.id]: "Preset Notes" } })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const itemId = created.value.receipt.changedEntityIds[0]
+    const fileNote = await queue.transact({ kind: "addDocument", itemId, documentKind: "note", title: "File note", format: "file" })
+    expect(fileNote.ok).toBe(true)
+    if (!fileNote.ok) return
+    const fileNoteId = fileNote.value.receipt.changedEntityIds[0]
+    const patch = await queue.transact({
+      kind: "patchItem", entityId: itemId, body: "Description edited", values: { [notesField.id]: "" },
+      foldNarrativeSources: { expectedBody: "Description", notesFieldId: notesField.id, expectedNotes: "Preset Notes", notes: [] },
+    })
+    expect(patch.ok).toBe(true)
+    expect((queue.getDocument().entities[fileNoteId] as any).archivedAt).toBeNull()
+    const invalidFold = await queue.transact({
+      kind: "patchItem", entityId: itemId, body: "Again",
+      foldNarrativeSources: { expectedBody: "Description edited", notesFieldId: notesField.id, expectedNotes: "", notes: [] },
+    })
+    expect(invalidFold).toMatchObject({ ok: false, error: { code: "invalid_input" } })
+    const blank = await queue.transact({ kind: "patchItem", entityId: itemId, body: "", values: { [notesField.id]: "" } })
+    expect(blank).toMatchObject({ ok: false, error: { code: "invalid_input" } })
   })
 
   it("restores any recorded item version through a new compensating change", async () => {

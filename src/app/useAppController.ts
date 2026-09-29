@@ -1,6 +1,5 @@
 import { onBeforeUnmount, onMounted, watch } from "vue"
 import { hydrate } from "../state"
-import { registerWebMcp } from "../webmcp"
 import { sendChatMessage } from "../chat/service"
 import { runAppStartup, startupFailureMessage } from "./startup"
 import { useAppActions } from "./useAppActions"
@@ -61,7 +60,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
 
 function appCollaboration(core: ReturnType<typeof useAppCore>) {
   const {
-    sync, chat, currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
+    sync, chat, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
     canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel, activeMeshRetryAt,
     meshMembers, meshParticipantDevices, activeSuccession, canClaimSuccession,
     transferringOwnership, leavingMesh, revokingPeer, peerAccessError,
@@ -71,7 +70,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
   } = core
   return {
     device: { sync, chat },
-    permissions: { currentRole, workspaceAccessErrors, workspaceRoleStatus, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
+    permissions: { currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
     mesh: {
       meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers, meshParticipantDevices,
       activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh,
@@ -122,6 +121,7 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
 }
 
 async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions: ReturnType<typeof useAppActions>) {
+  const { registerWebMcp } = await import("../webmcp")
   const unregister = await registerWebMcp({
     getActiveDoc: core.match.getActiveDoc,
     executeCommandAsync: core.match.executeCommandAsync,

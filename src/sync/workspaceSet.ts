@@ -7,8 +7,13 @@ import { fromBase64Url, toBase64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { meshTrace } from "./meshTrace"
+import { safeDiagnostic } from "./safeDiagnostic"
+import { readProofPage, writeProofPage, clearProofPages } from "./proofPageCache"
+import { workspaceProofTransfer, exportWorkspaceProofs } from "./workspaceProofTransfer"
+import { serveOwnerOfferProofs } from "./ownerOfferProofs"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import type { DuplexStream, SyncConnection } from "./transport"
+export { publishOwnerWorkspaceOffer } from "./ownerOfferProofs"
 
 export type WorkspaceReplica = {
   subscribe?: (listener: () => void) => () => void
@@ -57,12 +62,14 @@ export type WorkspaceSetWorkspace = string | { id: string; title?: string }
 export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: WorkspaceSetWorkspace[]) {
   const titles = new Map(workspaceEntries.flatMap(entry => typeof entry === "string" || !entry.title ? [] : [[entry.id, entry.title] as const]))
   const ids = [...new Set(workspaceEntries.map(entry => typeof entry === "string" ? entry : entry.id))].sort()
+  const proofs = workspaceProofTransfer(store, ids)
   const label = (id: string) => {
     const title = titles.get(id)
     return title ? `${id} (${title.length > 80 ? `${title.slice(0, 80)}…` : title})` : id
   }
   const receiveStage = async (stage: string, id: string, action: () => Promise<void>) => {
     try { await action() } catch (error) {
+      if (stage === "Workspace") await clearProofPages(id).catch(() => {})
       throw new Error(`${stage} ${label(id)}: ${error instanceof Error ? error.message : String(error)}${safeDiagnostic(error)}`, { cause: error })
     }
   }
@@ -71,8 +78,9 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
       const entries = await Promise.all(ids.map(async id => {
         try {
           const bytes = await store.read(id)
+          const authorization = await store.readAuthorization?.(bytes, id)
           return { id, bytes: toBase64Url(bytes),
-            ...(store.readAuthorization ? { authorization: await store.readAuthorization(bytes, id) } : {}),
+            ...(store.readAuthorization ? { authorization: exportWorkspaceProofs(bytes, authorization) } : {}),
             ...(store.readChat ? { chat: await store.readChat(id, knownChat ? (() => {
               const known = knownChat.get(id) ?? new Set<string>()
               knownChat.set(id, known)
@@ -86,18 +94,18 @@ export function workspaceSet(store: WorkspaceSetStore, workspaceEntries: Workspa
       }))
       return meshRustRuntime().state.encodeWorkspaceSet(entries)
     },
+    ...proofs,
     async validate(bytes: Uint8Array) {
-      const entries = parseEntries(bytes, ids)
+      const entries = parseEntries(await this.resolveProofs(bytes), ids)
       for (const entry of entries) {
         if (store.validate) await receiveStage("Workspace", entry.id, () =>
           store.validate!(entry.id, fromBase64Url(entry.bytes), entry.authorization))
       }
     },
     async receive(bytes: Uint8Array, history = true) {
-      const entries = parseEntries(bytes, ids)
-      // Validate the complete batch before writing the first workspace. This
-      // keeps a bad second board from stranding the first as an orphaned local
-      // document during enrollment or an invitation.
+      const entries = parseEntries(await this.resolveProofs(bytes), ids)
+      // Validate every workspace before the first write, preventing partial
+      // enrollment when a later board is rejected.
       for (const entry of entries) {
         if (store.validate) await receiveStage("Workspace", entry.id, () =>
           store.validate!(entry.id, fromBase64Url(entry.bytes), entry.authorization))
@@ -128,17 +136,8 @@ async function measureScopePhase<T>(phase: string, workspaceId: string, peerId: 
   }
 }
 
-function safeDiagnostic(error: unknown): string {
-  const cause = error instanceof Error ? error.cause : undefined
-  if (!cause || typeof cause !== "object") return ""
-  const diagnostic = cause as { code?: unknown; field?: unknown }
-  if (typeof diagnostic.code !== "string") return ""
-  const field = typeof diagnostic.field === "string" ? ` at ${diagnostic.field}` : ""
-  return ` [${diagnostic.code}${field}]`
-}
-
-// Receipt is bound to the exact document, proofs and ownership catalog on this
-// authenticated peer stream. A timeout is an unknown outcome, never a rollback.
+// Receipt binds exact document, proofs and catalog to this authenticated
+// stream. Timeout means unknown outcome, never rollback.
 export async function publishConfirmedWorkspace(connection: SyncConnection, secret: string, bytes: Uint8Array): Promise<void> {
   const protocol = createLiveWorkspaceSession("confirmed-delivery", secret)
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -155,18 +154,6 @@ export async function publishConfirmedWorkspace(connection: SyncConnection, secr
       }),
     ])
   } finally { clearTimeout(timer); protocol.free?.() }
-}
-
-export async function publishOwnerWorkspaceOffer(connection: SyncConnection, secret: string, bytes: Uint8Array,
-  frame: OwnerWorkspaceOfferFrame): Promise<void> {
-  const protocol = createLiveWorkspaceSession("owner-offer", secret)
-  try {
-    const encoded = protocol.encode(frame, bytes)
-    const stream = await connection.openStream()
-    await stream.send(encoded)
-    await stream.closeSend()
-    protocol.verifySavedReceipt(await stream.read(), bytes)
-  } finally { protocol.free?.() }
 }
 
 export async function publishGossipPacket(connection: SyncConnection, secret: string, packet: Uint8Array): Promise<void> {
@@ -225,22 +212,32 @@ export function liveWorkspaceSetSync(
   let heartbeatQueue = Promise.resolve()
   let knownChat = new Map<string, Set<string>>()
   const handoffConfirmations = new HandoffConfirmationInbox()
+  const handlers = new Set<Promise<void>>()
+  let receiveFailure: unknown
   const done = (async () => {
     while (!stopped) {
       const stream = await connection.acceptStream()
       if (stopped) return
-      const frame = await stream.read()
-      try {
-        if (inspectPairingFrame(frame).type === "mesh-handoff-confirmed") {
-          handoffConfirmations.push(stream, frame)
-          continue
-        }
-      } catch { /* Not a pairing frame; decode as workspace-set protocol below. */ }
-      const operation = protocol.receiveWithPlan(frame)
-      if (!operation) { await stream.closeSend(); continue }
-      await applyWorkspaceSetReceivePlan(protocol, operation, stream, frame, bytes => replica.receive(bytes, false), options, handoffConfirmations)
+      const task = (async () => {
+        const frame = await stream.read()
+        try {
+          if (inspectPairingFrame(frame).type === "mesh-handoff-confirmed") {
+            handoffConfirmations.push(stream, frame)
+            return
+          }
+        } catch { /* Not a pairing frame; decode below. */ }
+        if (await replica.serveProofPage(frame, stream, secret)) return
+        const operation = protocol.receiveWithPlan(frame)
+        if (!operation) { await stream.closeSend(); return }
+        await applyWorkspaceSetReceivePlan(protocol, operation, stream, frame,
+          async bytes => replica.receive(await replica.resolveProofs(bytes, connection, secret), false), options, handoffConfirmations)
+      })().catch(async error => {
+        if (!stopped) { receiveFailure = error; await connection.close().catch(() => {}) }
+      })
+      handlers.add(task)
+      void task.then(() => handlers.delete(task))
     }
-  })().catch(error => { if (!stopped) throw error })
+  })().catch(error => { if (!stopped) throw receiveFailure ?? error })
   return {
     done,
     publish() {
@@ -271,6 +268,7 @@ export function liveWorkspaceSetSync(
     async close() {
       stopped = true
       await connection.close()
+      await Promise.allSettled(handlers)
       protocol.free?.()
     },
   }
@@ -350,14 +348,22 @@ export function liveAutomergeWorkspaceSync(
       const document = Automerge.load<{ id?: unknown }>(candidate)
       try { if (document.id !== workspaceId) throw new Error("Wrong workspace document") }
       finally { Automerge.free(document) }
-      await measureScopePhase("store.persist-document", workspaceId, remoteDeviceId,
-        () => store.merge(workspaceId, candidate, proof), candidate.byteLength)
+      try {
+        await measureScopePhase("store.persist-document", workspaceId, remoteDeviceId,
+          () => store.merge(workspaceId, candidate, proof), candidate.byteLength)
+      } catch (error) {
+        await clearProofPages(workspaceId).catch(() => {})
+        throw error
+      }
     },
     onDocumentAccepted: count => {
       if (count > 0 && lastRejection) { lastRejection = undefined; onDocumentRejected?.(null) }
     },
     mergeDurableBatch: bytes => measureScopePhase("store.merge-durable-batch", workspaceId, remoteDeviceId,
-      () => workspaceSet(store, [workspaceId]).receive(bytes, false), bytes.byteLength),
+      async () => {
+        const replica = workspaceSet(store, [workspaceId])
+        await replica.receive(await replica.resolveProofs(bytes, connection, secret), false)
+      }, bytes.byteLength),
     mergeAuthorization: async authorization => {
       const bytes = await store.read(workspaceId)
       await measureScopePhase("store.merge-authorization", workspaceId, remoteDeviceId,
@@ -375,6 +381,8 @@ export function liveAutomergeWorkspaceSync(
         ...(timing.frameBytes === undefined ? {} : { frameBytes: timing.frameBytes }),
       }, "warn")
     },
+    readProofPage: key => readProofPage(workspaceId, key),
+    writeProofPage: (key, payload) => writeProofPage(workspaceId, key, payload),
     onOwnerWorkspaceOffer: options.ownerWorkspaceOfferFrame === "mesh-owner-workspace-offer" && options.onOwnerWorkspaceOffer
       ? bytes => measureScopePhase("callback.owner-workspace-offer", workspaceId, remoteDeviceId,
         () => options.onOwnerWorkspaceOffer!(bytes), bytes.byteLength) : undefined,
@@ -425,6 +433,7 @@ export function liveAutomergeWorkspaceSync(
   }
   const receive = async (stream: DuplexStream, frame: Uint8Array): Promise<void> => {
     try {
+      if (await serveOwnerOfferProofs(connection, secret, stream, frame)) return
       await measureScopePhase("scope.receive", workspaceId, remoteDeviceId,
         () => scope.receive(stream, frame), frame.byteLength)
     }

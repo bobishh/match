@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test"
 
-test("idle cards age while the page stays open and reviewing them restores freshness", async ({ page }, testInfo) => {
+test("idle cards age while the page stays open and editing restores freshness", async ({ page }, testInfo) => {
   await page.clock.install({ time: new Date("2026-09-01T12:00:00Z") })
   await page.goto("/")
   const id = await page.evaluate(async () => {
@@ -20,7 +20,9 @@ test("idle cards age while the page stays open and reviewing them restores fresh
   await expect(card).toContainText("No activity for 15 days")
   await page.screenshot({ path: testInfo.outputPath("aged-board.png"), fullPage: true })
   await card.click()
-  await page.getByRole("button", { name: "Reviewed", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Reviewed", exact: true })).toHaveCount(0)
+  await page.getByRole("button", { name: "Edit", exact: true }).click()
+  await page.getByRole("dialog", { name: "Edit item" }).getByRole("button", { name: "Save changes", exact: true }).click()
   await expect(card).toHaveClass(/card-aging-fresh/)
   await expect(card).not.toContainText("No activity")
 })

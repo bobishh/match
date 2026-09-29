@@ -6,7 +6,6 @@ import { validateWorkspaceDoc } from "./domain/model";
 import {
   workspaceRole,
   validateIncomingChangeAuthorizations,
-  persistIncomingChangeAuthorizations,
 } from "./sync/changeAuthorization";
 import {
   defaultStorage,
@@ -20,6 +19,8 @@ import {
   refreshAvailableWorkspaces,
   updateReactiveState,
 } from "./statePersistence";
+import { withWorkspaceMutation } from "./workspaceMutation";
+import type { WorkspaceChangeAuthorization } from "./sync/workspaceChangeProofStore";
 import { stateRuntime } from "./stateContext";
 import {
   addWorkspaceToPersonalRoot,
@@ -56,12 +57,18 @@ async function mergeAuthorizedWorkspace(
   bytes: Uint8Array,
   authorization: unknown,
 ): Promise<void> {
-  const { remote, verified } = await validateAuthorizedWorkspace(id, bytes, authorization);
-  // A signature can make an existing Automerge history trusted without adding
-  // a document head. Notify the live mesh in that proof-only case too.
-  const documentChanged = await mergeValidatedWorkspaceBytes(id, remote);
-  const proofChanged = await persistIncomingChangeAuthorizations(id, verified);
-  if (proofChanged && !documentChanged) notifyLocalChanges(id);
+  await withWorkspaceMutation(id, async () => {
+    // Validation must use the same current durable base as the eventual merge.
+    const { remote, local, verified } = await validateAuthorizedWorkspace(id, bytes, authorization);
+    const merged = local ? Automerge.merge(Automerge.clone(local), remote) : remote;
+    if (local && remote.ownerPersonId !== local.ownerPersonId)
+      throw new Error("Workspace ownership cannot change through sync.");
+    const documentChanged = !local || !sameHeads(merged, local);
+    const { proofChanged } = await defaultStorage.commitWorkspace(
+      id, merged, Automerge.save(merged), verified as WorkspaceChangeAuthorization[],
+    );
+    if (documentChanged || proofChanged) await publishCommittedWorkspace(id, merged, defaultStorage);
+  });
 }
 
 /**
@@ -97,30 +104,6 @@ async function mergeAuthorizationBase(
   return local;
 }
 
-async function mergeValidatedWorkspaceBytes(
-  id: string,
-  remote: Automerge.Doc<WorkspaceDocumentV2>,
-  storage = defaultStorage,
-): Promise<boolean> {
-  const local =
-    stateRuntime.activeDoc?.id === id
-      ? stateRuntime.activeDoc
-      : (await storage.loadWorkspaceDoc(id))?.doc;
-  if (!local) {
-    await saveMergedWorkspace(id, remote, storage);
-    return true;
-  }
-  if (!sharesBoard(local, remote)) {
-    throw new Error(`Workspace conflict: ${id} identifies different boards. Nothing was replaced.`);
-  }
-  if (remote.ownerPersonId !== local.ownerPersonId)
-    throw new Error("Workspace ownership cannot change through sync.");
-  const merged = Automerge.merge(Automerge.clone(local), remote);
-  if (sameHeads(merged, local)) return false;
-  await saveMergedWorkspace(id, merged, storage);
-  return true;
-}
-
 function sharesBoard(
   local: Automerge.Doc<WorkspaceDocumentV2>,
   remote: Automerge.Doc<WorkspaceDocumentV2>,
@@ -141,12 +124,11 @@ function sameHeads(
   );
 }
 
-async function saveMergedWorkspace(
+async function publishCommittedWorkspace(
   id: string,
   doc: Automerge.Doc<WorkspaceDocumentV2>,
   storage: WorkspaceStorage,
 ): Promise<void> {
-  await storage.saveSnapshot(id, doc, Automerge.save(doc));
   if (stateRuntime.activeDoc?.id === id) updateReactiveState(doc);
   await refreshAvailableWorkspaces(storage);
   stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId: id });
@@ -160,8 +142,12 @@ async function importWorkspaceDocument(
   const validation = validateWorkspaceDoc(doc);
   if (!validation.ok) throw invalidWorkspaceReceived(validation.error);
   const profile = await requireProfile();
-  await assertImportAllowed(doc, profile, storage);
-  await storage.saveSnapshot(doc.id, doc, Automerge.save(doc));
+  await withWorkspaceMutation(doc.id, async () => {
+    await assertImportAllowed(doc, profile, storage);
+    const local = (await storage.loadWorkspaceDoc(doc.id))?.doc;
+    const merged = local ? Automerge.merge(Automerge.clone(local), doc) : doc;
+    await storage.saveSnapshot(doc.id, merged, Automerge.save(merged));
+  });
   await storage.registerWorkspace(doc.id, doc.title);
   await addWorkspaceToPersonalRoot(doc.id, "import", storage);
   await switchWorkspace(doc.id, storage);

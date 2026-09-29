@@ -11,6 +11,7 @@ import { createPeerAdvertisement,
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
+import { registerOwnerOfferProofs } from "./ownerOfferProofs"
 import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
   type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
@@ -139,15 +140,18 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     return new TextEncoder().encode(JSON.stringify({ version: 1, workspaceId, envelope, workspace }))
   }
 
-  protected async receiveOwnerWorkspaceOffer(bytes: Uint8Array, remotePersonId: string) {
+  protected async receiveOwnerWorkspaceOffer(bytes: Uint8Array, remotePersonId: string,
+    connection: SyncConnection, secret: string) {
     const profile = await this.options.getProfile()
     const value = JSON.parse(new TextDecoder().decode(bytes)) as { envelope: MeshWorkspaceEnvelope; workspace: unknown }
     const workspaceId = meshRustRuntime().state.validateOwnerWorkspaceOffer(value, remotePersonId, profile.identity.personId)
+    await this.validateInvitation([value.envelope], [workspaceId], profile, [])
     // Persist the signed document before activating its credential. Otherwise
     // an interrupted offer leaves durable mesh retrying a workspace which has
     // no local document yet.
-    await workspaceSet(this.options.workspaceStore, [workspaceId]).receive(
-      new TextEncoder().encode(JSON.stringify([value.workspace])), false)
+    const replica = workspaceSet(this.options.workspaceStore, [workspaceId])
+    const snapshot = new TextEncoder().encode(JSON.stringify([value.workspace]))
+    await replica.receive(await replica.resolveProofs(snapshot, connection, secret), false)
     await this.receiveInvitation([value.envelope], [workspaceId], profile, [])
     if (!this.node) throw new Error("Workspace mesh is unavailable")
     await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, profile)
@@ -188,7 +192,9 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
           const value = JSON.parse(new TextDecoder().decode(offer))
           offer = new TextEncoder().encode(JSON.stringify({ ...value, grant, controllerPersonId: profile.identity.personId }))
         }
-        await publishOwnerWorkspaceOffer(connection, secret, offer, ownerWorkspaceOfferFrame)
+        const release = await registerOwnerOfferProofs(connection, secret, offer, this.options.workspaceStore)
+        try { await publishOwnerWorkspaceOffer(connection, secret, offer, ownerWorkspaceOfferFrame) }
+        finally { release() }
       })()
       this.ownerWorkspaceOffers.set(key, offerPromise)
       try { await offerPromise } finally {

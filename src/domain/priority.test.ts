@@ -47,6 +47,15 @@ describe("priority projection", () => {
     const item = { values: { priority: "manual" } } as unknown as Item
     expect(projectItemPriority({ priorityPolicy: null } as Board, item)).toBe(item)
   })
+
+  it("keeps configured preset Notes rules working when text Notes fold into Description", () => {
+    const notesPolicy = { ...policy, rules: [{ id: "hardcore", fieldId: "notes", operator: "contains" as const, value: "hardcore", weight: -4 }] }
+    const board = { priorityPolicy: notesPolicy, preset: { bindings: { "field.notes": "notes" } } } as unknown as Board
+    const legacy = { body: "", values: { mode: "remote", notes: "Hardcore pace" } } as unknown as Item
+    const folded = { ...legacy, body: "Hardcore pace", values: { mode: "remote", notes: "" } }
+    expect(projectItemPriority(board, legacy, "notes").values.fit).toBe(projectItemPriority(board, folded, "notes").values.fit)
+    expect(projectItemPriority(board, { ...folded, body: "Hardcore pace", values: { mode: "remote" } }, "notes").values.fit).toBe(0)
+  })
 })
 
 describe("priority order", () => {

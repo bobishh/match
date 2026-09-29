@@ -106,3 +106,141 @@ test("Given two open tabs, when both edit one workspace together, then both conv
     await second.close()
   }
 })
+
+test("Given independent tabs receive peer branches together, when both admissions finish, then reopened workspace keeps both", async ({ page }) => {
+  const second = await page.context().newPage()
+  await second.goto("/")
+  try {
+    const branches = await page.evaluate(async () => {
+      const { useMatch } = await import("/src/state.ts")
+      const { executeCommand } = await import("/src/domain/commands.ts")
+      const { prepareLocalChangeAuthorizations, exportAuthorizationBundle } = await import("/src/sync/changeAuthorization.ts")
+      const Automerge = await import("/@id/@automerge/automerge/slim")
+      const match = useMatch()
+      await match.whenReady()
+      const base = match.getActiveDoc()!
+      const profile = match.getCurrentProfile()!
+      const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+      return Promise.all(["Incoming A", "Incoming B"].map(async title => {
+        const result = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title }, profile)
+        if (!result.ok) throw new Error(result.error.message)
+        const proofs = await prepareLocalChangeAuthorizations(result.value.newDoc, profile, [result.value.receipt.changeHash])
+        const bundle = await exportAuthorizationBundle(Automerge.save(base), profile)
+        return { id: base.id, bytes: Array.from(Automerge.save(result.value.newDoc)), authorization: { ...bundle, records: [...bundle.records, ...proofs] } }
+      }))
+    })
+    await Promise.all([
+      ...[page, second].map((target, index) => target.evaluate(async branch => {
+        const { useMatch } = await import("/src/state.ts")
+        await useMatch().whenReady()
+        await useMatch().mergeAuthorizedWorkspace(branch.id, new Uint8Array(branch.bytes), branch.authorization)
+      }, branches[index]!)),
+      second.evaluate(async () => {
+        const { useMatch } = await import("/src/state.ts")
+        const match = useMatch()
+        await match.whenReady()
+        const column = Object.values(match.getActiveDoc()!.entities).find(entity => entity.kind === "column")!
+        await match.executeCommandAsync({ kind: "createItem", parentId: column.id, title: "Local alongside peers" })
+      }),
+    ])
+    await second.reload()
+    await expect.poll(() => second.evaluate(async () => {
+      const { useMatch } = await import("/src/state.ts")
+      await useMatch().whenReady()
+      return Object.values(useMatch().getActiveDoc()!.entities).flatMap(entity => "title" in entity && ["Incoming A", "Incoming B", "Local alongside peers"].includes(entity.title) ? [entity.title] : []).sort()
+    })).toEqual(["Incoming A", "Incoming B", "Local alongside peers"])
+  } finally { await second.close() }
+})
+
+test("Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { useMatch } = await import("/src/state.ts")
+    const { WorkspaceStorage } = await import("/src/storage.ts")
+    const { executeCommand } = await import("/src/domain/commands.ts")
+    const { prepareLocalChangeAuthorizations, exportAuthorizationBundle, exportAuthorizations } = await import("/src/sync/changeAuthorization.ts")
+    const Automerge = await import("/@id/@automerge/automerge/slim")
+    const match = useMatch()
+    await match.whenReady()
+    const base = match.getActiveDoc()!
+    const profile = match.getCurrentProfile()!
+    const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+    const command = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title: "Rejected peer item" }, profile)
+    if (!command.ok) throw new Error(command.error.message)
+    const incoming = await prepareLocalChangeAuthorizations(command.value.newDoc, profile, [command.value.receipt.changeHash])
+    const bundle = await exportAuthorizationBundle(Automerge.save(base), profile)
+    const beforeProofs = JSON.stringify(await exportAuthorizations(Automerge.save(base)))
+    let notifications = 0
+    const unsubscribe = match.subscribeLocalChanges(() => { notifications++ })
+    const originalPut = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (...args: Parameters<IDBObjectStore["put"]>) {
+      if (this.name === "authorizations") throw new Error("authorization write failed")
+      return originalPut.apply(this, args)
+    }
+    let error = ""
+    try {
+      await match.mergeAuthorizedWorkspace(base.id, Automerge.save(command.value.newDoc), { ...bundle, records: [...bundle.records, ...incoming] })
+    } catch (cause) { error = cause instanceof Error ? cause.message : String(cause) }
+    finally { IDBObjectStore.prototype.put = originalPut; unsubscribe() }
+    const durable = (await new WorkspaceStorage().loadWorkspaceDoc(base.id))!.doc
+    return { error, notifications, durableHeads: Automerge.getHeads(durable), beforeHeads: Automerge.getHeads(base), uiHeads: Automerge.getHeads(match.getActiveDoc()!), beforeProofs, afterProofs: JSON.stringify(await exportAuthorizations(Automerge.save(durable))) }
+  })
+  expect(result.error).toContain("authorization write failed")
+  expect(result.notifications).toBe(0)
+  expect(result.durableHeads).toEqual(result.beforeHeads)
+  expect(result.uiHeads).toEqual(result.beforeHeads)
+  expect(result.afterProofs).toEqual(result.beforeProofs)
+})
+
+test("Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog", async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { useMatch } = await import("/src/state.ts")
+    const { WorkspaceStorage } = await import("/src/storage.ts")
+    const { writeLocal } = await import("/src/localDb.ts")
+    const { toBase64Url } = await import("/src/domain/identity.ts")
+    const { createWorkspaceDoc } = await import("/src/domain/seeds.ts")
+    const { prepareLocalChangeAuthorizations, exportAuthorizations } = await import("/src/sync/changeAuthorization.ts")
+    const { persistAuthorizedCommand } = await import("/src/statePersistence.ts")
+    const { recordGenesisAuthority } = await import("/src/sync/changeAuthorization.ts")
+    const { openWorkspaceJournal, transactionDone } = await import("/src/storageJournal.ts")
+    const A = await import("/@id/@automerge/automerge/slim")
+    const match = useMatch()
+    await match.whenReady()
+    const profile = match.getCurrentProfile()!
+    const { initializeWasm } = A
+    const { default: wasmUrl } = await import("/@id/@automerge/automerge/automerge.wasm?url")
+    await initializeWasm(wasmUrl)
+    const doc = A.from(createWorkspaceDoc(crypto.randomUUID(), "Legacy migration", profile.identity.personId, "blank"))
+    await recordGenesisAuthority(doc, profile)
+    const hashes = A.getAllChanges(doc).map(change => A.decodeChange(change).hash)
+    const proofs = await prepareLocalChangeAuthorizations(doc, profile, hashes)
+    // Seed the pre-migration databases, not the new snapshot/proof stores.
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("match-write-authorizations-v1")
+      request.onupgradeneeded = () => request.result.createObjectStore("records")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const seed = db.transaction("records", "readwrite")
+    const seeded = transactionDone(seed)
+    seed.objectStore("records").put(proofs, doc.id)
+    await seeded
+    db.close()
+    const journal = await openWorkspaceJournal()
+    const clear = journal.transaction("authorizations", "readwrite")
+    const cleared = transactionDone(clear)
+    clear.objectStore("authorizations").delete(doc.id)
+    await cleared
+    await writeLocal(`match.snapshot.${doc.id}`, JSON.stringify({ heads: A.getHeads(doc), bytesBase64: toBase64Url(A.save(doc)), savedAt: new Date().toISOString() }))
+    const storage = new WorkspaceStorage()
+    const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
+    await persistAuthorizedCommand((await storage.loadWorkspaceDoc(doc.id))!.doc, { kind: "createItem", parentId: column.id, title: "Migrated edit" }, profile, storage)
+    const reopened = new WorkspaceStorage()
+    const loaded = (await reopened.loadWorkspaceDoc(doc.id))!.doc
+    const authorization = await exportAuthorizations(A.save(loaded))
+    return { titles: Object.values(loaded.entities).map(entity => "title" in entity ? entity.title : ""), catalog: (await reopened.listWorkspaces()).find(workspace => workspace.id === doc.id)?.title, legacyProofPreserved: proofs.every(proof => authorization.some(record => record.signed.signature === proof.signed.signature)), coveredHashes: authorization.flatMap(record => record.signed.payload.hashes), allHashes: A.getAllChanges(loaded).map(change => A.decodeChange(change).hash) }
+  })
+  expect(result.titles).toContain("Migrated edit")
+  expect(result.catalog).toBe("Legacy migration")
+  expect(result.legacyProofPreserved).toBe(true)
+  expect(result.coveredHashes).toEqual(expect.arrayContaining(result.allHashes))
+})

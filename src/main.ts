@@ -1,7 +1,9 @@
 import "./vendor/berlin-tower.js"
 import { createApp } from "vue"
 import App from "./App.vue"
+import LighthouseLogin from "./components/LighthouseLogin.vue"
 import "./vendor/site-foundation.css"
 import "./style.css"
 
-createApp(App).mount("#app")
+const page = window.location.pathname === "/login" ? LighthouseLogin : App
+createApp(page).mount("#app")

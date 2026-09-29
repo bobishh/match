@@ -1,0 +1,126 @@
+# Storage and sync models
+
+Finite executable specifications; **no formal proof of production code**.
+Baseline storage ordering maps to commit `b082f9e`; fixed storage design maps
+to `8740708`. Paging remains a proposed protocol, not an implemented fix.
+Transport models state required ACK/retry behavior; no claim that connection
+flapping, stalls, or history/export growth is fixed.
+
+## Run
+
+Requirements: Java, Python 3, official
+[TLC tools 1.7.4](https://github.com/tlaplus/tlaplus/releases/tag/v1.7.4).
+No jar committed. Download outside repository:
+
+```sh
+mkdir -p "$HOME/.cache/tla-tools"
+curl -fL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar \
+  -o "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
+shasum -a 1 "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
+# Expected official SHA-1: bee4a54f3ee3d4afc347c3240ec2d9e93b075104
+python3 verification/tla/run_models.py \
+  --jar "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
+```
+
+If macOS `java` has no registered runtime but Homebrew Java exists, add
+`--java /opt/homebrew/opt/openjdk/bin/java`. Runner uses one TLC worker for
+liveness, checks intended violation names, rejects unexpected errors, saves
+full traces outside repository. Individual run:
+
+```sh
+java -XX:+UseParallelGC -Xmx1g -cp "$TLC_JAR" tlc2.TLC -workers 1 \
+  -config verification/tla/WorkspaceFixed.cfg \
+  -metadir /tmp/match-tlc-states verification/tla/WorkspaceCommit.tla
+```
+
+## Checked results
+
+TLC 2.19, official release 1.7.4, Java 26.0.1, 2026-09-28.
+Expected counterexamples are successful regression checks, not passing
+invariants. Their state counts stop at a counterexample; passing checks explore
+the entire reachable finite graph. No symmetry or state constraints used.
+
+| Configuration | Result | Generated / distinct states |
+| --- | --- | ---: |
+| WorkspaceFixed | Safety holds | 1183 / 849 |
+| WorkspaceBaselineBranches | SuccessfulCommitRetained violated | 174 / 102 |
+| WorkspaceBaselineProof | ProofCoverage violated | 4 / 3 |
+| WorkspaceBaselineAbort | AbortedSilent violated | 9 / 8 |
+| ProofBaselineCount | EventuallyCovered violated | 4 / 3 |
+| ProofBaselineBytes | EventuallyCovered violated | 4 / 3 |
+| ProofPaged | Safety + fair liveness hold | 34 / 20 |
+| TransportSafety | Safety holds without fairness | 343 / 130 |
+| TransportFair | Safety + fair liveness hold | 343 / 130 |
+| TransportUnfair | Permanent disconnection defeats liveness | 37 / 18 |
+| TransportReconnectOnly | Reconnect fairness alone defeats liveness | 37 / 18 |
+| TransportEarlyAck | AckDurable violated | 9 / 6 |
+| TransportConnection | ConnectionImpliesCoverage violated | 2 / 2 |
+
+## Interpretation and code mapping
+
+`WorkspaceCommit`: independent operations represent tabs, connections, or local
+commands sharing one workspace. Verified changes are immutable identifiers;
+merge is set union. Each operation can retry once with the same identifier.
+`accepted` means snapshot save accepted a candidate, including an incomplete
+legacy save. `committed` means snapshot **and** required proofs are durable;
+this is the earliest safe point for successful API return or durable ACK.
+`published` represents UI update / notification, distinct from ACK.
+
+Baseline branch trace: both operations read empty snapshot; A saves, publishes,
+persists proof and completes; B saves its stale candidate, erasing successfully
+committed A. Separate traces show snapshot without proof and publication
+followed by proof-write abort. Fixed checks retain both accepted and completed
+branches, require proofs for every durable hash, prevent aborted-attempt
+publication, and allow crash after commit before notification. Receipt
+idempotency is a designed transition (writes count 1), not proof that retrying
+production commands yields the same hash or transaction identifier.
+
+Mapping: [`withWorkspaceMutation`](../../src/workspaceMutation.ts) provides
+workspace queue and shared Web Lock; unsupported browser locking fails closed.
+[`mergeAuthorizedWorkspace`](../../src/stateSyncActions.ts) and
+[`persistCommand` / `persistAuthorizedCommand`](../../src/statePersistence.ts)
+read, validate, merge, and commit under that boundary.
+[`commitWorkspace`](../../src/storage.ts) commits snapshot, authorizations,
+changes, proofs, and receipts in one IndexedDB transaction; memory projections
+advance after [`transactionDone`](../../src/storageJournal.ts). Signature
+preparation in [`changeAuthorization`](../../src/sync/changeAuthorization.ts)
+has no durable writes. Atomic commit is a model assumption checked separately
+by actual IndexedDB failure tests, not a model of IndexedDB internals.
+
+`ProofTransfer`: current `exportAuthorizations` / `exportAuthorizationBundle`
+send all records while `validateIncomingChangeAuthorizations` rejects more
+than 20,000 records or 16 MiB. Tiny count/byte limits preserve the same boundary
+failure. Proposed pages obey both limits, persist before ACK, retry lost ACKs,
+retain durable coverage and acknowledged cursor across restart, and publish
+document only after all required proof records arrive. Authority retention is
+currently a **constant constraint**, not a modeled retirement algorithm.
+No deletion or authority checkpoint design is proposed here.
+
+`DurableTransport`: unacknowledged hashes survive disconnect/retry; duplicates
+merge idempotently. ACK records only durable commit. Connection presence says
+nothing about coverage. Behavioral mapping:
+[`durableMeshSessions`](../../src/sync/durableMeshSessions.ts) evicts failed
+publish sessions and records reconnect failure;
+[`replication contract`](../../vendor/meta-mesh/docs/replication.md) requires
+ACK after persistence. `TransportEarlyAck` is a hypothetical unsafe alternative,
+not a claim that current code acknowledges before commit.
+
+## Assumptions and remaining gaps
+
+Safety checks need no scheduling fairness. Liveness requires weak fairness for
+reconnect/scheduling and **strong fairness** for recurring receive, commit, and
+ACK opportunities. Every modeled hash/page must repeatedly get a usable route;
+permanent partition, endless publish failure, unavailable storage, or unfair
+retry scheduling violates those assumptions. Models give no seconds-based
+latency bound. Route timeout cannot establish global process unavailability.
+
+Finite fixed history only: no ongoing unbounded edits, partition topology,
+fanout/catalog scheduling, route scoring, native QUIC/WebRTC internals, queue
+pressure, ownership verification, or old-client interoperability. Same-byte
+record cost excludes oversized individual records and per-envelope authority
+overhead. Production paging needs exact serialized-byte budgeting, stable
+record identity/order, authority evidence on each page or bound session,
+validation of complete dependency coverage, restart protocol, and API design.
+Actual signatures, CRDT dependencies, command replay, legacy migration, browser
+crash recovery, and multi-store database semantics remain implementation-test
+obligations. Model validity does not establish production refinement.

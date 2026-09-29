@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import { isMeshNetworkFailure, MeshNetworkError } from "@meta-uber/mesh-transport"
 import { BrowserWorkspaceJoinGuest, BrowserWorkspaceJoinHandoffGuest, BrowserWorkspaceJoinHandoffHost, BrowserWorkspaceJoinHost, WorkspaceJoinRejectedError } from "@meta-uber/mesh-runtime"
 import { WasmWorkspaceJoinHandshake, WasmWorkspaceJoinHandoff } from "@meta-uber/mesh-transport/wasm"
+import { sha256Base64Url } from "../domain/identity"
+import { keeperCommitReceiptVerifier } from "./keeperCommitReceipt"
 
 const secret = "join-secret"
 
@@ -68,6 +70,53 @@ function handoffConnection(guest: WasmWorkspaceJoinHandoff, host: WasmWorkspaceJ
 }
 
 describe("Rust workspace join state machine in browser stream adapter", () => {
+  it("Given a keeper commit remains pending, when an offer is accepted, then bounded receipt reaches host only after commit", async () => {
+    const pair = pairedAdapters()
+    const snapshot = new TextEncoder().encode("offered workspace snapshot")
+    const verify = await keeperCommitReceiptVerifier(["one", "two"], snapshot)
+    let commit!: () => void
+    let installing!: () => void
+    const installed = new Promise<void>(resolve => { installing = resolve })
+    const committed = new Promise<void>(resolve => { commit = resolve })
+    let acknowledged = false
+    const receipt = new TextEncoder().encode(JSON.stringify({ kind: "lighthouse-provision-commit", version: 1,
+      workspaceIds: ["one", "two"], snapshotHash: await sha256Base64Url(snapshot) }))
+    const guestRun = pair.guest.handle(pair.guestRequestStream, pair.guestConnection, request, async () => {
+      installing()
+      await committed
+      return { value: "committed", acknowledgement: receipt }
+    })
+    const hostRun = pair.host.handle(await pair.requestFrameReady, pair.hostResponseStream, pair.hostConnection, {
+      request: bytes => bytes,
+      approve: async () => ({ ok: true as const, value: "approved keeper" }),
+      prepare: async () => success,
+      acknowledged: async payload => { verify(payload); acknowledged = true; expect(payload.byteLength).toBeLessThan(512) },
+    })
+    await installed
+    expect(acknowledged).toBe(false)
+    commit()
+    await expect(guestRun).resolves.toBe("committed")
+    await expect(hostRun).resolves.toEqual({ kind: "accepted", value: "approved keeper" })
+    expect(acknowledged).toBe(true)
+  })
+
+  it("Given a keeper sends a receipt for another snapshot, when host checks ACK, then host never accepts the peer", async () => {
+    const pair = pairedAdapters()
+    const verify = await keeperCommitReceiptVerifier(["one"], new Uint8Array([1]))
+    const receipt = new TextEncoder().encode(JSON.stringify({ kind: "lighthouse-provision-commit", version: 1,
+      workspaceIds: ["one"], snapshotHash: "wrong" }))
+    const guestRun = pair.guest.handle(pair.guestRequestStream, pair.guestConnection, request,
+      async () => ({ value: "committed", acknowledgement: receipt }))
+    const hostRun = pair.host.handle(await pair.requestFrameReady, pair.hostResponseStream, pair.hostConnection, {
+      request: bytes => bytes,
+      approve: async () => ({ ok: true as const, value: "approved keeper" }),
+      prepare: async () => success,
+      acknowledged: async payload => verify(payload),
+    })
+    await expect(hostRun).rejects.toThrow("Invalid keeper commit receipt")
+    await expect(guestRun).resolves.toBe("committed")
+  })
+
   it("Given a prepared workspace, when guest accepts and acknowledges it, then host receives guest snapshot", async () => {
     const pair = pairedAdapters()
     const guestRun = pair.guest.handle(pair.guestRequestStream, pair.guestConnection, request, async payload => {
