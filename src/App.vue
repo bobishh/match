@@ -7,6 +7,8 @@ import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, statusLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
+import MatchPageLayout from "./components/MatchPageLayout.vue"
+import MatchHeading from "./components/MatchHeading.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import WorkspacesDialog from "./components/WorkspacesDialog.vue"
 import ColumnDialog from "./components/ColumnDialog.vue"
@@ -95,8 +97,8 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
 </script>
 
 <template>
-  <main class="shell" :aria-busy="!uiReady && !startupError">
-    <header class="topbar">
+  <MatchPageLayout :busy="!uiReady && !startupError">
+    <template #header>
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!uiReady" @click="showWorkspaces = true">
         <span class="brand-presence">
           <span v-if="ready.value && workspaceRoleStatus === 'verified' && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
@@ -112,7 +114,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
           <span class="brand-mark" :class="`is-${meshPresence}`" role="img" :aria-label="meshPresenceLabel">M</span>
         </span>
         <div>
-          <h1>MATCH <span class="brand-separator">//</span> <span class="workspace-heading">{{ ready.value ? workspaceLabel : '…' }}</span></h1>
+          <MatchHeading :label="ready.value ? workspaceLabel : '…'" />
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -139,7 +141,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
         <input ref="importInput" class="sr-only" type="file" accept=".match,application/vnd.match+zip" @change="importWorkspace" />
       </div>
-    </header>
+    </template>
 
     <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
       <div class="boot-toolbar">
@@ -517,6 +519,6 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       </section>
     </ModalLayer>
     </template>
-  </main>
+  </MatchPageLayout>
   <BuildFooter />
 </template>

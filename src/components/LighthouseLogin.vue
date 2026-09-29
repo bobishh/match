@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, shallowRef } from "vue"
-import LighthouseMark from "./LighthouseMark.vue"
+import MatchPageLayout from "./MatchPageLayout.vue"
+import MatchHeading from "./MatchHeading.vue"
 import { prepareLighthouseLoginApproval, type LighthouseLoginApproval } from "../app/lighthouseLogin"
 
 const request = shallowRef<LighthouseLoginApproval | null>(null)
@@ -44,10 +45,12 @@ onMounted(() => { void loadRequest() })
 </script>
 
 <template>
-  <main class="shell lighthouse-login" aria-labelledby="login-title" :aria-busy="loading || submitting">
-    <header class="topbar">
-      <div class="brand"><LighthouseMark :online="false" :reconnecting="false" /><div><h1>Match identity approval</h1><p class="brand-subtitle">Sign in to a Lighthouse keeper</p></div></div>
-    </header>
+  <MatchPageLayout class="lighthouse-login" aria-labelledby="login-title" :busy="loading || submitting">
+    <template #header>
+      <div class="brand">
+        <div><MatchHeading label="Identity approval" uppercase /></div>
+      </div>
+    </template>
     <section class="identity-login-content">
       <article v-if="loading" class="identity-login-card" role="status">Checking signed keeper request…</article>
       <article v-else-if="request" class="identity-login-card">
@@ -72,7 +75,7 @@ onMounted(() => { void loadRequest() })
       </article>
       <p v-if="error && request" class="sync-error" role="alert">{{ error }}</p>
     </section>
-  </main>
+  </MatchPageLayout>
 </template>
 
 <style scoped>
