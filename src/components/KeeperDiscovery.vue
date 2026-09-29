@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from "vue"
+import { computed, onBeforeUnmount, ref } from "vue"
 import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails } from "../app/keeperApi"
 import type { MeshMemberView } from "../ui/deviceInfo"
 import LighthouseMark from "./LighthouseMark.vue"
@@ -13,6 +13,9 @@ const props = defineProps<{
 const emit = defineEmits<{ (event: "viewChange", view: "list" | "form" | "detail"): void }>()
 const view = ref<"list" | "form" | "detail">("list")
 const selectedKeeperId = ref("")
+const retainedKeeper = ref<MeshMemberView | null>(null)
+const displayedKeepers = computed(() => props.keepers.some(keeper => keeper.personId === retainedKeeper.value?.personId)
+  ? props.keepers : retainedKeeper.value ? [...props.keepers, retainedKeeper.value] : props.keepers)
 const keeperDetails = ref<KeeperDetails | null>(null)
 const confirmRemoval = ref(false)
 const removingKeeper = ref(false)
@@ -31,10 +34,11 @@ let pollTimer: ReturnType<typeof setTimeout> | undefined
 let provisioning = false
 
 const selectedWorkspaces = () => eligibleWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
-const selectedKeeper = () => props.keepers.find(keeper => keeper.personId === selectedKeeperId.value)
+const selectedKeeper = () => displayedKeepers.value.find(keeper => keeper.personId === selectedKeeperId.value)
 const pendingPairing = () => pairing.value && ["pairing", "approved", "provisioning"].includes(status.value)
 
 async function openKeeper(personId: string) {
+  retainedKeeper.value = displayedKeepers.value.find(keeper => keeper.personId === personId) ?? null
   selectedKeeperId.value = personId
   keeperDetails.value = null
   confirmRemoval.value = false
@@ -61,6 +65,7 @@ async function removeSelectedKeeper() {
   try {
     await props.removeKeeper(selectedKeeperId.value)
     selectedKeeperId.value = ""
+    retainedKeeper.value = null
     keeperDetails.value = null
     confirmRemoval.value = false
     showView("list")
@@ -215,8 +220,8 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
   <section class="sync-section keeper-discovery" aria-label="Keepers">
     <template v-if="view === 'list'">
       <p class="sync-section-copy">Keepers</p>
-      <div v-if="keepers.length" class="keeper-list" role="list" aria-label="Keeper services">
-        <button v-for="keeper in keepers" :key="keeper.personId" class="keeper-row" type="button" @click="openKeeper(keeper.personId)">
+      <div v-if="displayedKeepers.length" class="keeper-list" role="list" aria-label="Keeper services">
+        <button v-for="keeper in displayedKeepers" :key="keeper.personId" class="keeper-row" type="button" @click="openKeeper(keeper.personId)">
           <span class="keeper-dot" :data-state="keeper.online ? 'online' : keeper.reconnecting ? 'reconnecting' : 'offline'" aria-hidden="true"></span>
           <span class="keeper-row-copy"><strong>{{ keeper.name }}</strong><small>{{ keeper.role }} · {{ keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
           <span aria-hidden="true">›</span>
@@ -229,7 +234,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <span aria-hidden="true">›</span>
         </button>
       </div>
-      <p v-if="!keepers.length" class="keeper-empty">No keepers connected to this board.</p>
+      <p v-if="!displayedKeepers.length" class="keeper-empty">No keepers connected to this board.</p>
       <button class="button button-primary" type="button" :disabled="Boolean(pendingPairing())" @click="startAddKeeper">Add keeper</button>
     </template>
 

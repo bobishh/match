@@ -12,7 +12,8 @@ export function mountKeeperRemoval() {
   let resolveRemoval: (() => void) | undefined
   let rejectRemoval: ((reason: Error) => void) | undefined
   const removeKeeper = () => new Promise<void>((resolve, reject) => {
-    resolveRemoval = () => { keepers.value = []; resolve() }
+    keepers.value = []
+    resolveRemoval = resolve
     rejectRemoval = reject
   })
   createApp({ setup: () => () => h(KeeperDiscovery, { ownedWorkspaces: [{ id: "board", title: "Board" }], keepers: keepers.value,
