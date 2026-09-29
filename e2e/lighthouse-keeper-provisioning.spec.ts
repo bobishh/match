@@ -38,11 +38,36 @@ function waitOutput(child: ChildProcessWithoutNullStreams, pattern: RegExp, time
   })
 }
 
-async function stop(child?: ChildProcessWithoutNullStreams) {
+async function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number) {
+  if (child.exitCode !== null || child.signalCode !== null) return { code: child.exitCode, signal: child.signalCode }
+  return new Promise<{ code: number | null; signal: NodeJS.Signals | null } | null>(resolveExit => {
+    const exited = (code: number | null, signal: NodeJS.Signals | null) => finish({ code, signal })
+    const timer = setTimeout(() => finish(null), timeoutMs)
+    function finish(result: { code: number | null; signal: NodeJS.Signals | null } | null) {
+      clearTimeout(timer)
+      child.off("exit", exited)
+      resolveExit(result)
+    }
+    child.once("exit", exited)
+  })
+}
+
+async function stop(child?: ChildProcessWithoutNullStreams, requireCleanExit = false) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return
-  const stopped = new Promise<void>(resolveStop => child.once("exit", () => resolveStop()))
   child.kill("SIGINT")
-  await stopped
+  let exit = await waitForExit(child, 10_000)
+  if (!exit) {
+    child.kill("SIGTERM")
+    exit = await waitForExit(child, 5_000)
+  }
+  if (!exit) {
+    child.kill("SIGKILL")
+    await waitForExit(child, 1_000)
+    throw new Error("Disposable Lighthouse test child did not stop after SIGINT and SIGTERM\n" + (processOutput.get(child) ?? ""))
+  }
+  if (requireCleanExit && exit.code !== 0) {
+    throw new Error(`Lighthouse exited with code ${exit.code} and signal ${exit.signal ?? "none"} during graceful shutdown\n` + (processOutput.get(child) ?? ""))
+  }
 }
 
 async function freePort() {
@@ -60,19 +85,23 @@ async function bootstrapKeeperIdentity(browser: Browser, directory: string, base
   const page = await context.newPage()
   let joinProcess: ChildProcessWithoutNullStreams | undefined
   try {
+    console.log("[keeper e2e] bootstrap: open owner board")
     await page.goto(baseURL)
     await createJobSearchWorkspace(page, "Bootstrap board")
+    console.log("[keeper e2e] bootstrap: open sync and generate invite")
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const dialog = page.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add someone" }).click()
     await dialog.getByRole("button", { name: "Generate link" }).click()
     const invite = await dialog.getByLabel("Pairing link").inputValue()
     joinProcess = native(["join", invite, directory])
+    console.log("[keeper e2e] bootstrap: wait for Lighthouse join")
     const joined = waitOutput(joinProcess, /Lighthouse joined/)
     await page.getByLabel("Participant role").waitFor({ timeout: 90_000 })
     await page.getByLabel("Participant role").selectOption("editor")
     await page.getByRole("button", { name: "Approve access" }).click()
     await joined
+    console.log("[keeper e2e] bootstrap: join approved")
     const config = JSON.parse(await readFile(join(directory, "config.json"), "utf8")) as {
       localHandshake: { peer: { advertisement: { payload: { personId: string } } } }
       identitySeed: number[]
@@ -104,8 +133,8 @@ async function createTargetBoards(page: Page) {
   await createJobSearchWorkspace(page, "Keeper target B")
 }
 
-test("Given a running Lighthouse identity, when both controllers approve all owned boards, then durable join resumes after lost response and restart", async ({ page, browser, baseURL }) => {
-  test.setTimeout(300_000)
+test("Given a running Lighthouse identity, when both controllers approve all owned boards, then durable join resumes after lost response and restart", async ({ page, browser, baseURL }, testInfo) => {
+  test.setTimeout(Number(process.env.MATCH_E2E_TIMEOUT ?? 300_000))
   const directory = await mkdtemp(join(tmpdir(), "match-lighthouse-provision-"))
   const baseDirectory = join(directory, "service")
   const appOrigin = baseURL ?? "http://127.0.0.1:4246"
@@ -120,14 +149,17 @@ test("Given a running Lighthouse identity, when both controllers approve all own
   let droppedResponse = false
   let completed = false
   try {
+    console.log("[keeper e2e] create target boards")
     await page.goto(appOrigin)
     await createTargetBoards(page)
+    console.log("[keeper e2e] bootstrap keeper identity")
     const bootstrapConfig = await bootstrapKeeperIdentity(browser, baseDirectory, appOrigin)
     nativeIdentity.personId = bootstrapConfig.localHandshake.peer.advertisement.payload.personId
     nativeSeeds.identity = bootstrapConfig.identitySeed
     nativeSeeds.device = bootstrapConfig.deviceSeed
     nativeSeeds.iroh = bootstrapConfig.irohSecret
 
+    console.log("[keeper e2e] start isolated native service")
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
     await page.route(serviceOrigin + "/v1/pairings/*/provision", async route => {
       bodyForRetry = route.request().postData() ?? undefined
@@ -152,39 +184,59 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       await route.fulfill({ status: response.status(), contentType: "application/json", body: responseBody })
     })
 
+    console.log("[keeper e2e] check overview authorization and operator login")
+    const unauthenticatedOverview = await page.request.get(serviceOrigin + "/admin/api/overview")
+    expect(unauthenticatedOverview.status()).toBe(403)
+
+    operator = await page.context().newPage()
+    const adminResponse = await operator.goto(serviceOrigin + "/admin/")
+    expect(adminResponse?.status(), "Lighthouse operator page must be served locally").toBe(200)
+    await expect(operator.getByRole("heading", { name: "Sign in" })).toBeVisible()
+    await operator.getByLabel("Operator token").fill("incorrect-test-operator-token")
+    await operator.getByRole("button", { name: "Sign in" }).click()
+    await expect(operator.getByRole("status")).toContainText("Approval is not authorized")
+    await operator.getByLabel("Operator token").fill(operatorToken)
+    await operator.getByRole("button", { name: "Sign in" }).click()
+    await expect(operator.locator(".login-card")).toBeHidden()
+    await expect(operator.getByText("No pending keeper requests")).toBeVisible()
+    await expect(operator.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
+    await expect(operator.getByRole("heading", { name: "Approvals", exact: true })).toBeVisible()
+    await expect(operator.getByText("Bootstrap board")).toBeVisible()
+    await expect(operator.getByText("JEV intake")).toBeVisible()
+    const intake = operator.locator(".overview-group article.board-row").filter({ hasText: "JEV intake" })
+    await expect(intake).toContainText(/configured|not configured/)
+    await expect(intake).toContainText("pending")
+    await operator.screenshot({ path: testInfo.outputPath("lighthouse-admin-overview.png"), fullPage: true })
+
+    console.log("[keeper e2e] owner requests keeper pairing")
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const sync = page.getByRole("dialog", { name: "Device sync" })
     await sync.getByRole("button", { name: "Add keeper" }).click()
     await sync.getByRole("textbox", { name: "Keeper hostname" }).fill(serviceOrigin)
     await sync.getByRole("button", { name: "Discover keeper" }).click()
-    await expect(sync.getByText("Service identity: " + nativeIdentity.personId)).toBeVisible()
+    await expect(sync.getByText("Service identity " + nativeIdentity.personId)).toBeVisible()
     const ownerBoardChecks = sync.locator('input[aria-label^="Keeper board: "]')
     await expect(ownerBoardChecks).toHaveCount(3)
     for (const checkbox of await ownerBoardChecks.all()) await expect(checkbox).toBeChecked()
     await expect(sync.getByRole("checkbox", { name: "Also replicate my future boards" })).toBeChecked()
     await sync.getByRole("checkbox", { name: "Keeper board: Keeper target A" }).check()
     await sync.getByRole("checkbox", { name: "Keeper board: Keeper target B" }).check()
-    await sync.getByRole("button", { name: "Request keeper access" }).click()
-    await expect(sync.getByText("Awaiting both approvals. No access granted.")).toBeVisible()
+    await sync.getByRole("button", { name: "Request access" }).click()
+    await expect(sync.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
 
-    operator = await page.context().newPage()
-    await operator.goto(serviceOrigin + "/admin/")
-    await operator.getByLabel("Operator token").fill("incorrect-test-operator-token")
-    await operator.getByRole("button", { name: "Sign in" }).click()
-    await expect(operator.getByRole("status")).toContainText("Approval is not authorized")
-    await operator.getByLabel("Operator token").fill(operatorToken)
-    await operator.getByRole("button", { name: "Sign in" }).click()
-    await expect(operator.locator("#login")).toBeHidden()
-    const request = operator.locator("#requests article")
+    console.log("[keeper e2e] operator refreshes and approves pending pairing")
+    await operator.getByRole("button", { name: "Refresh overview" }).click()
+    const request = operator.locator(".approvals-section article.approval-card")
     await expect(request).toHaveCount(1)
     await expect(request).toContainText("Keeper target A")
     await expect(request).toContainText("Keeper target B")
     await expect(request).toContainText("Controller approval: pending")
-    await expect(request).toContainText("Future boards: included in this approval")
+    await expect(request).toContainText("Future boards included in approval")
     await request.getByRole("button", { name: "Approve exact boards" }).click()
     await expect(request).toContainText("Controller approval: pending")
-    await expect(request).toContainText("Future boards: included in this approval")
+    await expect(request).toContainText("Future boards included in approval")
 
+    console.log("[keeper e2e] owner approves matching code; wait for durable activation")
     await sync.getByRole("button", { name: "Code matches · approve" }).click()
     await expect(sync.getByText("All selected boards activated and saved by Lighthouse.")).toBeVisible({ timeout: 90_000 })
     // Status polling may observe the durable commit before the intercepted
@@ -214,6 +266,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       .identity.personId)
 
     await sync.getByRole("button", { name: "Close" }).click()
+    console.log("[keeper e2e] verify future-board replication")
     await createJobSearchWorkspace(page, "Keeper future board")
     await expect.poll(async () => {
       const current = JSON.parse(await readFile(configPath, "utf8")) as { additionalScopes: { workspaceId: string }[] }
@@ -224,7 +277,8 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     }
     expect(withFutureBoard.additionalScopes.every(scope => existsSync(scope.statePath))).toBe(true)
 
-    await stop(service)
+    console.log("[keeper e2e] graceful shutdown and restart")
+    await stop(service, true)
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
     const retryPairingId = JSON.parse(bodyForRetry!).signed.payload.body.pairingId as string
     const retry = await page.request.post(serviceOrigin + "/v1/pairings/" + retryPairingId + "/provision", {
@@ -243,7 +297,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     completed = true
   } finally {
     await operator?.close()
-    await stop(service)
+    await stop(service, true)
     if (completed) await rm(directory, { recursive: true, force: true })
   }
 })
