@@ -65,7 +65,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
     canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel, activeMeshRetryAt,
     meshMembers, meshParticipantDevices, activeSuccession, canClaimSuccession,
     transferringOwnership, leavingMesh, revokingPeer, peerAccessError,
-    repairableHistory, repairHistory, transferWorkspaceOwnership, leaveWorkspaceMesh,
+    transferWorkspaceOwnership, leaveWorkspaceMesh,
     setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession,
     revokeWorkspacePeer, promoteWorkspacePeer,
   } = core
@@ -75,7 +75,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
     mesh: {
       meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers, meshParticipantDevices,
       activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh,
-      revokingPeer, peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
+      revokingPeer, peerAccessError, transferWorkspaceOwnership,
       leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
       claimWorkspaceSuccession, revokeWorkspacePeer, promoteWorkspacePeer,
     },

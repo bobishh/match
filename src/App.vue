@@ -73,7 +73,7 @@ const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loa
 const { meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
   canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
-  peerAccessError, repairableHistory, repairHistory, transferWorkspaceOwnership,
+  peerAccessError, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
   claimWorkspaceSuccession, revokeWorkspacePeer, promoteWorkspacePeer,
 } = app.collaboration.mesh
@@ -434,8 +434,6 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :mesh-diagnostic="sync.meshDiagnostic.value"
       :retry-at="activeMeshRetryAt"
       :network-online="sync.networkOnline.value"
-      :repairable-history="repairableHistory"
-      @repair-history="repairHistory"
       :live="sync.isEnabled.value"
       @update:selected-workspace-ids="sync.selectedWorkspaceIds.value = $event"
       @update:selected-workspace-id="sync.selectedWorkspaceId.value = $event"

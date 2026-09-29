@@ -60,11 +60,10 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
 
   it("loads stored documents without creating unsigned CRDT changes", async () => {
     const raw = createWorkspaceDoc(crypto.randomUUID(), "Legacy", profile.identity.personId, "blank")
-    let doc = Automerge.from<WorkspaceDocumentV2>(raw)
+    const doc = Automerge.from<WorkspaceDocumentV2>(raw)
     const column = Object.values(doc.entities).find(e => e.kind === "column")!
     const result = await executeCommand(doc, { kind: "createItem", parentId: column.id, title: "Legacy" }, profile)
     if (!result.ok) throw new Error(result.error.message)
-    doc = Automerge.change(result.value.newDoc, draft => { (Object.values(draft.entities).find(isItem) as any).kind = "task" })
     const heads = Automerge.getHeads(doc)
     await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
     expect((await storage.loadWorkspaceDoc(doc.id))!.heads).toEqual(heads)
