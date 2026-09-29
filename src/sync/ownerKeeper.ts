@@ -1,6 +1,7 @@
 import { readLocal, writeLocal } from "../localDb"
 
-export type OwnerKeeper = { personId: string; role: "visitor" | "editor" }
+export type KeeperDetails = { origin?: string; boardIds: string[]; futureBoards: boolean }
+export type OwnerKeeper = { personId: string; role: "visitor" | "editor"; details?: KeeperDetails }
 const key = (ownerPersonId: string) => `match.owner-keepers.v1:${ownerPersonId}`
 
 export async function ownerKeepers(ownerPersonId: string): Promise<OwnerKeeper[]> {
@@ -16,5 +17,9 @@ export async function ownerKeepers(ownerPersonId: string): Promise<OwnerKeeper[]
 
 export async function saveOwnerKeeper(ownerPersonId: string, keeper: OwnerKeeper) {
   const records = await ownerKeepers(ownerPersonId)
-  await writeLocal(key(ownerPersonId), JSON.stringify([...records.filter(record => record.personId !== keeper.personId), keeper]))
+  const previous = records.find(record => record.personId === keeper.personId)
+  await writeLocal(key(ownerPersonId), JSON.stringify([
+    ...records.filter(record => record.personId !== keeper.personId),
+    { ...previous, ...keeper },
+  ]))
 }

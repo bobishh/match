@@ -22,4 +22,12 @@ describe("identity-scoped owner-keeper policy", () => {
     await writeLocal(`match.owner-keepers.v1:${owner}`, "not-json")
     await expect(ownerKeepers(owner)).resolves.toEqual([])
   })
+
+  it("retains pairing details when future-board enrollment updates the role", async () => {
+    const owner = `owner-${crypto.randomUUID()}`
+    const details = { origin: "https://keeper.example", boardIds: ["board"], futureBoards: true }
+    await saveOwnerKeeper(owner, { personId: "keeper", role: "visitor", details })
+    await saveOwnerKeeper(owner, { personId: "keeper", role: "editor" })
+    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: "keeper", role: "editor", details }])
+  })
 })

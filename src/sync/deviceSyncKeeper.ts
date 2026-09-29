@@ -1,6 +1,7 @@
 import { createKeeperWorkspaceHost, type WorkspaceHostContext } from "./deviceSyncHost"
 import { deliverKeeperInvitation, type KeeperPairing, type KeeperPairingStatus } from "./lighthousePairing"
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
+import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
 
 export function createKeeperProvisioner(
   ensureDurableMesh: () => Promise<unknown>,
@@ -18,6 +19,21 @@ export function createKeeperProvisioner(
       })
     }
     const invitation = await invitationTask
-    return deliverKeeperInvitation(pairing, invitation)
+    const status = await deliverKeeperInvitation(pairing, invitation)
+    if (status === "active") {
+      const profile = await hostContext().getProfile()
+      const previous = (await ownerKeepers(profile.identity.personId))
+        .find(record => record.personId === pairing.discovery.personId)
+      await saveOwnerKeeper(profile.identity.personId, {
+        personId: pairing.discovery.personId,
+        role: previous?.role ?? "visitor",
+        details: {
+          origin: pairing.discovery.origin,
+          boardIds: pairing.workspaces.map(workspace => workspace.id),
+          futureBoards: pairing.futureBoards === true,
+        },
+      })
+    }
+    return status
   }
 }
