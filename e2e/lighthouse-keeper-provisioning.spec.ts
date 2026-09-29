@@ -187,6 +187,42 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] check overview authorization and operator login")
     const unauthenticatedOverview = await page.request.get(serviceOrigin + "/admin/api/overview")
     expect(unauthenticatedOverview.status()).toBe(403)
+    const unauthenticatedSession = await page.request.get(serviceOrigin + "/admin/api/session")
+    expect(unauthenticatedSession.status()).toBe(403)
+
+    const invalidSessionContext = await browser.newContext()
+    await invalidSessionContext.addCookies([{
+      name: "mesh_lighthouse_admin",
+      value: "invalid-session-cookie",
+      domain: new URL(serviceOrigin).hostname,
+      path: "/admin/api",
+      httpOnly: true,
+      sameSite: "Strict",
+    }])
+    const invalidSessionPage = await invalidSessionContext.newPage()
+    await invalidSessionPage.goto(serviceOrigin + "/admin/")
+    await expect(invalidSessionPage.getByRole("heading", { name: "Sign in" })).toBeVisible()
+    await expect(invalidSessionPage.locator(".keeper-card")).toHaveCount(0)
+    await expect(invalidSessionPage.locator(".approval-card")).toHaveCount(0)
+    await invalidSessionContext.close()
+
+    const unavailableSessionContext = await browser.newContext()
+    const unavailableSessionPage = await unavailableSessionContext.newPage()
+    let sessionChecks = 0
+    await unavailableSessionPage.route(serviceOrigin + "/admin/api/session", async route => {
+      sessionChecks += 1
+      await route.fulfill({
+        status: sessionChecks === 1 ? 503 : 403,
+        contentType: "application/json",
+        body: JSON.stringify({ message: "Session unavailable" }),
+      })
+    })
+    await unavailableSessionPage.goto(serviceOrigin + "/admin/")
+    await expect(unavailableSessionPage.getByRole("heading", { name: "Session check unavailable" })).toBeVisible()
+    await expect(unavailableSessionPage.getByLabel("Operator token")).toHaveCount(0)
+    await unavailableSessionPage.getByRole("button", { name: "Retry session check" }).click()
+    await expect(unavailableSessionPage.getByRole("heading", { name: "Sign in" })).toBeVisible()
+    await unavailableSessionContext.close()
 
     operator = await page.context().newPage()
     const adminResponse = await operator.goto(serviceOrigin + "/admin/")
@@ -198,6 +234,10 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await operator.getByLabel("Operator token").fill(operatorToken)
     await operator.getByRole("button", { name: "Sign in" }).click()
     await expect(operator.locator(".login-card")).toBeHidden()
+    await expect(operator.getByText("No pending keeper requests")).toBeVisible()
+    await operator.reload()
+    await expect(operator.locator(".login-card")).toBeHidden()
+    await expect(operator.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
     await expect(operator.getByText("No pending keeper requests")).toBeVisible()
     await expect(operator.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
     await expect(operator.getByRole("heading", { name: "Approvals", exact: true })).toBeVisible()
@@ -232,9 +272,14 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(request).toContainText("Keeper target B")
     await expect(request).toContainText("Controller approval: pending")
     await expect(request).toContainText("Future boards included in approval")
-    await request.getByRole("button", { name: "Approve exact boards" }).click()
-    await expect(request).toContainText("Controller approval: pending")
-    await expect(request).toContainText("Future boards included in approval")
+    await operator.reload()
+    await expect(operator.locator(".login-card")).toBeHidden()
+    const restoredRequest = operator.locator(".approvals-section article.approval-card")
+    await expect(restoredRequest).toHaveCount(1)
+    await expect(restoredRequest).toContainText("Keeper target A")
+    await restoredRequest.getByRole("button", { name: "Approve exact boards" }).click()
+    await expect(restoredRequest).toContainText("Controller approval: pending")
+    await expect(restoredRequest).toContainText("Future boards included in approval")
 
     console.log("[keeper e2e] owner approves matching code; wait for durable activation")
     await sync.getByRole("button", { name: "Code matches · approve" }).click()
