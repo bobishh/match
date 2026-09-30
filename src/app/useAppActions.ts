@@ -350,7 +350,6 @@ async function addColumn(core: ReturnType<typeof useAppCore>, title: string, arc
 }
 
 function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
-  const reloadPage = () => window.location.reload()
   const exportWorkspace = () => exportActiveWorkspace(core)
   const openImport = () => core.importInput.value?.click()
   const importWorkspace = (event: Event) => importWorkspaceFile(core, event)
@@ -374,7 +373,7 @@ function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
     await core.match.restoreWorkspaceAsync(id)
     core.notice.value = "Workspace restored"
   }
-  return { reloadPage, exportWorkspace, openImport, importWorkspace, createAndSyncWorkspace, handleCreateWorkspace, handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace }
+  return { exportWorkspace, openImport, importWorkspace, createAndSyncWorkspace, handleCreateWorkspace, handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace }
 }
 
 async function createWorkspaceWithOwnerCredential(core: ReturnType<typeof useAppCore>, title: string,

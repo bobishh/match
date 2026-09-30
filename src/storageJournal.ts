@@ -402,14 +402,26 @@ export async function listCommittedWorkspaces(): Promise<CommittedWorkspaceMeta[
   const transaction = database.transaction("snapshots", "readonly")
   const completion = transactionDone(transaction)
   const results: CommittedWorkspaceMeta[] = []
-  // Index keys carry catalog metadata; never clone every board's document bytes.
-  const request = transaction.objectStore("snapshots").index("catalog").openKeyCursor()
+  const snapshots = transaction.objectStore("snapshots")
+  const indexed = snapshots.indexNames.contains("catalog")
+  // Older databases lack this index. Read their rows without an upgrade that
+  // another open tab could block; indexed databases avoid cloning document bytes.
+  const request = indexed ? snapshots.index("catalog").openKeyCursor() : snapshots.openCursor()
   const scanned = new Promise<void>((resolve, reject) => {
     request.onsuccess = () => {
       const cursor = request.result
       if (!cursor) { resolve(); return }
-      const [id, title, updatedAt] = cursor.key as string[]
-      results.push({ id: id!, title: title!, updatedAt: updatedAt! })
+      const [id, title, updatedAt] = indexed
+        ? cursor.key as string[]
+        : (() => {
+          const row = (cursor as IDBCursorWithValue).value as StoredWorkspaceSnapshot
+          return [row.workspaceId, row.title, row.savedAt]
+        })()
+      if (typeof id !== "string" || typeof title !== "string" || typeof updatedAt !== "string") {
+        reject(new Error(`Stored workspace catalog record ${String(cursor.primaryKey)} is invalid`))
+        return
+      }
+      results.push({ id, title, updatedAt })
       cursor.continue()
     }
     request.onerror = () => reject(request.error ?? new Error("Workspace catalog read failed"))

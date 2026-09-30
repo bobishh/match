@@ -1,5 +1,52 @@
 import { expect, test } from "@playwright/test"
 
+test("Given a local journal created before the catalog index, when Match opens, then it keeps the board and loads", async ({ page, baseURL }) => {
+  await page.route("**/old-journal.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Old journal</title>" }))
+  await page.goto((baseURL ?? "http://127.0.0.1:4244") + "/old-journal.html")
+  const workspaceId = await page.evaluate(async () => {
+    const { initializeAutomerge } = await import("/src/crdt.ts")
+    const { createWorkspaceDoc } = await import("/src/domain/seeds.ts")
+    const Automerge = await import("/@id/@automerge/automerge/slim")
+    await initializeAutomerge()
+    const { default: wasmUrl } = await import("/@id/@automerge/automerge/automerge.wasm?url")
+    await Automerge.initializeWasm(wasmUrl)
+    const id = crypto.randomUUID()
+    const doc = Automerge.from(createWorkspaceDoc(id, "Older local board", "owner", "blank"))
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("match-workspace-state", 1)
+      request.onupgradeneeded = () => {
+        for (const name of ["changes", "proofs", "receipts", "snapshots", "authorizations"]) {
+          const store = request.result.createObjectStore(name, { keyPath: "id" })
+          store.createIndex("workspaceId", "workspaceId", { unique: false })
+        }
+      }
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = database.transaction("snapshots", "readwrite")
+    transaction.objectStore("snapshots").put({ id, workspaceId: id, title: doc.title,
+      heads: Automerge.getHeads(doc), bytes: Automerge.save(doc), savedAt: new Date().toISOString() })
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onabort = () => reject(transaction.error)
+    })
+    database.close()
+    return id
+  })
+  await page.goto(baseURL ?? "http://127.0.0.1:4244")
+  await expect(page.getByLabel("Opening workspace")).toHaveCount(0, { timeout: 15_000 })
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
+  expect(await page.evaluate(async () => {
+    const { useMatch } = await import("/src/state.ts")
+    return useMatch().getActiveDoc()?.id
+  })).toBe(workspaceId)
+  expect(await page.evaluate(async id => {
+    const { defaultStorage } = await import("/src/storage.ts")
+    return (await defaultStorage.loadWorkspaceDoc(id))?.doc.title
+  }, workspaceId)).toBe("Older local board")
+})
+
 test("Given normal browser storage, when Match starts, then workspace controls load", async ({ page, baseURL }) => {
   await page.goto(baseURL ?? "http://127.0.0.1:4244")
   await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })

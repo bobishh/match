@@ -41,10 +41,21 @@ export async function runAppStartup(steps: AppStartupSteps): Promise<AppStartupR
 
 export function startupFailureMessage(stage: AppStartupStage): string {
   switch (stage) {
-    case "runtime": return "Could not load Match’s local runtime. Reload to try again."
-    case "storage": return "Could not open your local data. Reload to try again."
-    case "local-ui": return "Could not finish setting up your local board. Reload to try again."
+    case "runtime": return "Could not load Match’s local runtime."
+    case "storage": return "Could not open your local data."
+    case "local-ui": return "Could not finish setting up your local board."
   }
+}
+
+export function startupFailureDetail(error: unknown): string {
+  if (error && typeof error === "object") {
+    const value = error as { name?: unknown; message?: unknown; cause?: unknown }
+    const name = typeof value.name === "string" && value.name ? value.name : "Error"
+    const message = typeof value.message === "string" && value.message ? value.message : "No error message"
+    const cause = value.cause === undefined ? "" : `; cause: ${startupFailureDetail(value.cause)}`
+    return `${name}: ${message}${cause}`
+  }
+  return String(error)
 }
 
 async function runRequiredStage(stage: AppStartupStage, step: () => Promise<void> | void): Promise<Extract<AppStartupResult, { status: "fatal" }> | undefined> {

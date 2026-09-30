@@ -68,7 +68,10 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .boot-column { border-color: var(--soft); box-shadow: none; }
 .boot-column .column-header { min-height: 56px; background: var(--soft); border-color: var(--soft); }
 .boot-card { height: 108px; margin: 14px; background: var(--paper); }
-.startup-error { display: flex; align-items: center; gap: 16px; }
+.startup-error { display: grid; gap: 8px; max-width: 100%; }
+.startup-error p { margin: 0; }
+.startup-error-detail { overflow-wrap: anywhere; font: 700 .85rem/1.4 ui-monospace, monospace; }
+.startup-error-guidance { color: var(--muted); font-size: .85rem; }
 .topbar { position: sticky; top: 0; z-index: 20; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(243, 240, 232, .96); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-button { min-height: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }

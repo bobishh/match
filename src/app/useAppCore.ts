@@ -8,6 +8,7 @@ import { useMatch } from "../state"
 import type { ArtifactKind } from "../types"
 import { type Column, type Item, type WorkspaceDocumentV2 } from "../domain/model"
 import { configureChat, exportChat, receiveChat, subscribeChat } from "../chat/service"
+import type { AppStartupStage } from "./startup"
 import { useWorkspaceChat } from "../chat/useWorkspaceChat"
 import { defaultBoardFilters, type BoardFilters } from "../filters"
 import { useDeviceSync } from "../sync/useDeviceSync"
@@ -67,7 +68,7 @@ function useAppUiState() {
   const showMobileMenu = ref(false)
   const menuButtonRef = ref<HTMLButtonElement | null>(null)
   const showLoading = ref(false)
-  const startupError = ref("")
+  const startupError = ref<{ stage: AppStartupStage; message: string; detail: string } | null>(null)
   const toggleMobileMenu = () => { showMobileMenu.value = !showMobileMenu.value }
   const closeMobileMenu = () => { showMobileMenu.value = false }
   return {

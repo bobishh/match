@@ -1,7 +1,7 @@
 import { onBeforeUnmount, onMounted, watch } from "vue"
 import { hydrate } from "../state"
 import { sendChatMessage } from "../chat/service"
-import { runAppStartup, startupFailureMessage } from "./startup"
+import { runAppStartup, startupFailureDetail, startupFailureMessage } from "./startup"
 import { useAppActions } from "./useAppActions"
 import { useAppBoard, type AppBoardContext } from "./useAppBoard"
 import { useAppCore } from "./useAppCore"
@@ -102,7 +102,11 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
     clearTimeout(loadingTimer)
     core.showLoading.value = false
     if (startup.status === "fatal") {
-      core.startupError.value = startupFailureMessage(startup.stage)
+      core.startupError.value = {
+        stage: startup.stage,
+        message: startupFailureMessage(startup.stage),
+        detail: startupFailureDetail(startup.error),
+      }
     } else if (startup.syncError) {
       core.sync.error.value = "Sync could not start. Your local board is still available."
     }

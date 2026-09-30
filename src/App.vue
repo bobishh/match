@@ -79,7 +79,7 @@ const { meshPresence, meshPresenceLabel,
   claimWorkspaceSuccession, revokeWorkspacePeer, promoteWorkspacePeer,
 } = app.collaboration.mesh
 const {
-  selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, reloadPage, openBoardItem,
+  selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, openBoardItem,
   restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate,
   openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason,
   exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
@@ -155,7 +155,8 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
             </div>
           </Transition>
           <div v-if="startupError" class="startup-error" role="alert">
-            <p>{{ startupError }}</p><button class="button" type="button" @click="reloadPage">Reload</button>
+            <p>{{ startupError.message }}</p><p class="startup-error-detail">{{ startupError.detail }}</p>
+            <p v-if="startupError.stage === 'storage'" class="startup-error-guidance">Do not clear website data. Share this error when asking for help.</p>
           </div>
         </div>
       </div>
