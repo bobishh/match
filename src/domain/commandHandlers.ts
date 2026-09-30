@@ -5,8 +5,10 @@ import type { CommandContext, CommandHandler, PreparedCommand } from "./commandH
 import * as basic from "./commandBasicHandlers"
 import * as content from "./commandContentHandlers"
 import * as schema from "./commandSchemaHandlers"
+import { planWorkspaceMigration } from "./workspaceMigration"
 
 const handlers = {
+  migrateWorkspaceFormat: (doc, _command, context) => planWorkspaceMigration(doc, context.nowIso),
   createWorkspace: basic.createWorkspace,
   setWorkspaceArchived: basic.setWorkspaceArchived,
   renameWorkspace: basic.renameWorkspace,

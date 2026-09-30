@@ -3,6 +3,7 @@ import * as Automerge from "@automerge/automerge/slim";
 import { assertWorkspaceCapability } from "./domain/permissions";
 import type { WorkspaceDocumentV2 } from "./domain/model";
 import { validateWorkspaceDoc } from "./domain/model";
+import { planWorkspaceMigration } from "./domain/workspaceMigration";
 import {
   workspaceRole,
   validateIncomingChangeAuthorizations,
@@ -61,6 +62,8 @@ async function mergeAuthorizedWorkspace(
     // Validation must use the same current durable base as the eventual merge.
     const { remote, local, verified } = await validateAuthorizedWorkspace(id, bytes, authorization);
     const merged = local ? Automerge.merge(Automerge.clone(local), remote) : remote;
+    const mergedValidation = validateWorkspaceDoc(merged);
+    if (!mergedValidation.ok) throw invalidWorkspaceReceived(mergedValidation.error);
     if (local && remote.ownerPersonId !== local.ownerPersonId)
       throw new Error("Workspace ownership cannot change through sync.");
     const documentChanged = !local || !sameHeads(merged, local);
@@ -89,8 +92,15 @@ async function validateAuthorizedWorkspace(
     });
   }
   const validation = validateWorkspaceDoc(remote);
-  if (!validation.ok) throw invalidWorkspaceReceived(validation.error);
+  if (!validation.ok && (remote as unknown as { formatVersion: number }).formatVersion !== 2)
+    throw invalidWorkspaceReceived(validation.error);
+  if (!validation.ok) {
+    const migration = planWorkspaceMigration(remote, new Date().toISOString());
+    if (!migration.ok) throw invalidWorkspaceReceived(migration.error);
+  }
   const local = await mergeAuthorizationBase(id, remote);
+  if (!validation.ok && (!local || local.formatVersion !== 3))
+    throw invalidWorkspaceReceived({ code: "unsupported_format", message: "Workspace owner must reopen this board in updated Match before sharing it." });
   const verified = await validateIncomingChangeAuthorizations(local, remote, authorization);
   return { remote, local, verified };
 }

@@ -15,6 +15,7 @@ import type { WorkspaceSettingsDraft } from "./workspaceSettings";
 export type NarrativeFoldSources = { expectedBody: string; notesFieldId?: string; expectedNotes?: FieldValue; notes: Array<{ id: string; title: string; content: string | null; format: "markdown" | "html" | "pdf" | "file" | "path" }> };
 
 export type Command =
+  | { kind: "migrateWorkspaceFormat" }
   | { kind: "createWorkspace"; title: string; preset: "job-search" | "blank" }
   | { kind: "renameWorkspace"; title: string }
   | { kind: "setWorkspaceArchived"; archived: boolean }

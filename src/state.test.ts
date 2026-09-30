@@ -10,7 +10,7 @@ import { persistAuthorizedCommand } from "./statePersistence"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { isItem } from "./domain/model"
-import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations } from "./sync/changeAuthorization"
+import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations, recordGenesisAuthority } from "./sync/changeAuthorization"
 import { executeCommand } from "./domain/commands"
 import { peerStore } from "./sync/peerStore"
 
@@ -30,6 +30,31 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     await bootstrapIdentity("State Test User")
     await hydrate()
     await useMatch().createWorkspaceAsync("Job search", "job-search")
+  })
+
+  it("Given a format 2 owner board, when Match starts, then migration is signed and durable", async () => {
+    const profile = useMatch().getCurrentProfile()!
+    const old = createWorkspaceDoc(crypto.randomUUID(), "Earlier board", profile.identity.personId, "blank") as unknown as Record<string, any>
+    old.formatVersion = 2
+    old.deleted = false
+    delete old.archivedAt
+    for (const entity of Object.values(old.entities) as Array<Record<string, any>>) {
+      entity.deleted = entity.kind === "column" && entity.title === "Done"
+      delete entity.archivedAt
+      if (entity.kind === "column") entity.displayHint = "normal"
+    }
+    const source = Automerge.from(old)
+    await recordGenesisAuthority(source as never, profile)
+    await defaultStorage.saveSnapshot(old.id, source as never, Automerge.save(source))
+    await defaultStorage.registerWorkspace(old.id, old.title)
+    resetStateForTest()
+    await hydrate()
+    const stored = (await defaultStorage.loadWorkspaceDoc(old.id))!.doc
+    const hashes = Automerge.getAllChanges(stored).map(change => Automerge.decodeChange(change).hash)
+    const signed = (await exportAuthorizations(Automerge.save(stored))).flatMap(record => record.signed.payload.hashes)
+    expect(stored.formatVersion).toBe(3)
+    expect(signed).toContain(hashes.at(-1))
+    expect(Object.values(stored.entities).find(entity => entity.kind === "column" && entity.title === "Done")?.archivedAt).toBeTruthy()
   })
 
   it("notifies subscribers only after durable commit succeeds", async () => {

@@ -15,6 +15,7 @@ const networkSpecs = [
   "**/sync.spec.ts",
   "**/workspace-roles.spec.ts",
   "**/workspace-sync-data.spec.ts",
+  "**/workspace-schema-migration.spec.ts",
 ]
 
 const groupedNetworkSpecs = networkSpecs.filter(spec =>

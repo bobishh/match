@@ -251,7 +251,7 @@ describe("model runtime types and validators (Requirement 1.1)", () => {
   it("validates complete WorkspaceDocumentV2 and rejects unsupported formatVersion", () => {
     const validDoc: WorkspaceDocumentV2 = {
       kind: "workspace",
-      formatVersion: 2,
+      formatVersion: 3,
       id: "ws_1",
       title: "Primary Workspace",
       archivedAt: null,
@@ -262,7 +262,7 @@ describe("model runtime types and validators (Requirement 1.1)", () => {
 
     expect(validateWorkspaceDoc(validDoc).ok).toBe(true)
 
-    const unsupportedVersion = { ...validDoc, formatVersion: 3 }
+    const unsupportedVersion = { ...validDoc, formatVersion: 4 }
     const result = validateWorkspaceDoc(unsupportedVersion)
     expect(result.ok).toBe(false)
     if (!result.ok) {

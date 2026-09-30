@@ -50,7 +50,7 @@ export function forkWorkspaceDocumentV2(source: WorkspaceDocumentV2, workspaceId
   if (!validation.ok) return { ok: false, error: validation.error }
   if (!workspaceId || !ownerPersonId) return { ok: false, error: { code: "invalid_input", message: "A workspace id and owner are required" } }
   if (workspaceId === source.id) return { ok: false, error: { code: "conflict", message: "Imported workspaces must use a new id" } }
-  const copied: WorkspaceDocumentV2 = { kind: "workspace", formatVersion: 2, id: workspaceId, title: source.title, archivedAt: null, ownerPersonId, entities: JSON.parse(JSON.stringify(source.entities)) as WorkspaceDocumentV2["entities"], migration: null }
+  const copied: WorkspaceDocumentV2 = { kind: "workspace", formatVersion: 3, id: workspaceId, title: source.title, archivedAt: null, ownerPersonId, entities: JSON.parse(JSON.stringify(source.entities)) as WorkspaceDocumentV2["entities"], migration: null }
   return { ok: true, value: Automerge.from(copied) }
 }
 

@@ -11,7 +11,7 @@ export function createWorkspaceDoc(id: string, title: string, ownerPersonId: str
   seedColumns(context, presetKey === "blank" ? blankColumns : jobColumns)
   if (presetKey === "job-search") seedFields(context, jobFields)
   context.entities[boardId] = createBoard(boardId, title, presetKey, nowIso, context.bindings)
-  return { kind: "workspace", formatVersion: 2, id, title, archivedAt: null, ownerPersonId, entities: context.entities, migration: null }
+  return { kind: "workspace", formatVersion: 3, id, title, archivedAt: null, ownerPersonId, entities: context.entities, migration: null }
 }
 
 export function seedBoard(entities: Record<string, WorkspaceEntity>, title: string, presetKey: Preset, nowIso = new Date().toISOString()): Board {

@@ -80,7 +80,7 @@ export const entitySchema = z.union([
   boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema,
 ])
 export const workspaceSchema = z.strictObject({
-  kind: z.literal("workspace"), formatVersion: z.literal(2), id, title: z.string(), archivedAt: z.string().nullable(), ownerPersonId: z.string(),
+  kind: z.literal("workspace"), formatVersion: z.literal(3), id, title: z.string(), archivedAt: z.string().nullable(), ownerPersonId: z.string(),
   entities: z.record(z.string(), entitySchema),
   migration: z.strictObject({ migrationId: z.string(), sourceFormat: z.literal("match-0.0.1"), sourceHeads: z.array(z.string()) }).nullable(),
   leads: z.array(z.unknown()).optional(), documents: z.array(z.unknown()).optional(),

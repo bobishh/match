@@ -94,6 +94,7 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
     await initializeAutomerge();
     console.info("[match.startup] hydrate", "identity")
     stateRuntime.currentProfile = await bootstrapIdentity();
+    await migrateOwnedWorkspaces(storage, stateRuntime.currentProfile);
     console.info("[match.startup] hydrate", "workspace")
     const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
     updateReactiveState(doc);
@@ -109,6 +110,16 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
     for (const waiter of readinessWaiters) waiter.reject(error);
     readinessWaiters.clear();
     throw error;
+  }
+}
+
+async function migrateOwnedWorkspaces(storage: WorkspaceStorage, profile: LocalProfile): Promise<void> {
+  const available = [...await storage.listWorkspaces(), ...await storage.listArchivedWorkspaces()];
+  for (const { id } of new Map(available.map(workspace => [workspace.id, workspace])).values()) {
+    const loaded = await storage.loadWorkspaceDoc(id);
+    if (!loaded || (loaded.doc as unknown as { formatVersion: number }).formatVersion !== 2) continue;
+    if (await workspaceRole(loaded.doc, profile) !== "owner") continue;
+    await persistAuthorizedCommand(loaded.doc, { kind: "migrateWorkspaceFormat" }, profile, storage);
   }
 }
 
