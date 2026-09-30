@@ -16,11 +16,13 @@ function archiveValue(source: JsonRecord, path: string, migratedAt: string): voi
   }
   if (typeof source.deleted !== "boolean") throw new Error(`${path}.deleted must be boolean`)
   const previous = source.archivedAt
-  const timestamp = typeof source.updatedAt === "string" ? source.updatedAt : migratedAt
-  if (source.deleted && !Number.isFinite(Date.parse(timestamp))) throw new Error(`${path} has invalid archive time`)
-  const next = source.deleted ? timestamp : null
-  if (previous !== undefined && previous !== next) throw new Error(`${path} has conflicting archive state`)
-  source.archivedAt = next
+  if (previous !== undefined && previous !== null && typeof previous !== "string")
+    throw new Error(`${path}.archivedAt must be a string or null`)
+  if (previous === undefined) {
+    const timestamp = typeof source.updatedAt === "string" ? source.updatedAt : migratedAt
+    if (source.deleted && !Number.isFinite(Date.parse(timestamp))) throw new Error(`${path} has invalid archive time`)
+    source.archivedAt = source.deleted ? timestamp : null
+  }
   delete source.deleted
 }
 

@@ -30,6 +30,10 @@ async function seedFormatTwoWorkspace(page: Page, malformed = false) {
       delete entity.archivedAt
       if (entity.kind === "column") entity.displayHint = "normal"
     }
+    if (!broken) {
+      column.deleted = true
+      column.archivedAt = null
+    }
     const doc = Automerge.from(old)
     await recordGenesisAuthority(doc as never, profile)
     await defaultStorage.saveSnapshot(old.id, doc as never, Automerge.save(doc))

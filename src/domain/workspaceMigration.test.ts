@@ -57,4 +57,19 @@ describe("workspace format migration", () => {
     expect(planWorkspaceMigration(source, "2026-02-01T00:00:00.000Z").ok).toBe(false)
     expect(Automerge.getHeads(source)).toEqual(heads)
   })
+
+  it("Given mixed archive fields, when migrating, then current archive state wins over stale deleted", () => {
+    const old = legacyWorkspace()
+    const column = Object.values(old.entities).find((entity: any) => entity.kind === "column") as any
+    column.deleted = true
+    column.archivedAt = null
+    const source = Automerge.from(old)
+    const plan = planWorkspaceMigration(source, "2026-02-01T00:00:00.000Z")
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    const migrated = Automerge.change(Automerge.clone(source), draft => plan.value.apply(draft as unknown as WorkspaceDocumentV2))
+    expect(migrated.entities[column.id].archivedAt).toBeNull()
+    expect(migrated.entities[column.id]).not.toHaveProperty("deleted")
+    expect(validateWorkspaceDoc(migrated).ok).toBe(true)
+  })
 })
