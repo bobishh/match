@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, watch } from "vue"
-import { hydrate } from "../state"
+import { hydratePreparedState, prepareLocalState } from "../statePersistence"
 import { sendChatMessage } from "../chat/service"
 import { runAppStartup, startupFailureDetail, startupFailureMessage } from "./startup"
 import { useAppActions } from "./useAppActions"
@@ -90,13 +90,15 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
         const { initializeIrohBrowserRuntime } = await import("../iroh")
         await initializeIrohBrowserRuntime()
       },
-      hydrate,
+      prepareLocalState,
+      openPairing: () => core.sync.joinFromLocation(window.location.href),
+      hydrate: hydratePreparedState,
       setupLocalBoard: async () => {
         await board.setupBoardSortables()
         void registerWebMcpForApp(core, actions)
       },
       startSync: async () => {
-        if (!core.sync.joinFromLocation(window.location.href)) await core.sync.startDurableMesh()
+        await core.sync.startDurableMesh()
       },
     })
     clearTimeout(loadingTimer)

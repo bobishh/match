@@ -5,9 +5,13 @@ export type AppStartupResult =
   | { status: "ready"; syncError?: unknown }
 
 export type AppStartupSteps = {
-  /** Loads the Rust policy runtime. It must finish before state is hydrated. */
+  /** Loads the Rust policy runtime before any workspace access. */
   loadRuntime: () => Promise<void> | void
-  /** Reads local state, which depends on the Rust policy runtime. */
+  /** Opens the local identity and workspace catalog without validating documents. */
+  prepareLocalState?: () => Promise<void> | void
+  /** Shows a pairing invitation before any stored document can block it. */
+  openPairing?: () => Promise<boolean> | boolean
+  /** Reads and validates local documents after the recovery UI can open. */
   hydrate: () => Promise<void> | void
   /** Makes the already-hydrated local board interactive. */
   setupLocalBoard: () => Promise<void> | void
@@ -25,6 +29,17 @@ export async function runAppStartup(steps: AppStartupSteps): Promise<AppStartupR
   const runtimeFailure = await runRequiredStage("runtime", steps.loadRuntime)
   if (runtimeFailure) return runtimeFailure
 
+  if (steps.prepareLocalState) {
+    const preparationFailure = await runRequiredStage("storage", steps.prepareLocalState)
+    if (preparationFailure) return preparationFailure
+  }
+
+  let pairingOpened = false
+  if (steps.openPairing) {
+    try { pairingOpened = await steps.openPairing() }
+    catch (error) { console.error("[match.startup] pairing failed", error) }
+  }
+
   const storageFailure = await runRequiredStage("storage", steps.hydrate)
   if (storageFailure) return storageFailure
 
@@ -32,7 +47,7 @@ export async function runAppStartup(steps: AppStartupSteps): Promise<AppStartupR
   if (localUiFailure) return localUiFailure
 
   try {
-    await steps.startSync()
+    if (!pairingOpened) await steps.startSync()
     return { status: "ready" }
   } catch (syncError) {
     return { status: "ready", syncError }

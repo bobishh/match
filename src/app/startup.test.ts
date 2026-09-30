@@ -32,6 +32,23 @@ describe("runAppStartup", () => {
     expect(runtime).toHaveBeenCalledBefore(hydrate)
   })
 
+  it("Given an invitation and a broken board, when startup runs, then it opens pairing before board validation", async () => {
+    const prepareLocalState = vi.fn()
+    const openPairing = vi.fn().mockReturnValue(true)
+    const hydrate = vi.fn().mockRejectedValue(new Error("Broken board"))
+    const startSync = vi.fn()
+
+    const result = await runAppStartup({
+      loadRuntime: vi.fn(), prepareLocalState, openPairing, hydrate,
+      setupLocalBoard: vi.fn(), startSync,
+    })
+
+    expect(result).toMatchObject({ status: "fatal", stage: "storage" })
+    expect(prepareLocalState).toHaveBeenCalledBefore(openPairing)
+    expect(openPairing).toHaveBeenCalledBefore(hydrate)
+    expect(startSync).not.toHaveBeenCalled()
+  })
+
   it("Given mesh sync cannot start, when the local board is ready, then startup keeps the board usable", async () => {
     const setupLocalBoard = vi.fn()
     const startSync = vi.fn()

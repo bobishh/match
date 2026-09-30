@@ -88,18 +88,35 @@ export function updateReactiveState(
   replaceWorkspaceProjection(projected);
 }
 
-export async function hydrate(storage = defaultStorage): Promise<void> {
+export async function prepareLocalState(storage = defaultStorage): Promise<void> {
   try {
-    console.info("[match.startup] hydrate", "automerge")
+    console.info("[match.startup] prepare", "automerge")
     await initializeAutomerge();
-    console.info("[match.startup] hydrate", "identity")
+    console.info("[match.startup] prepare", "identity")
     stateRuntime.currentProfile = await bootstrapIdentity();
-    await migrateOwnedWorkspaces(storage, stateRuntime.currentProfile);
+    console.info("[match.startup] prepare", "catalog")
+    await refreshAvailableWorkspaces(storage);
+  } catch (error) {
+    rejectReadinessWaiters(error);
+    throw error;
+  }
+}
+
+export async function hydrate(storage = defaultStorage): Promise<void> {
+  await prepareLocalState(storage);
+  await hydratePreparedState(storage);
+}
+
+export async function hydratePreparedState(storage = defaultStorage): Promise<void> {
+  try {
+    const profile = stateRuntime.currentProfile;
+    if (!profile) throw new Error("Local identity is unavailable");
+    await migrateOwnedWorkspaces(storage, profile);
     console.info("[match.startup] hydrate", "workspace")
-    const doc = await loadInitialWorkspace(storage, stateRuntime.currentProfile);
+    const doc = await loadInitialWorkspace(storage, profile);
     updateReactiveState(doc);
     console.info("[match.startup] hydrate", "personal-root")
-    await initializePersonalRoot(storage, stateRuntime.currentProfile);
+    await initializePersonalRoot(storage, profile);
     applyInjectedFixture();
     console.info("[match.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
@@ -107,10 +124,14 @@ export async function hydrate(storage = defaultStorage): Promise<void> {
     for (const waiter of readinessWaiters) waiter.resolve();
     readinessWaiters.clear();
   } catch (error) {
-    for (const waiter of readinessWaiters) waiter.reject(error);
-    readinessWaiters.clear();
+    rejectReadinessWaiters(error);
     throw error;
   }
+}
+
+function rejectReadinessWaiters(error: unknown): void {
+  for (const waiter of readinessWaiters) waiter.reject(error);
+  readinessWaiters.clear();
 }
 
 async function migrateOwnedWorkspaces(storage: WorkspaceStorage, profile: LocalProfile): Promise<void> {
