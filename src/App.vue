@@ -24,7 +24,6 @@ import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
-import IdentityRecoveryDialog from "./components/IdentityRecoveryDialog.vue"
 import IdentitySettingsPanel from "./components/IdentitySettingsPanel.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import WorkspaceFileActions from "./components/WorkspaceFileActions.vue"
@@ -34,6 +33,7 @@ import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { useAgingClock } from "./app/useAgingClock"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
 
+const IdentityRecoveryDialog = defineAsyncComponent(() => import("./components/IdentityRecoveryDialog.vue"))
 const SyncDialog = defineAsyncComponent(() => import("./components/SyncDialog.vue"))
 const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
 

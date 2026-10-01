@@ -10,6 +10,10 @@ test("Given Settings is open, when Recovery backup opens, then recovery stays ab
   const recovery = page.getByRole("dialog", { name: "Identity recovery" })
   await expect(recovery.getByRole("heading", { name: "Back up or restore your identity" })).toBeVisible()
   await expect(recovery.getByRole("button", { name: "Restore identity" })).toBeDisabled()
+  await recovery.getByRole("checkbox").check()
+  await recovery.getByRole("button", { name: "Restore identity" }).click()
+  await expect(recovery.getByRole("alert")).toBeVisible()
+  await expect(recovery.getByRole("button", { name: "Restore identity" })).toBeEnabled()
   const recoveryOnTop = await page.locator(".overlay").evaluateAll(overlays => {
     const settingsOverlay = overlays.find(element => element.querySelector('[role="dialog"][aria-label="Settings"]'))!
     const recoveryOverlay = overlays.find(element => element.querySelector('[role="dialog"][aria-label="Identity recovery"]'))!
