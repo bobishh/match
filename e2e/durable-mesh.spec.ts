@@ -41,11 +41,10 @@ async function isolatedContext(browser: Browser): Promise<BrowserContext> {
 async function journalChangeIds(page: Page, workspaceId: string): Promise<string[]> {
   return page.evaluate(async id => {
     const { openWorkspaceJournal, recordsForWorkspace } = await import("/src/storageJournal.ts")
+    // The journal module owns this cached connection; observation borrows it.
     const db = await openWorkspaceJournal()
-    try {
-      const records = await recordsForWorkspace<{ changeHash: string }>(db, "changes", id)
-      return records.map(record => record.changeHash).sort()
-    } finally { db.close() }
+    const records = await recordsForWorkspace<{ changeHash: string }>(db, "changes", id)
+    return records.map(record => record.changeHash).sort()
   }, workspaceId)
 }
 

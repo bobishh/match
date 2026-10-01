@@ -40,15 +40,18 @@ export async function captureSavedAcknowledgements(page: Page) {
   await page.route("**/browserScopeSync.ts*", async route => {
     const response = await route.fetch()
     const source = await response.text()
-    const prepared = /if \(prepared\.kind !== ["']documentReceive["']\) throw new Error\([\s\S]*?\);?/
-    const persisted = /persisted = !prepared\.shouldPersist \|\| \(await this\.host\.persistDocument\(toBytes\(prepared\.document\), prepared\.proof\)\) !== false;?/
-    const acknowledgement = /if \(completion\.response\) await stream\.send\(toBytes\(completion\.response\)\);?/
-    if (!/let pending = true;?/.test(source) || !prepared.test(source) || !persisted.test(source) || !acknowledgement.test(source)) throw new Error(`Could not instrument the real document receive: ${source.slice(0, 500)}`)
+    const preparedPersist = /persisted = !prepared\.shouldPersist \|\| \(?await this\.host\.persistDocument\(toBytes\(prepared\.document\), prepared\.proof\)\)? !== false;?/
+    const directPersist = /const persisted = !effect\.shouldPersist \|\| \(?await this\.host\.persistDocument\(toBytes\(effect\.document\), effect\.proof\)\)? !== false;?/
+    const acknowledgement = /(const completion = this\.runtime\.completeDocumentReceive\(persisted\);?\s*)if \(completion\.response\) await stream\.send\(toBytes\(completion\.response\)\);?/g
+    if (!preparedPersist.test(source) || !directPersist.test(source) || [...source.matchAll(acknowledgement)].length !== 2) {
+      throw new Error("Could not instrument both real document receive paths")
+    }
+    const captureAttempt = (value: "prepared" | "effect") =>
+      `const attempt = { document: Array.from(${value}.document), shouldPersist: Boolean(${value}.shouldPersist), persisted: false, responseSent: false, failed: false };\n;(window.__MATCH_E2E_DOCUMENT_RECEIVES__ ??= []).push(attempt);`
     const instrumented = source
-      .replace(/let pending = true;?/, "let pending = true\n        let attempt")
-      .replace(prepared, match => `${match}\n          attempt = { document: Array.from(prepared.document), shouldPersist: Boolean(prepared.shouldPersist), persisted: false, responseSent: false, failed: false }\n          ;(window.__MATCH_E2E_DOCUMENT_RECEIVES__ ??= []).push(attempt)`)
-      .replace(persisted, match => `try { ${match}; attempt.persisted = persisted } catch (error) { attempt.failed = true; throw error }`)
-      .replace(acknowledgement, "if (completion.response) { await stream.send(toBytes(completion.response)); attempt.responseSent = true }")
+      .replace(preparedPersist, match => `${captureAttempt("prepared")}\ntry { ${match}; attempt.persisted = persisted } catch (error) { attempt.failed = true; throw error }`)
+      .replace(directPersist, match => `${captureAttempt("effect")}\nlet persisted = false; try { ${match.replace("const persisted =", "persisted =")}; attempt.persisted = persisted } catch (error) { attempt.failed = true; throw error }`)
+      .replace(acknowledgement, "$1if (completion.response) { await stream.send(toBytes(completion.response)); attempt.responseSent = true }")
     await route.fulfill({
       response,
       body: instrumented,
