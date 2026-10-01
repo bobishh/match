@@ -1,9 +1,12 @@
 import type { Board, Column, FieldDefinition, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
+import type { BoardSchemaDraft } from "./schema"
 
 type Preset = "job-search" | "blank"
 type SeedContext = { boardId: string; nowIso: string; entities: Record<string, WorkspaceEntity>; bindings: Record<string, string> }
 type ColumnSeed = { key: string; title: string; archive?: true }
 type FieldSeed = { key: string; title: string; valueType: FieldDefinition["valueType"]; required?: boolean; min?: number; max?: number; options?: Array<[string, string]> }
+
+export type WorkspaceCreationDraft = BoardSchemaDraft & { presetBindings: Record<string, string> }
 
 export function createWorkspaceDoc(id: string, title: string, ownerPersonId: string, presetKey: Preset, nowIso = new Date().toISOString()): WorkspaceDocumentV2 {
   const boardId = crypto.randomUUID()

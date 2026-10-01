@@ -11,11 +11,8 @@ import ModalLayer from "./components/ModalLayer.vue"
 import MatchPageLayout from "./components/MatchPageLayout.vue"
 import MatchHeading from "./components/MatchHeading.vue"
 import LeadFilters from "./components/LeadFilters.vue"
-import WorkspacesDialog from "./components/WorkspacesDialog.vue"
-import ColumnDialog from "./components/ColumnDialog.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
 import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
-import ItemFormDialog from "./components/ItemFormDialog.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
 import QuickNoteForm from "./components/QuickNoteForm.vue"
@@ -34,6 +31,9 @@ import { useAgingClock } from "./app/useAgingClock"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
 
 const IdentityRecoveryDialog = defineAsyncComponent(() => import("./components/IdentityRecoveryDialog.vue"))
+const WorkspacesDialog = defineAsyncComponent(() => import("./components/WorkspacesDialog.vue"))
+const ItemFormDialog = defineAsyncComponent(() => import("./components/ItemFormDialog.vue"))
+const ColumnDialog = defineAsyncComponent(() => import("./components/ColumnDialog.vue"))
 const SyncDialog = defineAsyncComponent(() => import("./components/SyncDialog.vue"))
 const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
 
@@ -271,10 +271,10 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :workspaces="availableWorkspaces" :archived-workspaces="archivedWorkspaces"
       :active-workspace-id="activeWorkspace.id"
       :rename-workspace="handleRenameWorkspace" :archive-workspace="handleArchiveWorkspace" :restore-workspace="handleRestoreWorkspace"
+      :create-workspace="handleCreateWorkspace"
       :can-rename-workspace="canRenameWorkspace"
       @close="showWorkspaces = false"
       @switch="handleSwitchWorkspace"
-      @create="handleCreateWorkspace"
       @import="openImport"
     />
 
@@ -386,7 +386,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
 
     <ItemFormDialog
       v-if="showItemForm"
-      :parent-id="itemFormParentValue"
+      :parent-id="itemFormParentValue" :entity-name="entityName"
       :fields="boardFields"
       :columns="itemFormColumns"
       :item="editingItem"

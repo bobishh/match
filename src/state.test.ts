@@ -10,6 +10,7 @@ import { useMatch, hydrate, reconcile, resetStateForTest } from "./state"
 import { persistAuthorizedCommand } from "./statePersistence"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
+import { projectBoardSchema } from "./domain/schema"
 import { isItem } from "./domain/model"
 import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations, recordGenesisAuthority } from "./sync/changeAuthorization"
 import { executeCommand } from "./domain/commands"
@@ -31,6 +32,30 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     await bootstrapIdentity("State Test User")
     await hydrate()
     await useMatch().createWorkspaceAsync("Job search", "job-search")
+  })
+
+  it("rejects an invalid configured workspace before durable or active-state changes", async () => {
+    const match = useMatch()
+    const activeId = match.activeWorkspace.id
+    const beforeWorkspaceIds = match.availableWorkspaces.value.map(workspace => workspace.id)
+    const activeDoc = match.getActiveDoc()!
+    const board = Object.values(activeDoc.entities).find(entity => entity.kind === "board")!
+    const draft = {
+      ...projectBoardSchema(activeDoc, board.id),
+      presetBindings: { ...(board.preset?.bindings ?? {}) },
+      fields: [{ title: "  ", valueType: "text" as const, required: false }],
+    }
+    const saveSnapshot = vi.spyOn(defaultStorage, "saveSnapshot")
+    const registerWorkspace = vi.spyOn(defaultStorage, "registerWorkspace")
+
+    await expect(match.createWorkspaceAsync("Invalid config", "job-search", defaultStorage, draft)).rejects.toThrow(/field title/i)
+
+    expect(saveSnapshot).not.toHaveBeenCalled()
+    expect(registerWorkspace).not.toHaveBeenCalled()
+    expect(match.activeWorkspace.id).toBe(activeId)
+    expect(match.availableWorkspaces.value.map(workspace => workspace.id)).toEqual(beforeWorkspaceIds)
+    saveSnapshot.mockRestore()
+    registerWorkspace.mockRestore()
   })
 
   it("Given a format 2 owner board, when Match starts, then migration is signed and durable", async () => {

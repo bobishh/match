@@ -7,6 +7,7 @@ import type { useAppBoard } from "./useAppBoard"
 import { exportWorkspaceBundleV2, readWorkspaceBundleV2, referenceBlobId, type BundleBlob } from "../domain/workspaceBundle"
 import { blobDescriptor, readStoredAttachment, writeStoredAttachment } from "../attachments"
 import type { BoardSchemaDraft } from "../domain/schema"
+import type { WorkspaceCreationDraft } from "../domain/seeds"
 import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
 import { isArchiveColumn } from "../domain/archive"
 import { isInlineNarrativeNote, type NarrativeNoteSource } from "../domain/narrative"
@@ -360,8 +361,8 @@ function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
   const importWorkspace = (event: Event) => importWorkspaceFile(core, event)
   const createAndSyncWorkspace = (title: string, preset: "blank" | "job-search") =>
     createWorkspaceWithOwnerCredential(core, title, preset)
-  const handleCreateWorkspace = async (payload: { title: string; preset: "blank" | "job-search" }) => {
-    const doc = await core.match.createWorkspaceAsync(payload.title, payload.preset)
+  const handleCreateWorkspace = async (payload: { title: string; preset: "blank" | "job-search"; config?: WorkspaceCreationDraft }) => {
+    const doc = await core.match.createWorkspaceAsync(payload.title, payload.preset, undefined, payload.config)
     core.notice.value = `Workspace "${payload.title}" created`
     core.showWorkspaces.value = false
     try { await core.sync.addOwnerWorkspace(doc.id) }

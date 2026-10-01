@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge/slim";
 import type { WorkspaceRole } from "./domain/permissions";
 import { bootstrapIdentity } from "./domain/identity";
-import { createWorkspaceDoc } from "./domain/seeds";
+import { createWorkspaceDoc, type WorkspaceCreationDraft } from "./domain/seeds";
 import type { WorkspaceDocumentV2 } from "./domain/model";
 import { forkWorkspaceDocumentV2 } from "./domain/workspaceBundle";
 import { registerWorkspaceInRoot } from "./domain/personalRoot";
@@ -32,13 +32,20 @@ async function createWorkspaceAsync(
   title: string,
   presetKey: "job-search" | "blank",
   storage = defaultStorage,
+  creationDraft?: WorkspaceCreationDraft,
 ) {
   const profile = await requireProfile();
   const id = crypto.randomUUID();
   const cleanTitle = title.trim();
-  const doc = Automerge.from<WorkspaceDocumentV2>(
-    createWorkspaceDoc(id, cleanTitle, profile.identity.personId, presetKey),
-  );
+  if (creationDraft) {
+    const { validateBoardSchemaDraft } = await import("./domain/schema")
+    const validation = validateBoardSchemaDraft(creationDraft)
+    if (!validation.valid) throw new Error(validation.errors[0]?.message ?? "Board configuration is invalid")
+  }
+  const initialDocument = creationDraft
+    ? await import("./domain/workspaceCreation").then(({ createWorkspaceDocFromDraft }) => createWorkspaceDocFromDraft(id, cleanTitle, profile.identity.personId, presetKey, creationDraft))
+    : createWorkspaceDoc(id, cleanTitle, profile.identity.personId, presetKey)
+  const doc = Automerge.from<WorkspaceDocumentV2>(initialDocument)
   await recordGenesisAuthority(doc, profile);
   await storage.saveSnapshot(id, doc, Automerge.save(doc));
   await storage.registerWorkspace(id, cleanTitle);

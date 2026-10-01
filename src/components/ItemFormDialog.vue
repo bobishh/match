@@ -8,6 +8,7 @@ import type { NarrativeFoldSources } from "../domain/commandTypes"
 
 const props = defineProps<{
   parentId: string
+  entityName?: string
   fields: FieldDefinition[]
   columns?: Array<Column & { formValue?: string }>
   item?: Item | null
@@ -89,8 +90,8 @@ function handleSave() {
       <form novalidate :aria-busy="saving" @submit.prevent="handleSave">
         <div class="dialog-head">
           <div>
-            <span class="eyebrow">{{ item ? 'Edit item' : 'New item' }}</span>
-            <h2>{{ item ? 'Edit item' : showCoreFields !== false ? 'Item details' : 'Add item' }}</h2>
+            <span class="eyebrow">{{ item ? `Edit ${entityName || 'item'}` : `New ${entityName || 'item'}` }}</span>
+            <h2>{{ item ? `Edit ${entityName || 'item'}` : showCoreFields !== false ? `${entityName || 'Item'} details` : `Add ${entityName || 'item'}` }}</h2>
           </div>
           <button class="icon-button" type="button" aria-label="Dismiss" :disabled="saving" @click="emit('cancel')">×</button>
         </div>

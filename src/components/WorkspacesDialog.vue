@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
-import { ref } from "vue"
+import { defineAsyncComponent, ref } from "vue"
+import type { WorkspaceCreationDraft } from "../domain/seeds"
+
+const CreateWorkspaceDialog = defineAsyncComponent(() => import("./CreateWorkspaceDialog.vue"))
 
 const props = defineProps<{
   workspaces: { id: string; title: string; updatedAt: string }[]
@@ -10,19 +13,16 @@ const props = defineProps<{
   archiveWorkspace: (id: string) => Promise<void>
   restoreWorkspace: (id: string) => Promise<void>
   canRenameWorkspace: (id: string) => boolean
+  createWorkspace: (payload: { title: string; preset: "blank" | "job-search"; config?: WorkspaceCreationDraft }) => Promise<void>
 }>()
 
 const emit = defineEmits<{
   (e: "close"): void
   (e: "switch", id: string): void
-  (e: "create", payload: { title: string; preset: "blank" | "job-search" }): void
   (e: "import"): void
 }>()
 
 const isCreating = ref(false)
-const title = ref("")
-const preset = ref<"blank" | "job-search">("blank")
-const error = ref("")
 const editingId = ref("")
 const editingTitle = ref("")
 const renameError = ref("")
@@ -31,17 +31,6 @@ const archivingId = ref("")
 const archiveError = ref("")
 const archiveBusy = ref(false)
 const showArchived = ref(false)
-
-function handleCreate() {
-  if (!title.value.trim()) {
-    error.value = "Workspace title is required"
-    return
-  }
-  emit("create", { title: title.value.trim(), preset: preset.value })
-  title.value = ""
-  preset.value = "blank"
-  isCreating.value = false
-}
 
 function handleSwitch(id: string) {
   emit("switch", id)
@@ -168,44 +157,6 @@ function displayTitle(title: string) {
       </div>
     </section>
 
-    <section v-else class="dialog" role="dialog" aria-modal="true" aria-label="Create workspace">
-      <form novalidate @submit.prevent="handleCreate">
-        <div class="dialog-head">
-          <div>
-            <span class="eyebrow">New workspace</span>
-            <h2>Create workspace</h2>
-          </div>
-          <button class="icon-button" type="button" aria-label="Close" @click="isCreating = false">×</button>
-        </div>
-
-        <div class="workspace-create-form">
-          <label>
-            <span>Title</span>
-            <input v-model="title" autofocus required placeholder="e.g. Reading List" />
-          </label>
-
-          <fieldset class="workspace-preset">
-            <legend>Preset</legend>
-            <div class="workspace-preset-options">
-              <label>
-                <input v-model="preset" type="radio" value="blank" />
-                <span>Blank board</span>
-              </label>
-              <label>
-                <input v-model="preset" type="radio" value="job-search" />
-                <span>Job search</span>
-              </label>
-            </div>
-          </fieldset>
-
-          <p v-if="error" role="alert" class="form-error">{{ error }}</p>
-        </div>
-
-        <div class="dialog-actions">
-          <button class="button button-quiet" type="button" @click="isCreating = false">Cancel</button>
-          <button class="button button-primary" type="submit">Create</button>
-        </div>
-      </form>
-    </section>
+    <CreateWorkspaceDialog v-else :create-workspace="createWorkspace" @close="isCreating = false" />
   </ModalLayer>
 </template>
