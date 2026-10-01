@@ -1,3 +1,4 @@
+import { isArchiveColumn } from "./domain/archive"
 import { hasEntityKind } from "./domain/model"
 import { defaultStorage } from "./storage"
 import { readFile } from "node:fs/promises"
@@ -101,7 +102,7 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const match = useMatch()
     const base = match.getActiveDoc()!
     const profile = match.getCurrentProfile()!
-    const column = Object.values(base.entities).find(entity => entity.kind === "column")!
+    const column = Object.values(base.entities).find(entity => entity.kind === "column" && !entity.archivedAt && !isArchiveColumn(entity))!
     const branches = await Promise.all(["Peer A", "Peer B"].map(async title => {
       const result = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title }, profile)
       if (!result.ok) throw new Error(result.error.message)
