@@ -32,6 +32,7 @@ test("Given an empty form, when Escape is pressed, then it closes; a dirty draft
   const add = page.getByRole("button", { name: "Add item to To do", exact: true })
   await add.click()
   const form = page.getByRole("dialog", { name: "Item details", exact: true })
+  await expect(form).toBeVisible()
   await page.keyboard.press("Escape")
   await expect(form).toBeHidden()
   await expect(add).toBeFocused()

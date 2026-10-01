@@ -51,12 +51,14 @@ test("Given a large signed peer history, when admission runs, then board control
   })
   await expect.poll(() => page.evaluate(() => (window as unknown as { admissionState: string }).admissionState), { timeout: 60_000 }).toBe("committed")
   await page.reload()
-  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
+  // Cold startup restores the accepted history before enabling board controls.
+  // Its duration is separate from the menu responsiveness assertion above.
   expect(await page.evaluate(async () => {
     const { useMatch } = await import("/src/state.ts")
     await useMatch().whenReady()
     return useMatch().getActiveDoc()!.title
   })).toBe("Remote history 20000")
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
 })
 
 for (const failure of ["worker startup", "forged signature"] as const) {
