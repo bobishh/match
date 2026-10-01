@@ -103,7 +103,7 @@ function visibleBoardColumns(columns: ReturnType<typeof useAppCore>["match"]["ge
 }
 
 function mobileColumnIndex(board: HTMLElement | null) {
-  if (!board || window.matchMedia("(min-width: 769px)").matches) return 0
+  if (!board || window.matchMedia("(min-width: 561px)").matches) return 0
   const columns = [...board.querySelectorAll<HTMLElement>(":scope > .column")]
   if (!columns.length) return 0
   return columns.reduce((closest, column, current) => Math.abs(column.offsetLeft - board.scrollLeft) < Math.abs(columns[closest].offsetLeft - board.scrollLeft) ? current : closest, 0)

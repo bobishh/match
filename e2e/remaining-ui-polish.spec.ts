@@ -81,20 +81,20 @@ test("Given a Job search lead, when Archive status is selected, then Undo stays 
 })
 
 for (const width of [360, 390, 430]) {
-  test(`Given ${width}px mobile, when the board opens, then the next column peeks and Add follows the header`, async ({ page }) => {
+  test(`Given ${width}px mobile, when the board opens, then the next column peeks and Add follows the empty card stack`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await page.goto("/")
     await ensureJobSearchWorkspace(page)
     const values = await page.getByRole("region", { name: "Job search", exact: true }).evaluate((board) => {
       const column = board.querySelector<HTMLElement>(".column:not(.bin-column)")!
       const add = column.querySelector<HTMLElement>(".column-add-button")!
-      const header = column.querySelector<HTMLElement>(".column-header")!
+      const stack = column.querySelector<HTMLElement>(".card-stack")!
       const next = column.nextElementSibling!.getBoundingClientRect()
-      return { board: board.clientWidth, column: column.getBoundingClientRect().width, addTop: add.getBoundingClientRect().top, headerBottom: header.getBoundingClientRect().bottom, nextLeft: next.left, nextRight: next.right, viewport: innerWidth }
+      return { board: board.clientWidth, column: column.getBoundingClientRect().width, addTop: add.getBoundingClientRect().top, stackBottom: stack.getBoundingClientRect().bottom, nextLeft: next.left, nextRight: next.right, viewport: innerWidth }
     })
     expect(values.column).toBeLessThan(values.board)
-    expect(values.addTop - values.headerBottom).toBeGreaterThanOrEqual(0)
-    expect(values.addTop - values.headerBottom).toBeLessThanOrEqual(16)
+    expect(values.addTop - values.stackBottom).toBeGreaterThanOrEqual(0)
+    expect(values.addTop - values.stackBottom).toBeLessThanOrEqual(16)
     expect(values.nextLeft).toBeLessThan(values.viewport)
     expect(values.nextRight).toBeGreaterThan(values.viewport)
   })

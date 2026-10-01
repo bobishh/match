@@ -555,26 +555,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .filter-label select {
     width: 100%;
   }
-  .board {
-    width: 100%;
-    gap: 16px;
-    scroll-snap-type: x mandatory;
-    scroll-padding-inline: 16px;
-    padding: 16px 16px 48px;
-    box-sizing: border-box;
-  }
-  .column {
-    flex: 0 0 calc(100vw - 56px);
-    min-width: 0;
-    scroll-snap-align: start;
-    scroll-snap-stop: always;
-  }
-  .column-header { order: 0; }
-  .board-single-column > .column { flex: 0 0 100%; }
-  .mobile-column-switcher { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 16px 0; padding: 7px 8px; border: 2px solid var(--line); background: var(--soft); font: 900 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
-  .mobile-column-switcher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .mobile-column-switcher .button { min-width: var(--control-size-compact); padding-inline: 8px; }
-  .add-column-card { flex-basis: calc(100vw - 32px); min-width: 0; scroll-snap-align: start; }
   .detail-dialog {
     width: 100%;
     max-height: calc(100vh - 32px);
@@ -597,6 +577,28 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .form-grid label.wide {
     grid-column: auto;
   }
+}
+@media (max-width: 560px) {
+  .board {
+    width: 100%;
+    gap: 16px;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
+    padding: 16px 16px 48px;
+    box-sizing: border-box;
+  }
+  .column {
+    flex: 0 0 calc(100vw - 56px);
+    min-width: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .column-header { order: 0; }
+  .board-single-column > .column { flex: 0 0 100%; }
+  .mobile-column-switcher { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 16px 0; padding: 7px 8px; border: 2px solid var(--line); background: var(--soft); font: 900 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+  .mobile-column-switcher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobile-column-switcher .button { min-width: var(--control-size-compact); padding-inline: 8px; }
+  .add-column-card { flex-basis: calc(100vw - 32px); min-width: 0; scroll-snap-align: start; }
 }
 @media (max-width: 500px) {
   .brand {
