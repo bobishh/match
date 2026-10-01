@@ -40,4 +40,36 @@ test("owner promotes a visitor, then removes only their device through an explic
   await expect(confirmation).toHaveCount(0)
   await expect(guest.getByLabel("Workspace role: visitor")).toBeVisible({ timeout: 20000 })
   await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
+
+  // Given a revoked member device, another invitation must offer an explicit recovery path.
+  await host.getByRole("button", { name: "Close", exact: true }).first().click()
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  await host.getByRole("button", { name: "Add someone", exact: true }).click()
+  await host.getByRole("button", { name: "Generate link", exact: true }).click()
+  await guest.goto(await host.getByLabel("Pairing link").inputValue())
+  await guestDialog.getByRole("button", { name: "Merge and join", exact: true }).click()
+  await host.getByRole("button", { name: "Approve access", exact: true }).click()
+  await expect(guestDialog.getByRole("alert")).toContainText("Device access revoked", { timeout: 30000 })
+
+  // When cancelling confirmation, access stays revoked and no retry reaches the owner.
+  await guestDialog.getByRole("button", { name: "Reconnect this device", exact: true }).click()
+  const reconnect = guestDialog.getByRole("region", { name: "Confirm device reconnection" })
+  await expect(reconnect).toContainText("owner must approve")
+  await reconnect.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(reconnect).toBeHidden()
+  await expect(host.getByRole("button", { name: "Approve access", exact: true })).toHaveCount(0)
+  await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
+
+  // Then confirmed reconnection still waits for owner approval and survives reload.
+  await guestDialog.getByRole("button", { name: "Reconnect this device", exact: true }).click()
+  await reconnect.getByRole("button", { name: "Confirm reconnection", exact: true }).click()
+  await expect(host.getByRole("button", { name: "Approve access", exact: true })).toBeVisible({ timeout: 30000 })
+  await expect(guestDialog.getByRole("status")).toContainText("Waiting for owner approval")
+  await host.getByRole("button", { name: "Approve access", exact: true }).click()
+  await expect(guestDialog.getByText(/Connected to/)).toBeVisible({ timeout: 30000 })
+  await guest.reload()
+  await expect(guest.getByLabel("Workspace role: visitor")).toBeVisible()
+  await guest.getByRole("button", { name: "Sync", exact: true }).click()
+  await expect(guestDialog.getByRole("alert")).toHaveCount(0)
+  await context.close()
 })

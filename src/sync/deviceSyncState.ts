@@ -47,6 +47,7 @@ export function createDeviceSyncState() {
   const meshRetryAt = ref<Record<string, number>>({})
   const networkOnline = ref(typeof navigator === "undefined" ? true : navigator.onLine)
   const localDeviceId = ref("")
+  const canRenewDevice = ref(false)
   const localUserAgent = ref("")
   const meshLiveWorkspaceIds = ref<string[]>([])
   const revokedWorkspaceIds = ref<string[]>([])
@@ -68,7 +69,7 @@ export function createDeviceSyncState() {
     isOpen, isEnabled, directLive, liveWorkspaceIds, step, qrCode, inviteUrl, copyNotice, error, authCode,
     pendingJoins, selectedWorkspaceId, selectedWorkspaceIds, invitationWorkspaceTitle,
     invitationWorkspaces, parsedInvite, meshPeers, meshDiagnostic, meshRetryAt, networkOnline,
-    localDeviceId, localUserAgent, meshLiveWorkspaceIds, revokedWorkspaceIds, ownershipRevision,
+    localDeviceId, canRenewDevice, localUserAgent, meshLiveWorkspaceIds, revokedWorkspaceIds, ownershipRevision,
     meshSuccession, enrollmentDeviceName, enrollmentConflict, replacementPersonId, isLive, phase, title,
   }
 }

@@ -339,12 +339,21 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
     runtime.workspaces.map(item => item.id), runtime.profile, runtime.owners, decision.role, accessEpochs)
   if (!result.ok) throw new Error(result.error)
   for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
-  await runtime.context.durableMesh?.acceptGuest(runtime.workspaces.map(item => item.id), guest.meshPeers, result.grants)
-  if (ownerConnection) {
-    await runtime.context.durableMesh?.connectOwnerKeeper(guest.personId, decision.role)
+  return acceptApprovedGuest(runtime, guest, result.grants, decision.role, ownerConnection)
+}
+
+async function acceptApprovedGuest(runtime: HostRuntime, guest: { personId: string; meshPeers?: unknown },
+  grants: WorkspaceGrant[], role: "visitor" | "editor", ownerConnection?: { controllerPersonId: string }) {
+  try { await runtime.context.durableMesh?.acceptGuest(runtime.workspaces.map(item => item.id), guest.meshPeers, grants) }
+  catch (error) {
+    if (error instanceof Error && /Device access revoked/i.test(error.message)) return { ok: false as const, error: error.message }
+    throw error
   }
-  runtime.grants.set(guest.personId, { ok: true, grants: result.grants, ownerConnection })
-  return { ok: true as const, value: { personId: guest.personId, grants: result.grants, ownerConnection } }
+  if (ownerConnection) {
+    await runtime.context.durableMesh?.connectOwnerKeeper(guest.personId, role)
+  }
+  runtime.grants.set(guest.personId, { ok: true, grants, ownerConnection })
+  return { ok: true as const, value: { personId: guest.personId, grants, ownerConnection } }
 }
 
 function matchesKeeperAdmission(runtime: HostRuntime, personId: string) {

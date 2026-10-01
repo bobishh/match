@@ -474,7 +474,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
       :qr-code="sync.qrCode.value"
       :invite-url="sync.inviteUrl.value"
       :copy-notice="sync.copyNotice.value"
-      :error="sync.error.value"
+      :error="sync.error.value" :can-reconnect-device="sync.canReconnectDevice.value" @reconnect-device="sync.reconnectDevice"
       :auth-code="sync.authCode.value"
       :invitation-workspace-title="sync.invitationWorkspaceTitle.value"
       :invitation-workspaces="sync.invitationWorkspaces.value"

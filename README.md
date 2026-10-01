@@ -75,7 +75,11 @@ when showing the project.
   listing the affected boards. Editors can remove their own other devices; owners
   can remove other participants' devices only from boards they own. Removal is
   signed and survives reconnects. Reusing a removed device requires a new device
-  identity; old local copies cannot be remotely erased.
+  identity; old local copies cannot be remotely erased. After opening a new member
+  invitation, **Reconnect this device → Confirm reconnection** renews its device
+  key under the same locally held identity root, then requests owner approval again.
+  This recovery action requires the locally held identity root. Enrolled devices
+  without it require a fresh device identity issued by an authorized device.
 - **Leave mesh** leaves the participant's membership on all their devices for that
   board, while preserving the identity and other boards. Owners must transfer
   ownership first. A peer must be connected to deliver the departure; the local

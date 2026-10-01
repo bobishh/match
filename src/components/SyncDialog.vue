@@ -18,6 +18,7 @@ const props = defineProps<{
   inviteUrl: string
   copyNotice: string
   error: string
+  canReconnectDevice?: boolean
   enrollmentDeviceName?: string
   enrollmentConflict?: { currentPersonId: string; currentName: string; targetPersonId: string } | null
   authCode?: string
@@ -76,6 +77,7 @@ const emit = defineEmits<{
   (e: "approveDevice"): void
   (e: "declineDevice"): void
   (e: "acceptAndJoin"): void
+  (e: "reconnectDevice"): void
   (e: "start"): void
   (e: "stop"): void
   (e: "export"): void
@@ -115,6 +117,7 @@ const rejectedSource = computed(() => {
 const keeperView = ref<"list" | "form" | "detail">("list")
 const visiblePendingJoins = computed(() => keeperView.value === "list" ? props.pendingJoins ?? [] : [])
 const confirmingLeave = ref(false)
+const confirmingReconnect = ref(false)
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const peopleMembers = computed(() => (props.meshMembers ?? []).filter(member => !member.deviceList.some(device => isLighthouse(device.userAgent))))
 const keeperMembers = computed(() => (props.meshMembers ?? []).filter(member => member.deviceList.some(device => isLighthouse(device.userAgent))))
@@ -496,7 +499,12 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
       <!-- Step 11: Error -->
       <template v-else-if="step === 'error'">
         <p class="sync-error" role="alert">{{ error }}</p>
+        <section v-if="canReconnectDevice && confirmingReconnect" role="region" aria-label="Confirm device reconnection">
+          <p class="dialog-copy">Reconnect this device with a new device key. Your identity and local boards stay saved. The old key stays revoked; the owner must approve access again.</p>
+          <div class="dialog-actions"><button class="button button-primary" type="button" @click="confirmingReconnect = false; emit('reconnectDevice')">Confirm reconnection</button><button class="button button-quiet" type="button" @click="confirmingReconnect = false">Cancel</button></div>
+        </section>
         <div class="dialog-actions sync-step-actions">
+          <button v-if="canReconnectDevice && !confirmingReconnect" class="button button-primary" type="button" @click="confirmingReconnect = true">Reconnect this device</button>
           <button class="button button-quiet" type="button" @click="emit('dismiss')">Dismiss</button>
         </div>
       </template>

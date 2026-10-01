@@ -96,6 +96,12 @@ export async function renameIdentity(displayName: string): Promise<LocalProfile>
   return await identityStore.rename(normalized) as LocalProfile
 }
 
+export async function renewDeviceIdentity(): Promise<LocalProfile> {
+  const renew = () => identityStore.renewDevice() as Promise<LocalProfile>
+  return typeof navigator !== "undefined" && navigator.locks
+    ? await navigator.locks.request("match-identity-bootstrap", renew) : await renew()
+}
+
 /** Creates an encrypted backup of the existing identity root; it never rotates identity. */
 export async function createIdentityRecovery(
   security: IdentitySecurity = "better",

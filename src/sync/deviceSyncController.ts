@@ -1,9 +1,10 @@
 import { deviceManagementActions, ownedWorkspaceIds } from "./deviceManagementActions"
-import { ref, type Ref } from "vue"
+import { computed, ref, type Ref } from "vue"
 import { parseInvitation, type ScopedInvitation } from "@meta-uber/mesh-pairing"
 import { irohTransport } from "./irohTransport"
 import { deriveTranscriptAuthCode } from "./invitations"
 import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
+import { canReconnectDevice, reconnectWorkspaceDevice } from "./deviceReconnection"
 import type { SyncNode, SyncTransport } from "./transport"
 import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
@@ -329,7 +330,7 @@ export class DeviceSyncController {
 
   private async getProfile(): Promise<LocalProfile> {
     const profile = await bootstrapIdentity("My Device")
-    this.state.localDeviceId.value = profile.device.deviceId
+    this.state.localDeviceId.value = profile.device.deviceId; this.state.canRenewDevice.value = Boolean(profile.privateKeys.identityPrivateKey)
     this.state.localUserAgent.value = typeof navigator !== "undefined" ? navigator.userAgent : ""
     return profile
   }
@@ -529,6 +530,9 @@ export class DeviceSyncController {
       provisionKeeperPairing: createKeeperProvisioner(() => this.ensureDurableMesh(), () => this.workspaceHostContext()),
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
       requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
+      canReconnectDevice: computed(() => canReconnectDevice(state)), reconnectDevice: () => reconnectWorkspaceDevice({ state,
+        stop: () => this.stopLiveSync(), resetMesh: async () => { await (this.durableMesh ?? await this.durableMeshPromise)?.dispose(); this.durableMesh = undefined; this.durableMeshPromise = undefined },
+        identityChanged: this.identityChanged, refreshProfile: () => this.getProfile(), join: () => this.acceptWorkspaceJoin() }),
       joinFromLocation: (raw: string) => isWorkspacePairingLocation(raw, url => { void this.prepareJoin(url) }), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
       fetchBlob: (workspaceId: string, descriptor: BlobDescriptor) => this.fetchBlob(workspaceId, descriptor),
       ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
