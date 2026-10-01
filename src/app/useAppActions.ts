@@ -90,8 +90,11 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
   }
   const submitArtifact = () => saveArtifact(core, selection.selectedLead.value)
   const moveCardToColumn = (item: Item, columnId: string) => moveItemToColumn(core, item, columnId)
-  const handleUpdateRejectionReason = async (reason: string) => {
-    if (selection.selectedLead.value) await core.match.updateLeadAsync(selection.selectedLead.value.id, { rejectionReason: reason })
+  const handleUpdateRejectionReason = async (workspaceId: string, itemId: string, reason: string) => {
+    if (core.match.activeWorkspace.id !== workspaceId) throw new Error("Workspace changed before saving")
+    const fieldId = core.match.activeBoard.value?.preset?.bindings["field.rejectionReason"]
+    if (!fieldId) throw new Error("Rejection notes field is missing from the board")
+    await core.match.executeCommandAsync({ kind: "patchItem", entityId: itemId, values: { [fieldId]: reason } })
   }
   return { restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason }
 }

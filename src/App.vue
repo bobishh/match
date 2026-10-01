@@ -19,6 +19,7 @@ import ItemFormDialog from "./components/ItemFormDialog.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
 import QuickNoteForm from "./components/QuickNoteForm.vue"
+import AutosaveTextarea from "./components/AutosaveTextarea.vue"
 import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
@@ -82,15 +83,19 @@ const {
   selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates, openBoardItem,
   restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate,
   openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason,
-  exportWorkspace, openImport, importWorkspace, closeDetail, handleCreateWorkspace,
+  exportWorkspace, openImport, importWorkspace, closeDetail: closeDetailNow, handleCreateWorkspace,
   handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace, openAddItem,
   handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings,
   handleArchiveItem, handleRestoreItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
   handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, addingBoardColumn, addBoardColumnError, selectArchiveColumn,
 } = app.actions
 
+const rejectionEditor = ref<InstanceType<typeof AutosaveTextarea>>()
+async function closeDetail() { if (!rejectionEditor.value || await rejectionEditor.value.flush()) closeDetailNow() }
+
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
-const editItem = createNarrativeEditHandler(editingFoldSnapshot, activeBoard, leadForItem, () => getActiveDoc()?.entities ?? {}, handleOpenItemEdit)
+const editItemNow = createNarrativeEditHandler(editingFoldSnapshot, activeBoard, leadForItem, () => getActiveDoc()?.entities ?? {}, handleOpenItemEdit)
+async function editItem(item: Parameters<typeof editItemNow>[0]) { if (!rejectionEditor.value || await rejectionEditor.value.flush()) editItemNow(item) }
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const agingNow = useAgingClock()
@@ -438,14 +443,10 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         <section v-if="selectedLead.sourceText" class="detail-section"><span class="detail-label">Source snapshot</span><p class="source-snapshot">{{ selectedLead.sourceText }}</p></section>
         <section v-if="selectedLead.status === 'rejected' || selectedLead.rejectionReason" class="detail-section">
           <span class="detail-label">Rejection notes / retrospective</span>
-          <textarea
-            class="rejection-note-textarea" :readonly="!canEditItems"
-            :value="selectedLead.rejectionReason ?? ''"
-            placeholder="Optional rejection reason or retrospective note (what went wrong)…"
-            rows="3"
-            aria-label="Rejection notes"
-            @input="handleUpdateRejectionReason(($event.target as HTMLTextAreaElement).value)"
-          ></textarea>
+          <AutosaveTextarea
+            :key="selectedLead.id" ref="rejectionEditor" :read-only="!canEditItems" :value="selectedLead.rejectionReason ?? ''"
+            :save="reason => handleUpdateRejectionReason(activeWorkspace.id, selectedLead!.id, reason)"
+            placeholder="Optional rejection reason or retrospective note (what went wrong)…" label="Rejection notes" />
         </section>
         <section class="detail-section artifacts-section"><div class="section-heading"><div><span class="detail-label">PDF artifacts</span><h3>{{ selectedArtifacts.length ? `${selectedArtifacts.length} attached` : "No generated PDFs" }}</h3></div><button class="button button-small" type="button" :disabled="!canEditItems" @click="showArtifactForm ? showArtifactForm = false : openArtifactForm()">+ PDF</button></div>
           <form v-if="showArtifactForm" class="document-form" novalidate @submit.prevent="submitArtifact"><label><span>Kind</span><select v-model="artifactDraft.kind" @change="artifactDraft.templateId = ''"><option v-for="(label, kind) in artifactKindLabels" :key="kind" :value="kind">{{ label }}</option></select></label><label><span>Title</span><input v-model="artifactDraft.title" placeholder="Cleo CV" /></label><label><span>Base template</span><select v-model="artifactDraft.templateId"><option value="">Select template</option><option v-for="template in availableArtifactTemplates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label><label><span>PDF path</span><input v-model="artifactDraft.pdfPath" placeholder="/Users/…/cleo-cv.pdf" /></label><label><span>Generated Markdown path</span><input v-model="artifactDraft.sourceMarkdownPath" placeholder="/Users/…/cleo-cv.md" /></label><p v-if="artifactError" class="form-error" role="alert">{{ artifactError }}</p><button class="button button-primary" type="submit">Attach PDF</button></form>
