@@ -122,6 +122,13 @@ function useBoardSortables(core: AppBoardContext, presentation: ReturnType<typeo
   let touchPoint: { x: number; y: number } | null = null
   let removeTouchTracking: (() => void) | null = null
   const destroyBoardSortables = () => {
+    const dragged = Sortable.dragged
+    const active = Sortable.active
+    const ownsDrag = Boolean(active && (active === columnSortable || cardSortables.includes(active)) ||
+      dragged && (columnSortable?.el.contains(dragged) || cardSortables.some(sortable => sortable.el.contains(dragged))))
+    // Sortable.destroy() nulls these references without removing fallback DOM.
+    const ghost = ownsDrag ? Sortable.ghost : null
+    const clone = ownsDrag ? Sortable.clone : null
     columnSortable?.destroy()
     columnSortable = null
     cardSortables.forEach(sortable => sortable.destroy())
@@ -129,10 +136,17 @@ function useBoardSortables(core: AppBoardContext, presentation: ReturnType<typeo
     removeTouchTracking?.()
     removeTouchTracking = null
     touchPoint = null
+    ghost?.remove()
+    clone?.remove()
+    return ownsDrag
   }
   const setupBoardSortables = async () => {
     await nextTick()
-    destroyBoardSortables()
+    if (destroyBoardSortables()) {
+      // Discard Sortable's temporary placement and rebuild from persisted state.
+      core.boardRenderKey.value += 1
+      return
+    }
     const board = core.boardRef.value
     if (!board || !core.match.activeBoard.value || !core.canEditItems.value) return
     if (core.isEditingBoard.value) return setupColumnSortable(board, core, presentation, value => { columnSortable = value })
@@ -153,7 +167,7 @@ function setupColumnSortable(board: HTMLElement, core: AppBoardContext, presenta
       const index = columns.findIndex(column => column.dataset.columnId === entityId)
       const beforeId = columns[index + 1]?.dataset.columnId ?? null
       if (!entityId) return
-      void core.match.executeCommandAsync({ kind: "moveEntity", entityId, parentId: core.match.activeBoard.value!.id, beforeId }).then(() => { presentation.highlightMoved(entityId, "column"); core.notice.value = "Column moved" }).catch(error => { core.notice.value = `Move failed: ${error.message}`; core.boardRenderKey.value += 1 })
+      void core.match.executeCommandAsync({ kind: "moveEntity", entityId, parentId: core.match.activeBoard.value!.id, beforeId }).then(() => { core.boardRenderKey.value += 1; presentation.highlightMoved(entityId, "column"); core.notice.value = "Column moved" }).catch(error => { core.notice.value = `Move failed: ${error.message}`; core.boardRenderKey.value += 1 })
     },
   }))
 }
@@ -194,6 +208,7 @@ function moveSortableCard(event: Sortable.SortableEvent, board: HTMLElement, cor
       ? { kind: "restoreAndMove" as const, entityId: itemId, parentId, beforeId }
       : { kind: "moveEntity" as const, entityId: itemId, parentId, beforeId }
   void core.match.executeCommandAsync(command).then(() => {
+    core.boardRenderKey.value += 1
     presentation.highlightMoved(itemId, "item")
     if (targetIsArchive && sourceColumn) {
       core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId, title: item.querySelector(".card-open-button")?.getAttribute("aria-label")?.replace(/^Open /, "") || "item" }

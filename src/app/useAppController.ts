@@ -142,10 +142,10 @@ async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions
 }
 
 function watchBoardSortables(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
-  watch(() => [
-    core.match.ready.value, core.match.docVersion.value, core.isEditingBoard.value, core.canEditItems.value,
-    core.isArchiveOpen.value, core.boardRenderKey.value, board.hasFilters.value,
-    board.visibleColumns.value.map(column => `${column.id}:${board.itemsForColumn(column).map(item => item.id).join(",")}`).join("|"),
+  watch([
+    () => core.match.ready.value, () => core.match.activeWorkspace.id, () => core.isEditingBoard.value, () => core.canEditItems.value,
+    () => core.isArchiveOpen.value, () => core.boardRenderKey.value, () => board.hasFilters.value,
+    () => board.visibleColumns.value.map(column => `${column.id}:${board.itemsForColumn(column).map(item => item.id).join(",")}`).join("|"),
   ], () => { void board.setupBoardSortables() }, { flush: "post" })
 }
 

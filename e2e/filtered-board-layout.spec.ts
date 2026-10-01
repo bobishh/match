@@ -80,7 +80,7 @@ test("Given a mobile status filter, when one column remains then it uses the scr
   await expect(page.getByText("No matches in this column", { exact: true })).toBeVisible()
 })
 
-test("Given two filtered states, when a card moves between them then hidden cards survive reset and reload", async ({ page }) => {
+test("Given two filtered states, when a card moves between them then hidden cards survive reset and reload", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await createBoard(page)
   await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
@@ -89,15 +89,106 @@ test("Given two filtered states, when a card moves between them then hidden card
   const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
   const from = (await source.boundingBox())!
   const to = (await target.boundingBox())!
+  const originalLayout = await source.locator("..").evaluate(card => {
+    const main = card.querySelector(".card-main")!.getBoundingClientRect()
+    const context = card.querySelector(".card-context")!.getBoundingClientRect()
+    return { mainWidth: main.width, contextWidth: context.width, offset: context.x - main.x }
+  })
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
   await page.mouse.down()
   await page.mouse.move(to.x + to.width / 2, to.y + to.height - 24, { steps: 18 })
   await expect(target.locator(".lead-card")).toHaveCount(2)
+  const preview = page.locator("body > .sortable-fallback")
+  await expect(preview).toBeVisible()
+  const previewLayout = await preview.evaluate(card => {
+    const bounds = card.getBoundingClientRect()
+    const main = card.querySelector(".card-main")!.getBoundingClientRect()
+    const context = card.querySelector(".card-context")!.getBoundingClientRect()
+    return { mainWidth: main.width, contextWidth: context.width, offset: context.x - main.x,
+      opacity: getComputedStyle(card).opacity, contextBottom: context.bottom, cardBottom: bounds.bottom }
+  })
+  // Sortable rounds the fallback's border box to whole CSS pixels.
+  expect(Math.abs(previewLayout.mainWidth - originalLayout.mainWidth)).toBeLessThan(2)
+  expect(Math.abs(previewLayout.contextWidth - originalLayout.contextWidth)).toBeLessThan(2)
+  expect(Math.abs(previewLayout.offset - originalLayout.offset)).toBeLessThan(2)
+  expect(previewLayout.opacity).toBe("1")
+  expect(previewLayout.contextBottom).toBeLessThanOrEqual(previewLayout.cardBottom)
+  await page.screenshot({ path: testInfo.outputPath("drag-preview.png") })
   await page.mouse.up()
   await expect(page.locator(".board > .column")).toHaveCount(1)
   await page.getByRole("button", { name: "Clear search and filters" }).click()
   await expect(page.getByRole("region", { name: "Done", exact: true }).getByRole("button", { name: "Open Housekeeping", exact: true })).toBeVisible()
   await page.reload()
   await expect(target.locator(".lead-card")).toHaveCount(2)
+  await expect(page.locator(".board .lead-card")).toHaveCount(3)
+  await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+})
+
+test("Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await createBoard(page)
+  await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
+  await expect(page.locator(".board > .column")).toHaveCount(2)
+  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  const source = page.getByRole("button", { name: "Open Launch design", exact: true })
+  const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
+  const from = (await source.boundingBox())!
+  const to = (await target.boundingBox())!
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height - 24, { steps: 18 })
+  await expect(page.locator("body > .sortable-fallback")).toBeVisible()
+  await page.mouse.up()
+  await expect(page.getByRole("status")).toContainText("Move failed")
+  await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+  await expect(page.getByRole("region", { name: "To do", exact: true }).getByRole("button", { name: "Open Launch design", exact: true })).toBeVisible()
+  await expect(target.locator(".lead-card")).toHaveCount(1)
+})
+
+test("Given a card being dragged, when document data refreshes then drag continues and its ghost disappears on release", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await createBoard(page)
+  await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
+  await expect(page.locator(".board > .column")).toHaveCount(2)
+  const from = (await page.getByRole("button", { name: "Open Launch design", exact: true }).boundingBox())!
+  const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
+  const to = (await target.boundingBox())!
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height - 24, { steps: 18 })
+  await expect(page.locator("body > .sortable-fallback")).toBeVisible()
+  await page.evaluate(async () => {
+    const { stateRuntime } = await import("/src/stateContext.ts")
+    stateRuntime.docVersion.value++
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  })
+  await expect(page.locator("body > .sortable-fallback")).toBeVisible()
+  await page.mouse.up()
+  await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+  await expect(page.getByRole("status")).toContainText("Item moved")
+  await expect(target.locator(".lead-card")).toHaveCount(2)
+  await page.reload()
+  await expect(target.locator(".lead-card")).toHaveCount(2)
+})
+
+for (const query of ["Launch design", "Launch review"]) test(`Given a card being dragged, when filtering to ${query} rebuilds the board then drag cancels without leaving a ghost or saving a move`, async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await createBoard(page)
+  const search = page.getByRole("searchbox", { name: "Search cards" })
+  await search.fill("Launch")
+  await expect(page.locator(".board > .column")).toHaveCount(2)
+  const from = (await page.getByRole("button", { name: "Open Launch design", exact: true }).boundingBox())!
+  const to = (await page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack").boundingBox())!
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height - 24, { steps: 18 })
+  await expect(page.locator("body > .sortable-fallback")).toBeVisible()
+  await search.fill(query)
+  await expect(page.locator(".board > .column")).toHaveCount(1)
+  await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+  await page.mouse.up()
+  await expect(page.getByRole("status")).not.toContainText("Item moved")
+  await page.getByRole("button", { name: "Clear search and filters" }).click()
+  await expect(page.getByRole("region", { name: "To do", exact: true }).getByRole("button", { name: "Open Launch design", exact: true })).toBeVisible()
   await expect(page.locator(".board .lead-card")).toHaveCount(3)
 })

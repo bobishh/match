@@ -238,9 +238,9 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
             <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
           </header>
           <div class="card-stack" :data-column-id="column.id">
-            <article v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id">
+            <article v-for="item in itemsForColumn(column)" :key="item.id" class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id, 'lead-card-expanded': hasFilters }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id">
               <button class="card-open-button" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)"></button>
-              <div class="card-main">
+              <div class="card-layout"><div class="card-main">
               <template v-if="leadForItem(item)">
                 <div class="card-head"><span class="company">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
                 <strong>{{ leadForItem(item)?.role }}</strong>
@@ -254,7 +254,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
                   <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
                 </dl>
               </div>
-              <span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
+              </div><span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
             </article>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
           </div>
