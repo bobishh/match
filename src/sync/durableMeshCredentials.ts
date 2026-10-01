@@ -4,7 +4,7 @@ import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
 import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import { createPeerAdvertisement,
+import { createPeerAdvertisement, verifyWorkspaceMemberBundle,
   type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer,
   type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim,
   type WorkspaceDeparture, type WorkspaceDeviceRevocation } from "./meshRecords"
@@ -229,6 +229,17 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     })))
     return meshRustRuntime().state.knowsWorkspaceIssuer(workspaces, personId,
       profile.identity.personId, profile.device.deviceId)
+  }
+
+  async checkGuestDevices(workspaceIds: string[], personId: string, rawBundles: unknown): Promise<void> {
+    if (!Array.isArray(rawBundles)) throw new Error("Missing guest device advertisements")
+    for (const raw of rawBundles) {
+      const verified = await verifyWorkspaceMemberBundle(raw)
+      const peer = verified.advertisement.payload
+      if (peer.personId !== personId || !workspaceIds.includes(peer.workspaceId)) throw new Error("Guest device does not match invitation")
+      const credential = await this.store.getWorkspaceCredential(peer.workspaceId)
+      if (credential && isDeviceRevoked(credential, peer.personId, peer.deviceId)) throw new Error("Device access revoked")
+    }
   }
 
   async acceptGuest(workspaceIds: string[], rawBundles: unknown, grants: WorkspaceGrant[]): Promise<void> {

@@ -7,7 +7,7 @@ import KeeperDiscovery from "./KeeperDiscovery.vue"
 import type { KeeperPairing, KeeperPairingStatus } from "../app/keeperApi"
 import ModalLayer from "./ModalLayer.vue"
 import WorkspaceFileActions from "./WorkspaceFileActions.vue"
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { SyncStep } from "../app/syncTypes"
 
 const props = defineProps<{
@@ -118,6 +118,8 @@ const keeperView = ref<"list" | "form" | "detail">("list")
 const visiblePendingJoins = computed(() => keeperView.value === "list" ? props.pendingJoins ?? [] : [])
 const confirmingLeave = ref(false)
 const confirmingReconnect = ref(false)
+const reconnectCancelled = ref(false)
+watch(() => props.step, () => { reconnectCancelled.value = false })
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
 const peopleMembers = computed(() => (props.meshMembers ?? []).filter(member => !member.deviceList.some(device => isLighthouse(device.userAgent))))
 const keeperMembers = computed(() => (props.meshMembers ?? []).filter(member => member.deviceList.some(device => isLighthouse(device.userAgent))))
@@ -496,11 +498,19 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         </div>
       </template>
 
+      <template v-else-if="step === 'workspace-reconnect-confirm'">
+        <section v-if="!reconnectCancelled" class="mesh-member-action" role="region" aria-label="Confirm device reconnection">
+          <p class="dialog-copy">This device was removed. Reconnect with a new device key? Your identity and local boards stay saved. The old key stays revoked; the owner must approve access.</p>
+          <div class="dialog-actions"><button class="button button-primary" type="button" @click="emit('reconnectDevice')">Confirm reconnection</button><button class="button button-quiet" type="button" @click="reconnectCancelled = true">Cancel</button></div>
+        </section>
+        <div v-else class="dialog-actions"><button class="button button-primary" type="button" @click="reconnectCancelled = false">Reconnect this device</button><button class="button button-quiet" type="button" @click="emit('dismiss')">Dismiss</button></div>
+      </template>
+
       <!-- Step 11: Error -->
       <template v-else-if="step === 'error'">
         <p class="sync-error" role="alert">{{ error }}</p>
-        <section v-if="canReconnectDevice && confirmingReconnect" role="region" aria-label="Confirm device reconnection">
-          <p class="dialog-copy">Reconnect this device with a new device key. Your identity and local boards stay saved. The old key stays revoked; the owner must approve access again.</p>
+        <section v-if="canReconnectDevice && confirmingReconnect" class="mesh-member-action" role="region" aria-label="Confirm device reconnection">
+          <p class="dialog-copy">Reconnect this device with a new device key. Your identity and local boards stay saved. The old key stays revoked; the owner must approve access.</p>
           <div class="dialog-actions"><button class="button button-primary" type="button" @click="confirmingReconnect = false; emit('reconnectDevice')">Confirm reconnection</button><button class="button button-quiet" type="button" @click="confirmingReconnect = false">Cancel</button></div>
         </section>
         <div class="dialog-actions sync-step-actions">

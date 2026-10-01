@@ -11,7 +11,7 @@ export type SyncStep =
   | "enroll-host-preparing" | "enroll-host-pending" | "enroll-host-done" | "enroll-syncing"
   | "workspace-host-select" | "workspace-host" | "enroll-guest"
   | "enroll-guest-waiting" | "enroll-guest-done" | "workspace-guest"
-  | "workspace-merge-confirm" | "workspace-reconnecting" | "workspace-guest-waiting"
+  | "workspace-reconnect-confirm" | "workspace-merge-confirm" | "workspace-reconnecting" | "workspace-guest-waiting"
   | "workspace-guest-done" | "synced" | "error"
 
 export type SyncPhase = "idle" | "preparing" | "ready" | "join-ready" | "joining" | "synced" | "error"
@@ -61,6 +61,7 @@ export function createDeviceSyncState() {
   const title = computed(() => {
     if (step.value === "error") return "Couldn’t sync"
     if (["enroll-guest", "enroll-guest-waiting", "enroll-guest-done"].includes(step.value)) return "Add your device"
+    if (step.value === "workspace-reconnect-confirm") return "Reconnect device"
     if (step.value === "workspace-merge-confirm") return "Merge local copy?"
     if (["workspace-guest", "workspace-guest-waiting", "workspace-guest-done"].includes(step.value)) return "Join workspace"
     return step.value === "synced" ? "Live sync on" : "Device sync"

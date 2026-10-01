@@ -125,7 +125,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.evaluate(() => { delete (window as any).__MATCH_INJECT_STORAGE_FAILURE__ })
   })
 
-  test("Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes", async ({ page }) => {
+  test("Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes", async ({ page }, testInfo) => {
     await page.goto("/")
     await page.getByRole("button", { name: "Open workspaces" }).click()
     await page.getByRole("button", { name: "New workspace" }).click()
@@ -158,7 +158,17 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.getByRole("button", { name: "Open workspaces" }).click()
     const restoredDialog = page.getByRole("dialog", { name: "Workspaces" })
     await restoredDialog.getByRole("button", { name: "Show archived" }).click()
-    await restoredDialog.getByRole("button", { name: "Restore workspace" }).click()
+    const restore = restoredDialog.getByRole("button", { name: "Restore workspace" })
+    await expect(restore).toHaveCSS("text-transform", "uppercase")
+    await expect(restore).toHaveCSS("border-radius", "0px")
+    await expect(restoredDialog.locator(".workspace-item strong", { hasText: "Temporary board" })).toHaveCSS("font-size", "20px")
+    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await restore.click()
+    await expect(restoredDialog.getByRole("alert")).toBeVisible()
+    await expect(restore).toBeEnabled()
+    await page.screenshot({ animations: "disabled", path: testInfo.outputPath("workspace-restore-error.png") })
+    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await restore.click()
     await expect(restoredDialog.getByRole("button", { name: /Temporary board/ })).toBeVisible()
     await restoredDialog.getByRole("button", { name: /Temporary board/ }).click()
     await expect(page.getByRole("button", { name: "Open Temporary data" })).toBeVisible()

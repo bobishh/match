@@ -155,8 +155,8 @@ function displayTitle(title: string) {
       <button v-if="archivedWorkspaces.length" class="button button-quiet" type="button" @click="showArchived = !showArchived">{{ showArchived ? 'Hide archived' : 'Show archived' }}</button>
       <div v-if="showArchived" class="workspace-list" aria-label="Archived workspaces">
         <div v-for="ws in archivedWorkspaces" :key="ws.id" class="workspace-item">
-          <strong>{{ displayTitle(ws.title) }}</strong>
-          <button type="button" :disabled="archiveBusy" @click="restoreArchived(ws.id)">{{ archiveBusy ? 'Restoring…' : 'Restore workspace' }}</button>
+          <div class="workspace-label"><strong>{{ displayTitle(ws.title) }}</strong></div>
+          <div class="workspace-item-actions"><button type="button" :disabled="archiveBusy" @click="restoreArchived(ws.id)">{{ archiveBusy ? 'Restoring…' : 'Restore workspace' }}</button></div>
         </div>
         <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       </div>

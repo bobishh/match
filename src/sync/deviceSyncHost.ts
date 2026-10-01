@@ -315,6 +315,8 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   if (guest.personId === runtime.profile.identity.personId) {
     return { ok: false as const, error: "This invite is for another person, but this browser uses the owner's identity. Use a separate identity to join as an editor." }
   }
+  try { await runtime.context.durableMesh?.checkGuestDevices(runtime.workspaces.map(item => item.id), guest.personId, guest.meshPeers) }
+  catch (error) { return { ok: false as const, error: userMessage(error, "Couldn’t verify guest device.") } }
   const existing = runtime.grants.get(guest.personId)
   if (existing) return { ok: true as const, value: { personId: guest.personId, grants: existing.grants,
     ownerConnection: existing.ownerConnection } }

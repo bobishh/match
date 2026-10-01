@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "../crdt"
-import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
+import { bootstrapIdentity, renewDeviceIdentity, resetIdentityStorageForTest } from "../domain/identity"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceDeparture, verifyWorkspaceDeparture, createPeerAdvertisement, createWorkspaceDeviceRevocation, verifyWorkspaceDeviceRevocation } from "./meshRecords"
 import { DurableMesh } from "./durableMesh"
@@ -55,6 +55,24 @@ describe("member access", () => {
     expect(isDeviceRevoked(f.credential(), f.visitor.identity.personId, f.visitor.device.deviceId)).toBe(true)
     expect(isDeviceRevoked(f.credential(), f.visitor.identity.personId, "another-device")).toBe(false)
     await expect((f.mesh as any).putVerifiedBundle(f.credential(), f.bundle)).rejects.toThrow("Device access revoked")
+    await f.mesh.dispose()
+  })
+  it("Given a removed device, when a join is checked before owner approval, then its signed key is rejected without writes", async () => {
+    const f = await fixture()
+    await f.mesh.removeDevice(f.visitor.identity.personId, f.visitor.device.deviceId, ["board"])
+    const write = vi.spyOn(f.store, "putWorkspaceCredential")
+    await expect(f.mesh.checkGuestDevices(["board"], f.visitor.identity.personId, [f.bundle])).rejects.toThrow("Device access revoked")
+    expect(write).not.toHaveBeenCalled()
+    const other = await renewDeviceIdentity()
+    expect(other.identity.personId).toBe(f.visitor.identity.personId)
+    expect(other.device.deviceId).not.toBe(f.visitor.device.deviceId)
+    const bundle = await createPeerAdvertisement(other, { workspaceId: "board", endpoint: "new-endpoint" })
+    await expect(f.mesh.checkGuestDevices(["board"], other.identity.personId, [bundle])).resolves.toBeUndefined()
+    await expect(f.mesh.checkGuestDevices(["board"], f.owner.identity.personId, [bundle])).rejects.toThrow("does not match")
+    const forged = structuredClone(bundle)
+    forged.advertisement.payload.deviceId = "forged-device"
+    await expect(f.mesh.checkGuestDevices(["board"], other.identity.personId, [forged])).rejects.toThrow()
+    expect(write).not.toHaveBeenCalled()
     await f.mesh.dispose()
   })
   it("refuses expanding confirmed removal to an unauthorized workspace before writing", async () => {

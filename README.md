@@ -76,8 +76,10 @@ when showing the project.
   can remove other participants' devices only from boards they own. Removal is
   signed and survives reconnects. Reusing a removed device requires a new device
   identity; old local copies cannot be remotely erased. After opening a new member
-  invitation, **Reconnect this device → Confirm reconnection** renews its device
-  key under the same locally held identity root, then requests owner approval again.
+  invitation, **Confirm reconnection** renews its device key under the same locally
+  held identity root, then requests one owner approval for the new key. The owner
+  rejects revoked keys before asking for approval. If the local removal record is
+  missing, **Reconnect this device** opens confirmation after that rejection.
   This recovery action requires the locally held identity root. Enrolled devices
   without it require a fresh device identity issued by an authorized device.
 - **Leave mesh** leaves the participant's membership on all their devices for that

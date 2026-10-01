@@ -4,7 +4,7 @@ import { parseInvitation, type ScopedInvitation } from "@meta-uber/mesh-pairing"
 import { irohTransport } from "./irohTransport"
 import { deriveTranscriptAuthCode } from "./invitations"
 import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
-import { canReconnectDevice, reconnectWorkspaceDevice } from "./deviceReconnection"
+import { canReconnectDevice, reconnectWorkspaceDevice, showWorkspaceJoinStep } from "./deviceReconnection"
 import type { SyncNode, SyncTransport } from "./transport"
 import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
@@ -450,10 +450,8 @@ export class DeviceSyncController {
       return
     }
     if (invite.kind !== "workspace-join") return
-    this.state.invitationWorkspaces.value = invite.workspaces || [{ id: invite.workspaceId, title: invite.workspaceTitle }]
-    this.state.invitationWorkspaceTitle.value = this.state.invitationWorkspaces.value.map(item => item.title).join(", ")
-    const local = this.state.invitationWorkspaces.value.some(item => this.availableWorkspaces.value.some(workspace => workspace.id === item.id))
-    this.state.step.value = local ? "workspace-merge-confirm" : "workspace-guest"
+    await showWorkspaceJoinStep(this.state, invite, this.availableWorkspaces.value.map(item => item.id),
+      async () => await this.durableMesh?.revokedWorkspaceIds() ?? [])
   }
 
   private async requestEnrollment(replaceIdentity = false) {
