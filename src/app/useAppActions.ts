@@ -152,6 +152,7 @@ async function moveItemToColumn(core: ReturnType<typeof useAppCore>, item: Item,
 }
 
 function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
+  const itemInsertion = ref<{ columnId: string; beforeId: string } | null>(null)
   const newBoardColumnArchive = ref(false)
   const addingBoardColumn = ref(false)
   const addBoardColumnError = ref("")
@@ -161,13 +162,14 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
     core.selectedItemId.value = null
     core.showArtifactForm.value = false
   }
-  const openAddItem = (columnId?: string) => {
+  const openAddItem = (columnId?: string, beforeId?: string) => {
+    itemInsertion.value = columnId && beforeId ? { columnId, beforeId } : null
     core.storageError.value = ""
     core.itemFormError.value = ""
     core.itemFormParentId.value = columnId ?? initialItemParent(core)
     core.showItemForm.value = true
   }
-  const handleSaveItem = (payload: ItemSavePayload) => saveItem(core, board, payload)
+  const handleSaveItem = (payload: ItemSavePayload) => saveItem(core, board, payload, itemInsertion.value)
   const currentDocHeads = computed(() => { void core.match.docVersion.value; const doc = core.match.getActiveDoc(); return doc ? Automerge.getHeads(doc) : [] })
   const handleApplySchema = (payload: { schema: BoardSchemaDraft; expectedHeads?: Heads }) => applySchema(core, payload)
   const handleApplyWorkspaceSettings = (payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }) => applyWorkspaceSettings(core, payload)
@@ -208,7 +210,7 @@ function initialItemParent(core: ReturnType<typeof useAppCore>) {
   return doc ? Object.values(doc.entities).find((entity): entity is Column => hasEntityKind(entity, "column") && !entity.archivedAt)?.id ?? core.match.activeBoard.value?.id ?? "" : core.match.activeBoard.value?.id ?? ""
 }
 
-async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, payload: ItemSavePayload) {
+async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, payload: ItemSavePayload, insertion: { columnId: string; beforeId: string } | null = null) {
   if (core.savingItem.value) return
   core.savingItem.value = true
   try {
@@ -220,7 +222,7 @@ async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<t
     if (fieldId) narrativePayload.values[fieldId] = ""
     const details = itemSaveDetails(core, board, narrativePayload)
     if (details.item) await saveExistingItem(core, details.item, details, payload.body, fieldId, payload.foldSnapshot)
-    else await saveNewItem(core, details, payload.body)
+    else await saveNewItem(core, details, payload.body, insertion?.columnId === details.parentId ? insertion.beforeId : undefined)
     core.showItemForm.value = false
     core.notice.value = "Item saved"
   } catch (error) {
@@ -246,9 +248,9 @@ async function saveExistingItem(core: ReturnType<typeof useAppCore>, item: Item,
   if (!core.match.isBlankBoard.value) core.selectedLeadId.value = item.id
 }
 
-async function saveNewItem(core: ReturnType<typeof useAppCore>, details: ReturnType<typeof itemSaveDetails>, body: string) {
+async function saveNewItem(core: ReturnType<typeof useAppCore>, details: ReturnType<typeof itemSaveDetails>, body: string, beforeId?: string) {
   const before = new Set(Object.keys(core.match.getActiveDoc()?.entities ?? {}))
-  await core.match.executeCommandAsync({ kind: "createItem", parentId: details.parentId, title: details.title, body, values: details.values })
+  await core.match.executeCommandAsync({ kind: "createItem", parentId: details.parentId, title: details.title, body, values: details.values, beforeId })
   if (core.match.isBlankBoard.value) return
   const created = Object.values(core.match.getActiveDoc()?.entities ?? {}).find(entity => isItem(entity) && !before.has(entity.id))
   if (created) core.selectedLeadId.value = created.id

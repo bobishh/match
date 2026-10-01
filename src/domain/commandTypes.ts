@@ -21,7 +21,7 @@ export type Command =
   | { kind: "setWorkspaceArchived"; archived: boolean }
   | { kind: "createBoard"; title: string; preset: "job-search" | "blank" }
   | { kind: "createColumn"; boardId: string; title: string; archive?: true; beforeId?: string | null }
-  | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue> }
+  | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue>; beforeId?: string | null }
   | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue>; foldNarrativeSources?: NarrativeFoldSources }
   | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }

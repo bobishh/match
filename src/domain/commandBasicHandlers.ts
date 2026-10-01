@@ -36,7 +36,7 @@ export const createItem: CommandHandler<"createItem"> = (doc, command, context) 
   const values = itemValuesForCreate(doc, command)
   if (!values.ok) return values
   const itemId = command.id ?? crypto.randomUUID()
-  const insertion = computeInsertionRank(doc.entities, command.parentId)
+  const insertion = computeInsertionRank(doc.entities, command.parentId, command.beforeId)
   return { ok: true, value: { changedEntityIds: [itemId], apply: draft => createItemInDraft(draft, command, itemId, values.value, insertion, context.nowIso) } }
 }
 

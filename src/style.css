@@ -172,7 +172,12 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .column-archived .column-header button, .bin-column-open .column-header button { border-color: currentColor; color: white; background: transparent; }
 .column-archived .column-header button:hover, .bin-column-open .column-header button:hover { color: var(--ink); background: white; }
 .count { min-width: 25px; height: 25px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; font: 850 .72rem/1 ui-monospace, monospace; }
-.card-stack { position: relative; flex: 1; min-height: 96px; display: grid; align-content: start; gap: 14px; padding: 14px; }
+.card-stack { position: relative; min-height: 96px; display: grid; align-content: start; padding: 14px; }
+.card-stack > .lead-card { margin-bottom: 14px; }
+.card-stack > .lead-card:last-of-type { margin-bottom: 0; }
+.card-add-gap { position: relative; height: 14px; margin-top: -14px; }
+.card-insert-button { position: absolute; top: 0; left: 0; width: 100%; height: 14px; padding: 0; border: 0; color: var(--ink); background: var(--soft); font: 800 .65rem/14px ui-monospace, monospace; opacity: 0; }
+.card-insert-button:hover, .card-insert-button:focus-visible { opacity: 1; outline: 1px solid var(--ink); outline-offset: -1px; }
 .column-add-button { width: calc(100% - 28px); min-height: 40px; margin: 0 14px 14px; padding: 9px 10px; border: 0; color: var(--muted); background: transparent; text-align: left; font: 800 .76rem/1.2 ui-monospace, monospace; }
 .column-add-button:hover, .column-add-button:focus-visible { color: var(--ink); background: var(--soft); outline: 2px solid var(--ink); outline-offset: -2px; }
 .lead-card { position: relative; width: 100%; min-width: 0; padding: 14px; overflow-wrap: anywhere; text-align: left; border: 2px solid var(--line); border-radius: 0; color: var(--ink); background: white; box-shadow: 3px 3px 0 rgba(23,23,23,.2); cursor: grab; touch-action: pan-y; transition: transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) ease, opacity var(--motion-fast) ease; }
@@ -563,8 +568,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
   .column-header { order: 0; }
   .board-single-column > .column { flex: 0 0 100%; }
-  .column-add-button { order: 1; margin: 10px 14px 0; }
-  .card-stack { order: 2; }
   .mobile-column-switcher { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 16px 0; padding: 7px 8px; border: 2px solid var(--line); background: var(--soft); font: 900 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
   .mobile-column-switcher span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .mobile-column-switcher .button { min-width: var(--control-size-compact); padding-inline: 8px; }

@@ -1,0 +1,52 @@
+import { expect, test, type Page } from "@playwright/test"
+import { createJobSearchWorkspace } from "./support/workspaces"
+
+async function addLead(page: Page, company: string) {
+  await page.getByRole("button", { name: "Add lead to Lead", exact: true }).click()
+  const form = page.getByRole("dialog", { name: "Add item" })
+  await form.getByLabel("Company *").fill(company)
+  await form.getByLabel("Role *").fill("Engineer")
+  await form.getByRole("button", { name: "Create item" }).click()
+  await expect(form).toBeHidden()
+  await page.getByRole("button", { name: "Close detail" }).click()
+}
+
+for (const width of [1280, 390]) {
+  test(`Given two cards at ${width}px, when hovering their gap, then add appears there and failed insertion retries in place`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto("/")
+    await createJobSearchWorkspace(page, "Inline leads")
+    await addLead(page, "First")
+    await addLead(page, "Second")
+    const column = page.getByRole("region", { name: "Lead", exact: true, includeHidden: true })
+    const cards = column.locator(".lead-card")
+    const add = column.getByRole("button", { name: "Add lead to Lead", exact: true })
+    const lastBox = await cards.last().boundingBox()
+    const addBox = await add.boundingBox()
+    expect(addBox!.y - (lastBox!.y + lastBox!.height)).toBeGreaterThanOrEqual(0)
+    expect(addBox!.y - (lastBox!.y + lastBox!.height)).toBeLessThan(30)
+
+    const insert = column.getByRole("button", { name: /Add lead between cards/ })
+    await cards.first().hover()
+    await expect(insert).toHaveCSS("opacity", "0")
+    const firstBox = await cards.first().boundingBox()
+    const secondBox = await cards.last().boundingBox()
+    await page.mouse.move(firstBox!.x + firstBox!.width / 2, (firstBox!.y + firstBox!.height + secondBox!.y) / 2)
+    await expect(insert).toHaveCSS("opacity", "1")
+    await insert.click()
+    const form = page.getByRole("dialog", { name: "Add item" })
+    await form.getByLabel("Company *").fill("Middle")
+    await form.getByLabel("Role *").fill("Engineer")
+    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await form.getByRole("button", { name: "Create item" }).click()
+    await expect(form.getByRole("alert")).toBeVisible()
+    await expect(cards).toHaveCount(2)
+    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await form.getByRole("button", { name: "Retry save" }).click()
+    await expect(form).toBeHidden()
+    await page.getByRole("button", { name: "Close detail" }).click()
+    await expect(cards.locator(".company")).toHaveText(["First", "Middle", "Second"])
+    await page.reload()
+    await expect(column.locator(".lead-card .company")).toHaveText(["First", "Middle", "Second"])
+  })
+}
