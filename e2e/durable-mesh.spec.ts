@@ -488,9 +488,11 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
   const host = await hostContext.newPage()
   const guest = await guestContext.newPage()
   try {
+    await captureMeshResources(guest)
     await Promise.all([host.goto("/"), guest.goto("/")])
     await pairWorkspace(host, guest)
     await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expect.poll(async () => (await meshResourceCounts(guest)).heartbeats, { timeout: 20_000 }).toBeGreaterThan(0)
 
     const before = await Promise.all([host, guest].map((target, index) => target.evaluate(async sentinel => {
       const current = window as Window & { __MATCH_RECONNECT_SENTINEL__?: string }
@@ -512,10 +514,9 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
     // handler closes the real Iroh session even when WebRTC itself stays viable.
     await guestContext.setOffline(true)
     await expect(guest.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
-    await expect.poll(() => guest.evaluate(async () => {
-      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
-      return meshTraceSnapshot().some(event => event.event === "session.closed" && event.cause === "mesh stopped")
-    }), { timeout: 20_000 }).toBe(true)
+    // Transport teardown may finish before the baseline trace is cleared.
+    // Require stopped live resources rather than a particular close event.
+    await expect.poll(async () => (await meshResourceCounts(guest)).heartbeats, { timeout: 20_000 }).toBe(0)
 
     await addLead(guest, "Guest queued offline")
     await addLead(host, "Host queued remotely")
