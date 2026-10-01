@@ -97,6 +97,8 @@ async function connectGuestCycle(context: WorkspaceJoinBrowserContext, run: numb
     await installGuestInvitation(context, run, invite, profile, replica, cycle)
     cycle.session = liveWorkspaceSetSync(cycle.connection, invite.secret, replica)
     context.setLiveSession(cycle.session)
+    context.state.isEnabled.value = true
+    context.state.revokedWorkspaceIds.value = context.state.revokedWorkspaceIds.value.filter(id => !invite.workspaces.some(item => item.id === id))
     context.state.directLive.value = true
     context.setStopWatching(context.workspace.subscribe?.(() => {
       void cycle.session?.publish().catch(() => { void cycle.session?.close() })

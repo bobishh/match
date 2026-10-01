@@ -24,10 +24,10 @@ export function useAppMesh(context: MeshContext) {
     () => sync.isWorkspaceAccessRevoked(activeWorkspace.id), () => activeMeshPeers.value.length],
   ([workspaceId, connected, enabled, networkOnline, revoked, peerCount]) => {
     clearTimeout(offlineTimer)
-    if (revoked || networkOnline === false || !enabled) {
-      meshPresence.value = peerCount ? "offline" : "empty"
-    } else if (connected) {
+    if (networkOnline !== false && connected) {
       meshPresence.value = "connected"
+    } else if (revoked || networkOnline === false || !enabled) {
+      meshPresence.value = peerCount ? "offline" : "empty"
     } else if (peerCount) {
       meshPresence.value = "reconnecting"
       offlineTimer = setTimeout(() => {
