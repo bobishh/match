@@ -124,6 +124,7 @@ test("Given another browser uses the owner's identity, when it opens an editor i
   try {
     const guest = await context.newPage()
     await guest.goto("/")
+    await expect(guest.getByLabel("Workspace role: owner")).toBeVisible()
     await guest.evaluate(async profile => (await import("/src/localDb.ts")).writeLocal("match.local_profile.v1", profile), ownerProfile!)
     await guest.goto(invite)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })

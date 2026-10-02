@@ -112,6 +112,7 @@ function displayTitle(title: string) {
         <div
           v-for="ws in workspaces"
           :key="ws.id"
+          :data-workspace-id="ws.id"
           class="workspace-item"
           :class="{ 'workspace-item-active': ws.id === activeWorkspaceId }"
         >
@@ -121,7 +122,7 @@ function displayTitle(title: string) {
           </button>
           <div class="workspace-item-actions">
             <button v-if="canRenameWorkspace(ws.id)" type="button" aria-label="Rename" @click="startRename(ws)">Rename</button>
-            <button type="button" aria-label="Archive" @click="startArchive(ws.id)">Archive</button>
+            <button type="button" aria-label="Archive" :disabled="archiveBusy" @click="startArchive(ws.id)">Archive</button>
           </div>
           <form v-if="editingId === ws.id" class="workspace-rename-form" :aria-busy="renaming" @submit.prevent="handleRename">
             <label>

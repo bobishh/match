@@ -111,18 +111,63 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.evaluate(() => { delete (window as any).__MATCH_INJECT_STORAGE_FAILURE__ })
   })
 
-  test("Given workspace archive save fails, when Archive is confirmed, then workspace stays active and error is shown", async ({ page }) => {
+  test("Given workspace archive save is pending and fails, when Archive is retried, then controls recover and fallback persists", async ({ page }) => {
     await page.goto("/")
     await page.getByRole("button", { name: "Open workspaces" }).click()
     const dialog = page.getByRole("dialog", { name: "Workspaces" })
-    const workspace = dialog.locator(".workspace-item", { hasText: "Untitled" })
+    await dialog.getByRole("button", { name: "New workspace" }).click()
+    const create = page.getByRole("dialog", { name: "Create workspace" })
+    await create.getByLabel("Title").fill("Archive pending board")
+    await create.getByRole("radio", { name: "Blank board" }).check()
+    await create.getByRole("button", { name: "Create" }).click()
+    await page.getByRole("button", { name: "Open workspaces" }).click()
+    const workspace = dialog.locator(".workspace-item", { hasText: "Archive pending board" })
     await workspace.getByRole("button", { name: "Archive", exact: true }).click()
-    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await page.evaluate(async () => {
+      type ArchiveGateWindow = Window & { __MATCH_ARCHIVE_GATE__?: { started: boolean; reject: () => void; restore: () => void } }
+      const storage = (await import("/src/storage.ts")).defaultStorage
+      const original = storage.commitWorkspace.bind(storage)
+      let pending = true
+      let rejectCommit: ((reason: Error) => void) | undefined
+      const gateWindow = window as ArchiveGateWindow
+      gateWindow.__MATCH_ARCHIVE_GATE__ = {
+        started: false,
+        reject: () => {
+          pending = false
+          rejectCommit?.(new Error("Storage failure injected"))
+        },
+        restore: () => { storage.commitWorkspace = original },
+      }
+      storage.commitWorkspace = (...args) => {
+        if (!pending) return original(...args)
+        return new Promise((resolve, reject) => {
+          rejectCommit = reject
+          gateWindow.__MATCH_ARCHIVE_GATE__!.started = true
+        })
+      }
+    })
     await workspace.getByRole("button", { name: "Archive workspace" }).click()
+    await expect.poll(() => page.evaluate(() => (window as Window & { __MATCH_ARCHIVE_GATE__?: { started: boolean } }).__MATCH_ARCHIVE_GATE__?.started)).toBe(true)
+    await expect.poll(() => dialog.getByRole("button", { name: "Archive", exact: true }).evaluateAll(buttons => buttons.every(button => (button as HTMLButtonElement).disabled))).toBe(true)
+    await expect(workspace.getByRole("button", { name: "Cancel" })).toBeDisabled()
+    await expect(workspace.getByRole("button", { name: "Archiving…" })).toBeDisabled()
+    await page.evaluate(() => (window as Window & { __MATCH_ARCHIVE_GATE__?: { reject: () => void } }).__MATCH_ARCHIVE_GATE__?.reject())
     await expect(workspace.getByRole("alert")).toContainText("Storage failure injected")
     await expect(workspace.getByRole("button", { name: "Archive workspace" })).toBeEnabled()
-    await expect(workspace.getByRole("button", { name: /Untitled Active/ })).toBeVisible()
-    await page.evaluate(() => { delete (window as any).__MATCH_INJECT_STORAGE_FAILURE__ })
+    await expect(workspace.getByRole("button", { name: "Archive", exact: true })).toBeEnabled()
+    await expect(workspace.getByRole("button", { name: "Cancel" })).toBeEnabled()
+    await expect(workspace.getByRole("button", { name: /Archive pending board Active/ })).toBeVisible()
+    await page.evaluate(() => (window as Window & { __MATCH_ARCHIVE_GATE__?: { restore: () => void } }).__MATCH_ARCHIVE_GATE__?.restore())
+    await workspace.getByRole("button", { name: "Archive workspace" }).click()
+    await expect(dialog.getByRole("button", { name: /Archive pending board/ })).toHaveCount(0)
+    await expect(dialog.getByRole("button", { name: /Untitled Active/ })).toBeVisible()
+    await dialog.getByRole("button", { name: "Close" }).last().click()
+    await expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
+    await page.reload()
+    await expect(page.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
+    await page.getByRole("button", { name: "Open workspaces" }).click()
+    await dialog.getByRole("button", { name: "Show archived" }).click()
+    await expect(dialog.locator(".workspace-item", { hasText: "Archive pending board" })).toBeVisible()
   })
 
   test("Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes", async ({ page }, testInfo) => {

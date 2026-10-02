@@ -108,6 +108,18 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.goto(await hostDialog.getByLabel("Pairing link").inputValue())
       const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
       await secondDialog.getByRole("button", { name: "Add this device" }).waitFor({ state: "visible" })
+      // Identity replacement preserves local boards. Archive the guest's bootstrap board
+      // under its original identity so this scenario reaches the enrolled owner's final board.
+      await secondPage.evaluate(async () => {
+        const { useMatch } = await import("/src/state.ts")
+        const { defaultStorage } = await import("/src/storage.ts")
+        const { commitAndPersist, refreshAvailableWorkspaces, whenReady } = await import("/src/statePersistence.ts")
+        const match = useMatch()
+        await whenReady()
+        if (!match.activeWorkspace.id) throw new Error("Guest bootstrap workspace missing")
+        await commitAndPersist({ kind: "setWorkspaceArchived", archived: true }, defaultStorage)
+        await refreshAvailableWorkspaces(defaultStorage)
+      })
       if (await secondDialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).count()) await secondDialog.getByRole("checkbox", { name: /Replace this device.s identity/ }).check()
       await secondDialog.getByRole("button", { name: "Add this device" }).click()
       await hostDialog.getByRole("button", { name: "Approve device" }).click()
@@ -119,19 +131,26 @@ test.describe("Scoped Sync Outer Scenarios", () => {
 
       await secondPage.getByRole("button", { name: "Open workspaces" }).click()
       const workspaces = secondPage.getByRole("dialog", { name: "Workspaces" })
-      const initialWorkspaceCount = await workspaces.locator(".workspace-item").count()
       const archivedWorkspaceIds = await secondPage.evaluate(async () => {
         const { useMatch } = await import("/src/state.ts")
         return useMatch().availableWorkspaces.value.map(workspace => workspace.id)
       })
-      for (let index = 0; index < initialWorkspaceCount; index += 1) {
-        const workspace = workspaces.locator(".workspace-item").first()
+      await expect(workspaces).toBeVisible()
+      expect(archivedWorkspaceIds).toHaveLength(1)
+      await expect(workspaces.locator(".workspace-item")).toHaveCount(archivedWorkspaceIds.length)
+      for (const workspaceId of archivedWorkspaceIds) {
+        const workspace = workspaces.locator(`.workspace-item[data-workspace-id="${workspaceId}"]`)
         await workspace.getByRole("button", { name: "Archive", exact: true }).click()
         await workspace.getByRole("button", { name: "Archive workspace", exact: true }).click()
+        await expect(workspace).toHaveCount(0)
       }
 
       await workspaces.getByRole("button", { name: "Close", exact: true }).last().click()
       await expect(secondPage.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
+      await expect.poll(async () => secondPage.evaluate(async () => {
+        const { useMatch } = await import("/src/state.ts")
+        return useMatch().activeWorkspace.id
+      }).then(id => archivedWorkspaceIds.includes(id))).toBe(false)
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
       const fallbackId = await secondPage.evaluate(async () => {
         const { useMatch } = await import("/src/state.ts")

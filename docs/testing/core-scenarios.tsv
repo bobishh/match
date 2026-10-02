@@ -177,10 +177,10 @@ workspaces.spec.ts	40	Given a new profile, when Match opens, then it starts with
 workspaces.spec.ts	49	Given two first tabs, when both open together, then they share one generated Untitled workspace
 workspaces.spec.ts	66	Given two workspaces, when either is renamed from the workspace list, then its data and new name persist
 workspaces.spec.ts	100	Given workspace rename persistence fails, when save is attempted, then the form keeps the draft and shows the error
-workspaces.spec.ts	114	Given workspace archive save fails, when Archive is confirmed, then workspace stays active and error is shown
-workspaces.spec.ts	128	Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes
-workspaces.spec.ts	177	Given Match is opened, when a Blank board workspace is created, then it seeds To do, Doing, Done columns without job-search fields
-workspaces.spec.ts	207	Given a board with columns, when a column is renamed, then the new title persists after reload
-workspaces.spec.ts	234	Given a board with a required custom field, when an item is saved without that field, then validation fails without creating the item
-workspaces.spec.ts	272	Given a parent item and a subitem, when the subitem is moved to another parent, then the hierarchy updates correctly
-workspaces.spec.ts	319	Gate A evidence: Reading board with Author field and nested item alongside Job search, with reload and export
+workspaces.spec.ts	114	Given workspace archive save is pending and fails, when Archive is retried, then controls recover and fallback persists
+workspaces.spec.ts	173	Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes
+workspaces.spec.ts	222	Given Match is opened, when a Blank board workspace is created, then it seeds To do, Doing, Done columns without job-search fields
+workspaces.spec.ts	252	Given a board with columns, when a column is renamed, then the new title persists after reload
+workspaces.spec.ts	279	Given a board with a required custom field, when an item is saved without that field, then validation fails without creating the item
+workspaces.spec.ts	317	Given a parent item and a subitem, when the subitem is moved to another parent, then the hierarchy updates correctly
+workspaces.spec.ts	364	Gate A evidence: Reading board with Author field and nested item alongside Job search, with reload and export
