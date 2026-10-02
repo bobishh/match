@@ -4,6 +4,7 @@ import { chatStore, type StoredChatMessage, type StoredChatProfile } from "./sto
 import { createChatRecord, verifyChatRecord, type ChatRecord, type ChatAuthority } from "./records"
 import { peerStore } from "../sync/peerStore"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
+import { meshTrace } from "../sync/meshTrace"
 
 export type ChatChange = { workspaceId: string; added: StoredChatMessage[]; remote: boolean; history: boolean; typing?: ChatRecord[] }
 export type ChatTyping = { personId: string; deviceId: string }
@@ -113,11 +114,16 @@ export async function ensureChatProfile(workspaceId: string) {
 }
 
 export async function sendChatMessage(workspaceId: string, body: string) {
+  const timestampMs = Date.now()
   const text = body.trim()
   if (!text || [...text].length > 8000) throw new Error("Message must contain 1–8,000 characters")
   await ensureChatProfile(workspaceId)
   const value = message(await signed(workspaceId, "chat-message", text))
-  if (await chatStore.append(value)) publish({ workspaceId, added: [value], remote: false, history: false })
+  meshTrace("chat.submit", { workspaceId, recordId: value.id, timestampMs })
+  if (await chatStore.append(value)) {
+    meshTrace("chat.persisted", { workspaceId, recordId: value.id, elapsedMs: Date.now() - timestampMs, phase: "local" })
+    publish({ workspaceId, added: [value], remote: false, history: false })
+  }
 }
 
 export async function sendChatTyping(workspaceId: string, active: boolean) {
@@ -193,6 +199,7 @@ async function verifiedRecords(
 }
 
 export async function receiveChat(workspaceId: string, value: unknown, history: boolean) {
+  const timestampMs = Date.now()
   const wire = parseChatWire(value)
   const owner = await readOwner(workspaceId)
   const scope = await readScope(workspaceId)
@@ -203,5 +210,9 @@ export async function receiveChat(workspaceId: string, value: unknown, history: 
   const messages = messageRecords.map(message)
   const typing = typingRecords.filter(record => rememberTyping(workspaceId, record))
   const result = await chatStore.merge(scope, messages, profiles)
+  for (const message of result.added) {
+    meshTrace("chat.received", { workspaceId, recordId: message.id, timestampMs })
+    meshTrace("chat.persisted", { workspaceId, recordId: message.id, elapsedMs: Date.now() - timestampMs, phase: "remote" })
+  }
   if (result.changed || typing.length) publish({ workspaceId, added: result.added, remote: true, history, typing })
 }

@@ -1,4 +1,5 @@
 import { hasEntityKind } from "./domain/model"
+import { meshTrace } from "./sync/meshTrace"
 import * as Automerge from "@automerge/automerge/slim";
 import { initializeAutomerge } from "./crdt";
 import {
@@ -206,6 +207,7 @@ async function commitAuthorizedCommand(
   await storage.commitWorkspace(doc.id, result.value.newDoc, Automerge.save(result.value.newDoc), authorizations, {
     receipt: result.value.receipt, changeBytes, proof: result.value.proof,
   });
+  meshTrace("document.persisted", { workspaceId: doc.id, recordId: result.value.receipt.changeHash, phase: "local" });
   return result.value.newDoc;
 }
 

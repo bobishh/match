@@ -1,4 +1,5 @@
-import { computed, onBeforeUnmount, ref, watch, type Ref } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch, type Ref } from "vue"
+import { meshTrace } from "../sync/meshTrace"
 import { bootstrapIdentity } from "../domain/identity"
 import { messageOrderKey, type ChatSnapshot } from "./store"
 import { resolveDisplayNamesWithIdentity } from "./names"
@@ -47,6 +48,22 @@ function appendMessages(snapshot: Ref<ChatSnapshot>, added: ChatSnapshot["messag
   for (const message of added) messages.set(message.id, message)
   snapshot.value = { ...snapshot.value, messages: [...messages.values()].sort((left, right) =>
     messageOrderKey(left).localeCompare(messageOrderKey(right))) }
+}
+
+async function traceRenderedMessages(workspaceId: string, messages: Array<{ id: string }>, isCurrent: () => boolean) {
+  await nextTick()
+  if (!isCurrent()) return
+  for (const message of messages.slice(-100)) {
+    if (!message.id.startsWith("pending:")) meshTrace("chat.rendered", { workspaceId, recordId: message.id })
+  }
+}
+
+function watchRenderedMessages(workspaceId: Ref<string>, open: Ref<boolean>, messages: Readonly<Ref<Array<{ id: string }>>>) {
+  watch([open, messages], () => {
+    if (!open.value) return
+    const id = workspaceId.value
+    void traceRenderedMessages(id, messages.value, () => id === workspaceId.value && open.value)
+  })
 }
 
 function createChatViews(
@@ -221,6 +238,7 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
     if (open.value) { toast.value = null; void refresh(); refreshTyping() }
     else setTyping(false)
   })
+  watchRenderedMessages(workspaceId, open, messages)
   const visibility = () => { if (document.visibilityState === "visible") void refresh() }
   document.addEventListener("visibilitychange", visibility)
   const unsubscribe = subscribeWorkspaceChat({

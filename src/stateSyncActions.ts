@@ -1,4 +1,5 @@
 import { hasEntityKind } from "./domain/model"
+import { meshTrace } from "./sync/meshTrace"
 import * as Automerge from "@automerge/automerge/slim";
 import { assertWorkspaceCapability } from "./domain/permissions";
 import type { WorkspaceDocumentV2 } from "./domain/model";
@@ -70,6 +71,9 @@ async function mergeAuthorizedWorkspace(
     const { proofChanged } = await defaultStorage.commitWorkspace(
       id, merged, Automerge.save(merged), verified as WorkspaceChangeAuthorization[],
     );
+    if (documentChanged) for (const change of Automerge.getChangesMetaSince(merged, local ? Automerge.getHeads(local) : [])) {
+      meshTrace("document.persisted", { workspaceId: id, recordId: change.hash, phase: "remote" });
+    }
     if (documentChanged || proofChanged) await publishCommittedWorkspace(id, merged, defaultStorage);
   });
 }
