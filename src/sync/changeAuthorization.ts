@@ -40,7 +40,7 @@ async function validateStoredAuthority(authority: StoredWorkspaceAuthority | nul
       return { authority: null, invalid: true }
     const scope = (authority as StoredWorkspaceAuthority & { scopeAuthoritySnapshot?: unknown }).scopeAuthoritySnapshot
     if (scope) {
-      const validated = meshRustRuntime().state.validateScopeAuthority(scope) as {
+      const validated = meshRustRuntime().state.validateScopeAuthority(scope, Date.now()) as {
         scopeId: string; controller: { personId: string; publicKey: string }
       }
       if (validated.scopeId !== authority.workspaceId || validated.controller.personId !== authority.ownerPersonId ||
@@ -68,7 +68,7 @@ export async function recordGenesisAuthority(doc: Automerge.Doc<WorkspaceDocumen
   if (typeof indexedDB === "undefined") return
   const genesis = await signEnvelope(profile.privateKeys.devicePrivateKey, payload, profile.device.deviceId)
   const scopeAuthoritySnapshot = { genesis, grants: [], grantIssuers: [], revocations: [], controlTransfers: [] }
-  const validated = meshRustRuntime().state.validateScopeAuthority(scopeAuthoritySnapshot) as {
+  const validated = meshRustRuntime().state.validateScopeAuthority(scopeAuthoritySnapshot, Date.now()) as {
     scopeId: string; controller: { personId: string }
   }
   if (validated.scopeId !== doc.id || validated.controller.personId !== profile.identity.personId)

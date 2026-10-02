@@ -11,6 +11,7 @@ import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRe
 import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
 import { isNativeLighthouseRoute } from "./durableMeshSessions"
 import { isEnvelope, isGrantRevoked } from "./durableMeshBase"
+import { mergeSuccessionState } from "./durableMeshOwnershipScope"
 import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
@@ -1029,17 +1030,20 @@ describe("DurableMesh peer catalog gossip", () => {
     const credential = { workspaceId: "workspace-1", ownerPersonId: "owner", ownerPublicKey: "owner-key" }
     const transferWorkspaceCredential = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
-      getProfile: async () => ({} as never),
+      getProfile: async () => ({ identity: { personId: "local" } } as never),
       store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => ({ scopeAuthoritySnapshot: snapshot }),
-        transferWorkspaceCredential } as never })
+        listPeers: async () => [], transferWorkspaceCredential } as never })
     const state = meshRustRuntime().state as any
     const spies = [
       vi.spyOn(state, "validateMeshCatalog").mockReturnValue(catalog),
       vi.spyOn(state, "mergeScopeAuthoritySnapshots").mockReturnValue(snapshot),
-      vi.spyOn(state, "validateScopeAuthority").mockReturnValue({ scopeId: "workspace-1", controller: { personId: "wrong-owner", publicKey: "wrong-key" } }),
+      vi.spyOn(state, "validateScopeAuthority").mockReturnValue({ scopeId: "workspace-1", controlEpoch: 1,
+        controller: { personId: "wrong-owner", publicKey: "wrong-key" } }),
       vi.spyOn(state, "planOwnershipMerge").mockReturnValue({ accepted: [], persistCatalog: false, steps: [{
         record: { payload: { toOwnerPersonId: "next-owner", toOwnerPublicKey: "next-key" } }, accepted: [], previousOwnerEpoch: 1,
       }] }),
+      vi.spyOn(state, "planOwnershipAdoption").mockReturnValue({ previousOwnerPersonId: "owner",
+        credential: { ...credential, ownerPersonId: "next-owner", ownerPublicKey: "next-key" }, peers: [] }),
     ]
     try {
       await expect(mesh.mergeWorkspace("workspace-1", catalog)).rejects.toThrow(/planned workspace owner/)
@@ -1066,17 +1070,19 @@ describe("DurableMesh peer catalog gossip", () => {
     const authority = { ...credential, scopeAuthoritySnapshot }
     const sender = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
       getProfile: async () => profile,
-      store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => authority } as never })
+      store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => authority,
+        listPeers: async () => [] } as never })
     ;(sender as any).peerInstances = async () => []
     const exported = await sender.exportWorkspace(workspaceId)
-    const catalog = meshRustRuntime().state.validateMeshCatalog(exported) as typeof exported
-    expect(catalog.scopeAuthoritySnapshot).toEqual(scopeAuthoritySnapshot)
+    const catalog = meshRustRuntime().state.validateMeshCatalog(exported, Date.now()) as typeof exported
+    expect(catalog.scopeAuthoritySnapshot).toEqual({ ...scopeAuthoritySnapshot, successionTransfers: [] })
 
     const order: string[] = []
     const putWorkspaceAuthority = vi.fn(async () => { order.push("persist") })
     const receiver = new DurableMesh({ transport: {} as never, workspaceStore: {} as never, workspace: {} as never,
       getProfile: async () => profile,
       store: { getWorkspaceCredential: async () => credential, getWorkspaceAuthority: async () => authority,
+        listPeers: async () => [],
         putWorkspaceAuthority } as never })
     const internal = receiver as any
     internal.mergeOwnershipTransfers = async () => credential
@@ -1088,7 +1094,9 @@ describe("DurableMesh peer catalog gossip", () => {
     internal.notify = vi.fn(async () => { order.push("notify") })
     try {
       await receiver.mergeWorkspace(workspaceId, catalog)
-      expect(putWorkspaceAuthority).toHaveBeenCalledWith(expect.objectContaining({ scopeAuthoritySnapshot }))
+      expect(putWorkspaceAuthority).toHaveBeenCalledWith(expect.objectContaining({
+        scopeAuthoritySnapshot: { ...scopeAuthoritySnapshot, successionTransfers: [] },
+      }))
       expect(order).toEqual(["persist", "notify"])
       order.length = 0
       internal.notify.mockClear()
@@ -1099,6 +1107,49 @@ describe("DurableMesh peer catalog gossip", () => {
       await sender.dispose()
       await receiver.dispose()
     }
+  })
+
+  it("atomically persists accepted succession with a scope bridge and full revocation history", async () => {
+    const claim = { signature: "claim-signature", payload: { workspaceId: "scope-succession", fromOwnerPersonId: "owner",
+      toOwnerPersonId: "successor", toOwnerPublicKey: "successor-key" } }
+    const historicalRevocation = { signature: "old-owner-revocation", payload: { ownerPersonId: "former-owner", personId: "revoked", epoch: 1 } }
+    const credential = { workspaceId: "scope-succession", ownerPersonId: "owner", ownerPublicKey: "owner-key",
+      ownerCertificates: [], epoch: 2, catalog: { revocations: [historicalRevocation] } }
+    const scopeAuthoritySnapshot = { genesis: {}, grants: [], grantIssuers: [], revocations: [], controlTransfers: [] }
+    const nextCredential = { ...credential, ownerPersonId: "successor", ownerPublicKey: "successor-key", epoch: 3 }
+    const transferWorkspaceCredential = vi.fn(async () => {})
+    const store = {
+      getWorkspaceAuthority: async () => ({ scopeAuthoritySnapshot }), listPeers: async () => [],
+      transferWorkspaceCredential, upsertPeer: vi.fn(async () => {}), putWorkspaceCredential: vi.fn(async () => {}),
+      getWorkspaceCredential: async () => nextCredential,
+    }
+    const state = meshRustRuntime().state
+    const spies = [
+      vi.spyOn(state, "planSuccessionMerge").mockReturnValue({ noop: false, policy: null, votes: [], claims: [claim],
+        transitions: [claim], conflicted: false }),
+      vi.spyOn(state, "planOwnershipAdoption").mockReturnValue({ previousOwnerPersonId: "owner", credential: nextCredential, peers: [] }),
+      vi.spyOn(state, "planSuccessionCatalog").mockReturnValue({ credential: nextCredential, persist: false, publish: false }),
+      vi.spyOn(state, "validateScopeAuthority").mockImplementation((raw: unknown) => {
+        const snapshot = raw as { successionTransfers?: unknown[] }
+        return { scopeId: "scope-succession", controlEpoch: snapshot.successionTransfers?.length ? 2 : 1,
+          controller: { personId: snapshot.successionTransfers?.length ? "successor" : "owner", publicKey: "key" } }
+      }),
+    ]
+    try {
+      await mergeSuccessionState(store as never, credential as never,
+        async () => ({ identity: { personId: "successor" } } as never), undefined, [], [claim] as never[], false, async () => {})
+      const bridge = { fromControlEpoch: 1, claim, revocations: [historicalRevocation] } as never
+      expect(transferWorkspaceCredential).toHaveBeenCalledWith("owner", nextCredential, expect.objectContaining({
+        successionTransfers: [bridge],
+      }))
+      transferWorkspaceCredential.mockClear()
+      await mergeSuccessionState(store as never, credential as never,
+        async () => ({ identity: { personId: "successor" } } as never), undefined, [], [claim] as never[], false, async () => {},
+        { ...scopeAuthoritySnapshot, successionTransfers: [bridge] })
+      expect(transferWorkspaceCredential).toHaveBeenCalledWith("owner", nextCredential, expect.objectContaining({
+        successionTransfers: [bridge],
+      }))
+    } finally { spies.forEach(spy => spy.mockRestore()) }
   })
 
   it("Given an enrolled owner device, when it opens an existing workspace, then its certificate can verify new grants", async () => {

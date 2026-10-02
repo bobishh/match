@@ -65,7 +65,7 @@ export async function getEligibleKeeperWorkspaces(workspaces: KeeperWorkspace[])
     const snapshot = (authority as { scopeAuthoritySnapshot?: { genesis?: unknown } } | null)?.scopeAuthoritySnapshot
     if (!authority || !snapshot?.genesis) return false
     try {
-      const validated = meshRustRuntime().state.validateScopeAuthority(snapshot) as { scopeId: string; controller: { personId: string; publicKey: string } }
+      const validated = meshRustRuntime().state.validateScopeAuthority(snapshot, Date.now()) as { scopeId: string; controller: { personId: string; publicKey: string } }
       return validated.scopeId === workspace.id && validated.controller.personId === profile.identity.personId && validated.controller.publicKey === authority.ownerPublicKey && authority.ownerPersonId === profile.identity.personId
     } catch { return false }
   }))
@@ -135,7 +135,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
     if (!authority || !snapshot?.genesis || authority.ownerPersonId !== profile.identity.personId) {
       throw new Error(`Owner proof unavailable for ${workspace.title}. Reopen Sync on that board and retry.`)
     }
-    const validated = meshRustRuntime().state.validateScopeAuthority(snapshot) as { scopeId: string; controller: { personId: string; publicKey: string } }
+    const validated = meshRustRuntime().state.validateScopeAuthority(snapshot, Date.now()) as { scopeId: string; controller: { personId: string; publicKey: string } }
     if (validated.scopeId !== workspace.id || validated.controller.personId !== profile.identity.personId || validated.controller.publicKey !== authority.ownerPublicKey) {
       throw new Error(`Owner proof unavailable for ${workspace.title}. Reopen Sync on that board and retry.`)
     }

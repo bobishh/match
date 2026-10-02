@@ -89,7 +89,7 @@ test("Given editor quorum recovery, when a majority votes, then one vote stays p
         .filter({ hasText: "editor", hasNotText: "You" }).first()
       await expect(otherEditor).toBeVisible({ timeout: 30_000 })
       await otherEditor.click()
-      await expect(dialog.getByLabel("Selected mesh member").getByText("Online now")).toBeVisible({ timeout: 30_000 })
+      await expect(dialog.getByLabel("Selected mesh member").getByText("Connected to this tab")).toBeVisible({ timeout: 30_000 })
     }
     await page.close()
 

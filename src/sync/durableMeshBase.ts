@@ -14,12 +14,19 @@ import { peerStore, type PeerStore, type WorkspaceMeshCredential} from "./peerSt
 import { startPersistentNode } from "./persistentNode"
 import type { SyncAcceptor, SyncConnection, SyncNode, SyncTransport} from "./transport"
 import { publishGossipPacket, type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore } from "./workspaceSet"
+type ScopeSuccessionTransfer = {
+  fromControlEpoch: number
+  claim: WorkspaceSuccessionClaim
+  revocations: WorkspaceRevocation[]
+}
+
 export type ScopeAuthoritySnapshot = {
   genesis: unknown
   grants: unknown[]
   grantIssuers: unknown[]
   revocations: unknown[]
   controlTransfers: unknown[]
+  successionTransfers?: ScopeSuccessionTransfer[]
 }
 
 export type MeshWorkspaceEnvelope = {
@@ -127,7 +134,7 @@ export function uniqueCertificates(profile: LocalProfile, certificates: Awaited<
 }
 
 export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
-  return meshRustRuntime().state.isWorkspaceEnvelope(value)
+  return meshRustRuntime().state.isWorkspaceEnvelope(value, Date.now())
 }
 
 export type MeshCatalog = { departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]

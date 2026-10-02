@@ -306,7 +306,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
       updatedAt: new Date().toISOString() }) as WorkspaceMeshCredential
     await this.store.putWorkspaceCredential(credential)
     if (envelope.scopeAuthoritySnapshot) {
-      meshRustRuntime().state.validateScopeAuthority(envelope.scopeAuthoritySnapshot)
+      meshRustRuntime().state.validateScopeAuthority(envelope.scopeAuthoritySnapshot, Date.now())
       const authority = await this.store.getWorkspaceAuthority(workspaceId)
       if (!authority) throw new Error("Workspace authority disappeared during invitation install")
       await this.store.putWorkspaceAuthority({ ...authority, scopeAuthoritySnapshot: envelope.scopeAuthoritySnapshot })
