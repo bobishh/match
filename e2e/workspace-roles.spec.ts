@@ -32,6 +32,15 @@ for (const role of ["visitor", "editor"] as const) {
       await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
       await host.getByRole("button", { name: "Close", exact: true }).first().click()
       await expect(guest.getByLabel(`Workspace role: ${role}`)).toBeVisible()
+      if (role === "editor") {
+        const structuralMove = await guest.evaluate(async () => {
+          const state = (await import("/src/state.ts")).useMatch()
+          const column = state.genericColumns.value[0]!
+          try { await state.executeCommandAsync({ kind: "moveEntity", entityId: column.id, parentId: column.placement.parentId, beforeId: null }); return "allowed" }
+          catch (error) { return String(error) }
+        })
+        expect(structuralMove).toContain("Only the owner can edit board structure")
+      }
       await guest.getByRole("button", { name: "Settings", exact: true }).click()
       const guestSettings = guest.getByRole("dialog", { name: "Settings", exact: true })
       await expect(guestSettings.getByRole("tab", { name: "Identity", exact: true })).toBeVisible()

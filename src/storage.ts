@@ -40,6 +40,10 @@ type StoredSnapshot = {
   savedAt: string
 }
 
+function canReuseDocument(doc: Automerge.Doc<WorkspaceDocumentV2> | undefined, workspaceId: string, heads: Heads) {
+  return doc?.id === workspaceId && Automerge.getHeads(doc).sort().join() === heads.slice().sort().join()
+}
+
 let testStorageFailureHook = false
 
 export function setStorageFailureHookForTest(active: boolean) {
@@ -300,7 +304,7 @@ export class WorkspaceStorage {
     const committed = await readWorkspaceSnapshot(workspaceId)
     const legacyRaw = committed ? null : await getStorageRaw(`match.snapshot.${workspaceId}`)
     const previous = committed ?? (legacyRaw ? parseStoredSnapshot(legacyRaw, workspaceId) : null)
-    if (previous && !doc.archivedAt) {
+    if (previous && !doc.archivedAt && (!committed || committed.archivedAt !== null)) {
       const previousDoc = Automerge.load<WorkspaceDocumentV2>(previous.bytes)
       try {
         if (previousDoc.archivedAt && !includesWorkspaceHeads(doc, Automerge.getHeads(previousDoc)))
@@ -376,7 +380,7 @@ export class WorkspaceStorage {
   }
 
   async loadWorkspaceDoc(
-    workspaceId: string
+    workspaceId: string, reusable?: Automerge.Doc<WorkspaceDocumentV2>
   ): Promise<{ doc: Automerge.Doc<WorkspaceDocumentV2>; heads: Heads } | null> {
     const committedSnapshot = await readWorkspaceSnapshot(workspaceId)
     const rawSnapshot = committedSnapshot ? null : await getStorageRaw(`match.snapshot.${workspaceId}`)
@@ -387,7 +391,8 @@ export class WorkspaceStorage {
     let doc: Automerge.Doc<WorkspaceDocumentV2>
 
     if (snapshot) {
-      doc = Automerge.load<WorkspaceDocumentV2>(snapshot.bytes)
+      doc = canReuseDocument(reusable, workspaceId, snapshot.heads)
+        ? Automerge.clone(reusable!) : Automerge.load<WorkspaceDocumentV2>(snapshot.bytes)
     } else {
       doc = Automerge.init<WorkspaceDocumentV2>()
     }

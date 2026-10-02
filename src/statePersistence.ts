@@ -17,7 +17,7 @@ import {
   reconcilePersonalRootWorkspaces,
 } from "./domain/personalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
-import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
+import { isItem, type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command } from "./domain/commands";
 import {
   prepareLocalChangeAuthorizations,
@@ -200,7 +200,11 @@ async function commitAuthorizedCommand(
     );
   const changeBytes = Automerge.getLastLocalChange(result.value.newDoc);
   if (!changeBytes) throw new Error("No change produced");
-  assertWorkspaceTransition(role, doc, result.value.newDoc);
+  if (command.kind === "moveEntity" || command.kind === "restoreAndMove") {
+    const entity = doc.entities[command.entityId];
+    assertWorkspaceCapability(role, isItem(entity) || entity?.kind === "document" || entity?.kind === "artifact" ? "content.write" : "board.configure");
+    (await import("./sync/workspaceAccess")).inheritLocalMoveAccess(doc, result.value.newDoc);
+  } else assertWorkspaceTransition(role, doc, result.value.newDoc);
   const authorizations = await prepareLocalChangeAuthorizations(result.value.newDoc, profile, [
     result.value.receipt.changeHash,
   ]);
@@ -432,7 +436,7 @@ async function latestWorkspaceDocument(
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
   const local =
     stateRuntime.activeDoc?.id === workspaceId ? stateRuntime.activeDoc : null;
-  const stored = (await storage.loadWorkspaceDoc(workspaceId))?.doc ?? null;
+  const stored = (await storage.loadWorkspaceDoc(workspaceId, local ?? undefined))?.doc ?? null;
   if (!local && !stored) throw new Error("Workspace not hydrated");
   return local && stored
     ? Automerge.merge(Automerge.clone(local), Automerge.clone(stored))

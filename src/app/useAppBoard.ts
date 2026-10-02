@@ -156,10 +156,23 @@ function useBoardSortables(core: AppBoardContext, presentation: ReturnType<typeo
   return { destroyBoardSortables, setupBoardSortables }
 }
 
+const dragOrigins = new WeakMap<HTMLElement, { parent: Node; next: Node | null }>()
+function rememberDrag(event: Sortable.SortableEvent) {
+  const item = event.item
+  if (item.parentNode) dragOrigins.set(item, { parent: item.parentNode, next: item.nextSibling })
+}
+function restoreDrag(item: HTMLElement) {
+  const origin = dragOrigins.get(item)
+  if (!origin) return
+  origin.parent.insertBefore(item, origin.next?.parentNode === origin.parent ? origin.next : null)
+  dragOrigins.delete(item)
+}
+
 function setupColumnSortable(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, setSortable: (sortable: Sortable) => void) {
   if (!core.canEditBoard.value) return
   setSortable(Sortable.create(board, {
     animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180, direction: "horizontal", draggable: ".column", handle: ".column-drag-handle", filter: "button, input, select, textarea", ghostClass: "column-sortable-ghost", chosenClass: "column-sortable-chosen", dragClass: "column-sortable-drag", forceFallback: true, fallbackTolerance: 4,
+    onStart: rememberDrag,
     onEnd(event) {
       if (event.oldIndex === event.newIndex) return
       const entityId = (event.item as HTMLElement).dataset.columnId
@@ -167,7 +180,8 @@ function setupColumnSortable(board: HTMLElement, core: AppBoardContext, presenta
       const index = columns.findIndex(column => column.dataset.columnId === entityId)
       const beforeId = columns[index + 1]?.dataset.columnId ?? null
       if (!entityId) return
-      void core.match.executeCommandAsync({ kind: "moveEntity", entityId, parentId: core.match.activeBoard.value!.id, beforeId }).then(() => { core.boardRenderKey.value += 1; presentation.highlightMoved(entityId, "column"); core.notice.value = "Column moved" }).catch(error => { core.notice.value = `Move failed: ${error.message}`; core.boardRenderKey.value += 1 })
+      restoreDrag(event.item)
+      void core.match.executeCommandAsync({ kind: "moveEntity", entityId, parentId: core.match.activeBoard.value!.id, beforeId }).then(() => { presentation.highlightMoved(entityId, "column"); core.notice.value = "Column moved" }).catch(error => { core.notice.value = `Move failed: ${error.message}` })
     },
   }))
 }
@@ -184,6 +198,7 @@ function addTouchTracking(board: HTMLElement, update: (point: { x: number; y: nu
 function setupCardSortables(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, readTouchPoint: () => { x: number; y: number } | null, clearTouchPoint: () => void) {
   return [...board.querySelectorAll<HTMLElement>(".card-stack[data-column-id]")].map(stack => Sortable.create(stack, {
     group: "board-cards", animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180, draggable: ".lead-card[data-item-id]", filter: "input", preventOnFilter: false, ghostClass: "card-sortable-ghost", chosenClass: "card-sortable-chosen", dragClass: "card-sortable-drag", emptyInsertThreshold: 48, forceFallback: true, delay: 180, delayOnTouchOnly: true, touchStartThreshold: 8, fallbackTolerance: 4, fallbackOnBody: true, scroll: true, bubbleScroll: true, scrollSensitivity: 96, scrollSpeed: 16,
+    onStart: rememberDrag,
     onEnd(event) { moveSortableCard(event, board, core, presentation, readTouchPoint(), clearTouchPoint) },
   }))
 }
@@ -194,27 +209,27 @@ function moveSortableCard(event: Sortable.SortableEvent, board: HTMLElement, cor
   const target = cardDropTarget(event.to as HTMLElement, board, touchPoint)
   clearTouchPoint()
   const parentId = target.dataset.columnId
-  if (!itemId || !parentId) return
+  if (!itemId || !parentId) { restoreDrag(item); return }
   const cards = [...target.querySelectorAll<HTMLElement>(":scope > .lead-card[data-item-id]")]
   const beforeId = cards[cards.findIndex(card => card.dataset.itemId === itemId) + 1]?.dataset.itemId ?? null
   const sourceColumn = core.match.genericColumns.value.find(column => column.id === event.from.dataset.columnId)
   const archiveTarget = core.match.genericColumns.value.find(column => column.id === parentId)
   const targetIsArchive = Boolean(archiveTarget && isArchiveColumn(archiveTarget))
   const sourceItem = core.match.getActiveDoc()?.entities[itemId]
-  if (targetIsArchive && sourceItem && isItem(sourceItem) && sourceItem.archivedAt) { core.boardRenderKey.value += 1; return }
+  if (targetIsArchive && sourceItem && isItem(sourceItem) && sourceItem.archivedAt) { restoreDrag(item); return }
   const command = targetIsArchive
     ? { kind: "setEntityArchived" as const, entityId: itemId, archived: true }
     : sourceItem && isItem(sourceItem) && sourceItem.archivedAt
       ? { kind: "restoreAndMove" as const, entityId: itemId, parentId, beforeId }
       : { kind: "moveEntity" as const, entityId: itemId, parentId, beforeId }
+  restoreDrag(item)
   void core.match.executeCommandAsync(command).then(() => {
-    core.boardRenderKey.value += 1
     presentation.highlightMoved(itemId, "item")
     if (targetIsArchive && sourceColumn) {
       core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId, title: item.querySelector(".card-open-button")?.getAttribute("aria-label")?.replace(/^Open /, "") || "item" }
       core.notice.value = "Item archived"
     } else core.notice.value = "Item moved"
-  }).catch(error => { core.notice.value = `Move failed: ${error.message}`; core.boardRenderKey.value += 1 })
+  }).catch(error => { core.notice.value = `Move failed: ${error.message}` })
 }
 
 function cardDropTarget(target: HTMLElement, board: HTMLElement, touchPoint: { x: number; y: number } | null) {

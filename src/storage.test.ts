@@ -78,6 +78,26 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     expect((await storage.loadWorkspaceDoc(doc.id))!.heads).toEqual(heads)
   })
 
+  it("reuses a matching snapshot without losing a later journal write or consuming the borrowed document", async () => {
+    const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc(crypto.randomUUID(), "Cached", profile.identity.personId, "blank"))
+    await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
+    const column = Object.values(doc.entities).find(e => hasEntityKind(e, "column"))!
+    const result = await executeCommand(Automerge.clone(doc), { kind: "createItem", parentId: column.id, title: "Other tab" }, profile)
+    if (!result.ok) throw new Error(result.error.message)
+    await storage.commitTransaction(doc.id, result.value.receipt, Automerge.getLastLocalChange(result.value.newDoc)!, result.value.proof)
+    const loaded = (await storage.loadWorkspaceDoc(doc.id, doc))!.doc
+    expect(Object.values(loaded.entities).filter(isItem).map(item => item.title)).toEqual(["Other tab"])
+    expect(Automerge.change(doc, draft => { draft.title = "Still writable" }).title).toBe("Still writable")
+  })
+
+  it("loads another tab's newer snapshot when cached heads differ", async () => {
+    const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc(crypto.randomUUID(), "Old", profile.identity.personId, "blank"))
+    await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
+    const newer = Automerge.change(Automerge.clone(doc), draft => { draft.title = "Other tab saved" })
+    await storage.saveSnapshot(doc.id, newer, Automerge.save(newer))
+    expect((await storage.loadWorkspaceDoc(doc.id, doc))!.doc.title).toBe("Other tab saved")
+  })
+
   it("selects the current identity root after enrollment instead of the first stored root", async () => {
     await storage.savePersonalRoot(createPersonalRoot(profile, "old-cert", "00000000-0000-4000-8000-000000000001"))
     resetIdentityStorageForTest()

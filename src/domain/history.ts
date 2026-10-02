@@ -15,11 +15,10 @@ export interface HistoryEntry {
 }
 
 export function projectDocumentHistory(doc: Automerge.Doc<WorkspaceDocumentV2>): HistoryEntry[] {
-  const history = Automerge.getHistory(doc)
+  const history = Automerge.getChangesMetaSince(doc, [])
   const entries: HistoryEntry[] = []
 
-  for (const item of history) {
-    const change = item.change
+  for (const change of history) {
     let action = "change"
     let entityIds: string[] = []
     let personId: string | undefined

@@ -116,12 +116,11 @@ async function decideWorkspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfi
     departures?: Array<{ record: unknown; authority: WorkspaceAuthority }>
   } | undefined
   const localCertificates = uniqueCertificates(profile, await defaultProofStore.listCertificates().catch(() => []))
-  return meshRustRuntime().state.decideWorkspaceAccess({
+  const role = await (await import("./workspaceAccess")).decideAccess(doc as Automerge.Doc<WorkspaceDocumentV2>, {
     snapshot: {
       workspaceId: doc.id, genesisOwner, genesisEpoch: 1,
       expectedCurrentOwner: { personId: authority.ownerPersonId, publicKey: authority.ownerPublicKey,
         certificates: authority.ownerCertificates as DeviceCertificate[] },
-      document: Array.from(Automerge.save(doc)),
       ownershipTransfers: catalog?.ownershipTransfers ?? [], successionClaims: catalog?.successionClaims ?? [],
       revocations: catalog?.revocations ?? [],
       deviceRevocations: (catalog?.deviceRevocations ?? []).map(value => ({ record: value.record, signer: value.authority })),
@@ -133,7 +132,15 @@ async function decideWorkspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfi
     grant: authority.localGrant as WorkspaceGrant | undefined,
     departures: catalog?.departures ?? [],
     legacyAuthorityEvidence: (catalog as { breakGlassClaims?: unknown[] } | undefined)?.breakGlassClaims ?? [],
-  }, Date.now())
+  })
+  await assertCurrentAccessAuthority(doc.id, authority)
+  return role
+}
+
+async function assertCurrentAccessAuthority(workspaceId: string, authority: StoredWorkspaceAuthority) {
+  if (typeof indexedDB === "undefined") return
+  if (canonicalizeJson({ ...(await storedWorkspaceAuthority(workspaceId)).authority, updatedAt: "" }) !== canonicalizeJson({ ...authority, updatedAt: "" }))
+    throw new Error("Workspace authority changed during access validation. Retry.")
 }
 
 export async function effectiveWorkspaceOwner(workspaceId: string, genesisOwnerPersonId: string) {
