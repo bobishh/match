@@ -268,9 +268,14 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
   const frozenCredential = canonicalizeJson(credential)
-  const plan = await runWorkspaceAdmission({ workspaceId: remote.id,
+  const knownAuthority = local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null
+  const replay = local && knownAuthority &&
+    Automerge.getHeads(local).sort().join() === Automerge.getHeads(remote).sort().join() &&
+    canonicalizeJson(bundle.authority) === canonicalizeJson(knownAuthority) &&
+    await containsOnlyStoredProofs(remote.id, bundle)
+  const plan = replay ? { unsignedHashes: [], verifiedAuthorizations: [], unsignedError: "" } : await runWorkspaceAdmission({ workspaceId: remote.id,
     local: local ? Automerge.save(local) : undefined, remote: Automerge.save(remote),
-    authorization: bundle, knownAuthority: local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null,
+    authorization: bundle, knownAuthority,
     now: Date.now(),
   })
   // Off-thread validation yields while control evidence can change. A result
@@ -284,6 +289,13 @@ export async function validateIncomingChangeAuthorizations(local: Automerge.Doc<
     throw new WorkspaceChangeRejected(plan.unsignedError)
   }
   return plan.verifiedAuthorizations
+}
+
+async function containsOnlyStoredProofs(workspaceId: string, bundle: IncomingAuthorizationBundle): Promise<boolean> {
+  // Exact admitted content only. Unknown or modified signatures, certificates,
+  // grants, authority, or document heads still require full admission.
+  const known = new Set((await records(workspaceId)).map(canonicalizeJson))
+  return (bundle.version === 1 ? bundle.records : bundle.pages.flat()).every(record => known.has(canonicalizeJson(record)))
 }
 
 /** Persists only proofs that a completed admission has already verified. */

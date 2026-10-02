@@ -14,6 +14,18 @@ async function profileSettings(page: Page) {
   return dialog
 }
 
+test("Given Markdown cannot load, when a chat message is saved, then its text remains visible", async ({ page }) => {
+  await page.route("**/src/components/MarkdownContent.vue", route => route.abort())
+  await page.goto("/")
+  const chat = await openChat(page)
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Visible despite unavailable formatting")
+  await chat.getByRole("button", { name: "Send message" }).click()
+  await expect(chat.getByText("Visible despite unavailable formatting", { exact: true })).toBeVisible()
+  await page.reload()
+  const restored = await openChat(page)
+  await expect(restored.getByText("Visible despite unavailable formatting", { exact: true })).toBeVisible()
+})
+
 for (const width of [1280, 375]) {
   test(`Given a ${width}px workspace, when I name myself and send a message, then both persist after reload`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
@@ -157,6 +169,7 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     await privateChat.getByRole("textbox", { name: "Message", exact: true }).fill("Private local chat")
     await privateChat.getByRole("button", { name: "Send message" }).click()
     await expect(privateChat.getByText("Private local chat", { exact: true })).toBeVisible()
+    await expect(privateChat.getByText("Saving locally…", { exact: true })).toHaveCount(0)
     await guest.goto(inviteUrl)
     const guestSync = guest.getByRole("dialog", { name: "Device sync" })
     await guestSync.getByRole("button", { name: "Accept and join" }).click()
@@ -173,12 +186,14 @@ test("Given paired workspaces, when matching names and messages sync, then both 
     const guestChat = await openChat(guest)
     await expect(guestChat.getByText("Private local chat", { exact: true })).toHaveCount(0)
     await guestChat.getByRole("textbox", { name: "Message", exact: true }).fill("Hello from guest")
+    const sentAt = Date.now()
     await guestChat.getByRole("button", { name: "Send message" }).click()
     await expect(guestChat.locator(".chat-message-author")).toContainText("Тревожная мимоза · ")
     await expect(page.getByRole("button", { name: "Workspace chat", exact: true }).filter({ visible: true })).toContainText("1", { timeout: 15_000 })
     const hostChat = await openChat(page)
     await expect(hostChat.getByText("Private local chat", { exact: true })).toHaveCount(0)
     await expect(hostChat.getByText("Hello from guest", { exact: true })).toBeVisible({ timeout: 15_000 })
+    console.info(`Chat delivery: sender submit to receiver visible = ${Date.now() - sentAt}ms`)
     await expect(hostChat.locator(".chat-message-author")).toHaveText(await guestChat.locator(".chat-message-author").textContent() ?? "")
     await hostChat.getByRole("button", { name: "Close", exact: true }).click()
     await page.bringToFront()

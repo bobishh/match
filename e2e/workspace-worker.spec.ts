@@ -1,5 +1,26 @@
 import { expect, test } from "@playwright/test"
 
+test("Given an already admitted board, when its exact signed evidence repeats, then it does not queue another admission job", async ({ page }) => {
+  await page.goto("/")
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
+  const result = await page.evaluate(async () => {
+    const match = (await import("/src/state.ts")).useMatch()
+    await match.whenReady()
+    const bytes = await match.readWorkspaceBytes(match.activeWorkspace.id)
+    const { exportAuthorizationBundle } = await import("/src/sync/changeAuthorization.ts")
+    const proof = await exportAuthorizationBundle(bytes, match.getCurrentProfile()!)
+    const original = window.Worker
+    window.Worker = class { constructor() { throw new Error("Unexpected repeated admission") } } as unknown as typeof Worker
+    try {
+      const start = performance.now()
+      await match.mergeAuthorizedWorkspace(match.activeWorkspace.id, bytes, proof)
+      return performance.now() - start
+    } finally { window.Worker = original }
+  })
+  expect(result).toBeLessThan(1000)
+  console.info(`Exact evidence replay: ${Math.round(result)}ms; no admission worker`)
+})
+
 test("Given a large signed peer history, when admission runs, then board controls stay responsive until durable commit", async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto("/")
