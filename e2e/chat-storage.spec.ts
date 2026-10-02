@@ -1,4 +1,5 @@
 import { test, expect } from "./support/coverage"
+import { openStorageHarness } from "./support/storageHarness"
 
 const STORE_PATH = "/src/chat/store.ts"
 
@@ -14,8 +15,8 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
     const dbName = uniqueDbName("test-chat-concurrent")
     const secondPage = await context.newPage()
 
-    await page.goto("/")
-    await secondPage.goto("/")
+    await openStorageHarness(page)
+    await openStorageHarness(secondPage)
 
     const workspaceId = "ws_concurrent"
     const sharedMsg = {
@@ -95,7 +96,7 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
 
   test("immutable same-id conflict rejects and leaves stored record unchanged", async ({ page }) => {
     const dbName = uniqueDbName("test-chat-conflict")
-    await page.goto("/")
+    await openStorageHarness(page)
 
     const workspaceId = "ws_conflict"
     const originalMsg = {
@@ -153,7 +154,7 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
     page,
   }) => {
     const dbName = uniqueDbName("test-chat-cap2000")
-    await page.goto("/")
+    await openStorageHarness(page)
 
     const workspaceId = "ws_cap2000"
 
@@ -220,7 +221,7 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
     page,
   }) => {
     const dbName = uniqueDbName("test-chat-bytecap")
-    await page.goto("/")
+    await openStorageHarness(page)
 
     const workspaceId = "ws_byte_cap"
 
@@ -281,7 +282,7 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
     page,
   }) => {
     const dbName = uniqueDbName("test-chat-atomic")
-    await page.goto("/")
+    await openStorageHarness(page)
 
     const workspaceId = "ws_atomic"
     const existingMsg = {
@@ -347,7 +348,7 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
 
   test("read cursor operates monotonically and ignores older cursors", async ({ page }) => {
     const dbName = uniqueDbName("test-chat-cursor")
-    await page.goto("/")
+    await openStorageHarness(page)
 
     const workspaceId = "ws_cursor"
 
@@ -391,7 +392,7 @@ test.describe("ChatStore Real IndexedDB Durability & Isolation E2E", () => {
 
   test("page reload opens and loads durable stored chat data identically", async ({ page }) => {
     const dbName = uniqueDbName("test-chat-reload")
-    await page.goto("/")
+    await openStorageHarness(page)
 
     const workspaceId = "ws_reload"
     const msg = {

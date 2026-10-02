@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { userMessage, useDeviceSync } from "./useDeviceSync"
 import { formatSyncError } from "./deviceSyncState"
 import { DeviceSyncController } from "./deviceSyncController"
+import { WorkspaceAdmissionFailure } from "./deviceSyncHost"
 
 const waitFor = async (predicate: () => boolean) => {
   for (let attempt = 0; attempt < 50; attempt++) {
@@ -59,8 +60,12 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
       resumeAll: vi.fn(async () => undefined),
     }
     const controller = new DeviceSyncController({ workspace: {}, origin: () => "http://localhost:3000" })
-    const internal = controller as any
     const sync = controller.api()
+    const internal = controller as unknown as {
+      node: typeof node
+      durableMesh: typeof durableMesh
+      attachLiveSession: (liveSession: typeof session, currentRun: number) => void
+    }
     internal.node = node
     internal.durableMesh = durableMesh
     internal.attachLiveSession(session, 0)
@@ -88,8 +93,12 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
       resumeAll: vi.fn(async () => undefined),
     }
     const controller = new DeviceSyncController({ workspace: {}, origin: () => "http://localhost:3000" })
-    const internal = controller as any
     const sync = controller.api()
+    const internal = controller as unknown as {
+      node: typeof node
+      durableMesh: typeof durableMesh
+      attachLiveSession: (liveSession: typeof session, currentRun: number) => void
+    }
     internal.node = node
     internal.durableMesh = durableMesh
     internal.attachLiveSession(session, 0)
@@ -100,6 +109,39 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
     expect(durableMesh.resumeAll).toHaveBeenCalledWith(node)
     expect(sync.step.value).toBe("workspace-reconnecting")
     expect(sync.error.value).toBe("")
+  })
+
+  it("Given workspace admission fails before a peer connects, when recovery adopts durable mesh, then host keeps terminal cause visible", async () => {
+    let rejectSession!: (error: unknown) => void
+    const session = {
+      done: new Promise<void>((_, reject) => { rejectSession = reject }),
+      publish: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    }
+    const node = { close: vi.fn(async () => undefined) }
+    const durableMesh = {
+      revokedWorkspaceIds: vi.fn(async () => []),
+      resumeAll: vi.fn(async () => undefined),
+    }
+    const controller = new DeviceSyncController({ workspace: {}, origin: () => "http://localhost:3000" })
+    const sync = controller.api()
+    const internal = controller as unknown as {
+      node: typeof node
+      durableMesh: typeof durableMesh
+      attachLiveSession: (liveSession: typeof session, currentRun: number) => void
+    }
+    internal.node = node
+    internal.durableMesh = durableMesh
+    sync.step.value = "workspace-host"
+    internal.attachLiveSession(session, 0)
+
+    rejectSession(new WorkspaceAdmissionFailure(new Error("Snapshot preparation failed")))
+    await waitFor(() => durableMesh.resumeAll.mock.calls.length === 1)
+
+    expect(session.close).toHaveBeenCalledOnce()
+    expect(durableMesh.resumeAll).toHaveBeenCalledWith(node)
+    expect(sync.step.value).toBe("error")
+    expect(sync.error.value).toBe("Snapshot preparation failed")
   })
 
   it("keeps sync enabled while no peer session is connected, and only disables it when stopped", async () => {

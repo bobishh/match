@@ -10,10 +10,24 @@ export const test = process.env.MATCH_E2E_COVERAGE === "1" ? base.extend<{ sourc
       await use()
       return
     }
+    const captured: Awaited<ReturnType<typeof page.coverage.stopJSCoverage>> = []
+    const goto = page.goto.bind(page)
+    const reload = page.reload.bind(page)
+    // Retain counters before old execution contexts disappear. Chrome can report
+    // only the latest instance of a module after reload despite resetOnNavigation=false.
+    const checkpoint = async () => {
+      captured.push(...await page.coverage.stopJSCoverage())
+      await page.coverage.startJSCoverage({ resetOnNavigation: false })
+    }
     await page.coverage.startJSCoverage({ resetOnNavigation: false })
+    page.goto = async (...args) => { await checkpoint(); return goto(...args) }
+    page.reload = async (...args) => { await checkpoint(); return reload(...args) }
     await use()
+    page.goto = goto
+    page.reload = reload
     const unavailable = page.isClosed() ? "Fixture page closed before collection" : undefined
-    const entries = (unavailable ? [] : await page.coverage.stopJSCoverage()).filter(entry => {
+    if (!unavailable) captured.push(...await page.coverage.stopJSCoverage())
+    const entries = captured.filter(entry => {
       const path = new URL(entry.url).pathname
       return path.startsWith("/src/") && !path.startsWith("/src/vendor/")
     })

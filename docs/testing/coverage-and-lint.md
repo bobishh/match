@@ -16,7 +16,7 @@ Production rules now reject explicit `any` and unsafe assignment, arguments, cal
 
 Unit tests now also reject explicit `any`. Unsafe-value rules remain disabled in negative test fixtures; runtime-invalid inputs are intentional there. Existing explicit-any violations are tracked rather than silently exempting every future test.
 
-`eslint-suppressions.json` records existing migration debt: 95 production unsafe-value findings and 125 explicit-any findings in tests. Some production findings involve unresolved Vue/WASM boundary types; others involve `JSON.parse`, IndexedDB requests, and Promise catch callbacks. They need separate review, not replacement with unchecked casts to hide the warning.
+The initial `eslint-suppressions.json` baseline recorded 95 production unsafe-value findings and 125 explicit-any findings in tests. The reduction pass replaced two test casts with narrow typed fixture seams and pruned those suppressions; 123 test findings remain. Some production findings involve unresolved Vue/WASM boundary types; others involve `JSON.parse`, IndexedDB requests, and Promise catch callbacks. They need separate review, not replacement with unchecked casts to hide the warning.
 
 Normal `npm run quality:lint` applies this baseline and rejects increased counts. ESLint also rejects obsolete suppressions; after fixing debt, run `npx eslint src --prune-suppressions` and review the smaller baseline. Never run suppression-generation commands in CI. Native bulk suppressions track counts per file/rule, not exact source locations: a same-count replacement can evade this guard and still needs review.
 
@@ -30,7 +30,7 @@ Run `npm run test:e2e:coverage` for core coverage, or select a smaller candidate
 
 The contribution report counts statements uniquely executed by each passed scenario within the selected group. A zero count is a review signal, not proof that the assertions duplicate another test. Failed attempts are excluded from the aggregate. Unimported files are included by the unit report; the browser report lists executed modules only. Do not compare its percentage directly to the unit denominator.
 
-Collection covers the fixture page's main-thread JavaScript in Chromium, including navigation/reload. Additional pages, Workers, WASM, CSS and closed fixture pages are outside this scope. The performance benchmark remains uninstrumented because coverage changes execution cost. Keep raw reports from before/after reductions in distinct directories; Playwright clears its output directory between runs.
+Collection covers the fixture page's main-thread JavaScript in Chromium. It checkpoints before explicit `page.goto` and `page.reload`: despite `resetOnNavigation: false`, Chrome was reporting zero counts for previously executed restore handlers after reload. Each checkpoint is merged into the scenario report. Navigation initiated inside the application has no guaranteed pre-navigation checkpoint. Additional pages, Workers, WASM and CSS are outside this scope. A closed fixture page retains earlier checkpoints, with an `unavailable` notice for its final uncaptured context. The performance benchmark remains uninstrumented because coverage changes execution cost. Keep raw reports from before/after reductions in distinct directories; Playwright clears its output directory between runs.
 
 Reference: [Playwright JavaScript coverage](https://playwright.dev/docs/api/class-coverage).
 

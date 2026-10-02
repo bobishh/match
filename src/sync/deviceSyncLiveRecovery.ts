@@ -3,6 +3,7 @@ import { meshTrace } from "./meshTrace"
 
 type LiveSessionRecovery = {
   error: unknown
+  terminalError?: unknown
   sessionRun: number
   currentRun: () => number
   supersede: () => number
@@ -10,15 +11,20 @@ type LiveSessionRecovery = {
   handoff: () => Promise<void>
 }
 
-export function recoverLiveSession(input: LiveSessionRecovery) {
-  if (input.sessionRun !== input.currentRun()) return
+export function recoverLiveSession(input: LiveSessionRecovery): Promise<void> {
+  if (input.sessionRun !== input.currentRun()) return Promise.resolve()
   const reason = formatSyncError(input.error, "Live sync stopped.")
   const recoveryRun = input.supersede()
   meshTrace("live.session.failed", { runId: input.sessionRun, reason, recovery: "durable-mesh" }, "warn")
-  input.state.step.value = "workspace-reconnecting"
-  input.state.error.value = ""
+  input.state.step.value = input.terminalError === undefined ? "workspace-reconnecting" : "error"
+  input.state.error.value = input.terminalError === undefined
+    ? ""
+    : userMessage(input.terminalError, "Workspace admission failed.")
   input.state.meshDiagnostic.value = `Direct session ended: ${reason}`
-  void input.handoff().catch(error => reportRecoveryFailure(input, error, recoveryRun))
+  return input.handoff().catch(error => {
+    if (input.terminalError === undefined) reportRecoveryFailure(input, error, recoveryRun)
+    else meshTrace("live.session.recovery.failed", { runId: recoveryRun, reason: formatSyncError(error, "Couldn’t restart live sync.") }, "warn")
+  })
 }
 
 function reportRecoveryFailure(input: LiveSessionRecovery, error: unknown, recoveryRun: number) {

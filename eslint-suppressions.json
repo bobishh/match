@@ -213,7 +213,7 @@
   },
   "src/sync/useDeviceSync.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 7
+      "count": 5
     }
   },
   "src/sync/workspaceAccessWorker.ts": {

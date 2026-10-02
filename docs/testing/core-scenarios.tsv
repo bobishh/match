@@ -5,22 +5,23 @@ agent-guide.spec.ts	50	Given a narrow viewport, when the guide opens, then conte
 archive-column-option.spec.ts	13	Given a blank board, when Archive column is enabled and item archived, then one collapsible Archive contains item after reload
 archive-column-option.spec.ts	39	Given archive column save fails, when checked column is added, then draft remains and board has no Archive
 archive-column-option.spec.ts	51	Given item archived before Archive column exists, when column is enabled, then item appears and restores
-archive-layout.spec.ts	5	Given all job-search statuses at 1920px, when archive opens and closes, then every column stays in one horizontal row
-archive-layout.spec.ts	5	Given all job-search statuses at 1440px, when archive opens and closes, then every column stays in one horizontal row
-archive-layout.spec.ts	5	Given all job-search statuses at 1024px, when archive opens and closes, then every column stays in one horizontal row
-archive-layout.spec.ts	5	Given all job-search statuses at 390px, when archive opens and closes, then every column stays in one horizontal row
+archive-layout.spec.ts	4	Given a job-search board, when archive opens and closes at four widths, then columns retain geometry and archive styling
 automatic-priority.spec.ts	25	Given weighted work-mode rules, when leads are created, then fit and priority are derived without manual fields
 automatic-priority.spec.ts	53	Given automatic priority with no criteria, when saving, then settings stay open with an actionable error
 board-breakpoint.spec.ts	4	Given a 640px board, when resizing to a phone, then compact columns become a navigable single column only at 560px
-board-breakpoint.spec.ts	25	Given a compact board with no search matches, when clearing search, then columns return without phone navigation
-board-drag-drop.spec.ts	55	Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards
-board-drag-drop.spec.ts	83	Given a mobile board, when an editor drags a card sideways, then the board scrolls and the card changes column
-board-drag-drop.spec.ts	98	Given a mobile board, when a card is released over another column header, then that column receives it
-board-drag-drop.spec.ts	111	Given an empty column, when a card hovers then drops, then its hint hides without displacing the card
-board-drag-drop.spec.ts	130	Given ordered cards, when a card crosses columns, then exact placement persists
-board-drag-drop.spec.ts	145	Given cards in one column, when one is dropped before another, then exact order persists
-board-drag-drop.spec.ts	166	Given persistence fails, when a card is dragged, then board restores and reports failure
-board-drag-drop.spec.ts	178	Given edit mode, when a column header is dragged, then column order persists
+board-drag-drop.spec.ts	62	Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards
+board-drag-drop.spec.ts	90	Given a mobile board, when an editor drags a card sideways, then the board scrolls and the card changes column
+board-drag-drop.spec.ts	105	Given a mobile board, when a card is released over another column header, then that column receives it
+board-drag-drop.spec.ts	118	Given three cards, when cards and columns reorder, then hints, neighbors and exact order survive reload
+board-drag-drop.spec.ts	201	Given persistence fails, when a card is dragged and retried, then rollback and recovery preserve neighbors after reload
+board-local.spec.ts	17	Given cards still loading on first visit, when Match opens, then delayed progress appears within the board shell
+board-local.spec.ts	43	Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts
+board-local.spec.ts	75	Given an archived card, when Archive opens, then it expands into a filtered column and can collapse again
+board-local.spec.ts	105	Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit
+board-local.spec.ts	121	Given a mid-size desktop viewport, when Match opens, then the title and filters stay legible without clipped controls
+board-local.spec.ts	146	Given an iPhone 17e portrait viewport, when Match opens, then filters start closed and columns snap one page at a time
+board-local.spec.ts	165	Given two tabs on one device, when one tab saves a card, then the other reads and merges IndexedDB without pairing
+board-local.spec.ts	179	Given the board, when Sync is clicked, then members open before workspace selection without starting a node
 card-aging.spec.ts	3	idle cards age while the page stays open and editing restores freshness
 card-aging.spec.ts	30	aging threshold changes are explained before applying
 card-edit.spec.ts	21	Given a long lead, when details open and schema values change, then Edit stays visible and values survive reload
@@ -36,13 +37,21 @@ card-stage-shortcuts.spec.ts	19	Given a generic card, when stage shortcut is cli
 card-stage-shortcuts.spec.ts	30	Given a generic card, when stage move fails, then card stays put and error appears
 card-stage-shortcuts.spec.ts	40	Given board JSON, when stage buttons are configured, then card shows configured buttons and order
 card-stage-shortcuts.spec.ts	67	Given board JSON, when a button targets an absent column, then settings reject it
-chat-storage.spec.ts	10	two tabs concurrently append different messages and duplicate is suppressed
-chat-storage.spec.ts	96	immutable same-id conflict rejects and leaves stored record unchanged
-chat-storage.spec.ts	152	2001 chronological records retains latest 2000 and pruned cutoff rejects reimport
-chat-storage.spec.ts	219	byte cap 4 MiB retains latest records and prunes oldest when using records near 16 KiB
-chat-storage.spec.ts	280	atomic merge failure on conflicting record does not partially save valid message
-chat-storage.spec.ts	348	read cursor operates monotonically and ignores older cursors
-chat-storage.spec.ts	392	page reload opens and loads durable stored chat data identically
+chat-local.spec.ts	17	Given Markdown cannot load, when a chat message is saved, then its text remains visible
+chat-local.spec.ts	32	Given a 1280px workspace, when I name myself and send a message, then both persist after reload
+chat-local.spec.ts	32	Given a 375px workspace, when I name myself and send a message, then both persist after reload
+chat-local.spec.ts	60	Given a chosen profile name, when a new workspace is created, then it reuses the personal name preset
+chat-local.spec.ts	82	Given desktop chat, when its corner is dragged, then the window resizes within the viewport
+chat-local.spec.ts	106	Given a storage failure, when a message is submitted, then the draft remains and retry writes once
+chat-local.spec.ts	131	Given slow local signing, when a message is submitted, then it appears immediately while durability finishes
+chat-local.spec.ts	152	Given one poisoned historical chat record, when a peer sends it with a valid record, then the valid message still arrives
+chat-storage.spec.ts	11	two tabs concurrently append different messages and duplicate is suppressed
+chat-storage.spec.ts	97	immutable same-id conflict rejects and leaves stored record unchanged
+chat-storage.spec.ts	153	2001 chronological records retains latest 2000 and pruned cutoff rejects reimport
+chat-storage.spec.ts	220	byte cap 4 MiB retains latest records and prunes oldest when using records near 16 KiB
+chat-storage.spec.ts	281	atomic merge failure on conflicting record does not partially save valid message
+chat-storage.spec.ts	349	read cursor operates monotonically and ignores older cursors
+chat-storage.spec.ts	393	page reload opens and loads durable stored chat data identically
 column-add-and-notice.spec.ts	5	Given a job board, when adding from Applied, then the form starts in Applied and no add action occupies the header
 column-add-and-notice.spec.ts	18	Given a successful action, when its notice appears, then it overlays content and disappears
 column-add-and-notice.spec.ts	33	Given a blank board, when adding inside Doing, then the item form is scoped to Doing
@@ -62,18 +71,15 @@ document-editing.spec.ts	23	Given a generic card, when Edit is selected, then it
 document-editing.spec.ts	39	Given a real file attachment, when it is reopened, then Match can preview and download its persisted bytes
 favicon.spec.ts	44	Given a ready board, when its tab opens, then Match icon loads
 favicon.spec.ts	50	Given app startup fails, when its tab opens, then Match icon still loads
-filtered-board-layout.spec.ts	31	Given a status filter, when one state remains, then its column fills the board and cards expose context
-filtered-board-layout.spec.ts	49	Given search results across two states, when search finds nothing then reset restores all states
-filtered-board-layout.spec.ts	65	Given a mobile status filter, when one column remains then it uses the screen without redundant navigation
-filtered-board-layout.spec.ts	83	Given two filtered states, when a card moves between them then hidden cards survive reset and reload
-filtered-board-layout.spec.ts	127	Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns
-filtered-board-layout.spec.ts	148	Given a card being dragged, when document data refreshes then drag continues and its ghost disappears on release
-filtered-board-layout.spec.ts	174	Given a card being dragged, when filtering to Launch design rebuilds the board then drag cancels without leaving a ghost or saving a move
-filtered-board-layout.spec.ts	174	Given a card being dragged, when filtering to Launch review rebuilds the board then drag cancels without leaving a ghost or saving a move
+filtered-board-layout.spec.ts	31	Given a fresh desktop board, when filtering, searching, and moving a card, then layout and hidden cards persist
+filtered-board-layout.spec.ts	121	Given a mobile status filter, when one column remains then it uses the screen without redundant navigation
+filtered-board-layout.spec.ts	139	Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns
+filtered-board-layout.spec.ts	160	Given a card being dragged, when document data refreshes then drag continues and its ghost disappears on release
+filtered-board-layout.spec.ts	186	Given a card being dragged, when filtering to Launch design rebuilds the board then drag cancels without leaving a ghost or saving a move
+filtered-board-layout.spec.ts	186	Given a card being dragged, when filtering to Launch review rebuilds the board then drag cancels without leaving a ghost or saving a move
 footer-animation.spec.ts	3	Given workspace permissions load, when footer animation replays, then it completes without blocking controls
 footer-animation.spec.ts	3	Given workspace permissions fail, when footer animation replays, then it completes without blocking controls
-history-restore.spec.ts	30	Given an item moved after creation, when creation version is restored, then item returns and reload keeps compensation
-history-restore.spec.ts	44	Given restore persistence failure, when history version is selected, then current item remains and retry works
+history-restore.spec.ts	30	Given a moved item, when restore fails then retries, then current placement is preserved until durable compensation succeeds
 inline-add.spec.ts	15	Given two cards at 1280px, when hovering their gap, then add appears there and failed insertion retries in place
 inline-add.spec.ts	15	Given two cards at 390px, when hovering their gap, then add appears there and failed insertion retries in place
 interaction-polish.spec.ts	14	Given mobile navigation, when settings open and close, then focus stays in the dialog and returns to Menu
@@ -125,12 +131,12 @@ schema-editor.spec.ts	48	Given a column with an item, when it is archived from v
 startup-runtime-failure.spec.ts	3	Given the Rust runtime request fails, when Match opens, then it identifies the runtime rather than local data
 startup-storage-failure.spec.ts	3	Given local storage fails, when Match opens, then it shows the cause without a reload button
 startup-storage-failure.spec.ts	19	Given a saved board cannot open, when a device invitation opens, then pairing remains available and the board error stays visible
-storage-atomicity.spec.ts	7	Given two tabs persist different changes concurrently, when storage reopens, then both durable records remain
-storage-atomicity.spec.ts	38	Given proof persistence fails, when a transaction aborts, then no change or receipt leaks
-storage-atomicity.spec.ts	76	Given two open tabs, when both edit one workspace together, then both converge on both changes
+storage-atomicity.spec.ts	4	Given two tabs persist different changes concurrently, when storage reopens, then both durable records remain
+storage-atomicity.spec.ts	36	Given proof persistence fails, when a transaction aborts, then no change or receipt leaks
+storage-atomicity.spec.ts	75	Given two open tabs, when both edit one workspace together, then both converge on both changes
 storage-atomicity.spec.ts	110	Given independent tabs receive peer branches together, when both admissions finish, then reopened workspace keeps both
-storage-atomicity.spec.ts	155	Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged
-storage-atomicity.spec.ts	194	Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog
+storage-atomicity.spec.ts	156	Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged
+storage-atomicity.spec.ts	196	Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog
 storage-failure.spec.ts	4	Given newer local databases, when Match saves workspace and chat data, then it opens without downgrade errors
 storage-failure.spec.ts	52	Given storage failure, when an item is saved, then failure stays visible and no card publishes
 storage-journal-migration.spec.ts	3	Given a held legacy journal with committed board and receipts, when Match opens and edits, then migration preserves data and does not replay compacted changes
@@ -154,10 +160,7 @@ workspace-configure-create.spec.ts	123	Given preset Archive column and a removed
 workspace-configure-create.spec.ts	143	Given initial workspace persistence is pending, when Create is submitted again, then duplicate submission stays disabled
 workspace-create-layout.spec.ts	4	Given a 1440px viewport, when creating a workspace, then presets stay beside their controls and validation allows recovery
 workspace-create-layout.spec.ts	4	Given a 390px viewport, when creating a workspace, then presets stay beside their controls and validation allows recovery
-workspace-settings-json.spec.ts	14	Given settings JSON, when one draft changes all settings, then one apply persists them
-workspace-settings-json.spec.ts	37	Given invalid JSON, when edited, then apply stays blocked with exact path
-workspace-settings-json.spec.ts	51	Given a renamed archive column, when settings are applied, then its archive behavior persists
-workspace-settings-json.spec.ts	68	Given two archive columns, when settings are edited, then validation rejects the second
+workspace-settings-json.spec.ts	13	Given a blank workspace, when invalid settings are repaired, then one apply persists all configuration
 workspace-worker.spec.ts	3	Given an already admitted board, when its exact signed evidence repeats, then it does not queue another admission job
 workspace-worker.spec.ts	24	Given a large signed peer history, when admission runs, then board controls stay responsive until durable commit
 workspace-worker.spec.ts	86	Given worker startup fails admission, when a candidate arrives, then document and notifications remain unchanged

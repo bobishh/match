@@ -26,6 +26,14 @@ import { keeperCommitReceiptVerifier, type KeeperCommitReceiptVerifier } from ".
 type WorkspaceOption = { id: string; title: string }
 type KeeperAdmission = { servicePersonId: string; workspaceIds: string[]; followOwner: boolean }
 
+/** A non-network failure before a join completes needs a terminal cause on the host. */
+export class WorkspaceAdmissionFailure extends Error {
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error), { cause: error })
+    this.name = "WorkspaceAdmissionFailure"
+  }
+}
+
 export type WorkspaceHostContext = PairingContext & {
   workspace: WorkspaceReplica
   startMesh: (node?: SyncNode) => Promise<void>
@@ -238,6 +246,7 @@ async function acceptHostPeers(runtime: HostRuntime, connected: () => void) {
 async function receivePeer(runtime: HostRuntime, connection: SyncConnection, connected: () => void) {
   let transferredToMesh = false
   let session: LiveWorkspaceSync | undefined
+  let admitted = false
   let heartbeat: (() => void) | undefined
   let personId = ""
   let verifyKeeperCommit: KeeperCommitReceiptVerifier | undefined
@@ -275,6 +284,7 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
       },
     })
     if (result.kind !== "accepted" || !("value" in result)) return
+    admitted = true
     personId = result.value.personId
     clearTimeout(timeout)
     session = await startPeerSession(runtime, connection, personId)
@@ -283,7 +293,9 @@ async function receivePeer(runtime: HostRuntime, connection: SyncConnection, con
     await runtime.group.publish()
     await session.done
   } catch (error) {
-    if (!runtime.stopped() && runtime.run === runtime.context.currentRun() && !isMeshNetworkFailure(error)) runtime.fail(error)
+    if (!runtime.stopped() && runtime.run === runtime.context.currentRun() && !isMeshNetworkFailure(error)) {
+      runtime.fail(admitted ? error : new WorkspaceAdmissionFailure(error))
+    }
   } finally {
     heartbeat?.()
     clearTimeout(timeout)

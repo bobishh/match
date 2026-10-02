@@ -28,38 +28,94 @@ async function createBoard(page: Page) {
   }
 }
 
-test("Given a status filter, when one state remains, then its column fills the board and cards expose context", async ({ page }, testInfo) => {
+test("Given a fresh desktop board, when filtering, searching, and moving a card, then layout and hidden cards persist", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await createBoard(page)
-  await page.getByRole("group", { name: "Filters" }).getByRole("combobox", { name: "Status", exact: true }).selectOption({ label: "Doing" })
-  await expect(page.locator(".board > .column")).toHaveCount(1)
-  const column = page.getByRole("region", { name: "Doing", exact: true })
-  expect((await column.boundingBox())!.width).toBeGreaterThan(1250)
-  const openCard = column.getByRole("button", { name: "Open Launch review", exact: true })
-  const card = openCard.locator("..")
-  await expect(card.getByText("Context for Launch review: decisions and next steps.")).toBeVisible()
-  await expect(card.getByText("Owner", { exact: true })).toBeVisible()
-  await expect(card.getByText("Alex", { exact: true })).toBeVisible()
-  await page.locator(".board").evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => {}))))
-  await page.screenshot({ path: testInfo.outputPath("single-state.png"), fullPage: true })
-  await openCard.click()
-  await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
-})
+  await test.step("Status filter fills desktop width and card exposes context and overview", async () => {
+    await page.getByRole("group", { name: "Filters" }).getByRole("combobox", { name: "Status", exact: true }).selectOption({ label: "Doing" })
+    await expect(page.locator(".board > .column")).toHaveCount(1)
+    const column = page.getByRole("region", { name: "Doing", exact: true })
+    expect((await column.boundingBox())!.width).toBeGreaterThan(1250)
+    const openCard = column.getByRole("button", { name: "Open Launch review", exact: true })
+    const card = openCard.locator("..")
+    await expect(card.getByText("Context for Launch review: decisions and next steps.")).toBeVisible()
+    await expect(card.getByText("Owner", { exact: true })).toBeVisible()
+    await expect(card.getByText("Alex", { exact: true })).toBeVisible()
+    await page.locator(".board").evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => {}))))
+    await page.screenshot({ path: testInfo.outputPath("single-state.png"), fullPage: true })
+    await openCard.click()
+    const overview = page.getByRole("dialog", { name: "Item overview" })
+    await expect(overview).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(overview).toHaveCount(0)
+    await page.getByRole("button", { name: "Clear search and filters" }).click()
+    await expect(page.locator(".board > .column")).toHaveCount(3)
+  })
 
-test("Given search results across two states, when search finds nothing then reset restores all states", async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await createBoard(page)
-  await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
-  await expect(page.locator(".board > .column")).toHaveCount(2)
-  for (const column of await page.locator(".board > .column").all()) {
-    expect((await column.boundingBox())!.width).toBeGreaterThan(600)
-  }
-  await page.getByRole("searchbox", { name: "Search cards" }).fill("missing-result")
-  await expect(page.locator(".board > .column")).toHaveCount(0)
-  await expect(page.getByText("No matching cards", { exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Clear search and filters" }).click()
-  await expect(page.locator(".board > .column")).toHaveCount(3)
-  await expect(page.locator(".board .lead-card")).toHaveCount(3)
+  await test.step("Search keeps two useful columns wide, empty results explain and reset restores cards", async () => {
+    const search = page.getByRole("searchbox", { name: "Search cards" })
+    await search.fill("Launch")
+    await expect(page.locator(".board > .column")).toHaveCount(2)
+    for (const column of await page.locator(".board > .column").all()) {
+      expect((await column.boundingBox())!.width).toBeGreaterThan(600)
+    }
+    await search.fill("missing-result")
+    await expect(page.locator(".board > .column")).toHaveCount(0)
+    await expect(page.getByText("No matching cards", { exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Clear search and filters" }).click()
+    await expect(page.locator(".board > .column")).toHaveCount(3)
+    await expect(page.locator(".board .lead-card")).toHaveCount(3)
+  })
+
+  await test.step("Filtered drag preview preserves card context geometry", async () => {
+    await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
+    await expect(page.locator(".board > .column")).toHaveCount(2)
+    const source = page.getByRole("button", { name: "Open Launch design", exact: true })
+    const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
+    const from = (await source.boundingBox())!
+    const to = (await target.boundingBox())!
+    const originalLayout = await source.locator("..").evaluate(card => {
+      const main = card.querySelector(".card-main")!.getBoundingClientRect()
+      const context = card.querySelector(".card-context")!.getBoundingClientRect()
+      return { mainWidth: main.width, contextWidth: context.width, offset: context.x - main.x }
+    })
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(to.x + to.width / 2, to.y + to.height - 24, { steps: 18 })
+    await expect(target.locator(".lead-card")).toHaveCount(2)
+    const preview = page.locator("body > .sortable-fallback")
+    await expect(preview).toBeVisible()
+    const previewLayout = await preview.evaluate(card => {
+      const bounds = card.getBoundingClientRect()
+      const main = card.querySelector(".card-main")!.getBoundingClientRect()
+      const context = card.querySelector(".card-context")!.getBoundingClientRect()
+      return { mainWidth: main.width, contextWidth: context.width, offset: context.x - main.x,
+        opacity: getComputedStyle(card).opacity, contextBottom: context.bottom, cardBottom: bounds.bottom }
+    })
+    // Sortable rounds the fallback's border box to whole CSS pixels.
+    expect(Math.abs(previewLayout.mainWidth - originalLayout.mainWidth)).toBeLessThan(2)
+    expect(Math.abs(previewLayout.contextWidth - originalLayout.contextWidth)).toBeLessThan(2)
+    expect(Math.abs(previewLayout.offset - originalLayout.offset)).toBeLessThan(2)
+    expect(previewLayout.opacity).toBe("1")
+    expect(previewLayout.contextBottom).toBeLessThanOrEqual(previewLayout.cardBottom)
+    await page.screenshot({ path: testInfo.outputPath("drag-preview.png") })
+    await page.mouse.up()
+  })
+
+  await test.step("Moved card leaves filtered source, hidden card survives reset and reload", async () => {
+    await expect(page.locator(".board > .column")).toHaveCount(1)
+    await expect(page.getByRole("region", { name: "Doing", exact: true }).getByRole("button", { name: "Open Launch design", exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Clear search and filters" }).click()
+    await expect(page.getByRole("region", { name: "Done", exact: true }).getByRole("button", { name: "Open Housekeeping", exact: true })).toBeVisible()
+    await expect(page.locator(".board .lead-card")).toHaveCount(3)
+    await page.reload()
+    await expect(page.locator(".board > .column")).toHaveCount(3)
+    await expect(page.locator(".board .lead-card")).toHaveCount(3)
+    await expect(page.getByRole("region", { name: "Doing", exact: true }).getByRole("button", { name: "Open Launch design", exact: true })).toBeVisible()
+    await expect(page.getByRole("region", { name: "To do", exact: true }).getByRole("button", { name: "Open Launch design", exact: true })).toHaveCount(0)
+    await expect(page.getByRole("region", { name: "Done", exact: true }).getByRole("button", { name: "Open Housekeeping", exact: true })).toBeVisible()
+    await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+  })
 })
 
 test("Given a mobile status filter, when one column remains then it uses the screen without redundant navigation", async ({ page }, testInfo) => {
@@ -78,50 +134,6 @@ test("Given a mobile status filter, when one column remains then it uses the scr
   await page.getByRole("searchbox", { name: "Search cards" }).fill("missing-result")
   await expect(page.locator(".board > .column")).toHaveCount(1)
   await expect(page.getByText("No matches in this column", { exact: true })).toBeVisible()
-})
-
-test("Given two filtered states, when a card moves between them then hidden cards survive reset and reload", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1440, height: 1000 })
-  await createBoard(page)
-  await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
-  await expect(page.locator(".board > .column")).toHaveCount(2)
-  const source = page.getByRole("button", { name: "Open Launch design", exact: true })
-  const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
-  const from = (await source.boundingBox())!
-  const to = (await target.boundingBox())!
-  const originalLayout = await source.locator("..").evaluate(card => {
-    const main = card.querySelector(".card-main")!.getBoundingClientRect()
-    const context = card.querySelector(".card-context")!.getBoundingClientRect()
-    return { mainWidth: main.width, contextWidth: context.width, offset: context.x - main.x }
-  })
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(to.x + to.width / 2, to.y + to.height - 24, { steps: 18 })
-  await expect(target.locator(".lead-card")).toHaveCount(2)
-  const preview = page.locator("body > .sortable-fallback")
-  await expect(preview).toBeVisible()
-  const previewLayout = await preview.evaluate(card => {
-    const bounds = card.getBoundingClientRect()
-    const main = card.querySelector(".card-main")!.getBoundingClientRect()
-    const context = card.querySelector(".card-context")!.getBoundingClientRect()
-    return { mainWidth: main.width, contextWidth: context.width, offset: context.x - main.x,
-      opacity: getComputedStyle(card).opacity, contextBottom: context.bottom, cardBottom: bounds.bottom }
-  })
-  // Sortable rounds the fallback's border box to whole CSS pixels.
-  expect(Math.abs(previewLayout.mainWidth - originalLayout.mainWidth)).toBeLessThan(2)
-  expect(Math.abs(previewLayout.contextWidth - originalLayout.contextWidth)).toBeLessThan(2)
-  expect(Math.abs(previewLayout.offset - originalLayout.offset)).toBeLessThan(2)
-  expect(previewLayout.opacity).toBe("1")
-  expect(previewLayout.contextBottom).toBeLessThanOrEqual(previewLayout.cardBottom)
-  await page.screenshot({ path: testInfo.outputPath("drag-preview.png") })
-  await page.mouse.up()
-  await expect(page.locator(".board > .column")).toHaveCount(1)
-  await page.getByRole("button", { name: "Clear search and filters" }).click()
-  await expect(page.getByRole("region", { name: "Done", exact: true }).getByRole("button", { name: "Open Housekeeping", exact: true })).toBeVisible()
-  await page.reload()
-  await expect(target.locator(".lead-card")).toHaveCount(2)
-  await expect(page.locator(".board .lead-card")).toHaveCount(3)
-  await expect(page.locator(".sortable-fallback")).toHaveCount(0)
 })
 
 test("Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns", async ({ page }) => {

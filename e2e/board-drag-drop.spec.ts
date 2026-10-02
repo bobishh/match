@@ -19,7 +19,14 @@ async function createItem(page: Page, title: string, column: string) {
   await expect(dialog).toBeHidden()
 }
 
+async function settleBoard(page: Page) {
+  await page.locator(".board").evaluate(element => Promise.all(element.getAnimations({ subtree: true })
+    .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
+    .map(animation => animation.finished.catch(() => {}))))
+}
+
 async function drag(page: Page, sourceSelector: string, targetSelector: string) {
+  await settleBoard(page)
   const source = page.locator(sourceSelector)
   const target = page.locator(targetSelector)
   const sourceBox = await source.boundingBox()
@@ -108,88 +115,105 @@ test.describe("Trello-like board dragging", () => {
     } finally { await context.close() }
   })
 
-  test("Given an empty column, when a card hovers then drops, then its hint hides without displacing the card", async ({ page }) => {
-    await createBlankWorkspace(page, "Empty drop target")
-    await createItem(page, "Moving item", "To do")
-    await page.evaluate(() => window.scrollTo(0, 0))
-    const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
-    await expect(target.getByText("No items", { exact: true })).toBeVisible()
-    const source = await page.getByRole("button", { name: "Open Moving item", exact: true }).boundingBox()
-    const box = await target.boundingBox()
-    if (!source || !box) throw new Error("Missing drag bounds")
-    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(box.x + box.width / 2, box.y + 28, { steps: 20 })
-    await expect(target.locator(".empty-column")).toBeHidden()
-    await page.mouse.up()
-    await expect(page.getByRole("status")).toContainText("Item moved")
-    await page.reload()
-    await expect(target.getByText("Moving item", { exact: true })).toBeVisible()
+  test("Given three cards, when cards and columns reorder, then hints, neighbors and exact order survive reload", async ({ page }) => {
+    await createBlankWorkspace(page, "Ordering story")
+    for (const title of ["First", "Second", "Third"]) await createItem(page, title, "To do")
+    const titles = (column: string) => page.getByRole("region", { name: column, exact: true }).locator(".card-main > strong")
+    const expectOrder = async () => {
+      await expect(titles("To do")).toHaveText(["Third", "First"])
+      await expect(titles("Doing")).toHaveText(["Second"])
+      await expect(titles("Done")).toHaveCount(0)
+    }
+
+    await test.step("Hover and drop into an empty column", async () => {
+      await page.evaluate(() => window.scrollTo(0, 0))
+      const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
+      await expect(target.getByText("No items", { exact: true })).toBeVisible()
+      const source = await page.getByRole("button", { name: "Open Third", exact: true }).boundingBox()
+      const box = await target.boundingBox()
+      if (!source || !box) throw new Error("Missing drag bounds")
+      await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2, box.y + 28, { steps: 20 })
+      await expect(target.locator(".empty-column")).toBeHidden()
+      await page.mouse.up()
+      await expect(page.getByRole("status")).toContainText("Item moved")
+      await expect(titles("Doing")).toHaveText(["Third"])
+      await expect(titles("To do")).toHaveText(["First", "Second"])
+      await page.reload()
+      await expect(titles("Doing")).toHaveText(["Third"])
+      await expect(titles("To do")).toHaveText(["First", "Second"])
+    })
+
+    await test.step("Insert before another card and preserve the full order", async () => {
+      await settleBoard(page)
+      const source = await page.locator('.lead-card[data-item-id]:has-text("Third")').boundingBox()
+      const target = await page.locator('.lead-card[data-item-id]:has-text("First")').boundingBox()
+      if (!source || !target) throw new Error("Card drag target missing")
+      await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(target.x + target.width / 2, target.y + 5, { steps: 16 })
+      await page.mouse.up()
+      await expect(page.getByRole("status")).toContainText("Item moved")
+      await expect(titles("To do")).toHaveText(["Third", "First", "Second"])
+      await expect(titles("Doing")).toHaveCount(0)
+      // Exercise same-column ordering as well as the cross-column insertion.
+      await drag(page, '.lead-card[data-item-id]:has-text("Second")', '[role="region"][aria-label="Doing"] .card-stack')
+      await expectOrder()
+      await settleBoard(page)
+      const third = await page.locator('.lead-card[data-item-id]:has-text("Third")').boundingBox()
+      const first = await page.locator('.lead-card[data-item-id]:has-text("First")').boundingBox()
+      if (!third || !first) throw new Error("Same-column drag target missing")
+      await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(third.x + third.width / 2, third.y + 5, { steps: 16 })
+      await page.mouse.up()
+      await expect(titles("To do")).toHaveText(["First", "Third"])
+      await expect(titles("Doing")).toHaveText(["Second"])
+    })
+
+    await test.step("Reorder columns and reopen durable card and column order", async () => {
+      await settleBoard(page)
+      await page.getByRole("button", { name: "Edit board" }).click()
+      const source = await page.locator('[role="region"][aria-label="Done"] .column-header').boundingBox()
+      const target = await page.locator('[role="region"][aria-label="To do"] .column-header').boundingBox()
+      if (!source || !target) throw new Error("Column drag target missing")
+      await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(target.x + 8, target.y + target.height / 2, { steps: 20 })
+      await page.mouse.up()
+      await expect(page.getByRole("status")).toContainText("Column moved")
+      const columns = page.locator(".board > .column")
+      await expect(columns).toHaveCount(3)
+      await expect(columns.nth(0)).toHaveAttribute("aria-label", "Done")
+      await expect(columns.nth(1)).toHaveAttribute("aria-label", "To do")
+      await expect(columns.nth(2)).toHaveAttribute("aria-label", "Doing")
+      await page.reload()
+      await expect(columns.nth(0)).toHaveAttribute("aria-label", "Done")
+      await expect(columns.nth(1)).toHaveAttribute("aria-label", "To do")
+      await expect(columns.nth(2)).toHaveAttribute("aria-label", "Doing")
+      await expect(titles("To do")).toHaveText(["First", "Third"])
+      await expect(titles("Doing")).toHaveText(["Second"])
+      await expect(titles("Done")).toHaveCount(0)
+    })
   })
 
-  test("Given ordered cards, when a card crosses columns, then exact placement persists", async ({ page }) => {
-    await createBlankWorkspace(page, "Drag board")
-    await createItem(page, "First", "To do")
-    await createItem(page, "Second", "To do")
-
-    const source = '.lead-card[data-item-id]:has-text("Second")'
-    const target = '[role="region"][aria-label="Doing"] .card-stack'
-    await drag(page, source, target)
-
-    await expect(page.getByRole("region", { name: "Doing" }).getByText("Second")).toBeVisible()
-    await expect(page.getByRole("status")).toContainText("Item moved")
-    await page.reload()
-    await expect(page.getByRole("region", { name: "Doing" }).getByText("Second")).toBeVisible()
-  })
-
-  test("Given cards in one column, when one is dropped before another, then exact order persists", async ({ page }) => {
-    await createBlankWorkspace(page, "Card order board")
-    await createItem(page, "First", "To do")
-    await createItem(page, "Second", "To do")
-    await createItem(page, "Third", "To do")
-
-    const source = await page.locator('.lead-card[data-item-id]:has-text("Third")').boundingBox()
-    const target = await page.locator('.lead-card[data-item-id]:has-text("First")').boundingBox()
-    if (!source || !target) throw new Error("Card drag target missing")
-    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(target.x + target.width / 2, target.y + 5, { steps: 16 })
-    await page.mouse.up()
-
-    const cards = page.getByRole("region", { name: "To do" }).locator(".lead-card")
-    await expect(cards.nth(0)).toContainText("Third")
-    await expect(page.getByRole("status")).toContainText("Item moved")
-    await page.reload()
-    await expect(page.getByRole("region", { name: "To do" }).locator(".lead-card").nth(0)).toContainText("Third")
-  })
-
-  test("Given persistence fails, when a card is dragged, then board restores and reports failure", async ({ page }) => {
+  test("Given persistence fails, when a card is dragged and retried, then rollback and recovery preserve neighbors after reload", async ({ page }) => {
     await createBlankWorkspace(page, "Failed drag board")
     await createItem(page, "Keep here", "To do")
+    await createItem(page, "Neighbor", "To do")
     await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
-
     await drag(page, '.lead-card[data-item-id]:has-text("Keep here")', '[role="region"][aria-label="Doing"] .card-stack')
-
     await expect(page.getByRole("status")).toContainText("Move failed")
-    await expect(page.getByRole("region", { name: "To do" }).getByText("Keep here")).toBeVisible()
+    const source = page.getByRole("region", { name: "To do", exact: true }).locator(".card-main > strong")
+    await expect(source).toHaveText(["Keep here", "Neighbor"])
     await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("No items", { exact: true })).toBeVisible()
-  })
-
-  test("Given edit mode, when a column header is dragged, then column order persists", async ({ page }) => {
-    await createBlankWorkspace(page, "Column drag board")
-    await page.getByRole("button", { name: "Edit board" }).click()
-
-    const source = await page.locator('[role="region"][aria-label="Done"] .column-header').boundingBox()
-    const target = await page.locator('[role="region"][aria-label="To do"] .column-header').boundingBox()
-    if (!source || !target) throw new Error("Column drag target missing")
-    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(target.x + 8, target.y + target.height / 2, { steps: 20 })
-    await page.mouse.up()
-
-    await expect(page.locator(".board > .column").first()).toHaveAttribute("aria-label", "Done")
-    await expect(page.getByRole("status")).toContainText("Column moved")
+    await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await drag(page, '.lead-card[data-item-id]:has-text("Keep here")', '[role="region"][aria-label="Doing"] .card-stack')
+    await expect(page.getByRole("status")).toContainText("Item moved")
     await page.reload()
-    await expect(page.locator(".board > .column").first()).toHaveAttribute("aria-label", "Done")
+    await expect(source).toHaveText(["Neighbor"])
+    await expect(page.getByRole("region", { name: "Doing", exact: true }).locator(".card-main > strong")).toHaveText(["Keep here"])
   })
 })

@@ -10,7 +10,7 @@ import { type LiveWorkspaceSync, type WorkspaceReplica, type WorkspaceSetStore }
 import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView } from "./durableMesh"
 import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
-import { generateWorkspaceInvite as generateHostInvite, type WorkspaceHostContext } from "./deviceSyncHost"
+import { generateWorkspaceInvite as generateHostInvite, WorkspaceAdmissionFailure, type WorkspaceHostContext } from "./deviceSyncHost"
 import { createKeeperProvisioner, removeKeeperAccess } from "./deviceSyncKeeper"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
@@ -277,8 +277,9 @@ export class DeviceSyncController {
   }
 
   private liveSessionFailed(syncError: unknown, currentRun: number) {
-    recoverLiveSession({ error: syncError, sessionRun: currentRun, currentRun: () => this.run,
+    void recoverLiveSession({ error: syncError, sessionRun: currentRun, currentRun: () => this.run,
       supersede: () => ++this.run, state: this.state,
+      terminalError: syncError instanceof WorkspaceAdmissionFailure ? syncError : undefined,
       handoff: () => this.handoffDirectNode("Live sync interrupted") })
   }
 

@@ -1,10 +1,8 @@
 import { expect, test } from "./support/coverage"
-
-test.beforeEach(async ({ page }) => {
-  await page.goto("/")
-})
+import { openStorageHarness } from "./support/storageHarness"
 
 test("Given two tabs persist different changes concurrently, when storage reopens, then both durable records remain", async ({ page }) => {
+  await openStorageHarness(page)
   const result = await page.evaluate(async () => {
     const { WorkspaceStorage } = await import("/src/storage.ts")
     const workspaceId = `concurrent-${crypto.randomUUID()}`
@@ -36,6 +34,7 @@ test("Given two tabs persist different changes concurrently, when storage reopen
 })
 
 test("Given proof persistence fails, when a transaction aborts, then no change or receipt leaks", async ({ page }) => {
+  await openStorageHarness(page)
   const result = await page.evaluate(async () => {
     const { WorkspaceStorage } = await import("/src/storage.ts")
     const workspaceId = `abort-${crypto.randomUUID()}`
@@ -74,6 +73,7 @@ test("Given proof persistence fails, when a transaction aborts, then no change o
 })
 
 test("Given two open tabs, when both edit one workspace together, then both converge on both changes", async ({ page }) => {
+  await page.goto("/")
   const second = await page.context().newPage()
   await second.goto("/")
   const edit = async (target: typeof page, id: string, title: string) => target.evaluate(async ({ id, title }) => {
@@ -108,6 +108,7 @@ test("Given two open tabs, when both edit one workspace together, then both conv
 })
 
 test("Given independent tabs receive peer branches together, when both admissions finish, then reopened workspace keeps both", async ({ page }) => {
+  await page.goto("/")
   const second = await page.context().newPage()
   await second.goto("/")
   try {
@@ -153,6 +154,7 @@ test("Given independent tabs receive peer branches together, when both admission
 })
 
 test("Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged", async ({ page }) => {
+  await page.goto("/")
   const result = await page.evaluate(async () => {
     const { useMatch } = await import("/src/state.ts")
     const { WorkspaceStorage } = await import("/src/storage.ts")
@@ -192,6 +194,7 @@ test("Given authorization write fails during admission, when transaction aborts,
 })
 
 test("Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog", async ({ page }) => {
+  await page.goto("/")
   const result = await page.evaluate(async () => {
     const { useMatch } = await import("/src/state.ts")
     const { WorkspaceStorage } = await import("/src/storage.ts")
