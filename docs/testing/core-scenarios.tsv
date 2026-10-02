@@ -74,6 +74,7 @@ device-sync-dialog.spec.ts	74	Lighthouse uses its client marker for a beacon whi
 device-sync-dialog.spec.ts	99	Given Device sync shows Keepers, when adding one, then compact form replaces other modal content and failure stays visible
 document-editing.spec.ts	23	Given a generic card, when Edit is selected, then its visible fields can be changed from the detail view
 document-editing.spec.ts	39	Given a real file attachment, when it is reopened, then Match can preview and download its persisted bytes
+document-editing.spec.ts	73	Given document controls fail to load, when item detail opens, then pending and error states preserve board access
 favicon.spec.ts	44	Given a ready board, when its tab opens, then Match icon loads
 favicon.spec.ts	50	Given app startup fails, when its tab opens, then Match icon still loads
 filtered-board-layout.spec.ts	31	Given a fresh desktop board, when filtering, searching, and moving a card, then layout and hidden cards persist

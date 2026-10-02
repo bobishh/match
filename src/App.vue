@@ -20,7 +20,7 @@ import QuickNoteForm from "./components/QuickNoteForm.vue"
 import AutosaveTextarea from "./components/AutosaveTextarea.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
-import ItemDocuments from "./components/ItemDocuments.vue"
+import { LazyItemDocuments as ItemDocuments } from "./app/lazyItemDocuments"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
 import { computed, defineAsyncComponent, ref, type Component } from "vue"
@@ -94,6 +94,7 @@ const rejectionEditor = ref<InstanceType<typeof AutosaveTextarea>>()
 async function closeDetail() { if (!rejectionEditor.value || await rejectionEditor.value.flush()) closeDetailNow() }
 
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
+function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) { return saveItemDocument(selectedLeadItem.value, document) }
 const editItemNow = createNarrativeEditHandler(editingFoldSnapshot, activeBoard, leadForItem, () => getActiveDoc()?.entities ?? {}, handleOpenItemEdit)
 async function editItem(item: Parameters<typeof editItemNow>[0]) { if (!rejectionEditor.value || await rejectionEditor.value.flush()) editItemNow(item) }
 
@@ -456,7 +457,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
           v-if="selectedLeadItem"
           :documents="selectedDocuments"
           :read-only="!canEditItems"
-          :save="document => saveItemDocument(selectedLeadItem, document)"
+          :save="saveSelectedLeadDocument"
           :update="updateDocumentMarkdown"
         />
       </div>

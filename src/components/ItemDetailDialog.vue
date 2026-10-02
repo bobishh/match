@@ -5,10 +5,10 @@ import QuickNoteForm from "./QuickNoteForm.vue"
 import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
 import type { Document, DocumentInput } from "../types"
-import ItemDocuments from "./ItemDocuments.vue"
 import CardStageStrip from "./CardStageStrip.vue"
 import type { Column } from "../domain/model"
 import type { CardStageButton } from "../domain/cardStageButtons"
+import { LazyItemDocuments as ItemDocuments } from "../app/lazyItemDocuments"
 
 defineProps<{
   readOnly?: boolean

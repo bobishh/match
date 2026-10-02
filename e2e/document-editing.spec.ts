@@ -69,3 +69,33 @@ test("Given a real file attachment, when it is reopened, then Match can preview 
   const download = await downloadStarted
   expect(download.suggestedFilename()).toBe("architecture.txt")
 })
+
+test("Given document controls fail to load, when item detail opens, then pending and error states preserve board access", async ({ page }) => {
+  let firstLoad = true
+  let pageReloaded = false
+  await createBlankWorkspace(page)
+  page.on("framenavigated", frame => { if (frame === page.mainFrame()) pageReloaded = true })
+  await page.route("**/src/components/ItemDocuments.vue*", async route => {
+    if (firstLoad) {
+      firstLoad = false
+      await new Promise(resolve => setTimeout(resolve, 800))
+      await route.abort()
+    } else if (pageReloaded) await route.continue()
+    else await route.abort()
+  })
+  await createGenericCard(page)
+
+  const detail = page.getByRole("dialog", { name: "Item overview" })
+  await expect(detail.getByRole("status")).toContainText("Loading document controls")
+  await expect(detail.getByRole("alert")).toContainText("Document controls could not load")
+  await detail.getByRole("button", { name: "Dismiss", exact: true }).click()
+  await page.getByRole("button", { name: "Open Ship document UX", exact: true }).click()
+  const reopened = page.getByRole("dialog", { name: "Item overview" })
+  await expect(reopened).toContainText("Ship document UX")
+  await expect(reopened.getByRole("alert")).toContainText("Document controls could not load")
+  await reopened.getByRole("button", { name: "Reload Match", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
+  await page.getByRole("button", { name: "Open Ship document UX", exact: true }).click()
+  const restored = page.getByRole("dialog", { name: "Item overview" })
+  await expect(restored.getByRole("button", { name: "+ File", exact: true })).toBeVisible()
+})
