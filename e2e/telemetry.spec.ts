@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 for (const status of [202, 503]) {
   test(`Given diagnostics return ${status}, when chat saves, then text persists and telemetry excludes content`, async ({ page }) => {

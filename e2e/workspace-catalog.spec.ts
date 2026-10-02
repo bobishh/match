@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("a legacy orphaned workspace reappears and survives another tab saving", async ({ page }) => {
   await page.goto("/")

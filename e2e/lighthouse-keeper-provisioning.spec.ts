@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { expect, test, type Browser, type Page } from "@playwright/test"
+import { expect, test, type Browser, type Page } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
 const binary = process.env.MATCH_LIGHTHOUSE_BINARY

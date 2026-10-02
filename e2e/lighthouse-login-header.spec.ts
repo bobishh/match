@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 const login = "/login?keeper=https%3A%2F%2Fkeeper.example&challenge=test-challenge"
 

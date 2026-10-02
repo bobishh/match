@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("idle cards age while the page stays open and editing restores freshness", async ({ page }, testInfo) => {
   await page.clock.install({ time: new Date("2026-09-01T12:00:00Z") })

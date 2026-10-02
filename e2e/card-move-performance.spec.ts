@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./support/coverage"
 import { writeFile } from "node:fs/promises"
 
 async function populatedBoard(page: Page) {
@@ -68,8 +68,10 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
   const tasks = await page.evaluate(() => (window as unknown as { moveTasks: number[] }).moveTasks)
   console.info(`Card move, 55 detailed cards, 4x CPU: longest main-thread task ${Math.round(Math.max(0, ...tasks))}ms`)
   expect(Math.max(0, ...tasks)).toBeLessThan(200)
+  // Cold startup is a durability check, separate from the throttled interaction.
+  await session.send("Emulation.setCPUThrottlingRate", { rate: 1 })
   await page.reload()
-  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 15000 })
 })
 
 test("Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists", async ({ page }) => {

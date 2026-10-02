@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given Settings is open, when Recovery backup opens, then recovery stays above Settings and closes back to it", async ({ page }) => {
   await page.goto("/")

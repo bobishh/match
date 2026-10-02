@@ -131,6 +131,7 @@ Only contributors changing the Rust runtime need its [WASM build instructions](v
 npm run verify:meta-mesh
 npm run quality
 npm test
+npm run test:coverage    # unit HTML/JSON/LCOV report and regression floors
 npx playwright install chromium
 npx playwright test --project=core
 ```
@@ -144,6 +145,10 @@ npx playwright test --project=workspace-roles
 npx playwright test --project=workspace-sync-data
 npx playwright test --project=durable-mesh
 ```
+
+[Coverage and typed lint](docs/testing/coverage-and-lint.md) explains report commands,
+current regression floors, and existing lint debt. The [scenario audit](docs/testing/test-suite-audit.md)
+records reduction candidates and the risks each surviving browser scenario must protect.
 
 See [playwright.config.ts](playwright.config.ts) for all projects. CI runs the static
 checks, unit tests, bundle budgets, dependency audit, and browser suites. Historical

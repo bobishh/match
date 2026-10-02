@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given an already admitted board, when its exact signed evidence repeats, then it does not queue another admission job", async ({ page }) => {
   await page.goto("/")

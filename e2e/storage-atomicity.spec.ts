@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/")

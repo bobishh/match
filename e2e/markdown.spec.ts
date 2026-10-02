@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Markdown descriptions and templates render consistently without executing HTML", async ({ page }, testInfo) => {
   await page.goto("/")

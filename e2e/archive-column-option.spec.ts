@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 async function createBlankBoard(page: import("@playwright/test").Page) {
   await page.goto("/")

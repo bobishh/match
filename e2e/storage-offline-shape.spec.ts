@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given snapshots in local kv and changes in legacy journal, when default storage loads workspace, then it restores both", async ({ page, baseURL }) => {
   await page.route("**/storage-offline-shape.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Offline storage fixture</title>" }))

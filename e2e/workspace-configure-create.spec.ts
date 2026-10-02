@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 for (const width of [1440, 390]) {
   test(`Given a ${width}px viewport, when creating a configured board, then its name, columns, required fields, and select options appear in the item form`, async ({ page }, testInfo) => {

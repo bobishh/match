@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given the Rust runtime request fails, when Match opens, then it identifies the runtime rather than local data", async ({ page }) => {
   await page.route(/\/meta_mesh_bg\.wasm(?:\?.*)?$/, route => route.abort("failed"))

@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 
 export async function createJobSearchWorkspace(page: Page, title = "Job search"): Promise<void> {
   await page.getByRole("button", { name: "Open workspaces" }).click()
@@ -8,6 +8,8 @@ export async function createJobSearchWorkspace(page: Page, title = "Job search")
   await dialog.getByLabel("Title", { exact: true }).fill(title)
   await dialog.getByRole("radio", { name: "Job search" }).check()
   await dialog.getByRole("button", { name: "Create", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole("region", { name: title.trim(), exact: true })).toBeVisible()
 }
 
 export async function ensureJobSearchWorkspace(page: Page): Promise<void> {

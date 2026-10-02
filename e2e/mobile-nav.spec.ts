@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test.describe("Mobile Navigation & Drawer (Gate D)", () => {
   for (const viewport of [

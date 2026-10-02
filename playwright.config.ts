@@ -50,5 +50,8 @@ export default defineConfig({
     command: `npm run dev -- --host 127.0.0.1 --port ${port}`,
     port,
     reuseExistingServer: false,
+    // Tests intercept diagnostic intake; never depend on a developer's .env
+    // or send fixture events to a production service.
+    env: { VITE_SYNC_TELEMETRY_URL: "https://telemetry.invalid/telemetry" },
   },
 })

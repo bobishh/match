@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 for (const unavailable of [false, true]) test(`Given workspace permissions ${unavailable ? "fail" : "load"}, when footer animation replays, then it completes without blocking controls`, async ({ page }) => {
   if (unavailable) await page.route("**/src/sync/workspaceAccessWorker.ts*", route => route.abort())

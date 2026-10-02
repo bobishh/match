@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import * as Automerge from "@automerge/automerge"
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { profileFromIdentitySeedForDevice, signEnvelope } from "@meta-uber/mesh-identity"
 import { encodePairingFrame } from "@meta-uber/mesh-pairing"
 import { createPeerAdvertisement, createWorkspaceDeviceRevocation, createWorkspaceGrant } from "@meta-uber/mesh-workspace"

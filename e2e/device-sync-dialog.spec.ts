@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given Match is open in development, when the footer renders, then it shows the tower and honest dev build label", async ({ page }) => {
   await page.goto("/")
@@ -50,27 +50,14 @@ test("Given many devices on mobile, when their list is scrolled, then the list m
   await page.goto("/")
   const backgroundScroll = await page.evaluate(() => window.scrollY)
 
-  await page.getByRole("button", { name: "Menu", exact: true }).click()
-  const drawer = page.getByRole("dialog", { name: "Navigation menu" })
-  await drawer.getByRole("button", { name: "Sync, import & export" }).click()
-  const dialog = page.getByRole("dialog", { name: "Device sync" })
-  await dialog.evaluate(root => {
-    const scopeAttribute = [...root.attributes].find(attribute => attribute.name.startsWith("data-v-"))?.name
-    const devices = document.createElement("ul")
-    devices.className = "mesh-device-list"
-    devices.setAttribute("role", "list")
-    devices.setAttribute("aria-label", "Devices for mobile test")
-    if (scopeAttribute) devices.setAttribute(scopeAttribute, "")
-    for (let index = 1; index <= 20; index += 1) {
-      const device = document.createElement("li")
-      device.className = "mesh-device"
-      device.textContent = `Phone ${index}`
-      if (scopeAttribute) device.setAttribute(scopeAttribute, "")
-      devices.appendChild(device)
-    }
-    root.appendChild(devices)
+  await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
+  await page.evaluate(async () => {
+    const { mountMobileDeviceListDialog } = await import("/e2e/support/lighthouseDialog.ts")
+    mountMobileDeviceListDialog()
   })
-  const devices = dialog.getByRole("list", { name: "Devices for mobile test" })
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button").filter({ hasText: "Mobile test participant" }).click()
+  const devices = dialog.getByRole("list", { name: "Devices for Mobile test participant" })
   const boardTop = await page.locator(".board").evaluate(board => board.getBoundingClientRect().top)
 
   await expect.poll(() => devices.evaluate(list => list.scrollHeight > list.clientHeight)).toBe(true)

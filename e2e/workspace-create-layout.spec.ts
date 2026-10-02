@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 for (const width of [1440, 390]) {
   test(`Given a ${width}px viewport, when creating a workspace, then presets stay beside their controls and validation allows recovery`, async ({ page }) => {

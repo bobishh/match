@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test"
+import { test, expect } from "./support/coverage"
 
 const STORE_PATH = "/src/chat/store.ts"
 

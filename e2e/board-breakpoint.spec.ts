@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test("Given a 640px board, when resizing to a phone, then compact columns become a navigable single column only at 560px", async ({ page }, testInfo) => {

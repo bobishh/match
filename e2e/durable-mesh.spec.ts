@@ -1,5 +1,5 @@
 import * as Automerge from "@automerge/automerge"
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test"
+import { expect, test, type Browser, type BrowserContext, type Page } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 import { captureRealIrohNodes, captureSavedAcknowledgements, closeLatestRealIrohNode, documentReceiveAttempts, realIrohNodeOwnership } from "./support/recovery"
 import { captureMeshResources, meshResourceCounts } from "./support/meshResources"

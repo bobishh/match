@@ -29,15 +29,25 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - run: npm run quality
-      - run: npm test
+      - run: npm run test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-coverage
+          path: coverage/
+          retention-days: 14
       - run: npm run quality:size
       - run: npm audit --audit-level=moderate
 
   browser-core:
-    name: Browser (core)
+    name: Browser (core ${{ matrix.shard }})
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,7 +59,13 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --reporter=list --project=core
+      - run: npx playwright test --reporter=list --project=core --shard=${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: failure() || cancelled()
+        with:
+          name: core-failure-${{ strategy.job-index }}
+          path: test-results/
+          retention-days: 3
 
   browser-network:
     name: Browser (${{ matrix.project }})

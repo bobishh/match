@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given a held legacy journal with committed board and receipts, when Match opens and edits, then migration preserves data and does not replay compacted changes", async ({ browser, baseURL }) => {
   const context = await browser.newContext()

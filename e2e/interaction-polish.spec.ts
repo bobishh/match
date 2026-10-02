@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 async function blankBoard(page: Page) {

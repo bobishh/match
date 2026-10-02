@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test("Given local storage fails, when Match opens, then it shows the cause without a reload button", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })

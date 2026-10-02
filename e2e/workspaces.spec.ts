@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { createJobSearchWorkspace, ensureJobSearchWorkspace } from "./support/workspaces"
 
 test("Given boards with identical names, when choosing an invitation scope, then the current board is distinct and an empty selection cannot generate a link", async ({ page }) => {

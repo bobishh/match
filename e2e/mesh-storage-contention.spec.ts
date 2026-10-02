@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./support/coverage"
 import { writeFile } from "node:fs/promises"
 
 /** Capture the real app controller in this disposable test profile only. */

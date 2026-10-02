@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test("owner promotes a visitor, then removes only their device through an explicit scope confirmation", async ({ page, browser }, testInfo) => {

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
 test("Given newer local databases, when Match saves workspace and chat data, then it opens without downgrade errors", async ({ page }) => {

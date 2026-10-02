@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as Automerge from "@automerge/automerge"
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./support/coverage"
 import { validateWorkspaceDoc } from "../src/domain/model"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 

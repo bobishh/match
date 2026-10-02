@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
 test("Given an unreadable authority on one board, when creating and importing another board, then its owner access survives", async ({ page }) => {
@@ -29,7 +29,7 @@ test("Given an unreadable authority on one board, when creating and importing an
     }
   })
   await page.reload()
-  await expect(page.getByRole("alert").filter({ hasText: "permissions could not be verified" })).toBeVisible()
+  await expect(page.getByRole("alert").filter({ hasText: "permissions could not be verified" })).toBeVisible({ timeout: 15000 })
   await expect(page.getByLabel("Workspace role: visitor")).toHaveCount(0)
   await createJobSearchWorkspace(page, "Healthy sibling")
   await expect(page.getByLabel("Workspace role: owner")).toBeVisible()

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./support/coverage"
 
 async function seedFormatTwoWorkspace(page: Page, malformed = false) {
   await page.goto("/")

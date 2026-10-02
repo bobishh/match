@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 import { createHash, createPrivateKey, createPublicKey, randomBytes, sign } from "node:crypto"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 

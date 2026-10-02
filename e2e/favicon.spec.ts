@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Page } from "./support/coverage"
 
 async function faviconLoads(page: Page) {
   const href = await page.locator('link[rel="icon"][type="image/svg+xml"]').getAttribute("href")

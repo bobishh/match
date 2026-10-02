@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test } from "./support/coverage"
 
 test.describe("Agent guide", () => {
   test("Given current Match, when an agent opens the guide, then workspace and MCP instructions match the live contract", async ({ page }) => {

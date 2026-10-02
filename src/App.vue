@@ -2,9 +2,10 @@
 <script setup lang="ts">
 import { MarkdownContent } from "./ui/markdownContent"
 import { useAppController } from "./app/useAppController"
+import { useDelayedFlag } from "./ui/useDelayedFlag"
 import { isArchiveColumn } from "./domain/archive"
 import { cardStageButtons } from "./domain/cardStageButtons"
-import { cardAge, isCardAgingExemptColumn } from "./domain/aging"
+import { useCardAges } from "./app/useAgingClock"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
@@ -26,7 +27,6 @@ import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
 import { computed, defineAsyncComponent, ref } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
-import { useAgingClock } from "./app/useAgingClock"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
 
 const IdentityRecoveryDialog = defineAsyncComponent(() => import("./components/IdentityRecoveryDialog.vue"))
@@ -72,6 +72,7 @@ const {
   currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
 } = app.collaboration.permissions
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
+const showAccessLoading = useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading")
 const { meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
   canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
@@ -98,8 +99,7 @@ const editItemNow = createNarrativeEditHandler(editingFoldSnapshot, activeBoard,
 async function editItem(item: Parameters<typeof editItemNow>[0]) { if (!rejectionEditor.value || await rejectionEditor.value.flush()) editItemNow(item) }
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
-const agingNow = useAgingClock()
-function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string; archive?: true }) { return isCardAgingExemptColumn(column) ? null : cardAge(item, activeBoard.value?.cardAgingPolicy, agingNow.value) }
+const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
 </script>
 
 <template>
@@ -154,7 +154,7 @@ function cardAgeFor(item: Parameters<typeof cardAge>[0], column: { title: string
         <div class="boot-search" aria-hidden="true"></div>
         <div class="boot-progress" aria-live="polite">
           <Transition name="notice">
-            <div v-if="showLoading || (ready.value && workspaceRoleStatus === 'loading')" class="loading-indicator" role="status">
+            <div v-if="showLoading || showAccessLoading" class="loading-indicator" role="status">
               <div class="loading-track" aria-hidden="true"><span></span></div>
               <span>{{ ready.value ? 'Checking workspace access' : 'Loading your cards' }}</span>
             </div>

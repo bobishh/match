@@ -17,3 +17,20 @@ export function mountLighthouseDialog() {
       }],
     }).mount(root)
 }
+
+export function mountMobileDeviceListDialog() {
+  const root = document.createElement("div")
+  document.body.appendChild(root)
+  const app = createApp(SyncDialog, {
+    step: "members", title: "Device sync", qrCode: "", inviteUrl: "", copyNotice: "", error: "", hasMesh: true,
+    meshMembers: [{ personId: "mobile-fixture", name: "Mobile test participant", role: "editor", self: false,
+      online: true, reconnecting: false, onlineDevices: 20, devices: 20,
+      deviceList: Array.from({ length: 20 }, (_, index) => ({
+        deviceId: `phone-${index}`, name: `Phone ${index + 1}`, userAgent: "Mozilla/5.0 Chrome/140.0 Linux",
+        description: "Likely Chrome · Linux", online: true, reconnecting: false, tabs: 1, lastSeen: "2026-10-02T12:00:00Z",
+      })),
+    }],
+    onClose: () => { app.unmount(); root.remove() },
+  })
+  app.mount(root)
+}
