@@ -136,7 +136,9 @@ function patchItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"pa
 export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, command, context) => {
   const item = doc.entities[command.entityId]
   if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
-  const historical = Automerge.getHistory(doc).find(entry => entry.change.hash === command.changeHash)?.snapshot.entities[command.entityId]
+  const change = Automerge.getChangesMetaSince(doc, []).find(entry => entry.hash === command.changeHash)
+  if (!change) return err("not_found", "Recorded item version is unavailable")
+  const historical = Automerge.view(doc, [change.hash]).entities[command.entityId]
   if (!isItem(historical)) return err("not_found", "Recorded item version is unavailable")
   const parent = historical.placement.parentId ? doc.entities[historical.placement.parentId] : undefined
   if (!parent || !validatePlacementParent("item", entityKind(parent)).ok) return err("invalid_parent", "Recorded item parent is unavailable")

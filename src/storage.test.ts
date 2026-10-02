@@ -38,6 +38,20 @@ describe("Workspace catalog across browser tabs", () => {
     expect((await tab().listWorkspaces()).map(w => w.id)).toEqual(expect.arrayContaining([existingId, newId]))
   })
 
+  it("reads available and archived entries from one catalog snapshot", async () => {
+    const id = crypto.randomUUID()
+    const storage = tab()
+    await storage.registerWorkspace(id, "Available")
+    await storage.registerWorkspace(`${id}-archived`, "Archived", new Date().toISOString())
+    const readRecords = vi.spyOn(storage as never, "workspaceRecords")
+
+    const catalog = await storage.listWorkspaceCatalog()
+
+    expect(readRecords).toHaveBeenCalledOnce()
+    expect(catalog.available.map(workspace => workspace.id)).toContain(id)
+    expect(catalog.archived.map(workspace => workspace.id)).toContain(`${id}-archived`)
+  })
+
   it("does not resurrect a archived workspace from a stale tab", async () => {
     const id = crypto.randomUUID()
     const stale = tab()

@@ -32,6 +32,7 @@ import {
 
 export function createSyncActions() {
   return {
+    readWorkspaceDoc,
     readWorkspaceBytes,
     validateAuthorizedWorkspace,
     mergeAuthorizedWorkspace,
@@ -41,16 +42,22 @@ export function createSyncActions() {
   };
 }
 
+async function readWorkspaceDoc(
+  id: string,
+  storage = defaultStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  const doc = stateRuntime.activeDoc?.id === id
+    ? stateRuntime.activeDoc
+    : (await storage.loadWorkspaceDoc(id))?.doc;
+  if (!doc) throw new Error("The selected workspace is unavailable on this device.");
+  return doc;
+}
+
 async function readWorkspaceBytes(
   id: string,
   storage = defaultStorage,
 ): Promise<Uint8Array> {
-  const doc =
-    stateRuntime.activeDoc?.id === id
-      ? stateRuntime.activeDoc
-      : (await storage.loadWorkspaceDoc(id))?.doc;
-  if (!doc)
-    throw new Error("The selected workspace is unavailable on this device.");
+  const doc = await readWorkspaceDoc(id, storage);
   return Automerge.save(doc);
 }
 

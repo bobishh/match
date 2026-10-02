@@ -7,7 +7,7 @@ import { initializeAutomerge } from "./crdt"
 import { setStorageFailureHookForTest, WorkspaceStorage } from "./storage"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
 import { useMatch, hydrate, reconcile, resetStateForTest } from "./state"
-import { persistAuthorizedCommand } from "./statePersistence"
+import { persistAuthorizedCommand, refreshAvailableWorkspaces } from "./statePersistence"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { projectBoardSchema } from "./domain/schema"
@@ -220,6 +220,15 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     expect(typeof match.reconcile).toBe("function")
     await match.reconcile()
     expect(match.ready.value).toBe(true)
+  })
+
+  it("refreshes active and archived workspace lists with one catalog read", async () => {
+    const listCatalog = vi.spyOn(defaultStorage, "listWorkspaceCatalog")
+
+    await refreshAvailableWorkspaces(defaultStorage)
+
+    expect(listCatalog).toHaveBeenCalledOnce()
+    listCatalog.mockRestore()
   })
 
   it("notifies live mesh subscribers when another tab persists an inactive workspace during reconciliation", async () => {

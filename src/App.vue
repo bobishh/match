@@ -13,19 +13,17 @@ import MatchPageLayout from "./components/MatchPageLayout.vue"
 import MatchHeading from "./components/MatchHeading.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
-import WorkspaceParticipants from "./components/WorkspaceParticipants.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
 import QuickNoteForm from "./components/QuickNoteForm.vue"
 import AutosaveTextarea from "./components/AutosaveTextarea.vue"
-import MoveItemDialog from "./components/MoveItemDialog.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import ItemDocuments from "./components/ItemDocuments.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
-import { computed, defineAsyncComponent, ref } from "vue"
+import { computed, defineAsyncComponent, ref, type Component } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
 
@@ -36,6 +34,8 @@ const ColumnDialog = defineAsyncComponent(() => import("./components/ColumnDialo
 const SyncDialog = defineAsyncComponent(() => import("./components/SyncDialog.vue"))
 const WorkspaceFileActions = defineAsyncComponent(() => import("./components/WorkspaceFileActions.vue"))
 const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
+const MoveItemDialog = defineAsyncComponent<Component>(() => import("./components/MoveItemDialog.vue"))
+const WorkspaceParticipants = defineAsyncComponent<Component>(() => import("./components/WorkspaceParticipants.vue"))
 
 const app = useAppController()
 const showIdentityRecovery = ref(false)

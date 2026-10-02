@@ -1,5 +1,6 @@
 import { entityKind, isItem, type WorkspaceDocumentV2 } from "./model"
 import { canonicalizeJson } from "./identity"
+import type { Command } from "./commandTypes"
 
 export type WorkspaceRole = "owner" | "editor" | "visitor"
 
@@ -42,6 +43,46 @@ export function canWorkspace(role: WorkspaceRole, capability: WorkspaceCapabilit
 
 export function assertWorkspaceCapability(role: WorkspaceRole, capability: WorkspaceCapability) {
   if (!canWorkspace(role, capability)) throw new Error(capabilityErrors[capability])
+}
+
+export function assertWorkspaceCommand(role: WorkspaceRole, doc: WorkspaceDocumentV2, command: Command): void {
+  const capability = commandCapabilities[command.kind]
+  if (capability === null) return // createWorkspace handler rejects commands on existing documents.
+  const entityId = "entityId" in command ? command.entityId : ""
+  assertWorkspaceCapability(role, capability === "entity" ? entityCapability(doc.entities[entityId]) : capability)
+}
+
+const commandCapabilities: Record<Command["kind"], WorkspaceCapability | "entity" | null> = {
+  createWorkspace: null,
+  migrateWorkspaceFormat: "board.configure",
+  renameWorkspace: "workspace.rename",
+  setWorkspaceArchived: "board.configure",
+  createBoard: "board.configure",
+  createColumn: "board.configure",
+  createItem: "content.write",
+  patchItem: "content.write",
+  restoreItemVersion: "content.write",
+  moveEntity: "entity",
+  renameEntity: "entity",
+  setEntityArchived: "entity",
+  restoreAndMove: "entity",
+  createField: "board.configure",
+  patchField: "board.configure",
+  createFieldOption: "board.configure",
+  patchFieldOption: "board.configure",
+  addDocument: "content.write",
+  patchDocument: "content.write",
+  createTemplate: "board.configure",
+  patchTemplate: "board.configure",
+  recordArtifact: "content.write",
+  updateBoardSchema: "board.configure",
+  updateWorkspaceSettings: "board.configure",
+}
+
+function entityCapability(entity: WorkspaceDocumentV2["entities"][string] | undefined): WorkspaceCapability {
+  return entity && (isItem(entity) || entity.kind === "document" || entity.kind === "artifact")
+    ? "content.write"
+    : "board.configure"
 }
 
 export function assertWorkspaceTransition(role: WorkspaceRole, before: WorkspaceDocumentV2, after: WorkspaceDocumentV2) {

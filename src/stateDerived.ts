@@ -2,8 +2,9 @@ import { hasEntityKind } from "./domain/model"
 import { computed } from "vue";
 import {
   derivePlacementIssues,
-  getChildren,
-  getVisibleChildren,
+  childrenIndex,
+  indexedChildren,
+  visibleIndexedChildren,
 } from "./domain/ancestry";
 import {
   isItem,
@@ -59,8 +60,9 @@ function projectGenericColumns(board: Board | null) {
   void stateRuntime.docVersion.value;
   const doc = stateRuntime.activeDoc;
   if (!doc || !board) return [];
+  const childrenByParent = childrenIndex(doc.entities)
   const archivedItems = archivedItemsForBoard(doc, board.id);
-  return getChildren(doc.entities, board.id)
+  return indexedChildren(childrenByParent, board.id)
     .filter(
       (entity): entity is Column => hasEntityKind(entity, "column") && !entity.archivedAt,
     )
@@ -68,10 +70,10 @@ function projectGenericColumns(board: Board | null) {
       ...column,
       items: (isArchiveColumn(column)
         ? archivedItems
-        : getVisibleChildren(doc.entities, column.id).filter((entity): entity is Item => isItem(entity)))
+        : visibleIndexedChildren(childrenByParent, doc.entities, column.id).filter((entity): entity is Item => isItem(entity)))
         .map((sourceItem) => ({
           ...projectItemPriority(board, sourceItem, textNotesFieldId(doc.entities, board)),
-          subitems: getChildren(doc.entities, sourceItem.id).filter(
+          subitems: indexedChildren(childrenByParent, sourceItem.id).filter(
             (entity): entity is Item => isItem(entity) && !entity.archivedAt,
           ),
         })),

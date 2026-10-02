@@ -1,6 +1,6 @@
 import { expect, test } from "./support/coverage"
 import { writeFile } from "node:fs/promises"
-import { populatedBoard, moveFirst } from "./support/detailedBoard"
+import { populatedBoard } from "./support/detailedBoard"
 
 // Trace snapshots walk this detailed board on the measured main thread.
 // Keep the CPU profile, but measure application work without that recorder.
@@ -11,32 +11,61 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
   const session = await page.context().newCDPSession(page)
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
   await session.send("Profiler.enable")
-  await session.send("Profiler.start")
   await page.evaluate(() => {
     const tasks: number[] = []
-    new PerformanceObserver(list => { for (const entry of list.getEntries()) tasks.push(entry.duration) }).observe({ type: "longtask" })
-    Object.assign(window, { moveTasks: tasks })
+    const taskObserver = new PerformanceObserver(list => { for (const entry of list.getEntries()) tasks.push(entry.duration) })
+    taskObserver.observe({ type: "longtask" })
+    Object.assign(window, { moveTasks: tasks, moveTaskObserver: taskObserver })
   })
-  await page.evaluate(() => Object.assign(window, {
-    beforeMoveBoard: document.querySelector(".board"), beforeMoveNeighbor: document.querySelector('[data-item-id="performance-card-1"]'),
-  }))
-  await moveFirst(page)
-  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
-  await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click({ position: { x: 20, y: 20 } })
-  await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
+  const points = await page.evaluate(() => {
+    const card = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"] .card-open-button')!
+    const stack = [...document.querySelectorAll<HTMLElement>(".card-stack")].find(element => {
+      const title = element.closest(".column")?.querySelector(".column-title h2")?.textContent
+      return title === "Doing"
+    })!
+    const cardRect = card.getBoundingClientRect()
+    const stackRect = stack.getBoundingClientRect()
+    Object.assign(window, { beforeMoveBoard: document.querySelector(".board"), beforeMoveNeighbor: document.querySelector('[data-item-id="performance-card-1"]') })
+    return { sourceX: cardRect.x + cardRect.width / 2, sourceY: cardRect.y + Math.min(30, cardRect.height / 2), targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28 }
+  })
+  await session.send("Profiler.start")
+  await page.mouse.move(points.sourceX, points.sourceY)
+  await page.mouse.down()
+  await page.mouse.move(points.targetX, points.targetY, { steps: 15 })
+  await page.mouse.up()
+  await page.waitForFunction(() => {
+    const movedCard = document.querySelector('[data-item-id="performance-card-0"]')
+    return movedCard?.closest(".card-stack")?.closest(".column")?.querySelector(".column-title h2")?.textContent === "Doing" &&
+      [...document.querySelectorAll("[role=status]")].some(element => element.textContent?.includes("Item moved"))
+  }, undefined, { timeout: 10000 })
+  const openPoint = await page.evaluate(() => {
+    const button = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"] .card-open-button')!
+    const rect = button.getBoundingClientRect()
+    return { x: rect.x + 20, y: rect.y + 20 }
+  })
+  await page.mouse.click(openPoint.x, openPoint.y)
+  await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Item overview"]'))
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const { profile } = await session.send("Profiler.stop")
-  await writeFile(testInfo.outputPath("move.cpuprofile"), JSON.stringify(profile))
-  expect(await page.evaluate(() => {
-    const before = window as unknown as { beforeMoveBoard: Element; beforeMoveNeighbor: Element }
-    return before.beforeMoveBoard === document.querySelector(".board") &&
-      before.beforeMoveNeighbor === document.querySelector('[data-item-id="performance-card-1"]')
-  })).toBe(true)
-  const tasks = await page.evaluate(() => (window as unknown as { moveTasks: number[] }).moveTasks)
-  console.info(`Card move, 55 detailed cards, 4x CPU: longest main-thread task ${Math.round(Math.max(0, ...tasks))}ms`)
-  expect(Math.max(0, ...tasks)).toBeLessThan(200)
-  // Cold startup is a durability check, separate from the throttled interaction.
+  const measured = await page.evaluate(() => {
+    const windowState = window as unknown as { moveTasks: number[]; moveTaskObserver: PerformanceObserver; beforeMoveBoard: Element; beforeMoveNeighbor: Element }
+    windowState.moveTaskObserver.disconnect()
+    return {
+      tasks: [...windowState.moveTasks],
+      sameBoard: windowState.beforeMoveBoard === document.querySelector(".board"),
+      sameNeighbor: windowState.beforeMoveNeighbor === document.querySelector('[data-item-id="performance-card-1"]'),
+    }
+  })
   await session.send("Emulation.setCPUThrottlingRate", { rate: 1 })
+  await writeFile(testInfo.outputPath("move.cpuprofile"), JSON.stringify(profile))
+  await writeFile(testInfo.outputPath("move.measurement.json"), JSON.stringify(measured))
+  await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
+  expect(measured.sameBoard && measured.sameNeighbor).toBe(true)
+  console.info(`Card move, 55 detailed cards, 4x CPU: longest main-thread task ${Math.round(Math.max(0, ...measured.tasks))}ms`)
+  expect(Math.max(0, ...measured.tasks)).toBeLessThan(200)
+  // Cold startup is a durability check, separate from the throttled interaction.
   await page.reload()
   await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 15000 })
 })
-

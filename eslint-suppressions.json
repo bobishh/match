@@ -142,12 +142,9 @@
   },
   "src/storage.ts": {
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
+      "count": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
     },
     "@typescript-eslint/no-unsafe-return": {

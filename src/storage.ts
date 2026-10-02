@@ -11,12 +11,11 @@ import { records, mergeAuthorizationRecords, type WorkspaceChangeAuthorization }
 import { canonicalizeJson } from "./domain/identity"
 import type { StoredProofsV1 } from "./domain/proofs"
 import { toBase64Url, fromBase64Url } from "./domain/identity"
-import { getStorageRaw, removeStorageRaw, setStorageRaw, storageKeys } from "./storageRaw"
-import { includesWorkspaceHeads, repairLegacyCatalog } from "./storageCatalog"
+import { getStorageRaw, removeStorageRaw, setStorageRaw } from "./storageRaw"
+import { includesWorkspaceHeads, partitionCatalog, readWorkspaceCatalogRecords, type WorkspaceMeta } from "./storageCatalog"
 import {
   deleteWorkspaceJournal,
   readWorkspaceSnapshot,
-  listCommittedWorkspaces,
   type StoredWorkspaceSnapshot,
   openWorkspaceJournal,
   readLocalJournal,
@@ -32,6 +31,8 @@ import {
 
 export type { StoredChange } from "./storageJournal"
 export * from "./storageLegacy"
+
+const workspaceMetaPrefix = "match.workspace-meta."
 
 type StoredSnapshot = {
   workspaceId: string
@@ -81,8 +82,6 @@ const memoryStore: InMemoryStore = {
   personalRoots: new Map(),
 }
 
-const workspaceMetaPrefix = "match.workspace-meta."
-type WorkspaceMeta = { id: string; title: string; updatedAt: string; archivedAt?: string | null }
 
 function parseStoredSnapshot(raw: string, workspaceId: string): StoredSnapshot | null {
   try {
@@ -120,56 +119,29 @@ export class WorkspaceStorage {
   }
 
   async listWorkspaces(): Promise<WorkspaceMeta[]> {
-    return (await this.workspaceRecords()).filter(record => !record.archivedAt)
+    return (await this.listWorkspaceCatalog()).available
   }
 
   async listArchivedWorkspaces(): Promise<WorkspaceMeta[]> {
-    return (await this.workspaceRecords()).filter(record => Boolean(record.archivedAt))
+    return (await this.listWorkspaceCatalog()).archived
   }
 
-  // Catalog recovery and migration check several independent storage paths.
-  // eslint-disable-next-line complexity
+  async listWorkspaceCatalog(): Promise<{ available: WorkspaceMeta[]; archived: WorkspaceMeta[] }> {
+    return partitionCatalog(await this.workspaceRecords())
+  }
+
   private async workspaceRecords(): Promise<WorkspaceMeta[]> {
-    // Each workspace owns a separate key: saving one can never erase another.
-    // Discover snapshots whose catalog record is missing.
-    const records = new Map<string, WorkspaceMeta>()
-    const accept = (value: WorkspaceMeta) => {
-      if (value && typeof value.id === "string" && typeof value.title === "string") {
-        records.set(value.id, value)
-      }
-    }
-    const keys = await storageKeys()
-    for (const key of keys.filter(key => key.startsWith(workspaceMetaPrefix))) {
-      try { accept(JSON.parse((await getStorageRaw(key))!)) } catch { /* Recover from the snapshot below. */ }
-    }
-    for (const key of keys.filter(key => key.startsWith("match.snapshot."))) {
-      const id = key.slice("match.snapshot.".length)
-      if (records.has(id)) continue
-      let doc: Automerge.Doc<WorkspaceDocumentV2> | undefined
-      try {
-        const saved = JSON.parse((await getStorageRaw(key))!)
-        doc = Automerge.load<WorkspaceDocumentV2>(saved.bytesBase64 ? fromBase64Url(saved.bytesBase64) : new Uint8Array(saved))
-        if (doc.id === id && typeof doc.title === "string") accept({ id, title: doc.title, updatedAt: saved.savedAt ?? "", archivedAt: doc.archivedAt ?? null })
-      } catch { /* Preserve unreadable data for manual recovery. */ }
-      finally { if (doc) Automerge.free(doc) }
-    }
-    const committedSnapshots = await listCommittedWorkspaces()
-    for (const snapshot of committedSnapshots) {
-      const previous = records.get(snapshot.id)
-      const committed = !previous || previous.updatedAt < snapshot.updatedAt ? await readWorkspaceSnapshot(snapshot.id) : null
-      accept({ ...snapshot, archivedAt: committed?.archivedAt ?? previous?.archivedAt ?? null })
-    }
-    await repairLegacyCatalog(records, committedSnapshots)
-    this.inMemory.workspaces = records
-    return [...records.values()]
+    const records = await readWorkspaceCatalogRecords()
+    this.inMemory.workspaces = new Map(records.map(record => [record.id, record]))
+    return records
   }
 
   async registerWorkspace(id: string, title: string, archivedAt: string | null = null, allowRestore = false): Promise<void> {
-    const previous = await getStorageRaw(`${workspaceMetaPrefix}${id}`)
+    const previous = await getStorageRaw(`match.workspace-meta.${id}`)
     if (previous && !archivedAt && !allowRestore && (JSON.parse(previous) as WorkspaceMeta).archivedAt)
       throw new Error("Workspace was archived in another tab")
     const meta = { id, title, updatedAt: new Date().toISOString(), archivedAt }
-    await setStorageRaw(`${workspaceMetaPrefix}${id}`, JSON.stringify(meta))
+    await setStorageRaw(`match.workspace-meta.${id}`, JSON.stringify(meta))
     this.inMemory.workspaces.set(id, meta)
   }
 

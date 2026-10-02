@@ -1,6 +1,4 @@
-import { hasEntityKind } from "../domain/model"
 import { computed, ref, watch } from "vue"
-import * as Automerge from "@automerge/automerge/slim"
 import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
@@ -8,13 +6,16 @@ import { useMatch } from "../state"
 import type { ArtifactKind } from "../types"
 import { type Column, type Item, type WorkspaceDocumentV2 } from "../domain/model"
 import { configureChat, exportChat, receiveChat, subscribeChat } from "../chat/service"
+import type { WorkspaceAccessResult } from "./workspaceAccessState"
+import { refreshWorkspaceAccess } from "./workspaceAccessRefresh"
 import type { AppStartupStage } from "./startup"
 import { useWorkspaceChat } from "../chat/useWorkspaceChat"
 import { defaultBoardFilters, type BoardFilters } from "../filters"
 import { useDeviceSync } from "../sync/useDeviceSync"
 import { meshTrace } from "../sync/meshTrace"
 import { useAppMesh } from "./useAppMesh"
-import { blobDescriptor, configureAttachmentFetcher, readStoredAttachment, writeStoredAttachment } from "../attachments"
+import { configureAttachmentFetcher, readStoredAttachment, writeStoredAttachment } from "../attachments"
+import { workspaceBlobDescriptor, workspaceChatRoomId } from "./workspaceMetadata"
 
 type ArchiveUndo = { workspaceId: string; itemId: string; title: string }
 
@@ -89,8 +90,8 @@ function useAppDrafts() {
 
 function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<typeof useAppUiState>) {
   configureChat(
-    async id => Automerge.load<WorkspaceDocumentV2>(await match.readWorkspaceBytes(id)).ownerPersonId,
-    async id => chatRoomId(match.readWorkspaceBytes, id),
+    async id => (await match.readWorkspaceDoc(id)).ownerPersonId,
+    async id => workspaceChatRoomId(await match.readWorkspaceDoc(id)),
   )
   const chatWorkspaceId = computed(() => match.ready.value ? match.activeWorkspace.id : "")
   const chatOwnerId = computed(() => { void match.docVersion.value; return match.getActiveDoc()?.ownerPersonId ?? "" })
@@ -116,7 +117,7 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
       readChat: exportChat,
       mergeChat: receiveChat,
       blob: {
-        resolve: (workspaceId, blobId) => resolveWorkspaceBlob(match.readWorkspaceBytes, workspaceId, blobId),
+        resolve: async (workspaceId, blobId) => workspaceBlobDescriptor(await match.readWorkspaceDoc(workspaceId), blobId),
         read: readStoredAttachment,
         write: writeStoredAttachment,
       },
@@ -125,40 +126,12 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
     availableWorkspaces: match.availableWorkspaces,
     activeWorkspaceId: () => match.activeWorkspace.id || "default",
     workspaceOwner: id => timedWorkspaceStoreStage("owner-check", id, () =>
-      resolveWorkspaceOwner(match.readWorkspaceBytes, id)),
+      resolveWorkspaceOwner(match.readWorkspaceDoc, id)),
   })
   configureAttachmentFetcher(descriptor => sync.fetchBlob(match.activeWorkspace.id, descriptor))
   const policy = useWorkspacePolicy(match, ui, sync)
   const mesh = useAppMesh({ activeWorkspace: match.activeWorkspace, chat, sync, ...policy })
   return { chat, sync, ...policy, ...mesh }
-}
-
-async function resolveWorkspaceBlob(
-  readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"],
-  workspaceId: string,
-  blobId: string,
-) {
-  const doc = Automerge.load<WorkspaceDocumentV2>(await readWorkspaceBytes(workspaceId))
-  for (const entity of Object.values(doc.entities)) {
-    const references = hasEntityKind(entity, "document")
-      ? [entity.file]
-      : hasEntityKind(entity, "artifact")
-        ? [entity.pdf, entity.sourceMarkdown]
-        : []
-    for (const reference of references) {
-      if (!reference) continue
-      const descriptor = blobDescriptor(reference)
-      if (descriptor?.blobId === blobId) return descriptor
-    }
-  }
-  return undefined
-}
-
-async function chatRoomId(readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"], id: string) {
-  const doc = Automerge.load<WorkspaceDocumentV2>(await readWorkspaceBytes(id))
-  const board = Object.values(doc.entities).find(entity => hasEntityKind(entity, "board"))
-  if (!board) throw new Error("Workspace has no board")
-  return `${doc.ownerPersonId}:${board.id}`
 }
 
 function subscribeWorkspaceAndChat(subscribeLocalChanges: ReturnType<typeof useMatch>["subscribeLocalChanges"], listener: () => void) {
@@ -187,8 +160,8 @@ async function timedWorkspaceStoreStage<T>(stage: string, workspaceId: string, o
   }
 }
 
-async function resolveWorkspaceOwner(readWorkspaceBytes: ReturnType<typeof useMatch>["readWorkspaceBytes"], id: string) {
-  const doc = Automerge.load<WorkspaceDocumentV2>(await readWorkspaceBytes(id))
+async function resolveWorkspaceOwner(readWorkspaceDoc: ReturnType<typeof useMatch>["readWorkspaceDoc"], id: string) {
+  const doc = await readWorkspaceDoc(id)
   await workspaceRole(doc, await bootstrapIdentity("My Device"))
   return effectiveWorkspaceOwner(id, doc.ownerPersonId)
 }
@@ -200,24 +173,25 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   const workspaceAccess = ref<Record<string, WorkspaceAccessResult>>({})
   const workspaceAccessErrors = ref<string[]>([])
   const workspaceRoleStatus = computed(() => roleWorkspaceId.value !== match.activeWorkspace.id ? "loading" : workspaceAccess.value[match.activeWorkspace.id]?.error ? "unavailable" : "verified")
-  watch([() => match.activeWorkspace.id, () => match.availableWorkspaces.value.map(item => item.id).join("|"), match.docVersion, match.ready, sync.ownershipRevision], async (_, __, onCleanup) => {
+  const refreshAccess = async (includeOthers: boolean, onCleanup: (cleanup: () => void) => void) => {
     let cancelled = false
     onCleanup(() => { cancelled = true })
     const doc = match.getActiveDoc()
     if (!doc) return
-    const commit = (result: Awaited<ReturnType<typeof loadWorkspaceAccess>>) => {
-      if (cancelled || match.activeWorkspace.id !== doc.id) return
-      currentRole.value = result.role
-      currentWorkspaceOwnerId.value = result.ownerId
-      roleWorkspaceId.value = doc.id
-      workspaceAccess.value = { ...workspaceAccess.value, ...result.access }
-      workspaceAccessErrors.value = result.errors
-    }
-    const result = await loadWorkspaceAccess(match, doc, commit)
-    if (!cancelled && match.activeWorkspace.id === doc.id) {
-      commit(result)
-    }
-  }, { immediate: true })
+    await refreshWorkspaceAccess({ workspaceId: doc.id, includeOthers, cancelled: () => cancelled,
+      getActiveWorkspaceId: () => match.activeWorkspace.id, getDocVersion: () => match.docVersion.value,
+      getWorkspaceIds: () => match.availableWorkspaces.value.map(item => item.id),
+      load: (all, onActive) => loadWorkspaceAccess(match, doc, all, onActive),
+      state: { currentRole, currentWorkspaceOwnerId, roleWorkspaceId, workspaceAccess, workspaceAccessErrors } })
+  }
+  const identityFingerprint = () => {
+    void match.docVersion.value
+    const profile = match.getCurrentProfile()
+    return profile ? `${profile.identity.personId}|${profile.identity.publicKey}|${profile.device.deviceId}|${profile.certificate.signature}` : ""
+  }
+  watch([() => match.activeWorkspace.id, () => match.availableWorkspaces.value.map(item => item.id).join("|"), () => match.ready.value, sync.ownershipRevision, identityFingerprint],
+    (_, __, onCleanup) => refreshAccess(true, onCleanup), { immediate: true })
+  watch(match.docVersion, (_, __, onCleanup) => refreshAccess(false, onCleanup))
   const activePolicyAvailable = computed(() => roleWorkspaceId.value === match.activeWorkspace.id && workspaceAccess.value[match.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(match.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === match.activeWorkspace.id)?.conflicted)
   const allowed = (permission: Parameters<typeof canWorkspace>[1]) => computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, permission))
   const canEditItems = allowed("content.write")
@@ -237,10 +211,8 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace }
 }
 
-type WorkspaceAccessResult = { role: WorkspaceRole; blocked: boolean; error?: string }
-
-async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: WorkspaceDocumentV2,
-  onActive?: (result: { role: WorkspaceRole; ownerId: string; access: Record<string, WorkspaceAccessResult>; errors: string[] }) => void) {
+async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: WorkspaceDocumentV2, includeOthers = true,
+  onActive?: (result: { role: WorkspaceRole; ownerId: string; access: Record<string, WorkspaceAccessResult> }) => void) {
   const profile = await bootstrapIdentity("My Device")
   const resolve = async (item: { id: string; title: string }) => {
     try {
@@ -257,11 +229,11 @@ async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: Work
   const [activeId, activeRaw] = await resolve(activeItem)
   const active: WorkspaceAccessResult = activeRaw
   const ownerId = active?.error ? "" : await effectiveWorkspaceOwner(doc.id, doc.ownerPersonId)
-  const initial = { role: active.role, ownerId, access: { [activeId]: active },
-    errors: active.error ? [active.error] : [] }
+  const initial = { role: active.role, ownerId, access: { [activeId]: active } }
   onActive?.(initial)
-  const others = await Promise.all(items.filter(item => item.id !== doc.id).map(resolve))
-  return { ...initial, access: Object.fromEntries([[activeId, active], ...others]) }
+  const others = includeOthers ? await Promise.all(items.filter(item => item.id !== doc.id).map(resolve)) : []
+  const access: Record<string, WorkspaceAccessResult> = Object.fromEntries([[activeId, active], ...others])
+  return { ...initial, access }
 }
 
 function closeRestrictedEditors(ui: ReturnType<typeof useAppUiState>) {

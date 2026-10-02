@@ -41,10 +41,6 @@ function openDatabase(): Promise<IDBDatabase> {
   })
 }
 
-export async function saveWorkspace(workspace: Workspace): Promise<void> {
-  return saveWorkspaceRecord({ workspace })
-}
-
 export async function saveWorkspaceRecord(record: WorkspaceRecord): Promise<void> {
   if (typeof indexedDB === "undefined") return
   const database = await openDatabase()

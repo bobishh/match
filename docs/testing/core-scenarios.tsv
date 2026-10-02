@@ -1,4 +1,5 @@
 file	line	scenario
+access-policy-local.spec.ts	6	Given multiple workspaces, when active content changes, then inactive access loads wait for workspace invalidation
 agent-guide.spec.ts	4	Given current Match, when an agent opens the guide, then workspace and MCP instructions match the live contract
 agent-guide.spec.ts	40	Given invalid or stale settings, when an agent follows recovery guidance, then validation and conflict behavior is explicit
 agent-guide.spec.ts	50	Given a narrow viewport, when the guide opens, then content remains within the viewport
@@ -45,6 +46,9 @@ chat-local.spec.ts	82	Given desktop chat, when its corner is dragged, then the w
 chat-local.spec.ts	106	Given a storage failure, when a message is submitted, then the draft remains and retry writes once
 chat-local.spec.ts	131	Given slow local signing, when a message is submitted, then it appears immediately while durability finishes
 chat-local.spec.ts	152	Given one poisoned historical chat record, when a peer sends it with a valid record, then the valid message still arrives
+chat-open-performance.spec.ts	7	Given 55 detailed cards, when Chat opens, then pointer event timing stays below 200ms
+chat-open-performance.spec.ts	22	Given 55 detailed cards, when Sync opens, then pointer event timing stays below 200ms
+chat-open-performance.spec.ts	102	Given chat metadata becomes unavailable, when Chat opens, then failure appears and board remains usable
 chat-storage.spec.ts	11	two tabs concurrently append different messages and duplicate is suppressed
 chat-storage.spec.ts	97	immutable same-id conflict rejects and leaves stored record unchanged
 chat-storage.spec.ts	153	2001 chronological records retains latest 2000 and pruned cutoff rejects reimport
@@ -108,8 +112,8 @@ mobile-nav.spec.ts	9	Given 430px (iPhone 14 Pro Max) viewport, when opened, hamb
 mobile-nav.spec.ts	75	Given 1024px desktop viewport, topbar displays direct action buttons and hides hamburger button
 mobile-nav.spec.ts	98	Given an open drawer, when a background branch appears, then it stays inaccessible and scroll lock survives an interrupted handoff
 quick-note.spec.ts	18	Given an item overview, when a quick note is added, then it appears immediately and survives reload
-quick-note.spec.ts	33	Given quick-note persistence fails, when retry succeeds, then the draft stays and one note is saved
-quick-note.spec.ts	50	Given a Job search lead, when a quick note is added, then it appends to its Description
+quick-note.spec.ts	36	Given quick-note persistence fails, when retry succeeds, then the draft stays and one note is saved
+quick-note.spec.ts	53	Given a Job search lead, when a quick note is added, then it appends to its Description
 rejection-notes.spec.ts	18	Given a rejected card, when typing continuously, then input stays local until idle and survives reload
 rejection-notes.spec.ts	46	Given storage fails, when closing a dirty card, then draft stays visible and retry saves it
 rejection-notes.spec.ts	62	Given a slow save, when typing newer text, then saved updates never overwrite the draft

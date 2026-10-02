@@ -242,6 +242,33 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect((queue.getDocument().entities[itemId] as Item)).toMatchObject({ title: "After", body: "Changed" })
   })
 
+  it("restores selected causal version after concurrent branch merge without snapshotting full history", async () => {
+    const raw = createWorkspaceDoc("ws_causal_history", "History", profile.identity.personId, "blank")
+    const setup = createCommandQueue(Automerge.from<WorkspaceDocumentV2>(raw), profile)
+    const todo = Object.values(setup.getDocument().entities).find(entity => hasEntityKind(entity, "column") && entity.title === "To do")!
+    const created = await setup.transact({ kind: "createItem", parentId: todo.id, title: "Base title", body: "Base body" })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const itemId = created.value.receipt.changedEntityIds[0]
+    const base = setup.getDocument()
+    const selected = Automerge.change(Automerge.clone(base, { actor: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { message: "Selected version" }, draft => {
+      (draft.entities[itemId] as Item).title = "Selected version"
+    })
+    const selectedHash = Automerge.getHeads(selected)[0]!
+    const concurrent = Automerge.change(Automerge.clone(base, { actor: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }), { message: "Concurrent version" }, draft => {
+      (draft.entities[itemId] as Item).title = "Concurrent version"
+    })
+    const merged = Automerge.merge(Automerge.clone(selected), concurrent)
+    expect(Automerge.view(merged, [selectedHash]).entities[itemId]).toMatchObject({ title: "Selected version" })
+
+    const queue = createCommandQueue(merged, profile)
+    const restored = await queue.transact({ kind: "restoreItemVersion", entityId: itemId, changeHash: selectedHash })
+
+    expect(restored.ok).toBe(true)
+    expect((queue.getDocument().entities[itemId] as Item).title).toBe("Selected version")
+    expect(Automerge.getChangesMetaSince(queue.getDocument(), []).map(change => change.hash)).toContain(selectedHash)
+  })
+
   it("rejects invalid commands and cycle-creating moves without mutating document", async () => {
     // Test on a blank board workspace where items have no required fields
     const rawWs = createWorkspaceDoc("ws_blank_test", "Blank Board", profile.identity.personId, "blank")

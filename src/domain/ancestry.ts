@@ -94,11 +94,26 @@ export function getChildren(
 ): WorkspaceEntity[] {
   const children: WorkspaceEntity[] = []
   for (const entity of Object.values(entities)) {
-    if (entity.placement.parentId === parentId) {
-      children.push(entity)
-    }
+    if (entity.placement.parentId === parentId) children.push(entity)
   }
   return sortEntitiesByRank(children)
+}
+
+export type ChildrenIndex = ReadonlyMap<string | null, readonly WorkspaceEntity[]>
+
+export function childrenIndex(entities: Record<string, WorkspaceEntity>): ChildrenIndex {
+  const index = new Map<string | null, WorkspaceEntity[]>()
+  for (const entity of Object.values(entities)) {
+    const siblings = index.get(entity.placement.parentId) ?? []
+    siblings.push(entity)
+    index.set(entity.placement.parentId, siblings)
+  }
+  for (const [parentId, siblings] of index) index.set(parentId, sortEntitiesByRank(siblings))
+  return index
+}
+
+export function indexedChildren(index: ChildrenIndex, parentId: string | null): readonly WorkspaceEntity[] {
+  return index.get(parentId) ?? []
 }
 
 export function getAncestryPath(
@@ -109,12 +124,8 @@ export function getAncestryPath(
   const visited = new Set<string>()
   let currentId: string | null = entityId
 
-  const maxSteps = Object.keys(entities).length + 2
-  let steps = 0
-
   while (currentId !== null) {
-    steps++
-    if (steps > maxSteps || visited.has(currentId)) {
+    if (visited.has(currentId)) {
       // Cycle detected
       return {
         path,
@@ -222,6 +233,22 @@ export function getVisibleChildren(
   parentId: string | null,
   workspaceArchived = false
 ): WorkspaceEntity[] {
-  const children = getChildren(entities, parentId)
-  return children.filter((child) => isEntityVisible(entities, child.id, workspaceArchived))
+  return visibleChildrenFrom(entities, getChildren(entities, parentId), workspaceArchived)
+}
+
+export function visibleIndexedChildren(
+  index: ChildrenIndex,
+  entities: Record<string, WorkspaceEntity>,
+  parentId: string | null,
+  workspaceArchived = false,
+): WorkspaceEntity[] {
+  return visibleChildrenFrom(entities, indexedChildren(index, parentId), workspaceArchived)
+}
+
+function visibleChildrenFrom(
+  entities: Record<string, WorkspaceEntity>,
+  children: readonly WorkspaceEntity[],
+  workspaceArchived: boolean,
+): WorkspaceEntity[] {
+  return children.filter(child => isEntityVisible(entities, child.id, workspaceArchived))
 }

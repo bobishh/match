@@ -4,13 +4,50 @@ import {
   calculateRankBetween,
   sortEntitiesByRank,
   derivePlacementIssues,
-  isEntityVisible,
+  childrenIndex,
+  getAncestryPath,
+  getChildren,
   getVisibleChildren,
+  indexedChildren,
+  isEntityVisible,
+  visibleIndexedChildren,
   renumberSiblings,
 } from "./ancestry"
 import type { Item, Column, Board, WorkspaceEntity } from "./model"
 
 describe("Ancestry, rational ranks, and placement projection (Requirement 1.4)", () => {
+  it("indexes sorted children in one entity pass and walks ancestry without enumerating the entity record", () => {
+    const board: Board = {
+      id: "board_index", kind: "board", title: "Board", placement: { parentId: null, rank: "0/1" },
+      archivedAt: null, createdAt: "2026-09-09T00:00:00Z", updatedAt: "2026-09-09T00:00:00Z", preset: null,
+    }
+    const column: Column = {
+      id: "column_index", kind: "column", title: "To do", placement: { parentId: board.id, rank: "0/1" },
+      archivedAt: null, createdAt: "2026-09-09T00:00:00Z", updatedAt: "2026-09-09T00:00:00Z",
+    }
+    const item: Item = {
+      id: "item_index", title: "Item", placement: { parentId: column.id, rank: "0/1" },
+      archivedAt: null, createdAt: "2026-09-09T00:00:00Z", updatedAt: "2026-09-09T00:00:00Z", body: "", values: {},
+    }
+    const entities: Record<string, WorkspaceEntity> = {
+      [board.id]: board, [column.id]: column, [item.id]: item,
+    }
+    let enumerations = 0
+    const counted = new Proxy(entities, {
+      ownKeys(target) { enumerations += 1; return Reflect.ownKeys(target) },
+    })
+    const index = childrenIndex(counted)
+
+    expect(enumerations).toBe(1)
+    expect(indexedChildren(index, column.id).map(entity => entity.id)).toEqual(getChildren(entities, column.id).map(entity => entity.id))
+    expect(visibleIndexedChildren(index, entities, column.id).map(entity => entity.id)).toEqual(getVisibleChildren(entities, column.id).map(entity => entity.id))
+
+    const noEnumeration = new Proxy(entities, {
+      ownKeys() { throw new Error("Ancestry walk must follow parent IDs directly") },
+    })
+    expect(getAncestryPath(noEnumeration, item.id).path).toEqual([item.id, column.id, board.id])
+  })
+
   it("compares rational ranks exactly using BigInt arithmetic, not lexicographical string ordering", () => {
     expect(compareRanks("1/10", "1/2")).toBeLessThan(0)
     expect(compareRanks("1/2", "1/10")).toBeGreaterThan(0)

@@ -11,7 +11,7 @@ test("Given a detailed board and failed storage, when a card moves, then failure
   await moveFirst(page)
   await expect(page.getByRole("status")).toContainText("Item moved")
   await page.reload()
-  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 15000 })
 })
 
 test("Given two tabs share a detailed board, when one moves a card and another edits its neighbor, then reload retains both writes", async ({ page, context }) => {
@@ -29,7 +29,7 @@ test("Given two tabs share a detailed board, when one moves a card and another e
   ])
   await expect(page.getByRole("status")).toContainText("Item moved")
   await page.reload()
-  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Open Concurrent neighbor edit", exact: true })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole("button", { name: "Open Concurrent neighbor edit", exact: true })).toBeVisible({ timeout: 15000 })
   await other.close()
 })

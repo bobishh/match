@@ -41,19 +41,60 @@ function useBoardPresentation(core: AppBoardContext) {
     return policy ? [policy.priorityFieldId, policy.fitFieldId].filter((id): id is string => Boolean(id)) : []
   })
   const itemFormOptionValues = computed(() => Object.fromEntries(Object.entries(match.activeBoard.value?.preset?.bindings ?? {}).filter(([binding]) => binding.startsWith("option.")).map(([binding, optionId]) => [optionId, binding.split(".").at(-1)!])))
-  const leadForItem = (item: Item) => match.isBlankBoard.value ? undefined : match.workspace.leads.find(lead => lead.id === item.id)
+  const leadsById = computed(() => new Map(match.workspace.leads.map(lead => [lead.id, lead])))
+  const leadForItem = (item: Item) => match.isBlankBoard.value ? undefined : leadsById.value.get(item.id)
+  const notesByItem = computed(() => {
+    void match.docVersion.value
+    const notes = new Map<string, AttachedDocument[]>()
+    for (const entity of Object.values(match.getActiveDoc()?.entities ?? {})) {
+      if (entity.kind !== "document" || entity.documentKind !== "note" || entity.archivedAt || !entity.placement.parentId) continue
+      const attached = notes.get(entity.placement.parentId) ?? []
+      attached.push(entity)
+      notes.set(entity.placement.parentId, attached)
+    }
+    return notes
+  })
+  const searchableTextByItem = computed(() => {
+    void match.docVersion.value
+    const doc = match.getActiveDoc()
+    if (!doc) return new Map<string, string>()
+    const leads = leadsById.value
+    const notes = notesByItem.value
+    const notesFieldId = textNotesFieldId()
+    const searchable = new Map<string, string>()
+    for (const entity of Object.values(doc.entities)) {
+      if (!isItem(entity)) continue
+      const lead = match.isBlankBoard.value ? undefined : leads.get(entity.id)
+      const narrative = itemNarrative(entity, lead ? notesFieldId : undefined, notes.get(entity.id) ?? [])
+      const fieldText = Object.values(entity.values).filter(value => value !== null).join(" ")
+      searchable.set(entity.id, (lead
+        ? `${lead.company} ${lead.role} ${narrative} ${fieldText}`
+        : `${entity.title} ${narrative} ${fieldText}`).toLowerCase())
+    }
+    return searchable
+  })
+  const normalizedSearch = computed(() => search.value.trim().toLowerCase())
   const textNotesFieldId = () => {
     const id = match.activeBoard.value?.preset?.bindings["field.notes"]
     return id && match.boardFields.value.some(field => field.id === id && field.valueType === "text") ? id : undefined
   }
   const cardNotes = (item: Item) => {
-    const notes = Object.values(match.getActiveDoc()?.entities ?? {}).filter((entity): entity is AttachedDocument =>
-      entity.kind === "document" && entity.placement.parentId === item.id && !entity.archivedAt && entity.documentKind === "note")
+    const notes = notesByItem.value.get(item.id) ?? []
     return itemNarrative(item, leadForItem(item) ? textNotesFieldId() : undefined, notes)
   }
   const cardFields = (item: Item) => cardFieldValues(item, match.boardFields.value, match.activeBoard.value?.preset?.bindings ?? {}, leadForItem(item))
-  const itemIsVisible = (item: Item, columnId: string) => matchesSearchAndFilters(item, columnId, search.value, filters.value, leadForItem(item), cardNotes(item))
-  const itemsForColumn = (column: { id: string; items: Item[] }) => orderItemsByPriority(match.activeBoard.value, column.items.filter(item => itemIsVisible(item, column.id)), textNotesFieldId())
+  const itemsByColumn = computed(() => {
+    const board = match.activeBoard.value
+    const query = normalizedSearch.value
+    const activeFilters = filters.value
+    const notesFieldId = textNotesFieldId()
+    const searchable = query ? searchableTextByItem.value : null
+    return new Map(match.genericColumns.value.map(column => [column.id, orderItemsByPriority(board, column.items.filter(item => {
+      const matchesSearch = !query || searchable?.get(item.id)?.includes(query) === true
+      return matchesSearch && matchesItemFilters(item, column.id, activeFilters)
+    }), notesFieldId)]))
+  })
+  const itemsForColumn = (column: { id: string; items: Item[] }) => itemsByColumn.value.get(column.id) ?? []
   const totalItems = computed(() => match.genericColumns.value.reduce((total, column) => total + column.items.length, 0))
   const visibleItems = computed(() => match.genericColumns.value.reduce((total, column) => total + itemsForColumn(column).length, 0))
   const hasFilters = computed(() => Boolean(search.value.trim()) || activeFilterCount(filters.value) > 0)
@@ -81,13 +122,6 @@ function cardFieldValues(item: Item, fields: ReturnType<typeof useAppCore>["matc
     const label = field.valueType === "select" ? field.options[String(value)]?.title : typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)
     return label ? [{ id: field.id, title: field.title, value: label }] : []
   })
-}
-
-function matchesSearchAndFilters(item: Item, columnId: string, search: string, filters: ReturnType<typeof useAppCore>["filters"]["value"], lead: ReturnType<typeof useAppCore>["match"]["workspace"]["leads"][number] | undefined, narrative: string) {
-  const query = search.trim().toLowerCase()
-  const fieldText = Object.values(item.values).filter(value => value !== null).join(" ")
-  const searchable = lead ? `${lead.company} ${lead.role} ${narrative} ${fieldText}` : `${item.title} ${narrative} ${fieldText}`
-  return (!query || searchable.toLowerCase().includes(query)) && matchesItemFilters(item, columnId, filters)
 }
 
 function summarizeWorkspace(totalItems: number, visibleItems: number, totalDocuments: number, devices: number, hasFilters: boolean) {

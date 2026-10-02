@@ -4,7 +4,7 @@ import * as Automerge from "@automerge/automerge/slim";
 import { initializeAutomerge } from "./crdt";
 import {
   assertWorkspaceCapability,
-  assertWorkspaceTransition,
+  assertWorkspaceCommand,
   type WorkspaceRole,
 } from "./domain/permissions";
 import {
@@ -17,7 +17,7 @@ import {
   reconcilePersonalRootWorkspaces,
 } from "./domain/personalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
-import { isItem, type Board, type WorkspaceDocumentV2 } from "./domain/model";
+import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command } from "./domain/commands";
 import {
   prepareLocalChangeAuthorizations,
@@ -28,7 +28,6 @@ import {
 import { peerStore } from "./sync/peerStore";
 import {
   defaultStorage,
-  saveWorkspace,
   type WorkspaceStorage,
 } from "./storage";
 import { projectWorkspace } from "./stateProjection";
@@ -193,6 +192,7 @@ async function commitAuthorizedCommand(
     throw new Error("Workspace writes paused: conflicting ownership records");
   const role = await workspaceRole(doc, profile);
   ensureContentWrite(role);
+  assertWorkspaceCommand(role, doc, command);
   const result = await executeCommand(doc, command, profile);
   if (!result.ok)
     throw new Error(
@@ -201,10 +201,8 @@ async function commitAuthorizedCommand(
   const changeBytes = Automerge.getLastLocalChange(result.value.newDoc);
   if (!changeBytes) throw new Error("No change produced");
   if (command.kind === "moveEntity" || command.kind === "restoreAndMove") {
-    const entity = doc.entities[command.entityId];
-    assertWorkspaceCapability(role, isItem(entity) || entity?.kind === "document" || entity?.kind === "artifact" ? "content.write" : "board.configure");
     (await import("./sync/workspaceAccess")).inheritLocalMoveAccess(doc, result.value.newDoc);
-  } else assertWorkspaceTransition(role, doc, result.value.newDoc);
+  }
   const authorizations = await prepareLocalChangeAuthorizations(result.value.newDoc, profile, [
     result.value.receipt.changeHash,
   ]);
@@ -247,8 +245,9 @@ export async function reconcile(storage = defaultStorage, workspaceChanged = fal
 export async function refreshAvailableWorkspaces(
   storage = defaultStorage,
 ): Promise<void> {
-  stateRuntime.availableWorkspaces.value = await storage.listWorkspaces();
-  stateRuntime.archivedWorkspaces.value = await storage.listArchivedWorkspaces();
+  const catalog = await storage.listWorkspaceCatalog();
+  stateRuntime.availableWorkspaces.value = catalog.available;
+  stateRuntime.archivedWorkspaces.value = catalog.archived;
   const meta = stateRuntime.activeWorkspaceMeta;
   if (
     meta.id && !stateRuntime.activeDoc?.archivedAt &&
@@ -423,7 +422,6 @@ async function persistCommand(
     const next = await commitAuthorizedCommand(base, command, profile, storage);
     if (stateRuntime.activeDoc?.id === workspaceId) {
       updateReactiveState(next);
-      await saveWorkspace(stateRuntime.workspace).catch(() => undefined);
     }
     stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });
     notifyLocalChanges(workspaceId);
@@ -452,7 +450,7 @@ async function reconcileWorkspace(storage: WorkspaceStorage, workspaceChanged = 
   const active = stateRuntime.activeDoc;
   if (!active) return;
   await refreshAvailableWorkspaces(storage);
-  const loaded = await storage.loadWorkspaceDoc(active.id);
+  const loaded = await storage.loadWorkspaceDoc(active.id, active);
   const activeChanged = loaded &&
     Automerge.getHeads(active).sort().join(",") !== loaded.heads.join(",");
   if (activeChanged) updateReactiveState(loaded.doc);
