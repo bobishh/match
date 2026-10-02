@@ -26,9 +26,9 @@ card-aging.spec.ts	3	idle cards age while the page stays open and editing restor
 card-aging.spec.ts	30	aging threshold changes are explained before applying
 card-edit.spec.ts	21	Given a long lead, when details open and schema values change, then Edit stays visible and values survive reload
 card-edit.spec.ts	52	Given storage failure, when lead edit saves, then the form stays open and retry commits atomically
-card-move-performance.spec.ts	43	Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction
-card-move-performance.spec.ts	77	Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists
-card-move-performance.spec.ts	90	Given two tabs share a detailed board, when one moves a card and another edits its neighbor, then reload retains both writes
+card-move-performance.spec.ts	4	Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists
+card-move-performance.spec.ts	17	Given two tabs share a detailed board, when one moves a card and another edits its neighbor, then reload retains both writes
+card-move-responsiveness.spec.ts	9	Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction
 card-narrative-race.spec.ts	49	Given legacy narrative sources and an attachment, when Description saves, then all text folds and attachment remains
 card-narrative-race.spec.ts	73	Given legacy narrative sources, when unchanged Description saves, then old text remains editable after reload
 card-narrative-race.spec.ts	96	Given a failed narrative save, when retry succeeds, then draft commits once and source remains intact until then

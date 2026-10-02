@@ -158,3 +158,9 @@ The first full reduced-core run passed 178 cases and failed the relocated Markdo
 ### Final verification
 
 Final core run: **179/179 passed**, two shards with one worker each, zero retries, alternate ports; shard durations 3.2 and 2.7 minutes. This is local elapsed time, not measured GitHub runner time. Unit coverage run: 756 passed, one skipped across 81 files; lines 51.44%, branches 41.30%, existing global floors passed. Full quality checks and initial JavaScript size gate passed (234.71 kB against 235 kB). Relevant network chat/sync cases passed (8 cases), as did the unchanged workspace-role admission failure and owner/editor happy flow. Full network matrix remains a CI responsibility; these focused runs do not certify every network scenario.
+
+### Follow-up CI measurement isolation
+
+Run 37021109106 passed verify, native peer, and core shard 2, but core shard 1 failed the responsiveness gate (271 ms, retry 239 ms) and second-tab readiness. The latter failed before concurrent writes: the second page still showed “Checking workspace access” after five seconds. It now explicitly awaits startup readiness with the same 15-second budget used for cold detailed-board reload; concurrent write and durability assertions remain unchanged.
+
+Both CPU profiles contain roughly 289 ms cumulative self time in Playwright's `visitNode → captureSnapshot` stack. Cumulative samples cannot attribute the exact longest-task boundary, but show recorder work inside the measurement. Responsiveness now runs in a separate file with trace recording disabled; its CPU profile, 4× throttle, DOM identity checks, cold durability check and 200 ms gate remain. Failed storage/retry and two-tab durability keep failure traces. Optional source coverage also excludes the new performance file. This is measurement isolation, not evidence of a new production performance improvement.
