@@ -48,7 +48,8 @@ chat-local.spec.ts	131	Given slow local signing, when a message is submitted, th
 chat-local.spec.ts	152	Given one poisoned historical chat record, when a peer sends it with a valid record, then the valid message still arrives
 chat-open-performance.spec.ts	7	Given 55 detailed cards, when Chat opens, then pointer event timing stays below 200ms
 chat-open-performance.spec.ts	22	Given 55 detailed cards, when Sync opens, then pointer event timing stays below 200ms
-chat-open-performance.spec.ts	102	Given chat metadata becomes unavailable, when Chat opens, then failure appears and board remains usable
+chat-open-performance.spec.ts	121	Given chat metadata becomes unavailable, when Chat opens, then failure appears and board remains usable
+chat-open-performance.spec.ts	135	Given Sync chunk fails to load, when Sync opens, then pending can close and reload recovers
 chat-storage.spec.ts	11	two tabs concurrently append different messages and duplicate is suppressed
 chat-storage.spec.ts	97	immutable same-id conflict rejects and leaves stored record unchanged
 chat-storage.spec.ts	153	2001 chronological records retains latest 2000 and pruned cutoff rejects reimport

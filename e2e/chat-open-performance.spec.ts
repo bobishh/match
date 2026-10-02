@@ -14,9 +14,9 @@ test("Given 55 detailed cards, when Chat opens, then pointer event timing stays 
   expect(result.dialogVisible).toBe(true)
   await writeFile(testInfo.outputPath("chat-open-event-timing.json"), JSON.stringify(result, null, 2))
   const eventDuration = Math.max(0, ...result.events.map(entry => entry.duration))
-  console.info(`Chat open, 55 detailed cards, 4x CPU: Event Timing ${Math.round(eventDuration)}ms; click to dialog paint ${Math.round(result.clickToPaintMs)}ms`)
+  console.info(`Chat open, 55 detailed cards, 4x CPU: Event Timing ${Math.round(eventDuration)}ms; dialog ready ${Math.round(result.componentReadyMs)}ms`)
   expect(eventDuration).toBeLessThan(200)
-  expect(result.clickToPaintMs).toBeLessThan(200)
+  expect(result.pendingPaintMs).toBeLessThan(200)
 })
 
 test("Given 55 detailed cards, when Sync opens, then pointer event timing stays below 200ms", async ({ page }, testInfo) => {
@@ -26,12 +26,13 @@ test("Given 55 detailed cards, when Sync opens, then pointer event timing stays 
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
   const result = await measurePointerOpen(page, "button", "Sync")
   await session.send("Emulation.setCPUThrottlingRate", { rate: 1 })
-  await expect(page.getByRole("dialog", { name: "Device sync" })).toBeVisible()
+  await page.waitForSelector(".sync-dialog")
   await writeFile(testInfo.outputPath("sync-open-event-timing.json"), JSON.stringify(result, null, 2))
   const eventDuration = Math.max(0, ...result.events.map(entry => entry.duration))
-  console.info(`Sync open, 55 detailed cards, 4x CPU: Event Timing ${Math.round(eventDuration)}ms; click to dialog paint ${Math.round(result.clickToPaintMs)}ms`)
+  console.info(`Sync open, 55 detailed cards, 4x CPU: Event Timing ${Math.round(eventDuration)}ms; pending paint ${Math.round(result.pendingPaintMs)}ms; dialog ready ${Math.round(result.componentReadyMs)}ms`)
   expect(eventDuration).toBeLessThan(200)
-  expect(result.clickToPaintMs).toBeLessThan(200)
+  expect(result.pendingPaintMs).toBeLessThan(200)
+  expect(result.componentReadyMs).toBeLessThan(5_000)
 })
 
 async function measurePointerOpen(page: import("@playwright/test").Page, selector: string, label: string) {
@@ -40,6 +41,7 @@ async function measurePointerOpen(page: import("@playwright/test").Page, selecto
       ? item.textContent?.trim() === label && item.getClientRects().length > 0
       : item.matches(selector) && item.getClientRects().length > 0)!
     const entries: Array<{ name: string; duration: number; interactionId: number; startTime: number; processingStart: number; processingEnd: number; targetTag: string; targetAriaLabel: string }> = []
+    const measuredOpen = { pendingPaintMs: null as number | null, componentReadyMs: null as number | null }
     const eventObserver = new PerformanceObserver(list => {
       for (const entry of list.getEntries() as PerformanceEventTiming[]) {
         const target = entry.target as Element | null
@@ -54,20 +56,36 @@ async function measurePointerOpen(page: import("@playwright/test").Page, selecto
     eventObserver.observe({ type: "event", buffered: false, durationThreshold: 0 })
     button.addEventListener("click", () => {
       const clickedAt = performance.now()
-      const recordPaint = () => requestAnimationFrame(() => requestAnimationFrame(() => {
-        const dialog = label === "Chat"
-          ? document.querySelector('[role="dialog"][aria-label="Workspace chat"]')
-          : [...document.querySelectorAll('[role="dialog"]')].find(item => item.getAttribute("aria-label") === "Device sync")
-        if (dialog && dialog.getBoundingClientRect().width > 0) {
-          Object.assign(window, { measuredClickToPaintMs: performance.now() - clickedAt })
-          observer.disconnect()
-        }
-      }))
+      let framePending = false
+      const recordPaint = () => {
+        if (framePending) return
+        framePending = true
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          framePending = false
+          const pending = label === "Chat" ? document.querySelector(".chat-dialog") : document.querySelector(".sync-dialog-pending")
+          const ready = label === "Chat" ? pending : document.querySelector(".sync-dialog")
+          const now = performance.now()
+          if (pending && pending.getBoundingClientRect().width > 0 && measuredOpen.pendingPaintMs === null) {
+            measuredOpen.pendingPaintMs = now - clickedAt
+          }
+          if (ready && ready.getBoundingClientRect().width > 0) {
+            measuredOpen.componentReadyMs = now - clickedAt
+            if (measuredOpen.pendingPaintMs === null) measuredOpen.pendingPaintMs = measuredOpen.componentReadyMs
+            observer.disconnect()
+          }
+        }))
+      }
       const observer = new MutationObserver(recordPaint)
       observer.observe(document.body, { childList: true, subtree: true })
+      Object.assign(window, { measuredOpen })
       recordPaint()
+      const publishFrame = () => {
+        Object.assign(window, { measuredOpen })
+        if (measuredOpen.componentReadyMs === null) requestAnimationFrame(publishFrame)
+      }
+      requestAnimationFrame(publishFrame)
     }, { once: true, capture: true })
-    Object.assign(window, { measuredOpenEventEntries: entries, measuredClickToPaintMs: null })
+    Object.assign(window, { measuredOpenEventEntries: entries })
     const rect = button.getBoundingClientRect()
     return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
   }, { selector, label })
@@ -77,10 +95,10 @@ async function measurePointerOpen(page: import("@playwright/test").Page, selecto
   return page.evaluate(async () => {
     const measured = window as unknown as {
       measuredOpenEventEntries: Array<{ name: string; duration: number; interactionId: number; startTime: number; processingStart: number; processingEnd: number; targetTag: string; targetAriaLabel: string }>
-      measuredClickToPaintMs: number | null
+      measuredOpen: { pendingPaintMs: number | null; componentReadyMs: number | null }
     }
-    const deadline = performance.now() + 1500
-    while (measured.measuredClickToPaintMs === null && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
+    const deadline = performance.now() + 5_000
+    while (measured.measuredOpen.componentReadyMs === null && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10))
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
     return {
       events: measured.measuredOpenEventEntries.map(entry => ({ ...entry,
@@ -88,8 +106,9 @@ async function measurePointerOpen(page: import("@playwright/test").Page, selecto
         processingMs: entry.processingEnd - entry.processingStart,
         presentationMs: entry.startTime + entry.duration - entry.processingEnd,
       })),
-      clickToPaintMs: measured.measuredClickToPaintMs ?? 1500,
-      dialogVisible: Boolean(document.querySelector('[role="dialog"]')),
+      pendingPaintMs: measured.measuredOpen.pendingPaintMs ?? 1500,
+      componentReadyMs: measured.measuredOpen.componentReadyMs ?? 5000,
+      dialogVisible: Boolean(document.querySelector(".chat-dialog, .sync-dialog")),
     }
   })
 }
@@ -111,4 +130,38 @@ test("Given chat metadata becomes unavailable, when Chat opens, then failure app
   await dialog.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click()
   await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
+})
+
+test("Given Sync chunk fails to load, when Sync opens, then pending can close and reload recovers", async ({ page }) => {
+  let firstLoad = true
+  await page.route("**/src/components/SyncDialog.vue*", async route => {
+    if (firstLoad) {
+      firstLoad = false
+      await new Promise(resolve => setTimeout(resolve, 800))
+      await route.abort()
+    } else await route.continue()
+  })
+  await populatedBoard(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync", exact: true })
+  await expect(dialog.getByRole("status")).toContainText("Loading sync controls")
+  await dialog.getByRole("button", { name: "Close", exact: true }).click()
+  await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click()
+  const itemDialogAfterPendingClose = page.getByRole("dialog", { name: "Item overview" })
+  await expect(itemDialogAfterPendingClose).toBeVisible()
+  await itemDialogAfterPendingClose.getByRole("button", { name: "Close detail", exact: true }).click()
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const failedDialog = page.getByRole("dialog", { name: "Device sync", exact: true })
+  await expect(failedDialog.getByRole("alert")).toContainText("Sync controls could not load")
+  await expect(failedDialog.getByRole("button", { name: "Reload Match", exact: true })).toBeVisible()
+  await failedDialog.getByRole("button", { name: "Close", exact: true }).click()
+  await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click()
+  const itemDialog = page.getByRole("dialog", { name: "Item overview" })
+  await expect(itemDialog).toBeVisible()
+  await itemDialog.getByRole("button", { name: "Close detail", exact: true }).click()
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  await page.getByRole("dialog", { name: "Device sync", exact: true }).getByRole("button", { name: "Reload Match", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  await expect(page.locator(".sync-dialog")).toBeVisible()
 })

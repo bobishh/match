@@ -26,12 +26,12 @@ import { saveIdentityName } from "./app/identityName"
 import { computed, defineAsyncComponent, ref, type Component } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
+import { createLazySyncDialog } from "./app/syncDialogStatus"
 
 const IdentityRecoveryDialog = defineAsyncComponent(() => import("./components/IdentityRecoveryDialog.vue"))
 const IdentitySettingsPanel = defineAsyncComponent(() => import("./components/IdentitySettingsPanel.vue"))
 const WorkspacesDialog = defineAsyncComponent(() => import("./components/WorkspacesDialog.vue"))
 const ColumnDialog = defineAsyncComponent(() => import("./components/ColumnDialog.vue"))
-const SyncDialog = defineAsyncComponent(() => import("./components/SyncDialog.vue"))
 const WorkspaceFileActions = defineAsyncComponent(() => import("./components/WorkspaceFileActions.vue"))
 const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
 const MoveItemDialog = defineAsyncComponent<Component>(() => import("./components/MoveItemDialog.vue"))
@@ -65,9 +65,8 @@ const {
   updateMobileColumnIndex, moveMobileColumn, selectedItem, subitemsForSelectedItem,
   selectedItemHistory, editingItem, candidateParentsForMove,
 } = app.board
-const {
-  sync, chat,
-} = app.collaboration.device
+const { sync, chat } = app.collaboration.device
+const SyncDialog = createLazySyncDialog(sync.dismiss)
 const {
   currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
 } = app.collaboration.permissions

@@ -230,8 +230,11 @@ function addTouchTracking(board: HTMLElement, update: (point: { x: number; y: nu
 }
 
 function setupCardSortables(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, readTouchPoint: () => { x: number; y: number } | null, clearTouchPoint: () => void) {
+  // Sortable reads sibling geometry for FLIP; detailed cards make that costly on dense visible boards.
+  const renderedCards = board.querySelectorAll(".card-stack[data-column-id] > .lead-card[data-item-id]").length
+  const animation = renderedCards > 40 || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180
   return [...board.querySelectorAll<HTMLElement>(".card-stack[data-column-id]")].map(stack => Sortable.create(stack, {
-    group: "board-cards", animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180, draggable: ".lead-card[data-item-id]", filter: "input", preventOnFilter: false, ghostClass: "card-sortable-ghost", chosenClass: "card-sortable-chosen", dragClass: "card-sortable-drag", emptyInsertThreshold: 48, forceFallback: true, delay: 180, delayOnTouchOnly: true, touchStartThreshold: 8, fallbackTolerance: 4, fallbackOnBody: true, scroll: true, bubbleScroll: true, scrollSensitivity: 96, scrollSpeed: 16,
+    group: "board-cards", animation, draggable: ".lead-card[data-item-id]", filter: "input", preventOnFilter: false, ghostClass: "card-sortable-ghost", chosenClass: "card-sortable-chosen", dragClass: "card-sortable-drag", emptyInsertThreshold: 48, forceFallback: true, delay: 180, delayOnTouchOnly: true, touchStartThreshold: 8, fallbackTolerance: 4, fallbackOnBody: true, scroll: true, bubbleScroll: true, scrollSensitivity: 96, scrollSpeed: 16,
     onStart: rememberDrag,
     onEnd(event) { moveSortableCard(event, board, core, presentation, readTouchPoint(), clearTouchPoint) },
   }))

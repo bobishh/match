@@ -4,7 +4,7 @@ import { populatedBoard } from "./support/detailedBoard"
 
 // Trace snapshots walk this detailed board on the measured main thread.
 // Keep the CPU profile, but measure application work without that recorder.
-test.use({ trace: "off" })
+test.use({ trace: "off", reducedMotion: "no-preference" })
 
 test("Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction", async ({ page }, testInfo) => {
   await populatedBoard(page)
@@ -49,9 +49,10 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
   const { profile } = await session.send("Profiler.stop")
   const measured = await page.evaluate(() => {
     const windowState = window as unknown as { moveTasks: number[]; moveTaskObserver: PerformanceObserver; beforeMoveBoard: Element; beforeMoveNeighbor: Element }
+    const tasks = [...windowState.moveTasks, ...windowState.moveTaskObserver.takeRecords().map(entry => entry.duration)]
     windowState.moveTaskObserver.disconnect()
     return {
-      tasks: [...windowState.moveTasks],
+      tasks,
       sameBoard: windowState.beforeMoveBoard === document.querySelector(".board"),
       sameNeighbor: windowState.beforeMoveNeighbor === document.querySelector('[data-item-id="performance-card-1"]'),
     }
@@ -63,7 +64,7 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
   await page.keyboard.press("Escape")
   await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
   expect(measured.sameBoard && measured.sameNeighbor).toBe(true)
-  console.info(`Card move, 55 detailed cards, 4x CPU: longest main-thread task ${Math.round(Math.max(0, ...measured.tasks))}ms`)
+  console.info(`Card move, 55 detailed cards, 4x CPU: ${measured.tasks.length ? `longest main-thread task ${Math.round(Math.max(...measured.tasks))}ms` : "no main-thread task reached 50ms"}`)
   expect(Math.max(0, ...measured.tasks)).toBeLessThan(200)
   // Cold startup is a durability check, separate from the throttled interaction.
   await page.reload()
