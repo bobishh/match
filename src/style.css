@@ -192,12 +192,15 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .lead-card:active { cursor: grabbing; opacity: .55; }
 .lead-card:nth-child(3n + 1) { transform: rotate(-.45deg); }.lead-card:nth-child(3n + 2) { transform: rotate(.35deg); }
 .lead-card:hover { transform: translate(-3px, -3px) rotate(0); box-shadow: 7px 7px 0 var(--ink); }
-.column-sortable-ghost { opacity: .35; border-style: dashed; box-shadow: none; }
-.column-sortable-chosen { cursor: grabbing; transition: none; }
-.column-sortable-drag { box-shadow: none; transition: none; }
-.card-sortable-ghost { opacity: .35; background: var(--yellow); outline: 2px dashed var(--ink); outline-offset: -2px; box-shadow: none; }
-.card-sortable-chosen { cursor: grabbing; box-shadow: none; transition: none; }
-.card-sortable-drag { opacity: 1 !important; box-shadow: none; transition: none; }
+.board-drag-source { opacity: .38; }
+.board-drag-preview { position: fixed; top: 0; left: 0; z-index: 1000; margin: 0 !important; opacity: 1; pointer-events: none; transition: none; box-shadow: 6px 6px 0 var(--ink); }
+.board-drag-preview:not(.lead-card-expanded) { transform: translate3d(-10000px, -10000px, 0); }
+.board-drop-marker { position: fixed; top: 0; left: 0; z-index: 999; height: 4px; border: 1px solid var(--ink); background: var(--yellow); box-shadow: 0 1px 2px rgba(23,23,23,.35); pointer-events: none; }
+.board-drop-marker.is-vertical { width: 4px; border-width: 1px; }
+.board-dragging .card-add-gap:hover, .board-dragging .card-add-gap:focus-within { height: 14px; }
+.board-dragging { user-select: none; }
+.board-dragging .lead-card:hover { transform: none; box-shadow: 3px 3px 0 rgba(23,23,23,.2); }
+.board-editing .column-drag-handle.board-drag-source { opacity: .42; }
 .card-moved { animation: card-settle 680ms var(--motion-ease); }
 .column-moved { animation: column-settle 680ms var(--motion-ease); }
 @keyframes card-settle { 0%, 100% { background: white; } 35% { transform: translate(-3px, -3px) rotate(0); background: var(--yellow); box-shadow: 7px 7px 0 var(--ink); } }

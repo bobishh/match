@@ -10,11 +10,6 @@
       "count": 2
     }
   },
-  "src/app/useAppBoard.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
   "src/chat/service.ts": {
     "@typescript-eslint/no-unsafe-return": {
       "count": 1

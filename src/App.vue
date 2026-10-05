@@ -11,6 +11,7 @@ import { artifactKindLabels, priorityLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
 import MatchPageLayout from "./components/MatchPageLayout.vue"
 import MatchHeading from "./components/MatchHeading.vue"
+import BoardDragOverlay from "./components/BoardDragOverlay.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
@@ -54,8 +55,7 @@ const {
   activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
   selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError,
   quickNoteDraft, quickNoteSaving, quickNoteError, hasExperimentalMcp,
-  showMobileMenu, menuButtonRef, showLoading, startupError,
-  artifactDraft,
+  showMobileMenu, menuButtonRef, showLoading, startupError, artifactDraft,
 } = ui
 const { toggleMobileMenu, closeMobileMenu } = uiControls
 const {
@@ -67,9 +67,7 @@ const {
 } = app.board
 const { sync, chat } = app.collaboration.device
 const SyncDialog = createLazySyncDialog(sync.dismiss)
-const {
-  currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace,
-} = app.collaboration.permissions
+const { currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
 const showAccessLoading = useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading")
 const { meshPresence, meshPresenceLabel,
@@ -264,6 +262,8 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
       <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(isArchiveColumn) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
     </section>
+
+    <BoardDragOverlay :controller="app.board" :filtered="hasFilters" />
 
     <!-- Dialogs -->
     <WorkspacesDialog

@@ -1,6 +1,6 @@
 import { computed, nextTick, watch } from "vue"
-import Sortable from "sortablejs"
 import type { useAppCore } from "./useAppCore"
+import { useBoardDragController } from "./useBoardDrag"
 import { activeFilterCount, defaultBoardFilters, matchesItemFilters } from "../filters"
 import { isArchiveColumn } from "../domain/archive"
 import { projectEntityHistory } from "../domain/history"
@@ -20,9 +20,9 @@ export type AppBoardContext = Pick<ReturnType<typeof useAppCore>,
 
 export function useAppBoard(core: AppBoardContext) {
   const presentation = useBoardPresentation(core)
-  const sortable = useBoardSortables(core, presentation)
+  const drag = useBoardDragController(core, presentation)
   const selection = useBoardSelection(core)
-  return { ...presentation, ...sortable, ...selection }
+  return { ...presentation, ...drag, ...selection }
 }
 
 function useBoardPresentation(core: AppBoardContext) {
@@ -192,134 +192,6 @@ function moveBoardColumn(board: HTMLElement | null, columns: unknown[], index: {
   const target = Math.min(columns.length - 1, Math.max(0, index.value + direction))
   board.querySelectorAll<HTMLElement>(":scope > .column")[target]?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest", inline: "start" })
   index.value = target
-}
-
-function useBoardSortables(core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>) {
-  let columnSortable: Sortable | null = null
-  let cardSortables: Sortable[] = []
-  let touchPoint: { x: number; y: number } | null = null
-  let removeTouchTracking: (() => void) | null = null
-  const destroyBoardSortables = () => {
-    const dragged = Sortable.dragged
-    const active = Sortable.active
-    const ownsDrag = Boolean(active && (active === columnSortable || cardSortables.includes(active)) ||
-      dragged && (columnSortable?.el.contains(dragged) || cardSortables.some(sortable => sortable.el.contains(dragged))))
-    // Sortable.destroy() nulls these references without removing fallback DOM.
-    const ghost = ownsDrag ? Sortable.ghost : null
-    const clone = ownsDrag ? Sortable.clone : null
-    columnSortable?.destroy()
-    columnSortable = null
-    cardSortables.forEach(sortable => sortable.destroy())
-    cardSortables = []
-    removeTouchTracking?.()
-    removeTouchTracking = null
-    touchPoint = null
-    ghost?.remove()
-    clone?.remove()
-    return ownsDrag
-  }
-  const setupBoardSortables = async () => {
-    await nextTick()
-    if (destroyBoardSortables()) {
-      // Discard Sortable's temporary placement and rebuild from persisted state.
-      core.boardRenderKey.value += 1
-      return
-    }
-    const board = core.boardRef.value
-    if (!board || !core.match.activeBoard.value || !core.canEditItems.value) return
-    if (core.isEditingBoard.value) return setupColumnSortable(board, core, presentation, value => { columnSortable = value })
-    removeTouchTracking = addTouchTracking(board, point => { touchPoint = point })
-    cardSortables = setupCardSortables(board, core, presentation, () => touchPoint, () => { touchPoint = null })
-  }
-  return { destroyBoardSortables, setupBoardSortables }
-}
-
-const dragOrigins = new WeakMap<HTMLElement, { parent: Node; next: Node | null }>()
-function rememberDrag(event: Sortable.SortableEvent) {
-  const item = event.item
-  if (item.parentNode) dragOrigins.set(item, { parent: item.parentNode, next: item.nextSibling })
-}
-function restoreDrag(item: HTMLElement) {
-  const origin = dragOrigins.get(item)
-  if (!origin) return
-  origin.parent.insertBefore(item, origin.next?.parentNode === origin.parent ? origin.next : null)
-  dragOrigins.delete(item)
-}
-
-function setupColumnSortable(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, setSortable: (sortable: Sortable) => void) {
-  if (!core.canEditBoard.value) return
-  setSortable(Sortable.create(board, {
-    animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180, direction: "horizontal", draggable: ".column", handle: ".column-drag-handle", filter: "button, input, select, textarea", ghostClass: "column-sortable-ghost", chosenClass: "column-sortable-chosen", dragClass: "column-sortable-drag", forceFallback: true, fallbackTolerance: 4,
-    onStart: rememberDrag,
-    onEnd(event) {
-      if (event.oldIndex === event.newIndex) return
-      const entityId = (event.item as HTMLElement).dataset.columnId
-      const columns = [...board.querySelectorAll<HTMLElement>(":scope > .column")]
-      const index = columns.findIndex(column => column.dataset.columnId === entityId)
-      const beforeId = columns[index + 1]?.dataset.columnId ?? null
-      if (!entityId) return
-      restoreDrag(event.item)
-      void core.match.executeCommandAsync({ kind: "moveEntity", entityId, parentId: core.match.activeBoard.value!.id, beforeId }).then(() => { presentation.highlightMoved(entityId, "column"); core.notice.value = "Column moved" }).catch(error => { core.notice.value = `Move failed: ${error.message}` })
-    },
-  }))
-}
-
-function addTouchTracking(board: HTMLElement, update: (point: { x: number; y: number } | null) => void) {
-  const reset = () => update(null)
-  const track = (event: TouchEvent) => { const touch = event.touches[0] ?? event.changedTouches[0]; if (touch) update({ x: touch.clientX, y: touch.clientY }) }
-  board.addEventListener("touchstart", reset, { passive: true })
-  board.addEventListener("touchmove", track, { passive: true })
-  board.addEventListener("touchend", track, { passive: true })
-  return () => { board.removeEventListener("touchstart", reset); board.removeEventListener("touchmove", track); board.removeEventListener("touchend", track) }
-}
-
-function setupCardSortables(board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, readTouchPoint: () => { x: number; y: number } | null, clearTouchPoint: () => void) {
-  // Sortable reads sibling geometry for FLIP; detailed cards make that costly on dense visible boards.
-  const renderedCards = board.querySelectorAll(".card-stack[data-column-id] > .lead-card[data-item-id]").length
-  const animation = renderedCards > 40 || window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 180
-  return [...board.querySelectorAll<HTMLElement>(".card-stack[data-column-id]")].map(stack => Sortable.create(stack, {
-    group: "board-cards", animation, draggable: ".lead-card[data-item-id]", filter: "input", preventOnFilter: false, ghostClass: "card-sortable-ghost", chosenClass: "card-sortable-chosen", dragClass: "card-sortable-drag", emptyInsertThreshold: 48, forceFallback: true, delay: 180, delayOnTouchOnly: true, touchStartThreshold: 8, fallbackTolerance: 4, fallbackOnBody: true, scroll: true, bubbleScroll: true, scrollSensitivity: 96, scrollSpeed: 16,
-    onStart: rememberDrag,
-    onEnd(event) { moveSortableCard(event, board, core, presentation, readTouchPoint(), clearTouchPoint) },
-  }))
-}
-
-function moveSortableCard(event: Sortable.SortableEvent, board: HTMLElement, core: AppBoardContext, presentation: ReturnType<typeof useBoardPresentation>, touchPoint: { x: number; y: number } | null, clearTouchPoint: () => void) {
-  const item = event.item as HTMLElement
-  const itemId = item.dataset.itemId
-  const target = cardDropTarget(event.to as HTMLElement, board, touchPoint)
-  clearTouchPoint()
-  const parentId = target.dataset.columnId
-  if (!itemId || !parentId) { restoreDrag(item); return }
-  const cards = [...target.querySelectorAll<HTMLElement>(":scope > .lead-card[data-item-id]")]
-  const beforeId = cards[cards.findIndex(card => card.dataset.itemId === itemId) + 1]?.dataset.itemId ?? null
-  const sourceColumn = core.match.genericColumns.value.find(column => column.id === event.from.dataset.columnId)
-  const archiveTarget = core.match.genericColumns.value.find(column => column.id === parentId)
-  const targetIsArchive = Boolean(archiveTarget && isArchiveColumn(archiveTarget))
-  const sourceItem = core.match.getActiveDoc()?.entities[itemId]
-  if (targetIsArchive && sourceItem && isItem(sourceItem) && sourceItem.archivedAt) { restoreDrag(item); return }
-  const command = targetIsArchive
-    ? { kind: "setEntityArchived" as const, entityId: itemId, archived: true }
-    : sourceItem && isItem(sourceItem) && sourceItem.archivedAt
-      ? { kind: "restoreAndMove" as const, entityId: itemId, parentId, beforeId }
-      : { kind: "moveEntity" as const, entityId: itemId, parentId, beforeId }
-  restoreDrag(item)
-  void core.match.executeCommandAsync(command).then(() => {
-    presentation.highlightMoved(itemId, "item")
-    if (targetIsArchive && sourceColumn) {
-      core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId, title: item.querySelector(".card-open-button")?.getAttribute("aria-label")?.replace(/^Open /, "") || "item" }
-      core.notice.value = "Item archived"
-    } else core.notice.value = "Item moved"
-  }).catch(error => { core.notice.value = `Move failed: ${error.message}` })
-}
-
-function cardDropTarget(target: HTMLElement, board: HTMLElement, touchPoint: { x: number; y: number } | null) {
-  if (!touchPoint) return target
-  const column = [...board.querySelectorAll<HTMLElement>(":scope > .column")].find(candidate => {
-    const bounds = candidate.getBoundingClientRect()
-    return touchPoint.x >= bounds.left && touchPoint.x <= bounds.right && touchPoint.y >= bounds.top && touchPoint.y <= bounds.bottom
-  })
-  return column?.querySelector<HTMLElement>(".card-stack[data-column-id]") ?? target
 }
 
 function useBoardSelection(core: AppBoardContext) {

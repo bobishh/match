@@ -1,10 +1,10 @@
 import { BrowserMeshScopeSync, createLiveWorkspaceSession, type RustLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
 import { inspectPairingFrame } from "@meta-uber/mesh-pairing"
+import { createBackgroundMeshScope, validateBackgroundScopeDocument } from "./meshScopeClient"
 import { HandoffConfirmationInbox } from "./handoffConfirmation"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
-import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { meshTrace } from "./meshTrace"
 import { safeDiagnostic } from "./safeDiagnostic"
@@ -335,7 +335,7 @@ export function liveAutomergeWorkspaceSync(
   let heartbeatQueue = Promise.resolve()
   const liveness = createLiveWorkspaceSession(workspaceId, secret)
   const frameHandlers = new Set<Promise<void>>()
-  const scope = BrowserMeshScopeSync.create(workspaceId, secret, {
+  const scope = new BrowserMeshScopeSync(createBackgroundMeshScope(workspaceId, secret), {
     readDocument: () => measureScopePhase("store.read-document", workspaceId, remoteDeviceId,
       () => store.read(workspaceId)),
     readAuthorization: store.readAuthorization ? bytes => measureScopePhase("store.read-authorization", workspaceId,
@@ -345,9 +345,7 @@ export function liveAutomergeWorkspaceSync(
     readMesh: store.readMesh ? () => measureScopePhase("store.read-mesh", workspaceId, remoteDeviceId,
       () => store.readMesh!(workspaceId)) : undefined,
     persistDocument: async (candidate, proof) => {
-      const document = Automerge.load<{ id?: unknown }>(candidate)
-      try { if (document.id !== workspaceId) throw new Error("Wrong workspace document") }
-      finally { Automerge.free(document) }
+      await validateBackgroundScopeDocument(workspaceId, candidate)
       try {
         await measureScopePhase("store.persist-document", workspaceId, remoteDeviceId,
           () => store.merge(workspaceId, candidate, proof), candidate.byteLength)

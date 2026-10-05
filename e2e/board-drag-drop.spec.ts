@@ -59,6 +59,88 @@ async function touchDrag(context: BrowserContext, page: Page, sourceSelector: st
 }
 
 test.describe("Trello-like board dragging", () => {
+  test("Given filtered cards with a hidden neighbor, when dropping at the unchanged visible position, then hidden order and document revision stay unchanged", async ({ page }) => {
+    await createBlankWorkspace(page, "Filtered no-op board")
+    for (const title of ["Shown First", "Hidden", "Shown Second"]) await createItem(page, title, "To do")
+    const search = page.getByRole("searchbox", { name: "Search cards" })
+    await search.fill("Shown")
+    await expect(page.locator(".board .lead-card")).toHaveCount(2)
+    const initial = await page.evaluate(async () => (await import("/src/stateContext.ts")).stateRuntime.docVersion.value)
+    const source = (await page.getByRole("button", { name: "Open Shown First", exact: true }).boundingBox())!
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(source.x + source.width / 2 + 12, source.y + source.height / 2, { steps: 3 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await page.mouse.up()
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    expect(await page.evaluate(async () => (await import("/src/stateContext.ts")).stateRuntime.docVersion.value)).toBe(initial)
+    await search.fill("")
+    await expect(page.getByRole("region", { name: "To do", exact: true }).locator(".card-main > strong")).toHaveText(["Shown First", "Hidden", "Shown Second"])
+  })
+
+  test("Given an unchanged card order, when cancelling a drag or dropping at its original position, then no document write occurs", async ({ page }) => {
+    await createBlankWorkspace(page, "Cancelled drag board")
+    await createItem(page, "First", "To do")
+    await createItem(page, "Second", "To do")
+    const revision = () => page.evaluate(async () => (await import("/src/stateContext.ts")).stateRuntime.docVersion.value)
+    const initial = await revision()
+    const card = page.getByRole("button", { name: "Open First", exact: true })
+    const source = (await card.boundingBox())!
+    const target = (await page.getByRole("region", { name: "Doing", exact: true }).boundingBox())!
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(target.x + target.width / 2, target.y + 100, { steps: 12 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await page.mouse.up()
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    expect(await revision()).toBe(initial)
+    await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(source.x + source.width / 2 + 12, source.y + source.height / 2, { steps: 3 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await page.mouse.up()
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    expect(await revision()).toBe(initial)
+    await expect(page.getByRole("region", { name: "To do", exact: true }).locator(".card-main > strong")).toHaveText(["First", "Second"])
+    await card.click()
+    await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
+  })
+
+  test("Given a card and its neighbor, when dragged before the neighbor, then source stays in Vue DOM and separate preview marks one persisted move", async ({ page }) => {
+    await createBlankWorkspace(page, "Stable drag board")
+    await createItem(page, "Keep here", "To do")
+    await createItem(page, "Neighbor", "To do")
+    const source = page.locator('.lead-card[data-item-id]:has-text("Neighbor")')
+    await page.evaluate(async () => {
+      const { stateRuntime } = await import("/src/stateContext.ts")
+      ;(window as any).__dragVersionBefore = stateRuntime.docVersion.value
+    })
+    await source.evaluate(element => Object.assign(window, { __dragSourceNode: element, __dragSourceParent: element.parentElement, __dragSourceNext: element.nextElementSibling }))
+    const sourceBox = (await source.boundingBox())!
+    const neighborBox = (await page.locator('.lead-card[data-item-id]:has-text("Keep here")').boundingBox())!
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(neighborBox.x + neighborBox.width / 2, neighborBox.y + 5, { steps: 12 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-before-id", /.+/)
+    const insertionLine = await page.locator(".board-drop-marker").boundingBox()
+    const sourceBounds = await source.boundingBox()
+    expect(insertionLine?.width).toBeGreaterThan(100)
+    expect(insertionLine?.height).toBe(4)
+    expect(sourceBounds?.width).toBeGreaterThan(100)
+    const sourceStillOwned = await source.evaluate(element => element === (window as any).__dragSourceNode && element.parentElement === (window as any).__dragSourceParent && element.nextElementSibling === (window as any).__dragSourceNext)
+    expect(sourceStillOwned).toBe(true)
+    await page.mouse.up()
+    await expect(page.getByRole("region", { name: "To do", exact: true }).locator(".card-main > strong")).toHaveText(["Neighbor", "Keep here"])
+    await expect(page.getByRole("status")).toContainText("Item moved")
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    await expect.poll(() => page.evaluate(async () => {
+      const { stateRuntime } = await import("/src/stateContext.ts")
+      return stateRuntime.docVersion.value - (window as any).__dragVersionBefore
+    })).toBe(1)
+  })
+
   test("Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 390, height: 640 }, isMobile: true, hasTouch: true })
     const page = await context.newPage()
@@ -135,7 +217,8 @@ test.describe("Trello-like board dragging", () => {
       await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2)
       await page.mouse.down()
       await page.mouse.move(box.x + box.width / 2, box.y + 28, { steps: 20 })
-      await expect(target.locator(".empty-column")).toBeHidden()
+      await expect(target.locator(".empty-column")).toBeVisible()
+      await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await target.getAttribute("data-column-id"))
       await page.mouse.up()
       await expect(page.getByRole("status")).toContainText("Item moved")
       await expect(titles("Doing")).toHaveText(["Third"])
@@ -208,7 +291,7 @@ test.describe("Trello-like board dragging", () => {
     const source = page.getByRole("region", { name: "To do", exact: true }).locator(".card-main > strong")
     await expect(source).toHaveText(["Keep here", "Neighbor"])
     await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("No items", { exact: true })).toBeVisible()
-    await expect(page.locator(".sortable-fallback")).toHaveCount(0)
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
     await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
     await drag(page, '.lead-card[data-item-id]:has-text("Keep here")', '[role="region"][aria-label="Doing"] .card-stack')
     await expect(page.getByRole("status")).toContainText("Item moved")

@@ -94,7 +94,7 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
       openPairing: () => core.sync.joinFromLocation(window.location.href),
       hydrate: hydratePreparedState,
       setupLocalBoard: async () => {
-        await board.setupBoardSortables()
+        await board.setupBoardDrag()
         void registerWebMcpForApp(core, actions)
       },
       startSync: async () => {
@@ -113,13 +113,13 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
       core.sync.error.value = "Sync could not start. Your local board is still available."
     }
   })
-  watchBoardSortables(core, board)
+  watchBoardDrag(core, board)
   const noticeTimer = watchNotice(core)
   watchWorkspaceReset(core)
   watchVisibleColumns(core, board)
   onBeforeUnmount(() => {
     void core.sync.shutdown()
-    board.destroyBoardSortables()
+    board.destroyBoardDrag()
     board.clearHighlightTimer()
     noticeTimer.clear()
     if (loadingTimer) clearTimeout(loadingTimer)
@@ -141,12 +141,12 @@ async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions
   core.hasExperimentalMcp.value = Boolean(unregister)
 }
 
-function watchBoardSortables(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
+function watchBoardDrag(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
   watch([
     () => core.match.ready.value, () => core.match.activeWorkspace.id, () => core.isEditingBoard.value, () => core.canEditItems.value,
-    () => core.isArchiveOpen.value, () => core.boardRenderKey.value, () => board.hasFilters.value,
+    () => core.canEditBoard.value, () => core.isArchiveOpen.value, () => core.boardRenderKey.value,
     () => board.visibleColumns.value.map(column => `${column.id}:${board.itemsForColumn(column).map(item => item.id).join(",")}`).join("|"),
-  ], () => { void board.setupBoardSortables() }, { flush: "post" })
+  ], () => { void board.setupBoardDrag() }, { flush: "post" })
 }
 
 function watchNotice(core: ReturnType<typeof useAppCore>) {

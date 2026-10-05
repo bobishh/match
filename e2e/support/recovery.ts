@@ -42,7 +42,7 @@ export async function captureSavedAcknowledgements(page: Page) {
     const source = await response.text()
     const preparedPersist = /persisted = !prepared\.shouldPersist \|\| \(?await this\.host\.persistDocument\(toBytes\(prepared\.document\), prepared\.proof\)\)? !== false;?/
     const directPersist = /const persisted = !effect\.shouldPersist \|\| \(?await this\.host\.persistDocument\(toBytes\(effect\.document\), effect\.proof\)\)? !== false;?/
-    const acknowledgement = /(const completion = this\.runtime\.completeDocumentReceive\(persisted\);?\s*)if \(completion\.response\) await stream\.send\(toBytes\(completion\.response\)\);?/g
+    const acknowledgement = /(const completion = (?:await )?this\.runtime\.completeDocumentReceive\(persisted\);?\s*)if \(completion\.response\) await stream\.send\(toBytes\(completion\.response\)\);?/g
     if (!preparedPersist.test(source) || !directPersist.test(source) || [...source.matchAll(acknowledgement)].length !== 2) {
       throw new Error("Could not instrument both real document receive paths")
     }

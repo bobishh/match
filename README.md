@@ -182,6 +182,13 @@ conformance testing, not a proof for every possible execution. Browser transport
 storage failures, and adapter wiring are tested separately by the scenarios above.
 Recovery requires the peer, network, and storage to become available again.
 
+Continuous workspace document synchronization runs its Rust/WASM scope state in
+one dedicated browser worker. Scope effects still await storage before sending a
+saved-state acknowledgement. Worker failures reject synchronization; they do not
+retry the same computation on the UI thread. Admission and access checks retain
+their separate workers. Transport and lightweight lifecycle bookkeeping remain
+in the browser's main context.
+
 ## What to expect
 
 - **Availability:** another device must be reachable to receive new data or fetch
