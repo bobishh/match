@@ -2,6 +2,7 @@
    Explicit priority keeps component border shorthands from resetting the artwork. */
 :root { --ink-frame: url("/assets/ink-frame-0.svg?v=1"); }
 :where(*) {
+  background-clip: padding-box !important;
   border-image-source: var(--ink-frame) !important;
   border-image-slice: 12 !important;
   border-image-width: 1.7 !important;

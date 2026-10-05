@@ -155,7 +155,7 @@
 
 .chat-message-item.is-own {
   align-self: flex-end;
-  background: #f4f4f2;
+  background: #fef9db;
 }
 
 .chat-message-meta {
