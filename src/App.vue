@@ -68,7 +68,7 @@ const {
 } = app.board
 const { sync, chat } = app.collaboration.device
 const SyncDialog = createLazySyncDialog(sync.dismiss)
-const { currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
+const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
 const showAccessLoading = useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading")
 const { meshPresence, meshPresenceLabel,
@@ -106,17 +106,8 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
     <template #header>
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!uiReady" @click="showWorkspaces = true">
         <span class="brand-presence">
-          <span v-if="ready.value && workspaceRoleStatus === 'verified' && currentRole === 'owner'" class="owner-crown" role="img" aria-label="Workspace role: owner">♛</span>
-          <span v-else-if="ready.value && workspaceRoleStatus !== 'loading'" class="workspace-role-icon" role="img" :aria-label="workspaceRoleStatus === 'verified' ? `Workspace role: ${currentRole}` : `Workspace permissions: ${workspaceRoleStatus}`">
-            <svg v-if="currentRole === 'editor'" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3 11.5 2.5 14l2.5-.5L13 5.5 10.5 3zM9.5 4l2.5 2.5" />
-            </svg>
-            <svg v-else viewBox="0 0 16 16" aria-hidden="true">
-              <circle cx="6.5" cy="6.5" r="4" />
-              <path d="m9.5 9.5 4 4" />
-            </svg>
-          </span>
-          <BrandCan :presence="meshPresence" :label="meshPresenceLabel" />
+          <span v-if="ready.value && workspaceRoleStatus === 'unavailable'" class="sr-only" role="img" aria-label="Workspace permissions: unavailable" />
+          <BrandCan :presence="meshPresence" :label="meshPresenceLabel" :access-role="confirmedRole" />
         </span>
         <div>
           <TincanbanHeading :label="ready.value ? workspaceLabel : '…'" />

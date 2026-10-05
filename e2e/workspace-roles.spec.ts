@@ -1,4 +1,5 @@
 import { expect, test } from "./support/coverage"
+import { faviconRole } from "./support/favicon"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 for (const role of ["visitor", "editor"] as const) {
@@ -32,6 +33,8 @@ for (const role of ["visitor", "editor"] as const) {
       await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
       await host.getByRole("button", { name: "Close", exact: true }).first().click()
       await expect(guest.getByLabel(`Workspace role: ${role}`)).toBeVisible()
+      await expect(guest.locator(`.can-role-stamp[data-role-stamp="${role}"]`)).toBeVisible()
+      await expect.poll(() => faviconRole(guest)).toEqual({ role, body: role === "editor" ? "#80b9d8" : "#c8c9cb" })
       if (role === "editor") {
         const structuralMove = await guest.evaluate(async () => {
           const state = (await import("/src/state.ts")).useTincanban()

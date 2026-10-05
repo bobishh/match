@@ -1,4 +1,5 @@
 import { expect, test } from "./support/coverage"
+import { faviconRole } from "./support/favicon"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
 test("Given an unreadable authority on one board, when creating and importing another board, then its owner access survives", async ({ page }) => {
@@ -31,6 +32,8 @@ test("Given an unreadable authority on one board, when creating and importing an
   await page.reload()
   await expect(page.getByRole("alert").filter({ hasText: "permissions could not be verified" })).toBeVisible({ timeout: 15000 })
   await expect(page.getByLabel("Workspace role: visitor")).toHaveCount(0)
+  await expect(page.locator(".can-role-stamp")).toHaveCount(0)
+  await expect.poll(() => faviconRole(page)).toEqual({ role: null, body: "#c8c9cb" })
   await createJobSearchWorkspace(page, "Healthy sibling")
   await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
   await expect(page.getByRole("button", { name: /Add lead to/ }).first()).toBeVisible()

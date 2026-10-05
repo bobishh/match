@@ -174,6 +174,7 @@ function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: Retu
   const workspaceAccess = ref<Record<string, WorkspaceAccessResult>>({})
   const workspaceAccessErrors = ref<string[]>([])
   const workspaceRoleStatus = computed(() => roleWorkspaceId.value !== tincanban.activeWorkspace.id ? "loading" : workspaceAccess.value[tincanban.activeWorkspace.id]?.error ? "unavailable" : "verified")
+  const confirmedRole = computed(() => tincanban.ready.value && workspaceRoleStatus.value === "verified" ? currentRole.value : null)
   const refreshAccess = async (includeOthers: boolean, onCleanup: (cleanup: () => void) => void) => {
     let cancelled = false
     onCleanup(() => { cancelled = true })
@@ -209,7 +210,7 @@ function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: Retu
   }
   watch(canEditBoard, allowed => { if (!allowed) { ui.isEditingBoard.value = false; ui.editingColumn.value = null; ui.showEntitySettings.value = false } })
   watch(canEditItems, allowed => { if (!allowed) closeRestrictedEditors(ui) })
-  return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace }
+  return { confirmedRole, currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace }
 }
 
 async function loadWorkspaceAccess(tincanban: ReturnType<typeof useTincanban>, doc: WorkspaceDocumentV2, includeOthers = true,

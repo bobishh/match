@@ -1,13 +1,17 @@
 import { onMounted, onScopeDispose, watch, type Ref } from "vue"
 
+import type { WorkspaceRole } from "../domain/permissions"
+import { canRoles } from "./canRole"
+
 type Presence = "connected" | "reconnecting" | "offline" | "empty"
 type Frames = Record<Presence | "dim", string>
 
 /** Reuse the header's presence state; animate only while reconnecting. */
-export function useMeshFavicon(presence: Readonly<Ref<Presence>>) {
+export function useMeshFavicon(presence: Readonly<Ref<Presence>>, accessRole: Readonly<Ref<WorkspaceRole | null>>) {
   let icon: HTMLLinkElement | null = null
   let original: string | null = null
-  let frames: Frames | undefined
+  let source: string | undefined
+  const cache = new Map<WorkspaceRole | null, Frames>()
   let timer: ReturnType<typeof setInterval> | undefined
   let motion: MediaQueryList | undefined
   const load = new AbortController()
@@ -15,13 +19,15 @@ export function useMeshFavicon(presence: Readonly<Ref<Presence>>) {
   const paint = (href: string) => { if (icon && icon.getAttribute("href") !== href) icon.setAttribute("href", href) }
   const render = () => {
     stopBlink()
-    if (!frames) return
+    if (!source) return
+    let frames = cache.get(accessRole.value)
+    if (!frames) { frames = presenceFrames(source, accessRole.value); cache.set(accessRole.value, frames) }
     paint(frames[presence.value])
     if (presence.value !== "reconnecting" || motion?.matches) return
     let dim = false
     timer = setInterval(() => { dim = !dim; paint(frames![dim ? "dim" : "reconnecting"]) }, 500)
   }
-  watch(presence, render)
+  watch([presence, accessRole], render)
   onMounted(async () => {
     icon = document.querySelector<HTMLLinkElement>('link[rel="icon"][type="image/svg+xml"]')
     original = icon?.getAttribute("href") ?? null
@@ -31,9 +37,9 @@ export function useMeshFavicon(presence: Readonly<Ref<Presence>>) {
     try {
       const response = await fetch(original, { signal: load.signal })
       if (!response.ok) return
-      const source = await response.text()
+      const loadedSource = await response.text()
       if (load.signal.aborted) return
-      frames = presenceFrames(source)
+      source = loadedSource
       render()
     } catch { /* Keep the static icon if the optional animation cannot load. */ }
   })
@@ -45,10 +51,11 @@ export function useMeshFavicon(presence: Readonly<Ref<Presence>>) {
   })
 }
 
-function presenceFrames(source: string): Frames {
+function presenceFrames(source: string, accessRole: WorkspaceRole | null): Frames {
   const svg = new DOMParser().parseFromString(source, "image/svg+xml")
   const interior = svg.querySelector("[data-connection-fill]")
   if (!interior || svg.querySelector("parsererror")) throw new Error("Invalid favicon")
+  if (accessRole) stampRole(svg, accessRole)
   const styles = getComputedStyle(document.documentElement)
   const color = (name: string, fallback: string) => styles.getPropertyValue(`--${name}`).trim() || fallback
   const frame = (fill: string) => {
@@ -58,4 +65,27 @@ function presenceFrames(source: string): Frames {
   const yellow = frame(color("yellow", "#ffd43b"))
   return { connected: frame(color("green", "#69db7c")), reconnecting: yellow, empty: yellow,
     offline: frame(color("red", "#ff5a36")), dim: frame(color("paper", "#f3f0e8")) }
+}
+
+function stampRole(svg: Document, role: WorkspaceRole) {
+  const appearance = canRoles[role]
+  const body = svg.querySelector("[data-can-body]")
+  if (!body?.parentElement) throw new Error("Invalid can body")
+  body.setAttribute("fill", appearance.body)
+  svg.querySelector("[data-can-highlight]")?.setAttribute("fill", appearance.highlight)
+  svg.querySelector("[data-can-shade]")?.setAttribute("fill", appearance.shade)
+  const stamp = svg.createElementNS("http://www.w3.org/2000/svg", "g")
+  stamp.setAttribute("data-role-stamp", role)
+  stamp.setAttribute("transform", "translate(28 31)")
+  stamp.setAttribute("stroke", "none")
+  const background = svg.createElementNS(stamp.namespaceURI, "circle")
+  background.setAttribute("cx", "12")
+  background.setAttribute("cy", "12")
+  background.setAttribute("r", "13")
+  background.setAttribute("fill", appearance.body)
+  const glyph = svg.createElementNS(stamp.namespaceURI, "path")
+  glyph.setAttribute("d", appearance.stamp)
+  glyph.setAttribute("fill", "#171717")
+  stamp.append(background, glyph)
+  body.parentElement.append(stamp)
 }

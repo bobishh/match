@@ -9,7 +9,7 @@ import { useMeshFavicon } from "../ui/useMeshFavicon"
 
 export function useAppController() {
   const core = useAppCore()
-  useMeshFavicon(core.meshPresence)
+  useMeshFavicon(core.meshPresence, core.confirmedRole)
   const board = useAppBoard(boardContext(core))
   const actions = useAppActions(core, board)
   useAppLifecycle(core, board, actions)
@@ -62,7 +62,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
 
 function appCollaboration(core: ReturnType<typeof useAppCore>) {
   const {
-    sync, chat, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
+    sync, chat, confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
     canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel, activeMeshRetryAt,
     meshMembers, meshParticipantDevices, activeSuccession, canClaimSuccession,
     transferringOwnership, leavingMesh, revokingPeer, peerAccessError,
@@ -72,7 +72,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
   } = core
   return {
     device: { sync, chat },
-    permissions: { currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
+    permissions: { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
     mesh: {
       meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers, meshParticipantDevices,
       activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh,
