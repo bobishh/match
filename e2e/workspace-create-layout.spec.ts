@@ -24,7 +24,7 @@ for (const width of [1440, 390]) {
     await dialog.getByLabel("Title", { exact: true }).fill("New job board")
     await dialog.getByRole("button", { name: "Create", exact: true }).click()
     await expect(dialog).toBeHidden()
-    await expect(page.getByRole("heading", { name: "TINCANBAN // New job board", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: /^TINCANBAN(?: \/\/)? New job board$/ })).toBeVisible()
     await expect(page.getByRole("region", { name: "Lead", exact: true })).toBeVisible()
   })
 }

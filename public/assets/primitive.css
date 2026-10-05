@@ -1,17 +1,367 @@
 /* Nine-slice ink changes only paint. Layout and hit boxes stay rectangular.
    Explicit priority keeps component border shorthands from resetting the artwork. */
-:root { --ink-frame: url("/assets/ink-frame-0.svg?v=1"); }
+
+:root {
+  --ink-frame: url("/assets/ink-frame-0.svg?v=1");
+}
+
 :where(*) {
   background-clip: padding-box !important;
+  box-shadow: none !important;
   border-image-source: var(--ink-frame) !important;
   border-image-slice: 12 !important;
   border-image-width: 1.7 !important;
   border-image-outset: .35 !important;
   border-image-repeat: stretch !important;
 }
+
 /* Stable identity chooses paint once; moving changes neither outline nor hit box. */
-:where(.lead-card) { --ink-frame: url("/assets/ink-frame-0.svg?v=1"); }
-:is([data-item-id$="1"], [data-item-id$="4"], [data-item-id$="7"], [data-item-id$="a"], [data-item-id$="d"], [data-ink-id$="1"], [data-ink-id$="4"], [data-ink-id$="7"], [data-ink-id$="a"], [data-ink-id$="d"], [data-column-id$="1"], [data-column-id$="4"], [data-column-id$="7"], [data-column-id$="a"], [data-column-id$="d"]) { --ink-frame: url("/assets/ink-frame-1.svg?v=1"); }
-:is([data-item-id$="2"], [data-item-id$="5"], [data-item-id$="8"], [data-item-id$="b"], [data-item-id$="e"], [data-ink-id$="2"], [data-ink-id$="5"], [data-ink-id$="8"], [data-ink-id$="b"], [data-ink-id$="e"], [data-column-id$="2"], [data-column-id$="5"], [data-column-id$="8"], [data-column-id$="b"], [data-column-id$="e"]) { --ink-frame: url("/assets/ink-frame-2.svg?v=1"); }
-:where(.count, .column-dot, .mesh-member-presence, .mesh-device-presence, .keeper-dot, .chat-presence-dot, .bin-icon, .bin-icon::before, input[type="checkbox"], input[type="radio"], .pairing-qr, .sr-only) { border-image: none !important; }
-.notice-dismiss, .notice-undo { --ink-frame: url("/assets/ink-frame-white.svg?v=1"); }
+
+:where(.lead-card) {
+  --ink-frame: url("/assets/ink-frame-0.svg?v=1");
+}
+
+:is([data-item-id$="1"],
+[data-item-id$="4"],
+[data-item-id$="7"],
+[data-item-id$="a"],
+[data-item-id$="d"],
+[data-ink-id$="1"],
+[data-ink-id$="4"],
+[data-ink-id$="7"],
+[data-ink-id$="a"],
+[data-ink-id$="d"],
+[data-column-id$="1"],
+[data-column-id$="4"],
+[data-column-id$="7"],
+[data-column-id$="a"],
+[data-column-id$="d"]) {
+  --ink-frame: url("/assets/ink-frame-1.svg?v=1");
+  --ink-surface: var(--ink-surface-1);
+  --ink-focus: var(--ink-focus-1);
+}
+
+:is([data-item-id$="2"],
+[data-item-id$="5"],
+[data-item-id$="8"],
+[data-item-id$="b"],
+[data-item-id$="e"],
+[data-ink-id$="2"],
+[data-ink-id$="5"],
+[data-ink-id$="8"],
+[data-ink-id$="b"],
+[data-ink-id$="e"],
+[data-column-id$="2"],
+[data-column-id$="5"],
+[data-column-id$="8"],
+[data-column-id$="b"],
+[data-column-id$="e"]) {
+  --ink-frame: url("/assets/ink-frame-2.svg?v=1");
+  --ink-surface: var(--ink-surface-2);
+  --ink-focus: var(--ink-focus-2);
+}
+
+:where(.count,
+.column-dot,
+.mesh-member-presence,
+.mesh-device-presence,
+.keeper-dot,
+.chat-presence-dot,
+.bin-icon,
+.bin-icon::before,
+input[type="checkbox"],
+input[type="radio"],
+.pairing-qr,
+.sr-only) {
+  border-image: none !important;
+}
+
+.notice-dismiss,
+.notice-undo {
+  --ink-frame: url("/assets/ink-frame-white.svg?v=1");
+}
+
+:where(button:not(.button):not(.icon-button)) {
+  --ink-focus: url("/assets/ink-focus-0.svg?v=1#transparent");
+}
+
+/* Fill and stroke share one silhouette. Paint stays flat, with no offscreen
+   filters, resize observers, or JavaScript on hover. */
+
+:where(.button,
+.icon-button,
+.dialog,
+.column,
+.lead-card,
+.chat-message-item,
+.notice,
+.workspace-item,
+.workspace-preset,
+.template-item,
+.search-field,
+.drawer-item-btn,
+.mesh-member,
+.mesh-member-action,
+.mesh-device,
+.sync-checkbox-item,
+.sync-section-action,
+.approval-card,
+.keeper-row,
+.keeper-code,
+.identity-login-card,
+.workspace-customize-toggle,
+.status-strip button,
+.component-row,
+.subitem-row,
+.item-history-entry,
+.source-snapshot,
+.document-form,
+.document-row,
+.quick-note-form,
+.document-preview-text,
+.document-preview-message,
+.workspace-active-badge,
+.filters-toggle,
+.schema-field-item,
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea) {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#white");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#white");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#white");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#white");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#white");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#white");
+}
+
+:where(.dialog,
+.column,
+.button-quiet,
+.mesh-member-action,
+.workspace-active-badge) {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#panel");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#panel");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#panel");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#panel");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#panel");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#panel");
+}
+
+:where(.button-primary,
+.notice,
+.bin-column:not(.bin-column-open),
+.status-strip button.active) {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#ink");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#ink");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#ink");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#ink");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#ink");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#ink");
+}
+
+.button-danger {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#danger");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#danger");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#danger");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#danger");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#danger");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#danger");
+}
+
+.notice-error,
+.icon-button:hover {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#red");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#red");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#red");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#red");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#red");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#red");
+}
+
+.workspace-item-active,
+.workspace-preset,
+.workspace-customize-toggle,
+.document-form,
+.quick-note-form,
+.document-preview-message {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#soft");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#soft");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#soft");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#soft");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#soft");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#soft");
+}
+
+.template-item:hover,
+.template-item.active,
+.mesh-member.is-selected,
+.keeper-row:hover,
+.keeper-code,
+.sync-checkbox-item:has(input:checked) {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#yellow");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#yellow");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#yellow");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#yellow");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#yellow");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#yellow");
+}
+
+.lead-card.card-aging-watch {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#watch");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#watch");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#watch");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#watch");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#watch");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#watch");
+}
+
+.lead-card.card-aging-aged {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#aged");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#aged");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#aged");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#aged");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#aged");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#aged");
+}
+
+.lead-card.card-aging-overdue {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#overdue");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#overdue");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#overdue");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#overdue");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#overdue");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#overdue");
+}
+
+.chat-message-item.is-own {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#own");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#own");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#own");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#own");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#own");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#own");
+}
+
+:where(.button,
+.icon-button,
+.dialog,
+.column,
+.lead-card,
+.chat-message-item,
+.notice,
+.workspace-item,
+.workspace-preset,
+.template-item,
+.search-field,
+.drawer-item-btn,
+.mesh-member,
+.mesh-member-action,
+.mesh-device,
+.sync-checkbox-item,
+.sync-section-action,
+.approval-card,
+.keeper-row,
+.keeper-code,
+.identity-login-card,
+.workspace-customize-toggle,
+.status-strip button,
+.component-row,
+.subitem-row,
+.item-history-entry,
+.source-snapshot,
+.document-form,
+.document-row,
+.quick-note-form,
+.document-preview-text,
+.document-preview-message,
+.workspace-active-badge,
+.filters-toggle,
+.schema-field-item,
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea) {
+  --ink-surface: var(--ink-surface-0);
+  --ink-focus: var(--ink-focus-0);
+  background: transparent !important;
+  border-image-source: var(--ink-surface) !important;
+  border-image-slice: 12 fill !important;
+}
+
+.button:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.column-add-button:hover:not(:disabled) {
+  transform: rotate(-.7deg);
+}
+
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.column-add-button:active:not(:disabled) {
+  transform: rotate(-.2deg);
+}
+
+/* Focus has a second, green contour outside the unchanged black frame.
+   Pixel widths keep the same stroke scale for borderless controls. */
+
+:is(button,
+input,
+select,
+textarea):focus-visible,
+.search-field:focus-within {
+  outline: none !important;
+  background: transparent !important;
+  border-image-source: var(--ink-focus, url("/assets/ink-focus-0.svg?v=1#white")) !important;
+  border-image-slice: 33 fill !important;
+  border-image-width: 9.35px !important;
+  border-image-outset: 6.65px !important;
+}
+
+.search-field input:focus-visible {
+  border-image: none !important;
+}
+
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  border-image: none !important;
+  background: revert !important;
+  outline: 3px solid var(--focus) !important;
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .chat-dialog {
+    border-image: none !important;
+    background: var(--panel) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.button, .icon-button, .column-add-button):is(:hover, :active) {
+    transform: none !important;
+  }
+}
+
+/* Borderless add controls gain paint only while hovered or keyboard-focused. */
+
+.column-add-button:hover:not(:focus-visible) {
+  background: transparent !important;
+  border-image-source: url("/assets/ink-surface-0.svg?v=1#soft") !important;
+  border-image-slice: 12 fill !important;
+  border-image-width: 3.4px !important;
+  border-image-outset: .7px !important;
+}
+
+.column-add-button:focus-visible {
+  --ink-focus: url("/assets/ink-focus-0.svg?v=1#soft");
+}
+
+.workspace-switch:hover {
+  background: transparent !important;
+  border-image-source: url("/assets/ink-surface-0.svg?v=1#yellow") !important;
+  border-image-slice: 12 fill !important;
+  border-image-width: 3.4px !important;
+  border-image-outset: .7px !important;
+}
+
+.mesh-member.is-selected {
+  transform: none;
+}

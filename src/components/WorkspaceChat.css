@@ -12,7 +12,6 @@
   overflow: hidden;
   border: 2px solid var(--line);
   background: var(--panel);
-  box-shadow: 6px 6px 0 var(--ink);
   box-sizing: border-box;
 }
 
@@ -42,11 +41,6 @@
 }
 
 .chat-resize-handle:hover { color: var(--ink); }
-
-.chat-resize-handle:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 3px;
-}
 
 .chat-head {
   display: flex;
@@ -147,7 +141,6 @@
   border: 2px solid var(--line);
   background: white;
   align-self: flex-start;
-  box-shadow: 2px 2px 0 var(--line);
   box-sizing: border-box;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -268,7 +261,6 @@
     max-height: 100dvh;
     padding: 14px 12px;
     border: none;
-    box-shadow: none;
   }
 
   .chat-resize-handle { display: none; }
