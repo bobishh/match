@@ -60,6 +60,7 @@ function lockScroll() {
   scrollLocked = true
   lockedScrollX = window.scrollX
   lockedScrollY = window.scrollY
+  const lockedWidth = document.body.getBoundingClientRect().width
   previousOverflow = document.body.style.overflow
   previousDocumentOverflow = document.documentElement.style.overflow
   previousPosition = document.body.style.position
@@ -71,7 +72,7 @@ function lockScroll() {
   document.body.style.position = "fixed"
   document.body.style.top = `-${lockedScrollY}px`
   document.body.style.left = `-${lockedScrollX}px`
-  document.body.style.width = "100%"
+  document.body.style.width = `${lockedWidth}px`
   document.addEventListener("keydown", onKeydown, true)
   document.addEventListener("focusin", onFocus)
   backgroundObserver = new MutationObserver(onBackgroundMutation)

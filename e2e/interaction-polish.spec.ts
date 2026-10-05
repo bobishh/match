@@ -179,3 +179,32 @@ test("Given fast startup, when data arrives before the progress delay, then no l
   await page.clock.runFor(250)
   expect(await page.evaluate(() => (window as any).__TINCANBAN_SAW_LOADING__)).toBe(false)
 })
+
+test("Given a desktop scrollbar, when settings open, reject a draft, and close, then header and logo keep their positions", async ({ page }) => {
+  await page.setViewportSize({ width: 1920, height: 720 })
+  await page.goto("/")
+  await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  // Headless macOS uses overlay scrollbars. Exercise the space occupied by a classic scrollbar.
+  await page.addStyleTag({ content: 'html { scrollbar-gutter: stable; } ::-webkit-scrollbar { width: 18px; } html[style*="overflow: hidden"] { scrollbar-gutter: auto; }' })
+  expect(await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)).toBe(true)
+  const geometry = () => page.evaluate(() => {
+    const rect = (selector: string) => {
+      const { x, y, width, height } = document.querySelector(selector)!.getBoundingClientRect()
+      return { x, y, width, height }
+    }
+    return { header: rect(".topbar"), brand: rect(".brand"), logo: rect(".brand-mark") }
+  })
+  const initial = await geometry()
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Settings", exact: true })
+  await expect(dialog).toBeVisible()
+  expect(await geometry()).toEqual(initial)
+  await dialog.getByRole("tab", { name: "JSON", exact: true }).click()
+  await dialog.getByLabel("Workspace settings JSON").fill("{")
+  await expect(dialog.getByRole("button", { name: "Apply JSON", exact: true })).toBeDisabled()
+  expect(await geometry()).toEqual(initial)
+  await dialog.getByRole("button", { name: "Dismiss", exact: true }).click()
+  await expect.poll(() => page.evaluate(() => document.body.style.position)).toBe("")
+  expect(await geometry()).toEqual(initial)
+})
