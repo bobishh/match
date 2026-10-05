@@ -1,13 +1,13 @@
 <script setup lang="ts">
-/* global __MATCH_BUILD_COMMIT__ */
-const commit = __MATCH_BUILD_COMMIT__
+/* global __TINCANBAN_BUILD_COMMIT__ */
+const commit = __TINCANBAN_BUILD_COMMIT__
 const hasCommit = /^[0-9a-f]{40}$/i.test(commit)
 const shortCommit = hasCommit ? commit.slice(0, 7) : commit
-const commitUrl = hasCommit ? `https://github.com/bobishh/match/commit/${commit}` : undefined
+const commitUrl = hasCommit ? `https://github.com/bobishh/tincanban/commit/${commit}` : undefined
 </script>
 
 <template>
-  <footer class="site-footer" aria-label="Match build information">
+  <footer class="site-footer" aria-label="tincanban build information">
     <berlin-tower class="tower-mark"></berlin-tower>
     <span class="footer-copy">Berlin · 2026 · <a v-if="commitUrl" :href="commitUrl" target="_blank" rel="noreferrer">{{ shortCommit }}</a><template v-else>{{ shortCommit }}</template></span>
   </footer>

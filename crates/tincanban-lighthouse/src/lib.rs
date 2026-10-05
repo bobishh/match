@@ -9,7 +9,7 @@ use automerge::{
     transaction::{CommitOptions, Transactable},
     ActorId, AutoCommit, AutoSerde, ObjId, ObjType, ReadDoc, ROOT,
 };
-use match_authority::{admit_match_candidate, prepare_match_write_authority};
+use tincanban_authority::{admit_tincanban_candidate, prepare_tincanban_write_authority};
 use meta_mesh_core::{
     merge_verified_peer_catalog, sign_json_envelope, validate_mesh_catalog,
     verify_workspace_member_bundle, MeshHandshake, MeshPeerAdmission, VerifyWorkspaceMemberOptions,
@@ -25,7 +25,7 @@ use serde_json::{json, Value};
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MatchLighthouseState {
+pub struct TincanbanLighthouseState {
     pub document: Vec<u8>,
     pub authorization: Value,
     #[serde(default = "empty_chat")]
@@ -39,27 +39,27 @@ fn empty_chat() -> Value {
 }
 
 struct Inner {
-    state: MatchLighthouseState,
+    state: TincanbanLighthouseState,
     file: FileScopeStore,
 }
 
 #[derive(Clone)]
-pub struct MatchScopeStore {
+pub struct TincanbanScopeStore {
     workspace_id: String,
     genesis_person_id: String,
     inner: Arc<Mutex<Inner>>,
 }
 
-impl MatchScopeStore {
+impl TincanbanScopeStore {
     pub fn open(
         workspace_id: String,
         genesis_person_id: String,
         path: PathBuf,
-        initial: MatchLighthouseState,
+        initial: TincanbanLighthouseState,
     ) -> Result<Self, String> {
         let file = FileScopeStore::new(path);
         let state = match file.read()? {
-            Some(bytes) => serde_json::from_slice::<MatchLighthouseState>(&bytes)
+            Some(bytes) => serde_json::from_slice::<TincanbanLighthouseState>(&bytes)
                 .map_err(|error| format!("Invalid lighthouse state: {error}"))?,
             None => initial,
         };
@@ -82,7 +82,7 @@ impl MatchScopeStore {
                 .map(|change| change.hash().to_string())
                 .collect::<Vec<_>>();
             let (snapshot, _) = store.authority_for(&guard.state)?;
-            admit_match_candidate(
+            admit_tincanban_candidate(
                 None,
                 &guard.state.document,
                 &hashes,
@@ -123,7 +123,7 @@ impl MatchScopeStore {
             .collect())
     }
 
-    /// Author one Match lead with the lighthouse's own editor credential.
+    /// Author one Tincanban lead with the lighthouse's own editor credential.
     /// Call while the service is stopped; the running process owns its in-memory state.
     pub fn create_lead(
         &mut self,
@@ -155,14 +155,14 @@ impl MatchScopeStore {
         }
         let state = self.snapshot()?;
         let mut document = AutoCommit::load(&state.document)
-            .map_err(|error| format!("Invalid Match document: {error}"))?;
+            .map_err(|error| format!("Invalid Tincanban document: {error}"))?;
         document.set_actor(ActorId::from(member.payload.device_id.as_bytes().to_vec()));
         let view =
             serde_json::to_value(AutoSerde::from(&document)).map_err(|error| error.to_string())?;
         let entities = view
             .get("entities")
             .and_then(Value::as_object)
-            .ok_or("Invalid Match entities")?;
+            .ok_or("Invalid Tincanban entities")?;
         let board = entities
             .values()
             .find(|entity| {
@@ -194,7 +194,7 @@ impl MatchScopeStore {
         let (_, entities_object) = document
             .get(ROOT, "entities")
             .map_err(|error| error.to_string())?
-            .ok_or("Missing Match entities")?;
+            .ok_or("Missing Tincanban entities")?;
         let id = format!("item-{:032x}", rand::random::<u128>());
         let now = time::OffsetDateTime::from_unix_timestamp_nanos(now_ms()? * 1_000_000)
             .map_err(|error| error.to_string())?
@@ -256,9 +256,9 @@ impl MatchScopeStore {
         )?;
         let mut proof = state
             .authorization
-            .ok_or("Missing Match write authorization")?;
+            .ok_or("Missing Tincanban write authorization")?;
         proof.get_mut("records").and_then(Value::as_array_mut)
-            .ok_or("Missing Match write authorizations")?
+            .ok_or("Missing Tincanban write authorizations")?
             .push(json!({"signed":signed,"publicKey":member.public_key,"certificates":member.certificates,
                 "grant":member.grant,"ownerPublicKey":member.owner_public_key,
                 "ownerCertificates":member.owner_certificates}));
@@ -268,7 +268,7 @@ impl MatchScopeStore {
 
     fn authority_for(
         &self,
-        state: &MatchLighthouseState,
+        state: &TincanbanLighthouseState,
     ) -> Result<(WorkspaceWriteAuthorizationSnapshot, Value), String> {
         let evidence = state
             .authorization
@@ -279,7 +279,7 @@ impl MatchScopeStore {
             .get("records")
             .and_then(Value::as_array)
             .ok_or("Missing lighthouse write authorizations")?;
-        let (snapshot, merged) = prepare_match_write_authority(
+        let (snapshot, merged) = prepare_tincanban_write_authority(
             &state.document,
             evidence,
             None,
@@ -293,7 +293,7 @@ impl MatchScopeStore {
         Ok((snapshot, merged))
     }
 
-    fn save(&self, guard: &mut Inner, next: MatchLighthouseState) -> Result<(), String> {
+    fn save(&self, guard: &mut Inner, next: TincanbanLighthouseState) -> Result<(), String> {
         write_state(&guard.file, &next)?;
         guard.state = next;
         Ok(())
@@ -315,8 +315,8 @@ fn put_text(
 }
 
 fn verified_mesh_for(
-    store: &MatchScopeStore,
-    state: &MatchLighthouseState,
+    store: &TincanbanScopeStore,
+    state: &TincanbanLighthouseState,
 ) -> Result<Value, String> {
     let (authority, _) = store.authority_for(state)?;
     let existing = state
@@ -330,7 +330,7 @@ fn verified_mesh_for(
     Ok(json!({"version": 1, "peers": peers, "revocations": []}))
 }
 
-impl NativeScopeHost for MatchScopeStore {
+impl NativeScopeHost for TincanbanScopeStore {
     fn snapshot(&mut self) -> Result<NativeScopeSnapshot, String> {
         let guard = self
             .inner
@@ -356,13 +356,13 @@ impl NativeScopeHost for MatchScopeStore {
             .map_err(|_| "Lighthouse state lock poisoned")?;
         let incoming = proof
             .and_then(|value| value.get("authority"))
-            .ok_or("Missing incoming Match authority")?;
+            .ok_or("Missing incoming Tincanban authority")?;
         let incoming_records = proof
             .and_then(|value| value.get("records"))
             .and_then(Value::as_array)
-            .ok_or("Missing incoming Match write authorizations")?;
+            .ok_or("Missing incoming Tincanban write authorizations")?;
         let known = guard.state.authorization.get("authority");
-        let (snapshot, merged) = prepare_match_write_authority(
+        let (snapshot, merged) = prepare_tincanban_write_authority(
             candidate,
             incoming,
             known,
@@ -370,7 +370,7 @@ impl NativeScopeHost for MatchScopeStore {
             &self.genesis_person_id,
             now_ms()?,
         )?;
-        let verified = admit_match_candidate(
+        let verified = admit_tincanban_candidate(
             Some(&guard.state.document),
             candidate,
             accepted_hashes,
@@ -397,12 +397,12 @@ impl NativeScopeHost for MatchScopeStore {
             .inner
             .lock()
             .map_err(|_| "Lighthouse state lock poisoned")?;
-        let incoming_evidence = incoming.get("authority").ok_or("Missing Match authority")?;
+        let incoming_evidence = incoming.get("authority").ok_or("Missing Tincanban authority")?;
         let incoming_records = incoming
             .get("records")
             .and_then(Value::as_array)
-            .ok_or("Missing Match write authorizations")?;
-        let (snapshot, merged) = prepare_match_write_authority(
+            .ok_or("Missing Tincanban write authorizations")?;
+        let (snapshot, merged) = prepare_tincanban_write_authority(
             &guard.state.document,
             incoming_evidence,
             guard.state.authorization.get("authority"),
@@ -410,7 +410,7 @@ impl NativeScopeHost for MatchScopeStore {
             &self.genesis_person_id,
             now_ms()?,
         )?;
-        let verified = admit_match_candidate(
+        let verified = admit_tincanban_candidate(
             Some(&guard.state.document),
             &guard.state.document,
             &[],
@@ -482,11 +482,11 @@ impl NativeScopeHost for MatchScopeStore {
     }
 
     fn merge_durable_batch(&mut self, _: &[u8]) -> Result<(), String> {
-        Err("Match lighthouse does not accept workspace-set imports".into())
+        Err("Tincanban lighthouse does not accept workspace-set imports".into())
     }
 
     fn merge_owner_offer(&mut self, _: &[u8]) -> Result<(), String> {
-        Err("Match lighthouse does not accept owner workspace offers".into())
+        Err("Tincanban lighthouse does not accept owner workspace offers".into())
     }
 
     fn receive_gossip(&mut self, _: &[u8]) -> Result<(), String> {
@@ -495,16 +495,16 @@ impl NativeScopeHost for MatchScopeStore {
     }
 }
 
-pub struct MatchLighthouseHost {
+pub struct TincanbanLighthouseHost {
     pub workspace_id: String,
     pub secret: String,
     pub local_device_id: String,
     pub local_handshake: MeshHandshake,
-    pub store: MatchScopeStore,
+    pub store: TincanbanScopeStore,
 }
 
-impl NativeScopeServiceHost for MatchLighthouseHost {
-    type ScopeHost = MatchScopeStore;
+impl NativeScopeServiceHost for TincanbanLighthouseHost {
+    type ScopeHost = TincanbanScopeStore;
 
     fn local_device_id(&self) -> &str {
         &self.local_device_id
@@ -556,7 +556,7 @@ impl NativeScopeServiceHost for MatchLighthouseHost {
     }
 }
 
-fn write_state(file: &FileScopeStore, state: &MatchLighthouseState) -> Result<(), String> {
+fn write_state(file: &FileScopeStore, state: &TincanbanLighthouseState) -> Result<(), String> {
     let bytes = serde_json::to_vec(state).map_err(|error| error.to_string())?;
     file.write_validated(&bytes, None, |_, _| Ok(()))
 }
@@ -709,18 +709,18 @@ mod tests {
             .iter()
             .map(|change| change.hash().to_string())
             .collect();
-        let initial = MatchLighthouseState {
+        let initial = TincanbanLighthouseState {
             document: baseline.clone(),
             authorization: proof_for(initial_hashes),
             chat: empty_chat(),
             mesh: None,
         };
         let path = std::env::temp_dir().join(format!(
-            "match-lighthouse-{}-{}.json",
+            "tincanban-lighthouse-{}-{}.json",
             std::process::id(),
             now_ms().unwrap()
         ));
-        let mut store = MatchScopeStore::open(
+        let mut store = TincanbanScopeStore::open(
             "board".into(),
             person_id.clone(),
             path.clone(),
@@ -775,7 +775,7 @@ mod tests {
             .merge_mesh(&json!({"version":1,"peers":[],"revocations":[{}]}))
             .is_err());
         let mut reopened =
-            MatchScopeStore::open("board".into(), person_id, path.clone(), initial).unwrap();
+            TincanbanScopeStore::open("board".into(), person_id, path.clone(), initial).unwrap();
         assert_eq!(reopened.snapshot().unwrap().document, candidate);
         assert_eq!(
             reopened.authorized_peer_endpoints().unwrap(),

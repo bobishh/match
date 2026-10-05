@@ -24,7 +24,7 @@ test("Given a blank workspace, when invalid settings are repaired, then one appl
     await editor.fill(JSON.stringify(config, null, 2))
     await expect(dialog.getByText("/board/entityName")).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Apply JSON" })).toBeDisabled()
-    await expect(page.getByText(`MATCH // ${originalWorkspaceTitle}`)).toBeVisible()
+    await expect(page.getByText(`TINCANBAN // ${originalWorkspaceTitle}`)).toBeVisible()
     config.board.entityName = "book"
   })
 
@@ -48,7 +48,7 @@ test("Given a blank workspace, when invalid settings are repaired, then one appl
     await dialog.getByRole("button", { name: "Apply JSON" }).click()
     await expect(dialog).toBeHidden()
 
-    await expect(page.getByText("MATCH // Reading")).toBeVisible()
+    await expect(page.getByText("TINCANBAN // Reading")).toBeVisible()
     await expect(page.getByRole("button", { name: "Open Cold storage with 0 cards" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Add book to Unread" })).toBeVisible()
     await expect(page.getByRole("region", { name: "Unread" }).getByText("No books", { exact: true })).toBeVisible()

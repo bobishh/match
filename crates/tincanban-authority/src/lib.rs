@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 /// Merge incoming signed authority with the trusted local genesis anchor,
 /// then verify the resulting ownership and revocation history in Rust.
-pub fn prepare_match_write_authority(
+pub fn prepare_tincanban_write_authority(
     document: &[u8],
     incoming: &Value,
     known: Option<&Value>,
@@ -19,16 +19,16 @@ pub fn prepare_match_write_authority(
     now_ms: i128,
 ) -> Result<(WorkspaceWriteAuthorizationSnapshot, Value), String> {
     let doc =
-        AutoCommit::load(document).map_err(|error| format!("Invalid Match document: {error}"))?;
+        AutoCommit::load(document).map_err(|error| format!("Invalid tincanban document: {error}"))?;
     let raw = serde_json::to_value(AutoSerde::from(&doc)).map_err(|error| error.to_string())?;
     let workspace_id = raw
         .get("id")
         .and_then(Value::as_str)
-        .ok_or("Invalid Match workspace id")?;
+        .ok_or("Invalid tincanban workspace id")?;
     let remote_owner_person_id = raw
         .get("ownerPersonId")
         .and_then(Value::as_str)
-        .ok_or("Invalid Match genesis owner")?;
+        .ok_or("Invalid tincanban genesis owner")?;
     let merged = prepare_write_evidence(WriteEvidenceInput {
         incoming: incoming.clone(),
         known: known.cloned(),
@@ -48,15 +48,15 @@ pub fn prepare_match_write_authority(
         "deviceRevocations": merged.get("deviceRevocations").cloned().unwrap_or_else(|| json!([])),
         "departures": merged.get("departures").cloned().unwrap_or_else(|| json!([])),
     }))
-    .map_err(|_| "Invalid Match write authority evidence".to_string())?;
+    .map_err(|_| "Invalid tincanban write authority evidence".to_string())?;
     admit_workspace_change_authorizations(&[], &snapshot, &[], now_ms)?;
     Ok((snapshot, merged))
 }
 
-/// Verify the exact newly received Match changes before a native peer writes
+/// Verify the exact newly received tincanban changes before a native peer writes
 /// the candidate document or acknowledges its sender. `authority` comes from
 /// trusted local storage; the incoming proof only supplies signed records.
-pub fn admit_match_candidate(
+pub fn admit_tincanban_candidate(
     local: Option<&[u8]>,
     candidate: &[u8],
     accepted_hashes: &[String],
@@ -73,7 +73,7 @@ pub fn admit_match_candidate(
     let pages = meta_mesh_core::authorization_record_pages(proof)?;
     let paged = proof.get("version").and_then(Value::as_u64) == Some(2);
     let mut document =
-        AutoCommit::load(candidate).map_err(|error| format!("Invalid Match document: {error}"))?;
+        AutoCommit::load(candidate).map_err(|error| format!("Invalid tincanban document: {error}"))?;
     let json =
         serde_json::to_value(AutoSerde::from(&document)).map_err(|error| error.to_string())?;
     if json.get("id").and_then(Value::as_str) != Some(authority.workspace_id.as_str()) {
@@ -82,7 +82,7 @@ pub fn admit_match_candidate(
     if json.get("ownerPersonId").and_then(Value::as_str)
         != Some(authority.genesis_owner.person_id.as_str())
     {
-        return Err("Match document genesis owner does not match signed authority".into());
+        return Err("tincanban document genesis owner does not match signed authority".into());
     }
     let changes = document
         .get_changes(&[])
@@ -96,7 +96,7 @@ pub fn admit_match_candidate(
         .collect::<Vec<_>>();
     let known_hashes = if let Some(local) = local {
         let mut local = AutoCommit::load(local)
-            .map_err(|error| format!("Invalid local Match document: {error}"))?;
+            .map_err(|error| format!("Invalid local tincanban document: {error}"))?;
         let local_json =
             serde_json::to_value(AutoSerde::from(&local)).map_err(|error| error.to_string())?;
         if local_json.get("id").and_then(Value::as_str) != Some(authority.workspace_id.as_str()) {
@@ -116,7 +116,7 @@ pub fn admit_match_candidate(
         .map(|change| &change.hash)
         .collect::<BTreeSet<_>>();
     if !known.is_subset(&candidate_hashes) {
-        return Err("Candidate Match history omits accepted local changes".into());
+        return Err("Candidate tincanban history omits accepted local changes".into());
     }
     let incoming = changes
         .iter()
@@ -124,7 +124,7 @@ pub fn admit_match_candidate(
         .filter(|hash| !known.contains(hash))
         .collect::<BTreeSet<_>>();
     if incoming != accepted_hashes.iter().collect::<BTreeSet<_>>() {
-        return Err("Accepted Match changes do not match candidate history".into());
+        return Err("Accepted tincanban changes do not match candidate history".into());
     }
     authority.document = candidate.to_vec();
     let plan = plan_change_admission_flow(
@@ -152,7 +152,7 @@ pub fn admit_match_candidate(
     Ok(plan.verified_authorizations)
 }
 
-/// Match product policy over the exact Automerge state before and after each
+/// tincanban product policy over the exact Automerge state before and after each
 /// admitted change. Signed mesh grants are necessary but do not authorize
 /// editor changes to board structure or ownership fields.
 pub fn validate_change_transitions(
@@ -160,12 +160,12 @@ pub fn validate_change_transitions(
     admitted: &[AuthorizedWorkspaceChange],
 ) -> Result<(), String> {
     let mut doc =
-        AutoCommit::load(document).map_err(|error| format!("Invalid Match document: {error}"))?;
+        AutoCommit::load(document).map_err(|error| format!("Invalid tincanban document: {error}"))?;
     for change in admitted {
-        let hash = ChangeHash::from_str(&change.hash).map_err(|_| "Invalid Match change hash")?;
+        let hash = ChangeHash::from_str(&change.hash).map_err(|_| "Invalid tincanban change hash")?;
         let dependencies = doc
             .get_change_by_hash(&hash)
-            .ok_or("Admitted Match change is missing from document")?
+            .ok_or("Admitted tincanban change is missing from document")?
             .deps()
             .to_vec();
         let before = doc
@@ -181,7 +181,7 @@ pub fn validate_change_transitions(
     Ok(())
 }
 
-/// Same product transition rules used by Match's browser adapter.
+/// Same product transition rules used by tincanban's browser adapter.
 pub fn validate_workspace_transition(
     role: WorkspaceRole,
     before: &Value,
@@ -192,10 +192,10 @@ pub fn validate_workspace_transition(
     }
     let before = before
         .as_object()
-        .ok_or("Invalid Match workspace before change")?;
+        .ok_or("Invalid tincanban workspace before change")?;
     let after = after
         .as_object()
-        .ok_or("Invalid Match workspace after change")?;
+        .ok_or("Invalid tincanban workspace after change")?;
     let mut before_root = before.clone();
     let mut after_root = after.clone();
     before_root.remove("title");
@@ -203,11 +203,11 @@ pub fn validate_workspace_transition(
     let before_entities = before_root
         .remove("entities")
         .and_then(|value| value.as_object().cloned())
-        .ok_or("Invalid Match entities before change")?;
+        .ok_or("Invalid tincanban entities before change")?;
     let after_entities = after_root
         .remove("entities")
         .and_then(|value| value.as_object().cloned())
-        .ok_or("Invalid Match entities after change")?;
+        .ok_or("Invalid tincanban entities after change")?;
     if before_root != after_root && role != WorkspaceRole::Owner {
         return Err("Only the owner can edit board structure".into());
     }
@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn prepares_signed_owner_authority_for_a_match_document() {
+    fn prepares_signed_owner_authority_for_a_tincanban_document() {
         let person_key = public_key_from_seed(&[1; 32]).unwrap();
         let person_id = public_key_id(&person_key).unwrap();
         let device_key = public_key_from_seed(&[2; 32]).unwrap();
@@ -392,7 +392,7 @@ mod tests {
             "departures": [],
         });
         let (snapshot, merged) =
-            prepare_match_write_authority(&document.save(), &evidence, None, &[], &person_id, 0)
+            prepare_tincanban_write_authority(&document.save(), &evidence, None, &[], &person_id, 0)
                 .unwrap();
         assert_eq!(snapshot.workspace_id, "board");
         assert_eq!(snapshot.expected_current_owner.person_id, person_id);

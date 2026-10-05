@@ -8,7 +8,7 @@ use std::{
 };
 
 use iroh::{EndpointAddr, EndpointId};
-use match_lighthouse::{MatchLighthouseHost, MatchLighthouseState, MatchScopeStore, now_ms};
+use tincanban_lighthouse::{TincanbanLighthouseHost, TincanbanLighthouseState, TincanbanScopeStore, now_ms};
 use meta_mesh_core::{
     DEFAULT_SIGNATURE_DOMAIN, MeshHandshake, MeshRuntimeState, VerifyWorkspaceMemberOptions,
     sign_json_envelope, verify_workspace_member_bundle,
@@ -35,7 +35,7 @@ pub(crate) struct Config {
     local_handshake: MeshHandshake,
     genesis_person_id: String,
     state_path: PathBuf,
-    initial_state: MatchLighthouseState,
+    initial_state: TincanbanLighthouseState,
     #[serde(default)]
     identity_seed: Vec<u8>,
     #[serde(default)]
@@ -46,12 +46,12 @@ pub(crate) struct Config {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut args = std::env::args().skip(1);
     let path = args.next().ok_or(
-        "Usage: match-lighthouse CONFIG.json | match-lighthouse join INVITE_URL STATE_DIR",
+        "Usage: tincanban-lighthouse CONFIG.json | tincanban-lighthouse join INVITE_URL STATE_DIR",
     )?;
     if path == "join" {
         let invite = args
             .next()
-            .ok_or("Missing Match workspace invitation URL")?;
+            .ok_or("Missing Tincanban workspace invitation URL")?;
         let directory = args.next().ok_or("Missing lighthouse state directory")?;
         if args.next().is_some() {
             return Err("Too many join arguments".into());
@@ -72,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .as_slice()
             .try_into()
             .map_err(|_| "Lighthouse device seed must contain 32 bytes")?;
-        let mut store = MatchScopeStore::open(
+        let mut store = TincanbanScopeStore::open(
             config.workspace_id,
             config.genesis_person_id,
             config.state_path,
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if config.local_handshake.workspace_id != config.workspace_id {
         return Err("Lighthouse handshake targets another workspace".into());
     }
-    let store = MatchScopeStore::open(
+    let store = TincanbanScopeStore::open(
         config.workspace_id.clone(),
         config.genesis_person_id.clone(),
         config.state_path,
@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     {
         return Err("Lighthouse advertisement does not match Iroh endpoint".into());
     }
-    let host = MatchLighthouseHost {
+    let host = TincanbanLighthouseHost {
         workspace_id: config.workspace_id.clone(),
         secret: config.transport_secret.clone(),
         local_device_id: config.device_id,
@@ -342,7 +342,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await
             {
                 Ok(()) => {}
-                Err(error) if error == "Unauthenticated mesh peer" => {}
+                Err(error) if error.to_string() == "prepare: Unauthenticated mesh peer" => {}
                 Err(error) => {
                     eprintln!("Lighthouse publish to {route}: {error}");
                     if let Some((connection, task)) = peers.remove(route) {

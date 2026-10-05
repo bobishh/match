@@ -1,5 +1,5 @@
 {
-  "name": "match",
+  "name": "tincanban",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -22,7 +22,7 @@
     "quality:size": "npm run build && size-limit",
     "verify:meta-mesh": "node scripts/verify-meta-mesh.mjs",
     "test:coverage": "vitest run --coverage",
-    "test:e2e:coverage": "MATCH_E2E_COVERAGE=1 playwright test --project=core && node scripts/e2e-coverage.mjs"
+    "test:e2e:coverage": "TINCANBAN_E2E_COVERAGE=1 playwright test --project=core && node scripts/e2e-coverage.mjs"
   },
   "dependencies": {
     "@automerge/automerge": "^3.4.1",

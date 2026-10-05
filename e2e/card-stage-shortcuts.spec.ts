@@ -29,7 +29,7 @@ test("Given a generic card, when stage shortcut is clicked, then card moves and 
 
 test("Given a generic card, when stage move fails, then card stays put and error appears", async ({ page }) => {
   const detail = await createBoard(page)
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await detail.getByRole("button", { name: "Doing" }).click()
   await expect(detail.getByRole("alert")).toContainText("Storage failure injected")
   await expect(detail.getByRole("button", { name: "To do" })).toHaveClass(/active/)

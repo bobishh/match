@@ -7,7 +7,7 @@ import { BrowserMeshStore } from "@meta-uber/mesh-browser-store"
 import type { FileReference } from "./domain/model"
 
 const blobs = new MeshBlobStore(
-  new BrowserMeshStore("match-attachments-v1", ["blobs"]),
+  new BrowserMeshStore("tincanban-attachments-v1", ["blobs"]),
 )
 
 let fetchAttachment: ((descriptor: BlobDescriptor) => Promise<Uint8Array | undefined>) | undefined

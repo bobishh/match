@@ -4,13 +4,13 @@ test("idle cards age while the page stays open and editing restores freshness", 
   await page.clock.install({ time: new Date("2026-09-01T12:00:00Z") })
   await page.goto("/")
   const id = await page.evaluate(async () => {
-    const { useMatch } = await import("/src/state.ts")
-    const match = useMatch()
-    await match.whenReady()
-    await match.createWorkspaceAsync("Aging demo", "blank")
-    const column = Object.values(match.getActiveDoc()!.entities).find(entity => entity.kind === "column" && entity.title === "To do")!
+    const { useTincanban } = await import("/src/state.ts")
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    await tincanban.createWorkspaceAsync("Aging demo", "blank")
+    const column = Object.values(tincanban.getActiveDoc()!.entities).find(entity => entity.kind === "column" && entity.title === "To do")!
     const id = crypto.randomUUID()
-    await match.executeCommandAsync({ kind: "createItem", id, parentId: column.id, title: "Follow up on interview" })
+    await tincanban.executeCommandAsync({ kind: "createItem", id, parentId: column.id, title: "Follow up on interview" })
     return id
   })
   const card = page.locator(`[data-item-id="${id}"]`)
@@ -30,10 +30,10 @@ test("idle cards age while the page stays open and editing restores freshness", 
 test("aging threshold changes are explained before applying", async ({ page }) => {
   await page.goto("/")
   await page.evaluate(async () => {
-    const { useMatch } = await import("/src/state.ts")
-    const match = useMatch()
-    await match.whenReady()
-    await match.createWorkspaceAsync("Aging settings", "blank")
+    const { useTincanban } = await import("/src/state.ts")
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    await tincanban.createWorkspaceAsync("Aging settings", "blank")
   })
   await page.getByRole("button", { name: "Edit board", exact: true }).click()
   await page.getByRole("button", { name: "Edit item", exact: true }).click()

@@ -35,7 +35,7 @@ test("Given a moved item, when restore fails then retries, then current placemen
   const restore = detail.locator(".item-history-entry").filter({ hasText: "createItem" })
     .getByRole("button", { name: "Restore this version" })
   await test.step("Failed restore leaves the committed placement unchanged", async () => {
-    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
     await restore.click()
     await expect(detail.getByRole("alert")).toContainText("Restore failed")
     await detail.getByRole("button", { name: "Close detail" }).click()
@@ -43,7 +43,7 @@ test("Given a moved item, when restore fails then retries, then current placemen
     await expect(page.getByRole("region", { name: "To do" }).locator(".lead-card")).toHaveCount(0)
   })
   await test.step("Retry restores creation state and survives reload", async () => {
-    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
     await page.getByRole("button", { name: "Open Reversible item" }).click()
     await restore.click()
     await expect(detail.getByText("Version restored")).toBeVisible()

@@ -6,7 +6,7 @@ export function withWorkspaceMutation<T>(workspaceId: string, operation: () => P
   const previous = queues.get(workspaceId) ?? Promise.resolve()
   const current = previous.catch(() => undefined).then(() => {
     if (typeof navigator !== "undefined" && navigator.locks) {
-      return navigator.locks.request(`match-workspace-command:${workspaceId}`, operation)
+      return navigator.locks.request(`tincanban-workspace-command:${workspaceId}`, operation)
     }
     if (typeof indexedDB !== "undefined") {
       throw new Error("Workspace writes require cross-tab locking support")

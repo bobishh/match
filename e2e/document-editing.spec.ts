@@ -36,7 +36,7 @@ test("Given a generic card, when Edit is selected, then its visible fields can b
   await expect(page.getByRole("dialog", { name: "Item overview" })).toContainText("Preview and download work")
 })
 
-test("Given a real file attachment, when it is reopened, then Match can preview and download its persisted bytes", async ({ page }) => {
+test("Given a real file attachment, when it is reopened, then tincanban can preview and download its persisted bytes", async ({ page }) => {
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: /Add lead to/ }).first().click()
@@ -51,14 +51,14 @@ test("Given a real file attachment, when it is reopened, then Match can preview 
   await form.getByLabel("File").setInputFiles({
     name: "architecture.txt",
     mimeType: "text/plain",
-    buffer: Buffer.from("MetaMesh owns replication; Match owns product UI."),
+    buffer: Buffer.from("MetaMesh owns replication; tincanban owns product UI."),
   })
   await form.getByRole("button", { name: "Attach" }).click()
 
   const attachment = page.getByRole("group", { name: "Architecture notes" })
   await expect(attachment).toContainText("architecture.txt")
   await attachment.getByRole("button", { name: "Preview" }).click()
-  await expect(page.getByRole("dialog", { name: "Document preview" })).toContainText("MetaMesh owns replication; Match owns product UI.")
+  await expect(page.getByRole("dialog", { name: "Document preview" })).toContainText("MetaMesh owns replication; tincanban owns product UI.")
   await page.getByRole("dialog", { name: "Document preview" }).getByRole("button", { name: "Close" }).click()
 
   await page.reload()
@@ -93,7 +93,7 @@ test("Given document controls fail to load, when item detail opens, then pending
   const reopened = page.getByRole("dialog", { name: "Item overview" })
   await expect(reopened).toContainText("Ship document UX")
   await expect(reopened.getByRole("alert")).toContainText("Document controls could not load")
-  await reopened.getByRole("button", { name: "Reload Match", exact: true }).click()
+  await reopened.getByRole("button", { name: "Reload tincanban", exact: true }).click()
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
   await page.getByRole("button", { name: "Open Ship document UX", exact: true }).click()
   const restored = page.getByRole("dialog", { name: "Item overview" })

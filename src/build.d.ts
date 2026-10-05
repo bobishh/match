@@ -1,1 +1,1 @@
-declare const __MATCH_BUILD_COMMIT__: string
+declare const __TINCANBAN_BUILD_COMMIT__: string

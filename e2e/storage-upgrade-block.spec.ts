@@ -1,6 +1,6 @@
 import { expect, test } from "./support/coverage"
 
-test("Given a local journal created before the catalog index, when Match opens, then it keeps the board and loads", async ({ page, baseURL }) => {
+test("Given a local journal created before the catalog index, when tincanban opens, then it keeps the board and loads", async ({ page, baseURL }) => {
   await page.route("**/old-journal.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Old journal</title>" }))
   await page.goto((baseURL ?? "http://127.0.0.1:4244") + "/old-journal.html")
   const workspaceId = await page.evaluate(async () => {
@@ -13,7 +13,7 @@ test("Given a local journal created before the catalog index, when Match opens, 
     const id = crypto.randomUUID()
     const doc = Automerge.from(createWorkspaceDoc(id, "Older local board", "owner", "blank"))
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("match-workspace-state", 1)
+      const request = indexedDB.open("tincanban-workspace-state", 1)
       request.onupgradeneeded = () => {
         for (const name of ["changes", "proofs", "receipts", "snapshots", "authorizations"]) {
           const store = request.result.createObjectStore(name, { keyPath: "id" })
@@ -38,8 +38,8 @@ test("Given a local journal created before the catalog index, when Match opens, 
   await expect(page.getByRole("alert")).toHaveCount(0)
   await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
   expect(await page.evaluate(async () => {
-    const { useMatch } = await import("/src/state.ts")
-    return useMatch().getActiveDoc()?.id
+    const { useTincanban } = await import("/src/state.ts")
+    return useTincanban().getActiveDoc()?.id
   })).toBe(workspaceId)
   expect(await page.evaluate(async id => {
     const { defaultStorage } = await import("/src/storage.ts")
@@ -47,22 +47,22 @@ test("Given a local journal created before the catalog index, when Match opens, 
   }, workspaceId)).toBe("Older local board")
 })
 
-test("Given normal browser storage, when Match starts, then workspace controls load", async ({ page, baseURL }) => {
+test("Given normal browser storage, when tincanban starts, then workspace controls load", async ({ page, baseURL }) => {
   await page.goto(baseURL ?? "http://127.0.0.1:4244")
   await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByLabel("Opening workspace")).toHaveCount(0)
   const databaseNames = await page.evaluate(async () => (await indexedDB.databases()).map(database => database.name))
-  expect(databaseNames).toContain("match-workspace-state")
-  expect(databaseNames).not.toContain("match-workspace-journal-v1")
+  expect(databaseNames).toContain("tincanban-workspace-state")
+  expect(databaseNames).not.toContain("tincanban-workspace-journal-v1")
 })
 
-test("Given a legacy version upgrade is pending, when Match opens it unversioned, then timeout is distinguishable and recovers", async ({ browser, baseURL }) => {
+test("Given a legacy version upgrade is pending, when tincanban opens it unversioned, then timeout is distinguishable and recovers", async ({ browser, baseURL }) => {
   const context = await browser.newContext()
   const holder = await context.newPage()
   await holder.route("**/legacy-holder.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Legacy holder</title>" }))
   await holder.goto((baseURL ?? "http://127.0.0.1:4244") + "/legacy-holder.html")
   await holder.evaluate(() => new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("match-workspace-journal-v1", 1)
+    const request = indexedDB.open("tincanban-workspace-journal-v1", 1)
     request.onupgradeneeded = () => {
       for (const name of ["changes", "proofs", "receipts", "snapshots", "authorizations"]) {
         const store = request.result.createObjectStore(name, { keyPath: "id" })
@@ -76,7 +76,7 @@ test("Given a legacy version upgrade is pending, when Match opens it unversioned
   await upgrader.route("**/legacy-upgrader.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Legacy upgrader</title>" }))
   await upgrader.goto((baseURL ?? "http://127.0.0.1:4244") + "/legacy-upgrader.html")
   await upgrader.evaluate(() => new Promise<void>(resolve => {
-    const request = indexedDB.open("match-workspace-journal-v1", 2)
+    const request = indexedDB.open("tincanban-workspace-journal-v1", 2)
     const state = window as Window & { legacyUpgradeState?: string; legacyUpgradeRequest?: IDBOpenDBRequest }
     state.legacyUpgradeRequest = request
     request.onblocked = () => { state.legacyUpgradeState = "blocked"; resolve() }
@@ -87,7 +87,7 @@ test("Given a legacy version upgrade is pending, when Match opens it unversioned
   const app = await context.newPage()
   const storageEvents: string[] = []
   app.on("console", message => {
-    if (message.text().startsWith("[match.storage]")) storageEvents.push(message.text())
+    if (message.text().startsWith("[tincanban.storage]")) storageEvents.push(message.text())
   })
   await app.goto(baseURL ?? "http://127.0.0.1:4244")
   await expect(app.getByRole("alert")).toBeVisible({ timeout: 8_000 })
@@ -123,7 +123,7 @@ test("Given legacy records conflict with current receipt, when migration aborts 
     const workspaceId = "abort-retry-workspace"
     const changeId = workspaceId + ":legacy-change"
     const receiptId = workspaceId + ":legacy-transaction"
-    const source = await open("match-workspace-journal-v1", false)
+    const source = await open("tincanban-workspace-journal-v1", false)
     const sourceTx = source.transaction(stores, "readwrite")
     sourceTx.objectStore("changes").put({ id: changeId, workspaceId, changeHash: "legacy-change", bytes: new Uint8Array([1, 2]), addedAt: "old" })
     sourceTx.objectStore("proofs").put({ id: changeId, workspaceId, changeHash: "legacy-change", proof: { signature: "legacy-proof" } })
@@ -131,7 +131,7 @@ test("Given legacy records conflict with current receipt, when migration aborts 
     sourceTx.objectStore("snapshots").put({ id: workspaceId, workspaceId, title: "legacy", heads: [], bytes: new Uint8Array([3]), savedAt: "old" })
     sourceTx.objectStore("authorizations").put({ id: workspaceId, workspaceId, records: [{ signature: "legacy-authorization" }] })
     await new Promise<void>((resolve, reject) => { sourceTx.oncomplete = () => resolve(); sourceTx.onabort = () => reject(sourceTx.error) })
-    const targetSeed = await open("match-workspace-state", true)
+    const targetSeed = await open("tincanban-workspace-state", true)
     const conflictingTx = targetSeed.transaction("receipts", "readwrite")
     conflictingTx.objectStore("receipts").put({ id: receiptId, workspaceId, transactionId: "legacy-transaction", receipt: { transactionId: "legacy-transaction", changeHash: "wrong-current-change" } })
     await new Promise<void>((resolve, reject) => { conflictingTx.oncomplete = () => resolve(); conflictingTx.onabort = () => reject(conflictingTx.error) })
@@ -140,7 +140,7 @@ test("Given legacy records conflict with current receipt, when migration aborts 
     const { openWorkspaceJournal, transactionDone, requestResult } = await import("/src/storageJournal.ts")
     let conflict = ""
     try { await openWorkspaceJournal() } catch (error) { conflict = error instanceof Error ? error.message : String(error) }
-    const afterAbort = await open("match-workspace-state", true)
+    const afterAbort = await open("tincanban-workspace-state", true)
     const check = afterAbort.transaction(stores, "readonly")
     const afterAbortDone = transactionDone(check)
     const [snapshot, changes, proofs, receipts, authorizations] = await Promise.all([
@@ -155,7 +155,7 @@ test("Given legacy records conflict with current receipt, when migration aborts 
     const rowsAfterAbort = { snapshot: Boolean(snapshot), changes: changes.length, proofs: proofs.length, receipts: receipts.length, markerPresent }
     afterAbort.close()
 
-    const fix = await open("match-workspace-state", true)
+    const fix = await open("tincanban-workspace-state", true)
     const fixTx = fix.transaction("receipts", "readwrite")
     fixTx.objectStore("receipts").delete(receiptId)
     await new Promise<void>((resolve, reject) => { fixTx.oncomplete = () => resolve(); fixTx.onabort = () => reject(fixTx.error) })

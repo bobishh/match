@@ -1,10 +1,10 @@
-# Match
+# tincanban
 
 A board for keeping track of work, with cards, documents, and chat. Your data lives
 in your browser. You can share a board with someone else or connect your own
 second device and keep working across both.
 
-[Try Match](https://match.meta-uber-engineer.dev/) · [Five-minute demo](docs/demo.md) · [Architecture](docs/architecture.md)
+[Try tincanban](https://match.meta-uber-engineer.dev/) · [Five-minute demo](docs/demo.md) · [Architecture](docs/architecture.md)
 
 ## What you can do
 
@@ -17,9 +17,9 @@ second device and keep working across both.
 - Work locally, then synchronize with another online device.
 - Share selected boards with an editor or a read-only visitor.
 - Inspect item history and restore an earlier version without erasing history.
-- Export a `.match` workspace bundle. Identity secrets are not included.
+- Export a `.tincanban` workspace bundle. Identity secrets are not included.
 
-Match is an experimental application. Keep an independent backup of important
+tincanban is an experimental application. Keep an independent backup of important
 work. Browser storage is a local copy, not a hosted backup service.
 
 ## Card aging
@@ -34,7 +34,7 @@ shared document.
 
 ## Try sharing a board
 
-1. Open Match in two browsers or browser profiles. Give each profile a different
+1. Open tincanban in two browsers or browser profiles. Give each profile a different
    display name so it is easy to tell them apart.
 2. In the first browser, create a board and a card.
 3. Open **Sync → Add someone**, choose the board and role, and generate a link.
@@ -57,9 +57,9 @@ unchecked. The approving browser issues a signed grant for each new board before
 starts. This preference is currently local to that browser; settings synchronization
 between enrolled devices is not implemented yet.
 
-For a standalone Lighthouse keeper, Match discovers the configured HTTPS origin,
+For a standalone Lighthouse keeper, tincanban discovers the configured HTTPS origin,
 shows its identity and capabilities, and requires controller and authenticated
-operator approval for the same transcript. Match then sends a short-lived visitor
+operator approval for the same transcript. tincanban then sends a short-lived visitor
 invitation for the exact selected boards. Pairing stays pending until Lighthouse
 returns signed evidence that every selected board committed durably.
 See [mesh-lighthouse](../mesh-lighthouse/README.md) for provisioning and durable
@@ -91,18 +91,18 @@ when showing the project.
   ownership first. A peer must be connected to deliver the departure; the local
   copy remains read-only, and returning requires a new invitation.
 
-Reload Match on both sides after this protocol update. Older clients cannot join
+Reload tincanban on both sides after this protocol update. Older clients cannot join
 sessions until they support device removals and membership departures.
 
 ## Run locally
 
-Requirements: Git and Node.js 22 or newer. Rust is **not** needed to run Match:
+Requirements: Git and Node.js 22 or newer. Rust is **not** needed to run tincanban:
 the pinned MetaMesh dependency contains its prebuilt browser JavaScript and WASM.
 Automerge also ships its compiled WASM in its npm package.
 
 ```sh
-git clone --recurse-submodules https://github.com/bobishh/match.git
-cd match
+git clone --recurse-submodules https://github.com/bobishh/tincanban.git
+cd tincanban
 npm ci
 npm run dev
 ```
@@ -206,7 +206,7 @@ in the browser's main context.
   boundaries as well as in the UI. Revocation reaches offline peers when they
   reconnect; it cannot erase copies they already hold.
 - **Recovery:** ownership succession is a trusted-group feature, not Byzantine
-  consensus. Match has no complete account recovery or stolen-device recovery UI.
+  consensus. tincanban has no complete account recovery or stolen-device recovery UI.
   MetaMesh's recovery primitives alone do not supply that product flow.
 - **Protocol updates:** refresh both peers when testing a new deployment.
 - **Security:** signed changes and device certificates are implemented; the system
@@ -217,7 +217,7 @@ in the browser's main context.
 Vue presents the board. Application modules coordinate commands, storage, and
 collaboration. Automerge represents workspace history; IndexedDB stores local
 snapshots and authorization records. MetaMesh supplies shared identity, protocol,
-transport, and runtime primitives used by Match and Twang.
+transport, and runtime primitives used by tincanban and Twang.
 
 The [architecture notes](docs/architecture.md) explain these boundaries and the
 remaining compromises. The [protocol and WebMCP reference](docs/protocol-and-tools.md)

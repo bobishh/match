@@ -20,7 +20,7 @@ export type AppStartupSteps = {
 }
 
 /**
- * Starts Match in dependency order while keeping device sync optional.
+ * Starts tincanban in dependency order while keeping device sync optional.
  *
  * The Rust runtime deliberately remains ahead of hydration: local policy is
  * evaluated by the runtime and must not be approximated in TypeScript.
@@ -37,7 +37,7 @@ export async function runAppStartup(steps: AppStartupSteps): Promise<AppStartupR
   let pairingOpened = false
   if (steps.openPairing) {
     try { pairingOpened = await steps.openPairing() }
-    catch (error) { console.error("[match.startup] pairing failed", error) }
+    catch (error) { console.error("[tincanban.startup] pairing failed", error) }
   }
 
   const storageFailure = await runRequiredStage("storage", steps.hydrate)
@@ -56,7 +56,7 @@ export async function runAppStartup(steps: AppStartupSteps): Promise<AppStartupR
 
 export function startupFailureMessage(stage: AppStartupStage): string {
   switch (stage) {
-    case "runtime": return "Could not load Match’s local runtime."
+    case "runtime": return "Could not load tincanban’s local runtime."
     case "storage": return "Could not open your local data."
     case "local-ui": return "Could not finish setting up your local board."
   }
@@ -75,12 +75,12 @@ export function startupFailureDetail(error: unknown): string {
 
 async function runRequiredStage(stage: AppStartupStage, step: () => Promise<void> | void): Promise<Extract<AppStartupResult, { status: "fatal" }> | undefined> {
   const started = Date.now()
-  console.info("[match.startup]", stage, "start")
+  console.info("[tincanban.startup]", stage, "start")
   try {
     await step()
-    console.info("[match.startup]", stage, "done", Date.now() - started)
+    console.info("[tincanban.startup]", stage, "done", Date.now() - started)
   } catch (error) {
-    console.error("[match.startup]", stage, "failed", error)
+    console.error("[tincanban.startup]", stage, "failed", error)
     return { status: "fatal", stage, error }
   }
 }

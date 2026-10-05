@@ -14,31 +14,22 @@ async function faviconLoads(page: Page, center: number[]) {
     const context = canvas.getContext("2d")!
     context.drawImage(icon, 0, 0)
     const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data]
-    let crownPixels = 0
-    for (let y = 0; y < 15; y++) {
-      for (let x = 20; x < 44; x++) {
-        const [red, green, blue, alpha] = pixel(x, y)
-        if (alpha > 200 && red < 50 && green < 50 && blue < 50) crownPixels++
-      }
-    }
     return {
       width: icon.naturalWidth,
       height: icon.naturalHeight,
       corner: pixel(0, 0),
-      center: pixel(32, 39),
-      circleEdge: pixel(14, 39),
-      crownPixels,
+      interior: pixel(22, 14),
+      metal: pixel(38, 38),
     }
   }, href)
   expect({ width: image.width, height: image.height }).toEqual({ width: 64, height: 64 })
   expect(image.corner[3]).toBe(0)
-  for (const color of [image.center, image.circleEdge]) {
-    expect(color).toEqual([...center, 255])
-  }
-  expect(image.crownPixels).toBeGreaterThan(10)
+  center.forEach((channel, index) => expect(Math.abs(image.interior[index]! - channel)).toBeLessThanOrEqual(2))
+  expect(image.interior[3]).toBe(255)
+  expect(image.metal).toEqual([200, 201, 203, 255])
 }
 
-test("Given a ready board with no peers, when its tab opens, then Match favicon matches empty mesh without blinking", async ({ page }) => {
+test("Given a ready board with no peers, when its tab opens, then tincanban favicon matches empty mesh without blinking", async ({ page }) => {
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
   await expectFaviconColor(page, "#ffd43b")
@@ -46,19 +37,19 @@ test("Given a ready board with no peers, when its tab opens, then Match favicon 
   expect(await faviconChanges(page)).toBe(0)
 })
 
-test("Given app startup fails, when its tab opens, then Match icon still loads", async ({ page }) => {
+test("Given app startup fails, when its tab opens, then tincanban icon still loads", async ({ page }) => {
   await page.route("**/src/main.ts", route => route.abort())
   await page.goto("/", { waitUntil: "domcontentloaded" })
-  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=5")
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=6")
   await faviconLoads(page, [105, 219, 124])
 })
 
 test("Given favicon animation cannot load, when the board opens, then the static icon and local board remain available", async ({ page }) => {
-  await page.route("**/favicon.svg?v=5", route => route.request().resourceType() === "fetch"
+  await page.route("**/favicon.svg?v=6", route => route.request().resourceType() === "fetch"
     ? route.fulfill({ status: 503, body: "Unavailable" }) : route.continue())
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
   await expect(page.getByLabel("Mesh empty", { exact: true })).toBeVisible()
-  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=5")
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=6")
   await faviconLoads(page, [105, 219, 124])
 })

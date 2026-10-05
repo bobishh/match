@@ -1,26 +1,26 @@
 ## ADDED Requirements
 
 ### Requirement: Discover and pin a keeper
-Match SHALL discover a service by HTTPS hostname, negotiate protocol support and bind approval to its cryptographically verified identity.
+tincanban SHALL discover a service by HTTPS hostname, negotiate protocol support and bind approval to its cryptographically verified identity.
 
 #### Scenario: Supported hostname
 - **WHEN** a user enters a compatible service hostname
-- **THEN** Match displays its name, fingerprint and available modes before requesting approval.
+- **THEN** tincanban displays its name, fingerprint and available modes before requesting approval.
 
 #### Scenario: Changed identity
 - **WHEN** a saved hostname advertises a different person ID
-- **THEN** automatic management and provisioning stop and Match requires an explicit new pairing.
+- **THEN** automatic management and provisioning stop and tincanban requires an explicit new pairing.
 
 #### Scenario: Unsupported service
 - **WHEN** discovery fails or no protocol version is shared
-- **THEN** Match preserves the current integrations and shows the specific error and retry/upgrade action.
+- **THEN** tincanban preserves the current integrations and shows the specific error and retry/upgrade action.
 
 ### Requirement: Mutual scoped approval
-Match MUST activate only the exact integration and scopes approved by both controller and authenticated service operator; hostname knowledge or a display name SHALL NOT confer authority.
+tincanban MUST activate only the exact integration and scopes approved by both controller and authenticated service operator; hostname knowledge or a display name SHALL NOT confer authority.
 
 #### Scenario: Two approvals
 - **WHEN** both parties approve the same unexpired transcript and all initial scopes persist successfully
-- **THEN** Match records an active integration without changing the user's identity.
+- **THEN** tincanban records an active integration without changing the user's identity.
 
 #### Scenario: One approval only
 - **WHEN** one party has not approved
@@ -32,10 +32,10 @@ Match MUST activate only the exact integration and scopes approved by both contr
 
 #### Scenario: Interrupted provisioning
 - **WHEN** transport fails after grants are issued
-- **THEN** Match shows pending provisioning, resumes idempotently, or revokes issued grants on cancellation; it does not report completion.
+- **THEN** tincanban shows pending provisioning, resumes idempotently, or revokes issued grants on cancellation; it does not report completion.
 
 ### Requirement: Own-board and least-privilege selection
-Match SHALL offer only currently owned boards in v1, default to visitor replication, and request editor access only through an explicit automation selection.
+tincanban SHALL offer only currently owned boards in v1, default to visitor replication, and request editor access only through an explicit automation selection.
 
 #### Scenario: Replication only
 - **WHEN** a user selects two owned boards for replication
@@ -50,7 +50,7 @@ Match SHALL offer only currently owned boards in v1, default to visitor replicat
 - **THEN** only that board receives a new editor authorization after confirmation.
 
 ### Requirement: Identity-scoped integration management
-Match SHALL synchronize non-secret integration settings between devices of the same identity and SHALL isolate settings and management rights across identities.
+tincanban SHALL synchronize non-secret integration settings between devices of the same identity and SHALL isolate settings and management rights across identities.
 
 #### Scenario: Multiple keepers
 - **WHEN** a controller pairs with two services
@@ -65,7 +65,7 @@ Match SHALL synchronize non-secret integration settings between devices of the s
 - **THEN** a conflict is displayed and permissions are not silently combined.
 
 ### Requirement: Explicit future-board policy
-Match SHALL auto-provision future owned boards only under an enabled revisioned policy and fresh per-board owner authorization.
+tincanban SHALL auto-provision future owned boards only under an enabled revisioned policy and fresh per-board owner authorization.
 
 #### Scenario: Policy disabled
 - **WHEN** a new board is created with auto-add off
@@ -80,15 +80,15 @@ Match SHALL auto-provision future owned boards only under an enabled revisioned 
 - **THEN** local creation succeeds and the pending addition is visible and retried.
 
 ### Requirement: Truthful durable replication status
-Match MUST derive up-to-date status from authenticated durable coverage for the current document frontier, chat and required blob bytes, separately from transport presence.
+tincanban MUST derive up-to-date status from authenticated durable coverage for the current document frontier, chat and required blob bytes, separately from transport presence.
 
 #### Scenario: Heartbeat without persistence
 - **WHEN** the keeper is reachable but a document save fails
-- **THEN** Match shows pending/error, never replica up to date.
+- **THEN** tincanban shows pending/error, never replica up to date.
 
 #### Scenario: Metadata without attachment
 - **WHEN** the document is persisted but a referenced file is missing
-- **THEN** Match displays attachments pending with missing coverage.
+- **THEN** tincanban displays attachments pending with missing coverage.
 
 #### Scenario: New local edit
 - **WHEN** a prior receipt covers only the previous frontier
@@ -96,10 +96,10 @@ Match MUST derive up-to-date status from authenticated durable coverage for the 
 
 #### Scenario: Peer offline
 - **WHEN** the keeper disconnects after a confirmed save
-- **THEN** Match retains last-confirmed time and marks offline without treating later edits as persisted.
+- **THEN** tincanban retains last-confirmed time and marks offline without treating later edits as persisted.
 
 ### Requirement: Scoped removal and service recovery
-Match SHALL distinguish membership revocation, integration disconnect and storage deletion, and MUST preserve local boards and personal identity.
+tincanban SHALL distinguish membership revocation, integration disconnect and storage deletion, and MUST preserve local boards and personal identity.
 
 #### Scenario: Remove one board
 - **WHEN** the owner confirms removing one keeper scope
@@ -107,8 +107,8 @@ Match SHALL distinguish membership revocation, integration disconnect and storag
 
 #### Scenario: Disconnect across boards
 - **WHEN** the user requests disconnect everywhere
-- **THEN** Match enumerates authorized scopes, reports any it cannot revoke, and tracks pending delivery.
+- **THEN** tincanban enumerates authorized scopes, reports any it cannot revoke, and tracks pending delivery.
 
 #### Scenario: Replaced server device
 - **WHEN** the same service identity presents a newly certified device with valid recovery/revocation evidence
-- **THEN** Match verifies it through core policy and invalidates stale device evidence without transferring ownership.
+- **THEN** tincanban verifies it through core policy and invalidates stale device evidence without transferring ownership.

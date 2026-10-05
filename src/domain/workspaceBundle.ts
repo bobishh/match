@@ -5,13 +5,13 @@ import type { CommandResult, FileReference, WorkspaceDocumentV2 } from "./model"
 import { validateWorkspaceDoc } from "./model"
 import { canonicalizeJson } from "./identity"
 
-export type BundleManifest = { format: "match"; version: 2; workspaceId: string; heads?: string[]; includedBlobHashes: string[]; missingBlobHashes: string[]; proofFormatVersion?: number; exportedAt?: string }
+export type BundleManifest = { format: "tincanban" | "match"; version: 2; workspaceId: string; heads?: string[]; includedBlobHashes: string[]; missingBlobHashes: string[]; proofFormatVersion?: number; exportedAt?: string }
 export type BundleBlob = { blobId: string; bytes: Uint8Array }
 export type ReadBundleBlob = (reference: FileReference) => Promise<Uint8Array | undefined>
 
 export async function exportWorkspaceBundleV2(doc: WorkspaceDocumentV2, readBlob?: ReadBundleBlob): Promise<Uint8Array> {
   const blobs = await bundleBlobs(doc, readBlob)
-  const manifest: BundleManifest = { format: "match", version: 2, workspaceId: doc.id, heads: Automerge.getHeads(doc as Automerge.Doc<WorkspaceDocumentV2>).sort(), includedBlobHashes: blobs.included.map(blob => blob.blobId), missingBlobHashes: blobs.missing, exportedAt: new Date().toISOString() }
+  const manifest: BundleManifest = { format: "tincanban", version: 2, workspaceId: doc.id, heads: Automerge.getHeads(doc as Automerge.Doc<WorkspaceDocumentV2>).sort(), includedBlobHashes: blobs.included.map(blob => blob.blobId), missingBlobHashes: blobs.missing, exportedAt: new Date().toISOString() }
   const files: Record<string, Uint8Array> = { "manifest.json": strToU8(JSON.stringify(manifest, null, 2)), "workspace.automerge": Automerge.save(doc as Automerge.Doc<WorkspaceDocumentV2>), "workspace.json": strToU8(canonicalizeJson(doc)) }
   for (const blob of blobs.included) files[blobArchivePath(blob.blobId)] = blob.bytes
   return zipSync(files)
@@ -92,5 +92,5 @@ function validAttachmentManifest(manifest: BundleManifest, referencedBlobIds: Se
 function isBundleManifest(value: unknown): value is BundleManifest {
   if (!value || typeof value !== "object") return false
   const manifest = value as Record<string, unknown>
-  return manifest.format === "match" && manifest.version === 2 && typeof manifest.workspaceId === "string" && Array.isArray(manifest.includedBlobHashes) && manifest.includedBlobHashes.every(value => typeof value === "string") && Array.isArray(manifest.missingBlobHashes) && manifest.missingBlobHashes.every(value => typeof value === "string") && (manifest.proofFormatVersion === undefined || manifest.proofFormatVersion === 1)
+  return (manifest.format === "tincanban" || manifest.format === "match") && manifest.version === 2 && typeof manifest.workspaceId === "string" && Array.isArray(manifest.includedBlobHashes) && manifest.includedBlobHashes.every(value => typeof value === "string") && Array.isArray(manifest.missingBlobHashes) && manifest.missingBlobHashes.every(value => typeof value === "string") && (manifest.proofFormatVersion === undefined || manifest.proofFormatVersion === 1)
 }

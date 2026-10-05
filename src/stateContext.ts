@@ -57,7 +57,7 @@ export const stateRuntime: StateRuntime = {
   storageChannel:
     typeof BroadcastChannel === "undefined"
       ? undefined
-      : new BroadcastChannel("match-workspace"),
+      : new BroadcastChannel("tincanban-workspace"),
   reconcilePromise: undefined,
   reconcileRequested: false,
   reconcileWorkspaceChanged: false,

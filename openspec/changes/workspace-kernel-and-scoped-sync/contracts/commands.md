@@ -36,7 +36,7 @@ If steps 1-6 fail, the previously committed state remains authoritative. Retryin
 | addDocument / patchDocument | itemId or entityId, typed document fields | Preserve old attached notes/files; parent must be item |
 | createTemplate / patchTemplate | typed template fields | Workspace-root entity; archiving template preserves artifacts |
 | updateWorkspaceSettings | settings, expectedHeads? | Validate full typed configuration; patch title/board/columns/fields/templates in one change; omissions archive |
-| recordArtifact | itemId, templateId, title, artifactKind, pdf, sourceMarkdown? | Match active template kind when creating; retain reference after later template archiving |
+| recordArtifact | itemId, templateId, title, artifactKind, pdf, sourceMarkdown? | tincanban active template kind when creating; retain reference after later template archiving |
 
 Only `moveEntity`, `restoreAndMove`, and creation write placement. Item creation and moves into the Archive column are rejected; `setEntityArchived` changes archive state without placement. `patchItem` cannot alter kind, ID, creation time, parent, or `archivedAt`. `renameEntity` requires non-empty title after trim. Schema-derived fields are validated only against the containing board; unknown field IDs fail.
 

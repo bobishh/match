@@ -124,8 +124,8 @@ function subscribeWorkspaceChat(options: SubscriptionOptions): () => void {
     if (!event.remote || event.history || options.open.value || document.visibilityState !== "visible" || !document.hasFocus()) return
     const last = event.added.filter((message) => message.personId !== options.personId.value).at(-1)
     if (!last) return
-    void navigator.locks.request(`match-chat-notification:${last.workspaceId}`, async () => {
-      const key = `match.chat.notified:${last.workspaceId}`
+    void navigator.locks.request(`tincanban-chat-notification:${last.workspaceId}`, async () => {
+      const key = `tincanban.chat.notified:${last.workspaceId}`
       const order = messageOrderKey(last)
       if ((await readLocal(key) ?? "") >= order) return
       await writeLocal(key, order)

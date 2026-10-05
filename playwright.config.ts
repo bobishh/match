@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test"
 
-const port = Number(process.env.MATCH_E2E_PORT ?? 4244)
+const port = Number(process.env.TINCANBAN_E2E_PORT ?? 4244)
 
 const networkSpecs = [
   "**/member-access.spec.ts",

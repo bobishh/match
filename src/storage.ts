@@ -32,7 +32,7 @@ import {
 export type { StoredChange } from "./storageJournal"
 export * from "./storageLegacy"
 
-const workspaceMetaPrefix = "match.workspace-meta."
+const workspaceMetaPrefix = "tincanban.workspace-meta."
 
 type StoredSnapshot = {
   workspaceId: string
@@ -57,8 +57,8 @@ function checkStorageFailureHook() {
   }
   const failureWindow = typeof window === "undefined"
     ? undefined
-    : window as Window & { __MATCH_INJECT_STORAGE_FAILURE__?: boolean }
-  if (failureWindow?.__MATCH_INJECT_STORAGE_FAILURE__) {
+    : window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }
+  if (failureWindow?.__TINCANBAN_INJECT_STORAGE_FAILURE__) {
     throw new Error("Storage failure injected")
   }
 }
@@ -158,11 +158,11 @@ export class WorkspaceStorage {
   }
 
   async registerWorkspace(id: string, title: string, archivedAt: string | null = null, allowRestore = false): Promise<void> {
-    const previous = await getStorageRaw(`match.workspace-meta.${id}`)
+    const previous = await getStorageRaw(`tincanban.workspace-meta.${id}`)
     if (previous && !archivedAt && !allowRestore && (JSON.parse(previous) as WorkspaceMeta).archivedAt)
       throw new Error("Workspace was archived in another tab")
     const meta = { id, title, updatedAt: new Date().toISOString(), archivedAt }
-    await setStorageRaw(`match.workspace-meta.${id}`, JSON.stringify(meta))
+    await setStorageRaw(`tincanban.workspace-meta.${id}`, JSON.stringify(meta))
     this.inMemory.workspaces.set(id, meta)
   }
 
@@ -190,7 +190,7 @@ export class WorkspaceStorage {
       }
     }
     await deleteWorkspaceJournal(oldId)
-    for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
+    for (const prefix of ["tincanban.snapshot.", "tincanban.v1.changes.", "tincanban.v1.proofs.", "tincanban.v1.receipts."]) {
       await removeStorageRaw(`${prefix}${oldId}`)
     }
     return moved
@@ -207,7 +207,7 @@ export class WorkspaceStorage {
       }
     }
     await deleteWorkspaceJournal(workspaceId)
-    for (const prefix of ["match.snapshot.", "match.v1.changes.", "match.v1.proofs.", "match.v1.receipts."]) {
+    for (const prefix of ["tincanban.snapshot.", "tincanban.v1.changes.", "tincanban.v1.proofs.", "tincanban.v1.receipts."]) {
       await removeStorageRaw(`${prefix}${workspaceId}`)
     }
   }
@@ -297,7 +297,7 @@ export class WorkspaceStorage {
     checkStorageFailureHook()
     if (doc.id !== workspaceId) throw new Error("Workspace commit ID mismatch")
     const committed = await readWorkspaceSnapshot(workspaceId)
-    const legacyRaw = committed ? null : await getStorageRaw(`match.snapshot.${workspaceId}`)
+    const legacyRaw = committed ? null : await getStorageRaw(`tincanban.snapshot.${workspaceId}`)
     const previous = committed ?? (legacyRaw ? parseStoredSnapshot(legacyRaw, workspaceId) : null)
     if (previous && !doc.archivedAt && (!committed || committed.archivedAt !== null)) {
       const previousDoc = Automerge.load<WorkspaceDocumentV2>(previous.bytes)
@@ -379,7 +379,7 @@ export class WorkspaceStorage {
     workspaceId: string, reusable?: Automerge.Doc<WorkspaceDocumentV2>
   ): Promise<{ doc: Automerge.Doc<WorkspaceDocumentV2>; heads: Heads } | null> {
     const committedSnapshot = await readWorkspaceSnapshot(workspaceId)
-    const rawSnapshot = committedSnapshot ? null : await getStorageRaw(`match.snapshot.${workspaceId}`)
+    const rawSnapshot = committedSnapshot ? null : await getStorageRaw(`tincanban.snapshot.${workspaceId}`)
     const parsedSnapshot = committedSnapshot ?? (rawSnapshot ? parseStoredSnapshot(rawSnapshot, workspaceId) : null)
     if (parsedSnapshot) this.inMemory.snapshots.set(workspaceId, parsedSnapshot)
     const snapshot = parsedSnapshot ?? this.inMemory.snapshots.get(workspaceId) ?? null
@@ -528,14 +528,14 @@ export class WorkspaceStorage {
   async savePersonalRoot(root: PersonalRootDocumentV1): Promise<void> {
     checkStorageFailureHook()
     this.inMemory.personalRoots.set(root.rootId, JSON.parse(JSON.stringify(root)))
-    const raw = await getStorageRaw("match.v1.personal_roots")
+    const raw = await getStorageRaw("tincanban.v1.personal_roots")
     const map: Record<string, PersonalRootDocumentV1> = raw ? JSON.parse(raw) : {}
     map[root.rootId] = JSON.parse(JSON.stringify(root))
-    await setStorageRaw("match.v1.personal_roots", JSON.stringify(map))
+    await setStorageRaw("tincanban.v1.personal_roots", JSON.stringify(map))
   }
 
   async loadPersonalRoot(rootId?: string): Promise<PersonalRootDocumentV1 | null> {
-    const raw = await getStorageRaw("match.v1.personal_roots")
+    const raw = await getStorageRaw("tincanban.v1.personal_roots")
     if (raw) {
       try {
         const map = JSON.parse(raw)

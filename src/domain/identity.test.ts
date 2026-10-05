@@ -55,9 +55,9 @@ describe("Local identity, signing, and bootstrap (Requirement 1.2)", () => {
     const unnamed = await bootstrapIdentity("")
     expect(unnamed.identity.displayName).toMatch(/^[A-Za-z]+ [A-Za-z]+$/)
     resetIdentityStorageForTest()
-    const old = await bootstrapIdentity("Match User")
+    const old = await bootstrapIdentity("tincanban User")
     expect(old.identity.displayName).toMatch(/^[A-Za-z]+ [A-Za-z]+$/)
-    expect(old.identity.displayName).not.toBe("Match User")
+    expect(old.identity.displayName).not.toBe("tincanban User")
   })
 
   it("simultaneous first-open tabs create one profile atomically", async () => {

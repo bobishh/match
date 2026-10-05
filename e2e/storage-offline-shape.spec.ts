@@ -22,7 +22,7 @@ test("Given snapshots in local kv and changes in legacy journal, when default st
       .replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "")
 
     const local = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("match-local-state-v1", 1)
+      const request = indexedDB.open("tincanban-local-state-v1", 1)
       request.onupgradeneeded = () => request.result.createObjectStore("kv")
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
@@ -30,13 +30,13 @@ test("Given snapshots in local kv and changes in legacy journal, when default st
     const localTx = local.transaction("kv", "readwrite")
     localTx.objectStore("kv").put(JSON.stringify({
       bytesBase64: base64url(A.save(initial)), heads: A.getHeads(initial), savedAt: "fixture-time",
-    }), `match.snapshot.${workspaceId}`)
-    localTx.objectStore("kv").put(JSON.stringify({ id: workspaceId, title: "Offline fixture", updatedAt: "fixture-time" }), `match.workspace-meta.${workspaceId}`)
+    }), `tincanban.snapshot.${workspaceId}`)
+    localTx.objectStore("kv").put(JSON.stringify({ id: workspaceId, title: "Offline fixture", updatedAt: "fixture-time" }), `tincanban.workspace-meta.${workspaceId}`)
     await new Promise<void>((resolve, reject) => { localTx.oncomplete = () => resolve(); localTx.onabort = () => reject(localTx.error) })
     local.close()
 
     const legacy = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("match-workspace-journal-v1", 1)
+      const request = indexedDB.open("tincanban-workspace-journal-v1", 1)
       request.onupgradeneeded = () => {
         const database = request.result
         for (const name of ["changes", "proofs", "receipts"]) {

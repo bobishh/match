@@ -76,12 +76,13 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-button { min-height: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
 .brand-button:hover { transform: none; box-shadow: none; }
-.brand-presence { position: relative; width: 18px; height: 18px; flex: 0 0 18px; }
-.brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--yellow); }
-.brand-mark.is-connected { background: var(--green); }
-.brand-mark.is-reconnecting { background: var(--yellow); }
-.brand-mark.is-offline { background: var(--red); }
-.brand-mark.is-empty { background: var(--yellow); }
+.brand-presence { position: relative; width: 32px; height: 40px; flex: 0 0 32px; }
+.brand-mark { display: block; width: 32px; height: 40px; flex: 0 0 32px; --connection-color: var(--yellow); }
+.brand-mark.is-connected { --connection-color: var(--green); }
+.brand-mark.is-reconnecting { animation: can-reconnect 1s steps(1) infinite; }
+.brand-mark.is-offline { --connection-color: var(--red); }
+@keyframes can-reconnect { 50% { --connection-color: var(--paper); } }
+@media (prefers-reduced-motion: reduce) { .brand-mark.is-reconnecting { animation: none; } }
 .owner-crown { position: absolute; z-index: 1; top: -12px; left: 50%; color: var(--ink); font: 900 12px/1 Georgia, serif; transform: translateX(-50%); }
 .workspace-role-icon { position: absolute; z-index: 1; top: -14px; left: 50%; width: 13px; height: 13px; color: var(--ink); transform: translateX(-50%); }
 .workspace-role-icon svg { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: square; stroke-linejoin: miter; }
@@ -498,6 +499,14 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
     gap: 10px;
     margin-left: auto;
   }
+  .brand { min-width: 0; }
+  .brand-button { flex: 1; }
+  .brand > div { min-width: 0; }
+  .brand h1 { font-size: 20px; }
+  .brand-name, .workspace-heading { display: block; white-space: nowrap; }
+  .brand-separator { display: none; }
+  .workspace-heading { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .brand-presence, .brand-mark { width: 28px; height: 35px; flex-basis: 28px; }
   .mobile-menu-button {
     display: inline-flex;
     align-items: center;

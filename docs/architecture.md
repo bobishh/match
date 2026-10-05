@@ -1,6 +1,6 @@
-# Match architecture
+# tincanban architecture
 
-Match is a local-first board application. Its data model and authorization are
+tincanban is a local-first board application. Its data model and authorization are
 application concerns; shared networking and cryptographic primitives live in
 [MetaMesh](https://github.com/bobishh/meta-mesh).
 
@@ -13,8 +13,8 @@ application concerns; shared networking and cryptographic primitives live in
 | Domain commands (`src/domain`) | Validate and apply board changes | Transport or peer discovery |
 | State/persistence | Serialize local mutations and publish committed state | Permission checks based only on visible buttons |
 | Authorization (`src/sync/changeAuthorization.ts`) | Validate local roles and signed incoming changes | Automerge merge semantics |
-| Workspace replication (`src/sync`) | Connect Match documents and proofs to mesh sessions | Generic product-independent domain rules |
-| MetaMesh | Identity, protocol framing, transport, shared runtime state machines | Match's card/board UI |
+| Workspace replication (`src/sync`) | Connect tincanban documents and proofs to mesh sessions | Generic product-independent domain rules |
+| MetaMesh | Identity, protocol framing, transport, shared runtime state machines | tincanban's card/board UI |
 
 Automerge records concurrent changes. IndexedDB persists snapshots and public
 proofs. Live sync exchanges missing document changes; attachments use a separate
@@ -24,7 +24,7 @@ browser notifications rather than pretending each tab is a different user.
 ## Startup is not transport startup
 
 The current browser artifact bundles Rust policy code and transport bindings.
-Match must initialize that WASM module before reading state that calls Rust policy
+tincanban must initialize that WASM module before reading state that calls Rust policy
 functions. It then hydrates local documents. Starting an Iroh node and connecting
 to peers happens afterwards.
 
@@ -49,7 +49,7 @@ owner ID. Local creation must establish its authority as part of the application
 flow, including a replacement board after the last workspace is deleted.
 
 MetaMesh recovery words wrap a random root key in an encrypted envelope. They do
-not independently reconstruct it. Match does not yet provide a complete backup,
+not independently reconstruct it. tincanban does not yet provide a complete backup,
 recovery-envelope export, key rotation, or stolen-device recovery flow.
 
 ## Connection protocol
@@ -80,7 +80,7 @@ feature/tool catalog, see [the protocol reference](protocol-and-tools.md).
 
 Local commands and incoming replication share `withWorkspaceMutation`. Its queue
 serializes one workspace in a runtime; the Web Lock
-`match-workspace-command:<workspaceId>` serializes independent tabs. The lock
+`tincanban-workspace-command:<workspaceId>` serializes independent tabs. The lock
 covers loading the durable base, validation, merge, and commit. Browsers with
 IndexedDB but no Web Locks reject writes instead of silently accepting unsafe
 cross-tab writes. Other workspaces use separate locks.
@@ -100,7 +100,7 @@ the next commit migrates their content into the journal transaction. Legacy
 records are retained for recovery. Once an authorization record is migrated,
 the journal is authoritative for that workspace.
 
-Rollout requires reloading old Match tabs. An old tab holding the previous journal
+Rollout requires reloading old tincanban tabs. An old tab holding the previous journal
 schema can block its upgrade; the error asks users to close other tabs and reload.
 A pre-migration build cannot safely consume new journal snapshots and
 authorizations, so rollback requires a compatible reader or exporting workspace

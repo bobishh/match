@@ -208,7 +208,7 @@ test("Given a storage failure on the receiving device, when joining, then it sho
     await expect(dialog.getByRole("button", { name: "Accept and join" })).toBeVisible()
     await dialog.getByRole("button", { name: "Accept and join" }).click()
     await expect(dialog.getByRole("status")).toHaveText("Waiting for owner approval, then receiving workspaces… Keep both devices open.")
-    await guest.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await guest.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
     await page.getByLabel("Participant role").selectOption("editor")
     await page.getByRole("button", { name: "Approve access" }).click()
     await expect(dialog.getByRole("alert")).toContainText(/Storage failure/i, { timeout: 25_000 })
@@ -264,7 +264,7 @@ test("Given three workspaces, when sharing A and B while viewing Private, then o
       await expect(guest.getByRole("button", { name: "Open Private card", exact: true })).toHaveCount(0)
     }
     await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
-    await expect(page.getByRole("heading", { name: "MATCH // Private", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "TINCANBAN // Private", exact: true })).toBeVisible()
   } finally {
     await guestContext.close()
   }

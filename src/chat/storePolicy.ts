@@ -31,7 +31,7 @@ export interface WorkspaceMetaInternal {
   pruneCutoff: string | null
 }
 
-export const DEFAULT_DB_NAME = "match-chat-v1"
+export const DEFAULT_DB_NAME = "tincanban-chat-v1"
 const MAX_WORKSPACE_MESSAGES = 2000
 const MAX_WORKSPACE_BYTES = 4 * 1024 * 1024
 export const MAX_WORKSPACE_PROFILES = 512

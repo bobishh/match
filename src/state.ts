@@ -1,4 +1,4 @@
-import { createMatchActions } from "./stateActions";
+import { createTincanbanActions } from "./stateActions";
 
 export {
   hydrate,
@@ -6,6 +6,6 @@ export {
   resetStateForTest,
 } from "./statePersistence";
 
-export function useMatch() {
-  return createMatchActions();
+export function useTincanban() {
+  return createTincanbanActions();
 }

@@ -8,7 +8,7 @@ import { createLeadActions } from "./stateLeadActions";
 import { createContentActions } from "./stateContentActions";
 import { createSyncActions } from "./stateSyncActions";
 
-export function createMatchActions() {
+export function createTincanbanActions() {
   const derived = createStateDerived();
   return {
     workspace: stateRuntime.workspace,

@@ -14,7 +14,7 @@ async function addLead(page: import("@playwright/test").Page, input: { company: 
   await page.getByRole("button", { name: "Close detail" }).click()
 }
 
-test("Given cards still loading on first visit, when Match opens, then delayed progress appears within the board shell", async ({ page }) => {
+test("Given cards still loading on first visit, when tincanban opens, then delayed progress appears within the board shell", async ({ page }) => {
   await page.addInitScript(() => {
     const instantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly)
     const released = new Promise<void>(resolve => {
@@ -118,13 +118,13 @@ test("Given several leads, when filters intersect, then only matching cards rema
   await expect(page.getByRole("button", { name: "Open VREY — Product" })).toHaveCount(0)
 })
 
-test("Given a mid-size desktop viewport, when Match opens, then the title and filters stay legible without clipped controls", async ({ page }) => {
+test("Given a mid-size desktop viewport, when tincanban opens, then the title and filters stay legible without clipped controls", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
 
-  await expect(page.getByRole("heading", { name: "MATCH" })).toBeVisible()
-  const toolbar = await page.getByRole("region", { name: "Match controls" }).evaluate((element) => {
+  await expect(page.getByRole("heading", { name: "TINCANBAN" })).toBeVisible()
+  const toolbar = await page.getByRole("region", { name: "tincanban controls" }).evaluate((element) => {
     const search = element.querySelector<HTMLElement>(".search-field")!
     const selects = [...element.querySelectorAll<HTMLSelectElement>("select")]
     const workModeLabel = selects.find((select) => select.labels?.[0]?.textContent?.includes("Work mode"))!.labels![0]
@@ -143,7 +143,7 @@ test("Given a mid-size desktop viewport, when Match opens, then the title and fi
   expect(toolbar.workModeLabelHeight).toBeLessThanOrEqual(70)
 })
 
-test("Given an iPhone 17e portrait viewport, when Match opens, then filters start closed and columns snap one page at a time", async ({ page }) => {
+test("Given an iPhone 17e portrait viewport, when tincanban opens, then filters start closed and columns snap one page at a time", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto("/")
 

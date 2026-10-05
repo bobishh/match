@@ -9,7 +9,7 @@ let opening: Promise<IDBDatabase> | undefined
 
 function database(): Promise<IDBDatabase> {
   return opening ??= new Promise((resolve, reject) => {
-    const request = indexedDB.open("match-proof-page-cache-v1", 1)
+    const request = indexedDB.open("tincanban-proof-page-cache-v1", 1)
     request.onupgradeneeded = () => {
       request.result.createObjectStore("pages", { keyPath: "id" })
       request.result.createObjectStore("metadata", { keyPath: "id" })

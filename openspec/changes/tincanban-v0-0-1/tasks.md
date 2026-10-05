@@ -6,7 +6,7 @@
 - [x] 1.4 Add selected-card detail panel with status controls.
 - [x] 1.5 Add document attachment flow and visible document badges.
 - [x] 1.6 Add IndexedDB persistence and JSON fallback export.
-- [x] 1.7 Store workspace as Automerge bytes and export `.match` bundle.
+- [x] 1.7 Store workspace as Automerge bytes and export `.tincanban` bundle.
 
 ## 2. WebMCP
 
@@ -45,5 +45,5 @@
 
 ## 6. Control layout
 
-- [x] 6.1 Make MATCH brand uppercase and lay out mid-size desktop filters without clipping.
+- [x] 6.1 Make TINCANBAN brand uppercase and lay out mid-size desktop filters without clipping.
 - [x] 6.2 Add 1024-pixel BDD coverage for complete controls.

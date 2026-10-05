@@ -8,7 +8,7 @@ import * as Automerge from "@automerge/automerge"
 import { expect, test, type Page } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
-const manifest = resolve(process.env.MATCH_LIGHTHOUSE_MANIFEST ?? "../mesh-lighthouse/Cargo.toml")
+const manifest = resolve(process.env.TINCANBAN_LIGHTHOUSE_MANIFEST ?? "../mesh-lighthouse/Cargo.toml")
 test.skip(!existsSync(manifest), "Standalone Lighthouse checkout is required")
 test.use({ trace: "off" })
 
@@ -110,7 +110,7 @@ async function waitExit(child: ChildProcessWithoutNullStreams, timeoutMs = 90_00
 
 test("Given an owner with two boards, when Lighthouse joins that owner, then existing and future boards replicate after restart", async ({ page }) => {
   test.setTimeout(180_000)
-  const directory = await mkdtemp(join(tmpdir(), "match-owner-keeper-"))
+  const directory = await mkdtemp(join(tmpdir(), "tincanban-owner-keeper-"))
   const nativeErrors = { text: "" }
   const browserConsole: string[] = []
   let successful = false
@@ -221,7 +221,7 @@ test("Given an owner with two boards, when Lighthouse joins that owner, then exi
 
 test("Given an owner access request, when owner declines, then Lighthouse leaves no active membership or stored state", async ({ page }) => {
   test.setTimeout(120_000)
-  const directory = await mkdtemp(join(tmpdir(), "match-owner-decline-"))
+  const directory = await mkdtemp(join(tmpdir(), "tincanban-owner-decline-"))
   let joining: ChildProcessWithoutNullStreams | undefined
   const nativeErrors = { text: "" }
   try {

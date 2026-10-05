@@ -1,12 +1,12 @@
 ## Context
 
-Reviewed 2026-09-28. Match already issues multi-workspace invitations in `src/sync/deviceSyncHost.ts`, checks owner authority per board, and displays Lighthouse using signed peer metadata. Service-side joining remains singleton. The standalone Lighthouse and `crates/match-lighthouse` are separate implementations; current browser tests launch the latter, so they cannot certify the standalone service.
+Reviewed 2026-09-28. tincanban already issues multi-workspace invitations in `src/sync/deviceSyncHost.ts`, checks owner authority per board, and displays Lighthouse using signed peer metadata. Service-side joining remains singleton. The standalone Lighthouse and `crates/tincanban-lighthouse` are separate implementations; current browser tests launch the latter, so they cannot certify the standalone service.
 
 Companion: [service design](../../../../mesh-lighthouse/openspec/changes/multi-integration-service/design.md). Canonical shared HTTP contract: [protocol.md](../../../../mesh-lighthouse/openspec/changes/multi-integration-service/protocol.md). This document specifies future behavior.
 
 ## Goals / Non-Goals
 
-**Goals:** Connect a self-hosted keeper from Match; select multiple owned boards; explicitly approve both ends; manage scopes and show durable replication evidence; preserve identity and existing documents.
+**Goals:** Connect a self-hosted keeper from tincanban; select multiple owned boards; explicitly approve both ends; manage scopes and show durable replication evidence; preserve identity and existing documents.
 
 **Non-Goals:** Replacing personal-device enrollment, hosted billing, Twang support in this release, automatic recovery of board ownership, or treating replicas as versioned backups.
 
@@ -16,7 +16,7 @@ Companion: [service design](../../../../mesh-lighthouse/openspec/changes/multi-i
 
 Store integration ID, service origin, pinned service person ID, controller person ID, approved device certificates, selected scopes, per-scope mode, policy revision and optional future-board policy. Synchronize these non-secret settings across the user's enrolled devices. Keep workspace grants and verified authority in their existing authoritative stores. HTTP session secrets and operator credentials never enter a workspace document.
 
-One Match identity can use multiple keepers; one keeper can accept multiple unrelated controllers. Switching identity changes the visible integrations. Identity enrollment and board imports never silently adopt a keeper integration from another identity. Conflicting policy revisions display a conflict and suspend automatic additions rather than unioning permissions.
+One tincanban identity can use multiple keepers; one keeper can accept multiple unrelated controllers. Switching identity changes the visible integrations. Identity enrollment and board imports never silently adopt a keeper integration from another identity. Conflicting policy revisions display a conflict and suspend automatic additions rather than unioning permissions.
 
 ### 2. Connection UX
 
@@ -24,13 +24,13 @@ Sync → Add keeper → hostname → discovery → choose boards/mode → reques
 
 Default mode is Replicate (visitor). Enable automation explicitly for a board to request editor permission. Only currently owned boards are eligible in v1. Disabled boards explain why. An operator approval URL opens on the discovered service origin and requires its operator session; it is not a public approval capability.
 
-Show service identity fingerprint and the same transcript code at both ends. HTTPS locates the service; the saved person ID pins it thereafter. A different identity at the same hostname requires a new trust decision, never automatic acceptance. Service operator authentication stays on Lighthouse, not in a Match password field.
+Show service identity fingerprint and the same transcript code at both ends. HTTPS locates the service; the saved person ID pins it thereafter. A different identity at the same hostname requires a new trust decision, never automatic acceptance. Service operator authentication stays on Lighthouse, not in a tincanban password field.
 
 ### 3. Approval is a shared state machine
 
-Use the canonical protocol's signed offer/challenge and explicit Match and operator decisions. Both approvals bind the exact board IDs, modes, identity keys, nonce and expiration. Changing the set invalidates approvals. MetaMesh Rust owns verification and legal transitions; browser TS executes HTTP, persistence and UI effects.
+Use the canonical protocol's signed offer/challenge and explicit tincanban and operator decisions. Both approvals bind the exact board IDs, modes, identity keys, nonce and expiration. Changing the set invalidates approvals. MetaMesh Rust owns verification and legal transitions; browser TS executes HTTP, persistence and UI effects.
 
-Only after both approvals does Match activate a short-lived existing workspace invitation and deliver it to Lighthouse. Reuse WorkspaceJoinHandshake for grants, authority, documents and acknowledgement. The service presents its pinned identity instead of generating a new identity per invite. Read-only replica admission must be verified in both adapters before exposing the mode.
+Only after both approvals does tincanban activate a short-lived existing workspace invitation and deliver it to Lighthouse. Reuse WorkspaceJoinHandshake for grants, authority, documents and acknowledgement. The service presents its pinned identity instead of generating a new identity per invite. Read-only replica admission must be verified in both adapters before exposing the mode.
 
 Pairing reaches Active only after every selected scope has durably installed its validated initial data. Disconnection or a failed scope shows provisioning/retry, not success. IDs and commit decisions are persisted for idempotent resume. Cancellation before activation leaves no usable scope membership; any grants already issued are tracked and revoked, never silently forgotten.
 
@@ -51,7 +51,7 @@ Labels: Connecting, Saving changes, Replica up to date, Attachments pending, Off
 ### 6. Ownership of implementation
 
 MetaMesh core: signing domains, pairing transition validation, certificate/grant/revoke checks, durable ACK semantics; fixtures shared across WASM/native.
-Match: board eligibility, UX, integration preference persistence and mapping product data to coverage.
+tincanban: board eligibility, UX, integration preference persistence and mapping product data to coverage.
 Lighthouse: capacity/admission, operator UI, scope storage and scheduling.
 Do not clone authority logic into a new TS keeper client.
 
@@ -65,7 +65,7 @@ Do not clone authority logic into a new TS keeper client.
 
 ## Migration Plan
 
-Ship service discovery and protocol support before enabling Match UI. Preserve all identity/grant/document IDs. Existing keeper membership becomes a managed integration only after explicitly binding the service identity and controller. Unsupported services show an actionable upgrade message. Roll back the UI independently; keep records and signed authority intact.
+Ship service discovery and protocol support before enabling tincanban UI. Preserve all identity/grant/document IDs. Existing keeper membership becomes a managed integration only after explicitly binding the service identity and controller. Unsupported services show an actionable upgrade message. Roll back the UI independently; keep records and signed authority intact.
 
 ## Open Questions
 

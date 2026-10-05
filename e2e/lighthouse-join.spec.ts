@@ -8,7 +8,7 @@ import { expect, test, type Page } from "./support/coverage"
 import { validateWorkspaceDoc } from "../src/domain/model"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
-const manifest = "crates/match-lighthouse/Cargo.toml"
+const manifest = "crates/tincanban-lighthouse/Cargo.toml"
 test.use({ trace: "off" })
 
 function lighthouse(...args: string[]) {
@@ -65,9 +65,9 @@ async function stop(process: ChildProcessWithoutNullStreams | undefined) {
   await exited
 }
 
-test("Given a Match invitation, when native lighthouse joins and restarts, then it exchanges board changes both ways", async ({ page }) => {
+test("Given a tincanban invitation, when native lighthouse joins and restarts, then it exchanges board changes both ways", async ({ page }) => {
   test.setTimeout(180_000)
-  const temporary = await mkdtemp(join(tmpdir(), "match-lighthouse-e2e-"))
+  const temporary = await mkdtemp(join(tmpdir(), "tincanban-lighthouse-e2e-"))
   const directory = join(temporary, "node")
   let server: ChildProcessWithoutNullStreams | undefined
   let joining: ChildProcessWithoutNullStreams | undefined
@@ -138,7 +138,7 @@ test("Given a Match invitation, when native lighthouse joins and restarts, then 
 
 test("Given owner and editor share a fresh board, when owner closes, then editor syncs with lighthouse", async ({ browser, page }) => {
   test.setTimeout(150_000)
-  const temporary = await mkdtemp(join(tmpdir(), "match-keeper-e2e-"))
+  const temporary = await mkdtemp(join(tmpdir(), "tincanban-keeper-e2e-"))
   const directory = join(temporary, "node")
   const guestContext = await browser.newContext()
   await guestContext.route("**/api/sync-signal**", route => route.fulfill({ status: 404 }))

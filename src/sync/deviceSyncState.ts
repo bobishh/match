@@ -88,7 +88,7 @@ export function userMessage(err: unknown, fallback: string) {
   if (/Workspace was archived in another tab/i.test(message)) return `This board was archived on this device. Rejoining cannot restore that local copy yet. Use a new board or a fresh browser profile. Details: ${message}`
   if (message === "Invalid pairing link" || message === "This pairing link is invalid.") return "This pairing link is invalid."
   if (/This invitation has expired/i.test(message)) return "This invitation has expired."
-  if (/older version of Match/i.test(message)) return "This sync link was created by an older version of Match. Please create a new invitation."
+  if (/older version of tincanban/i.test(message)) return "This sync link was created by an older version of tincanban. Please create a new invitation."
   if (/Pairing cancelled/i.test(message)) return "Pairing was cancelled on the other device. Generate a new QR and try again."
   if (/out of date document|outdated document/i.test(message)) return "Couldn’t merge workspace changes. Keep this tab open and try pairing again."
   if (isMeshDialNetworkFailure(err)) return "Couldn’t reach the other device. Check both connections and try again."

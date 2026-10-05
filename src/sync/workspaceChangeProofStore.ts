@@ -15,7 +15,7 @@ let dbPromise: Promise<IDBDatabase> | undefined
 
 function database() {
   return dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("match-write-authorizations-v1")
+    const request = indexedDB.open("tincanban-write-authorizations-v1")
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains("records")) request.result.createObjectStore("records")
     }

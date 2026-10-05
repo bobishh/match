@@ -2,7 +2,7 @@
 
 ## Scope
 
-Match targets small trusted groups. It does not claim Byzantine consensus. Signed records preserve evidence; user actions change current meaning through new records rather than rewriting old records.
+tincanban targets small trusted groups. It does not claim Byzantine consensus. Signed records preserve evidence; user actions change current meaning through new records rather than rewriting old records.
 
 ## Ownership recovery
 
@@ -16,7 +16,7 @@ Match targets small trusted groups. It does not claim Byzantine consensus. Signe
 
 ## Editable content history
 
-- Match SHALL expose native Automerge changes and their historical snapshots.
+- tincanban SHALL expose native Automerge changes and their historical snapshots.
 - A writable user MAY restore an item to any recorded item version.
 - Restore SHALL create one new compensating Automerge change. Existing changes, hashes, proofs, and attribution remain immutable.
 - Restoring an earlier version SHALL remain reversible by restoring a later recorded version.

@@ -106,7 +106,7 @@ describe("Iroh persistent node secret support", () => {
 })
 
 describe("Iroh gossip and blobs support in match", () => {
-  it("Given the production browser node, when Match starts gossip, then it creates the Rust gossip engine", async () => {
+  it("Given the production browser node, when tincanban starts gossip, then it creates the Rust gossip engine", async () => {
     const secret = new Uint8Array(32)
     secret.fill(9)
     const node = await startIrohBrowserNode(secret)

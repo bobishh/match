@@ -8,7 +8,7 @@ describe("device user-agent description", () => {
 
   it("Given no usable UA, when described, then the UI reports unknown rather than guessing", () => {
     expect(describeUserAgent()).toBe("Browser / OS unknown")
-    expect(describeUserAgent("MatchDevice/1.0")).toBe("Browser / OS unknown")
+    expect(describeUserAgent("TincanbanDevice/1.0")).toBe("Browser / OS unknown")
   })
 })
 

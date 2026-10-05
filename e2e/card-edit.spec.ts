@@ -55,13 +55,13 @@ test.describe("schema-driven lead editing", () => {
     const form = page.getByRole("dialog", { name: "Edit item" })
     await form.getByLabel("Company *").fill("Must Retry")
 
-    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
     await form.getByRole("button", { name: "Save changes" }).click()
     await expect(form).toBeVisible()
     await expect(form.getByRole("alert")).toBeVisible()
     await expect(page.getByRole("button", { name: /Open Must Retry/ })).toHaveCount(0)
 
-    await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
     await form.getByRole("button", { name: "Retry save" }).click()
     await expect(form).toBeHidden()
     await expect(page.getByRole("dialog", { name: "Lead details" })).toContainText("Must Retry")

@@ -192,5 +192,5 @@ export async function requireProfile() {
 }
 
 async function saveActiveWorkspaceId(id: string): Promise<void> {
-  await writeLocal("match.active_workspace_id", id);
+  await writeLocal("tincanban.active_workspace_id", id);
 }

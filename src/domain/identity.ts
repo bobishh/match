@@ -46,14 +46,14 @@ export type LocalProfile = MeshLocalProfile & {
 }
 
 const identityStore = new BrowserIdentityStore({
-  storageKey: "match.local_profile.v1",
+  storageKey: "tincanban.local_profile.v1",
   signatureDomain: "MATCH/1",
   ...(typeof indexedDB === "undefined" ? {} : {
     asyncStorage: { getItem: readLocal, setItem: writeLocal, removeItem: deleteLocal },
     requirePersistence: true,
   }),
 })
-const recoveryStorageKey = "match.identity_recovery.v1"
+const recoveryStorageKey = "tincanban.identity_recovery.v1"
 let identityInitialized = false
 let identityBootstrap: Promise<LocalProfile> | undefined
 
@@ -72,7 +72,7 @@ export function resetIdentityStorageForTest(): void {
 export async function bootstrapIdentity(displayName?: string): Promise<LocalProfile> {
   const bootstrap = async () => {
     const profile = await identityStore.bootstrap(normalizeDisplayName(displayName ?? "") || randomDisplayName()) as LocalProfile
-    return !normalizeDisplayName(profile.identity.displayName) || profile.identity.displayName === "Match User"
+    return !normalizeDisplayName(profile.identity.displayName) || ["Match User", "tincanban User"].includes(profile.identity.displayName)
       ? await identityStore.rename(randomDisplayName()) as LocalProfile
       : profile
   }
@@ -81,7 +81,7 @@ export async function bootstrapIdentity(displayName?: string): Promise<LocalProf
   if (identityInitialized) return bootstrap()
   identityBootstrap ??= (async () => {
     const profile = typeof navigator !== "undefined" && navigator.locks
-      ? await navigator.locks.request("match-identity-bootstrap", bootstrap)
+      ? await navigator.locks.request("tincanban-identity-bootstrap", bootstrap)
       : await bootstrap()
     identityInitialized = true
     return profile
@@ -99,7 +99,7 @@ export async function renameIdentity(displayName: string): Promise<LocalProfile>
 export async function renewDeviceIdentity(): Promise<LocalProfile> {
   const renew = () => identityStore.renewDevice() as Promise<LocalProfile>
   return typeof navigator !== "undefined" && navigator.locks
-    ? await navigator.locks.request("match-identity-bootstrap", renew) : await renew()
+    ? await navigator.locks.request("tincanban-identity-bootstrap", renew) : await renew()
 }
 
 /** Creates an encrypted backup of the existing identity root; it never rotates identity. */

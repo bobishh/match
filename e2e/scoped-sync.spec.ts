@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
-function stored(page: Page, key = "match.local_profile.v1") {
+function stored(page: Page, key = "tincanban.local_profile.v1") {
   return page.evaluate(async name => (await import("/src/localDb.ts")).readLocal(name), key)
 }
 
@@ -93,7 +93,7 @@ test.describe("Scoped Sync Outer Scenarios", () => {
     }
   })
 
-  test("Given an enrolled device deletes its final workspace, when Match creates the fallback, then the enrolled device remains its owner after reload", async ({ browser, page }) => {
+  test("Given an enrolled device deletes its final workspace, when tincanban creates the fallback, then the enrolled device remains its owner after reload", async ({ browser, page }) => {
     test.setTimeout(120_000)
     const secondContext = await browser.newContext()
     const secondPage = await secondContext.newPage()
@@ -111,12 +111,12 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       // Identity replacement preserves local boards. Archive the guest's bootstrap board
       // under its original identity so this scenario reaches the enrolled owner's final board.
       await secondPage.evaluate(async () => {
-        const { useMatch } = await import("/src/state.ts")
+        const { useTincanban } = await import("/src/state.ts")
         const { defaultStorage } = await import("/src/storage.ts")
         const { commitAndPersist, refreshAvailableWorkspaces, whenReady } = await import("/src/statePersistence.ts")
-        const match = useMatch()
+        const tincanban = useTincanban()
         await whenReady()
-        if (!match.activeWorkspace.id) throw new Error("Guest bootstrap workspace missing")
+        if (!tincanban.activeWorkspace.id) throw new Error("Guest bootstrap workspace missing")
         await commitAndPersist({ kind: "setWorkspaceArchived", archived: true }, defaultStorage)
         await refreshAvailableWorkspaces(defaultStorage)
       })
@@ -132,8 +132,8 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.getByRole("button", { name: "Open workspaces" }).click()
       const workspaces = secondPage.getByRole("dialog", { name: "Workspaces" })
       const archivedWorkspaceIds = await secondPage.evaluate(async () => {
-        const { useMatch } = await import("/src/state.ts")
-        return useMatch().availableWorkspaces.value.map(workspace => workspace.id)
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().availableWorkspaces.value.map(workspace => workspace.id)
       })
       await expect(workspaces).toBeVisible()
       expect(archivedWorkspaceIds).toHaveLength(1)
@@ -146,22 +146,22 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       }
 
       await workspaces.getByRole("button", { name: "Close", exact: true }).last().click()
-      await expect(secondPage.getByRole("heading", { name: "MATCH // Untitled" })).toBeVisible()
+      await expect(secondPage.getByRole("heading", { name: "TINCANBAN // Untitled" })).toBeVisible()
       await expect.poll(async () => secondPage.evaluate(async () => {
-        const { useMatch } = await import("/src/state.ts")
-        return useMatch().activeWorkspace.id
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().activeWorkspace.id
       }).then(id => archivedWorkspaceIds.includes(id))).toBe(false)
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
       const fallbackId = await secondPage.evaluate(async () => {
-        const { useMatch } = await import("/src/state.ts")
-        return useMatch().activeWorkspace.id
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().activeWorkspace.id
       })
       expect(archivedWorkspaceIds).not.toContain(fallbackId)
       await secondPage.reload()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
       await expect.poll(async () => secondPage.evaluate(async () => {
-        const { useMatch } = await import("/src/state.ts")
-        return useMatch().activeWorkspace.id
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().activeWorkspace.id
       })).toBe(fallbackId)
     } finally {
       await secondContext.close()
@@ -550,7 +550,7 @@ test("Given existing data under another identity, when enrollment is approved, t
     const enrolled = await profile(guest)
     expect(enrolled.device.deviceId).toBe(JSON.parse(original!).device.deviceId)
     expect(enrolled.identity.personId).toBe((await profile(page)).identity.personId)
-    expect(await stored(guest, `match.local_profile.v1.backup.${JSON.parse(original!).identity.personId}`)).toBe(original)
+    expect(await stored(guest, `tincanban.local_profile.v1.backup.${JSON.parse(original!).identity.personId}`)).toBe(original)
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await expect(guest.getByText(/Invalid workspace grant signature/)).toHaveCount(0)
     await guest.getByRole("button", { name: "Open workspaces" }).click()

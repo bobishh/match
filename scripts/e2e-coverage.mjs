@@ -31,7 +31,7 @@ async function convert(raw) {
   maps.set(raw.title, map)
 }
 await collect(input)
-if (!maps.size) throw new Error("No passed browser coverage collected. Run tests with MATCH_E2E_COVERAGE=1.")
+if (!maps.size) throw new Error("No passed browser coverage collected. Run tests with TINCANBAN_E2E_COVERAGE=1.")
 const combined = coverage.createCoverageMap({})
 for (const map of maps.values()) combined.merge(map)
 if (!combined.files().length) throw new Error("Browser coverage has no source mappings; do not publish an empty report")

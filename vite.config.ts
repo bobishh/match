@@ -13,7 +13,7 @@ function buildCommit() {
 
 export default defineConfig(({ command }) => ({
   define: {
-    __MATCH_BUILD_COMMIT__: JSON.stringify(command === "build" ? buildCommit() : "dev"),
+    __TINCANBAN_BUILD_COMMIT__: JSON.stringify(command === "build" ? buildCommit() : "dev"),
   },
   plugins: [
     vue({ template: { compilerOptions: { isCustomElement: (tag) => tag === "berlin-tower" } } }),

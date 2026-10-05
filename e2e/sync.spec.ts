@@ -33,7 +33,7 @@ test("Given clipboard access is denied, when Sync opens, then its pairing link r
   await expect(dialog.getByText("Clipboard unavailable. Select the pairing link and copy it manually.")).toBeVisible()
 })
 
-test("Given a malformed pairing link, when Match opens it, then it fails without claiming a sync", async ({ page }) => {
+test("Given a malformed pairing link, when tincanban opens it, then it fails without claiming a sync", async ({ page }) => {
   await page.goto("/pair#v=0.0.1&endpoint=peer-without-secret")
 
   const dialog = page.getByRole("dialog", { name: "Device sync" })

@@ -119,7 +119,7 @@ export type DurableMeshOptions = {
 
 export { MeshDialCancelled, MeshNodeRestart, isMeshDialNetworkFailure }
 
-const MESH_INSTANCE_KEY = "match.mesh.instance.v1"
+const MESH_INSTANCE_KEY = "tincanban.mesh.instance.v1"
 
 export function uniqueCertificates(profile: LocalProfile, certificates: Awaited<ReturnType<typeof defaultProofStore.listCertificates>>) {
   const all = [profile.certificate, ...certificates]
@@ -199,7 +199,7 @@ export abstract class DurableMeshBase {
   protected releaseInstance: (() => Promise<void>) | undefined
   protected adoptedNode: SyncNode | undefined
   protected lastDiagnostic = ""
-  /** Match binds workspace documents to the shared browser gossip lifecycle. */
+  /** tincanban binds workspace documents to the shared browser gossip lifecycle. */
   protected readonly gossip = new BrowserMeshGossip({
     isStopped: () => this.stopped,
     createEngine: () => this.node?.createGossipEngine(),
@@ -220,7 +220,7 @@ export abstract class DurableMeshBase {
     },
     publishAll: () => this.publishAll(),
     trace: (event, detail, level) => this.trace(event, detail, level),
-  }, "match-workspace-")
+  }, "tincanban-workspace-")
 
   protected get stopped() { return this.lifecycle?.stopped ?? true }
   protected get externallyPaused() { return this.lifecycle?.externallyPaused ?? false }

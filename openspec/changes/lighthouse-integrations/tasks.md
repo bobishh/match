@@ -1,6 +1,6 @@
 ## 1. Shared contracts and prerequisites
 
-- [ ] 1.1 Add failing standalone Lighthouse/browser scenarios for two boards and two independent controllers; stop relying on the duplicate Match executable for this feature.
+- [ ] 1.1 Add failing standalone Lighthouse/browser scenarios for two boards and two independent controllers; stop relying on the duplicate tincanban executable for this feature.
 - [ ] 1.2 Add shared Rust/WASM fixtures for the service protocol, transcript code, revision conflicts, expiration and idempotency.
 - [ ] 1.3 Verify visitor store-and-forward with original writer proofs; fix shared admission if needed and prove visitor-authored edits remain rejected.
 - [ ] 1.4 Integrate shared authority/revocation propagation and exact durable coverage APIs; pin tested MetaMesh and Lighthouse revisions.
@@ -26,4 +26,4 @@
 - [ ] 4.2 Prove owner-offline read-only relay, storage failure → retry → complete ACK, missing blob catch-up and restart convergence.
 - [ ] 4.3 Prove scope revoke/reinvite with stale grants, disconnect of one scope while another stays live, and existing intake routing.
 - [ ] 4.4 Run affected browser/unit/type checks and shared contract validation once on the final changes.
-- [ ] 4.5 Update user documentation; deploy compatible service first, then Match; verify a disposable production integration and report exact versions.
+- [ ] 4.5 Update user documentation; deploy compatible service first, then tincanban; verify a disposable production integration and report exact versions.

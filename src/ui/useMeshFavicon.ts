@@ -47,12 +47,12 @@ export function useMeshFavicon(presence: Readonly<Ref<Presence>>) {
 
 function presenceFrames(source: string): Frames {
   const svg = new DOMParser().parseFromString(source, "image/svg+xml")
-  const circle = svg.querySelector("circle")
-  if (!circle || svg.querySelector("parsererror")) throw new Error("Invalid favicon")
+  const interior = svg.querySelector("[data-connection-fill]")
+  if (!interior || svg.querySelector("parsererror")) throw new Error("Invalid favicon")
   const styles = getComputedStyle(document.documentElement)
   const color = (name: string, fallback: string) => styles.getPropertyValue(`--${name}`).trim() || fallback
   const frame = (fill: string) => {
-    circle.setAttribute("fill", fill)
+    interior.setAttribute("fill", fill)
     return `data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`
   }
   const yellow = frame(color("yellow", "#ffd43b"))

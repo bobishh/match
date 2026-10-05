@@ -14,7 +14,7 @@ export function useAppController() {
   const actions = useAppActions(core, board)
   useAppLifecycle(core, board, actions)
   return {
-    workspace: core.match,
+    workspace: core.tincanban,
     ui: appUi(core),
     board,
     actions,
@@ -24,13 +24,13 @@ export function useAppController() {
 
 function boardContext(core: ReturnType<typeof useAppCore>): AppBoardContext {
   const {
-    match, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex,
+    tincanban, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex,
     boardRef, movedItemId, movedColumnId, onlineWorkspaceDevices, canEditItems, canEditBoard,
     notice, archiveUndo, boardRenderKey, selectedItemId, editingItemId, itemToMove,
     selectedLeadId, detailDialog, quickNoteDraft, quickNoteError,
   } = core
   return {
-    match, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex,
+    tincanban, search, filters, isEditingBoard, itemFormParentId, activeMobileColumnIndex,
     boardRef, movedItemId, movedColumnId, onlineWorkspaceDevices, canEditItems, canEditBoard,
     notice, archiveUndo, boardRenderKey, selectedItemId, editingItemId, itemToMove,
     selectedLeadId, detailDialog, quickNoteDraft, quickNoteError,
@@ -131,21 +131,21 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
 async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions: ReturnType<typeof useAppActions>) {
   const { registerWebMcp } = await import("../webmcp")
   const unregister = await registerWebMcp({
-    getActiveDoc: core.match.getActiveDoc,
-    executeCommandAsync: core.match.executeCommandAsync,
+    getActiveDoc: core.tincanban.getActiveDoc,
+    executeCommandAsync: core.tincanban.executeCommandAsync,
     createWorkspaceAsync: actions.createAndSyncWorkspace,
-    switchWorkspaceAsync: core.match.switchWorkspace,
-    availableWorkspaces: core.match.availableWorkspaces,
-    activeWorkspace: core.match.activeWorkspace,
-    placementIssues: core.match.placementIssues,
-    sendChatMessage: body => sendChatMessage(core.match.activeWorkspace.id, body),
+    switchWorkspaceAsync: core.tincanban.switchWorkspace,
+    availableWorkspaces: core.tincanban.availableWorkspaces,
+    activeWorkspace: core.tincanban.activeWorkspace,
+    placementIssues: core.tincanban.placementIssues,
+    sendChatMessage: body => sendChatMessage(core.tincanban.activeWorkspace.id, body),
   })
   core.hasExperimentalMcp.value = Boolean(unregister)
 }
 
 function watchBoardDrag(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
   watch([
-    () => core.match.ready.value, () => core.match.activeWorkspace.id, () => core.isEditingBoard.value, () => core.canEditItems.value,
+    () => core.tincanban.ready.value, () => core.tincanban.activeWorkspace.id, () => core.isEditingBoard.value, () => core.canEditItems.value,
     () => core.canEditBoard.value, () => core.isArchiveOpen.value, () => core.boardRenderKey.value,
     () => board.visibleColumns.value.map(column => `${column.id}:${board.itemsForColumn(column).map(item => item.id).join(",")}`).join("|"),
   ], () => { void board.setupBoardDrag() }, { flush: "post" })
@@ -162,7 +162,7 @@ function watchNotice(core: ReturnType<typeof useAppCore>) {
 }
 
 function watchWorkspaceReset(core: ReturnType<typeof useAppCore>) {
-  watch(() => core.match.activeWorkspace.id, () => {
+  watch(() => core.tincanban.activeWorkspace.id, () => {
     core.isEditingBoard.value = false
     core.editingColumn.value = null
     core.showEntitySettings.value = false

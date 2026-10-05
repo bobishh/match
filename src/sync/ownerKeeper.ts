@@ -2,7 +2,7 @@ import { readLocal, writeLocal } from "../localDb"
 
 export type KeeperDetails = { origin?: string; boardIds: string[]; futureBoards: boolean }
 export type OwnerKeeper = { personId: string; role: "visitor" | "editor"; details?: KeeperDetails }
-const key = (ownerPersonId: string) => `match.owner-keepers.v1:${ownerPersonId}`
+const key = (ownerPersonId: string) => `tincanban.owner-keepers.v1:${ownerPersonId}`
 
 export async function ownerKeepers(ownerPersonId: string): Promise<OwnerKeeper[]> {
   const raw = await readLocal(key(ownerPersonId))

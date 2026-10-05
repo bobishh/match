@@ -157,7 +157,7 @@ test("Given one poisoned historical chat record, when a peer sends it with a val
     const statePath = "/src/state.ts"
     const service = await import(/* @vite-ignore */ servicePath)
     const state = await import(/* @vite-ignore */ statePath)
-    const workspaceId = state.useMatch().activeWorkspace.id
+    const workspaceId = state.useTincanban().activeWorkspace.id
     await service.sendChatMessage(workspaceId, "Valid sibling record")
     const wire = await service.exportChat(workspaceId)
     const valid = structuredClone(wire.messages.at(-1))

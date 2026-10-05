@@ -7,14 +7,14 @@ export async function populatedBoard(page: Page, jobSearch = false) {
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
   if (jobSearch) await createJobSearchWorkspace(page, "Detailed leads")
   await page.evaluate(async jobSearch => {
-    const { useMatch } = await import("/src/state.ts")
+    const { useTincanban } = await import("/src/state.ts")
     const { defaultStorage } = await import("/src/storage.ts")
     const { prepareLocalChangeAuthorizations } = await import("/src/sync/changeAuthorization.ts")
     const { updateReactiveState } = await import("/src/statePersistence.ts")
     const A = await import("/@id/@automerge/automerge/slim")
-    const match = useMatch()
-    await match.whenReady()
-    const base = match.getActiveDoc()!
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    const base = tincanban.getActiveDoc()!
     const board = Object.values(base.entities).find(entity => entity.kind === "board")!
     const parent = Object.values(base.entities).find(entity => entity.kind === "column" && entity.title === (jobSearch ? "Lead" : "To do"))!
     const now = new Date().toISOString()
@@ -29,7 +29,7 @@ export async function populatedBoard(page: Page, jobSearch = false) {
           } : {} }
       }
     })
-    const proofs = await prepareLocalChangeAuthorizations(doc, match.getCurrentProfile()!, [A.getHeads(doc)[0]!])
+    const proofs = await prepareLocalChangeAuthorizations(doc, tincanban.getCurrentProfile()!, [A.getHeads(doc)[0]!])
     await defaultStorage.commitWorkspace(doc.id, doc, A.save(doc), proofs)
     updateReactiveState(doc)
   }, jobSearch)

@@ -2,7 +2,7 @@ import { BrowserMeshStore, MemoryMeshStore } from "@meta-uber/mesh-browser-store
 
 const store = typeof indexedDB === "undefined"
   ? new MemoryMeshStore()
-  : new BrowserMeshStore("match-local-state-v1", ["kv"])
+  : new BrowserMeshStore("tincanban-local-state-v1", ["kv"])
 
 export async function readLocal(key: string): Promise<string | null> {
   return await store.get<string>("kv", key) ?? null

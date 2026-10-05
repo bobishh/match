@@ -8,7 +8,7 @@ for (const targetHasCard of [false, true]) {
   test(`Given a tall source and ${targetHasCard ? "short" : "empty"} destination, when dropping near the column bottom, then card moves and survives reload`, async ({ page }) => {
     await populatedBoard(page, true)
     if (targetHasCard) await page.evaluate(async () => {
-      const state = (await import("/src/state.ts")).useMatch()
+      const state = (await import("/src/state.ts")).useTincanban()
       const destination = state.genericColumns.value.find(column => column.title === "Applied")!
       await state.executeCommandAsync({ kind: "moveEntity", entityId: "performance-card-1", parentId: destination.id, beforeId: null })
     })
@@ -31,13 +31,13 @@ for (const targetHasCard of [false, true]) {
 
 test("Given storage failure, when dropping near an empty column bottom, then card returns and retry moves it", async ({ page }) => {
   await populatedBoard(page, true)
-  await page.evaluate(() => { (window as unknown as { __MATCH_INJECT_STORAGE_FAILURE__: boolean }).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await dropNearBottom(page)
   await expect(page.getByRole("status")).toContainText("Move failed")
   await expect(page.getByRole("region", { name: "Lead", exact: true }).getByRole("button", { name: "Open Performance card 54", exact: true })).toBeVisible()
   await expect(page.getByRole("region", { name: "Applied", exact: true }).locator(".lead-card")).toHaveCount(0)
   await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
-  await page.evaluate(() => { (window as unknown as { __MATCH_INJECT_STORAGE_FAILURE__: boolean }).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
   await dropNearBottom(page)
   await expect(page.getByRole("status")).toContainText("Item moved")
 })

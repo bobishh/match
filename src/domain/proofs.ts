@@ -204,7 +204,7 @@ export class ProofStore {
   }
 
   private async load() {
-    const raw = await readLocal("match.v1.proof_store")
+    const raw = await readLocal("tincanban.v1.proof_store")
     if (raw) {
       try {
         const data = JSON.parse(raw)
@@ -227,7 +227,7 @@ export class ProofStore {
         genesis: Object.fromEntries(this.genesis),
         grants: Object.fromEntries(this.grants),
       }
-      await writeLocal("match.v1.proof_store", JSON.stringify(data))
+      await writeLocal("tincanban.v1.proof_store", JSON.stringify(data))
   }
 
   async putActorBinding(hash: string, binding: ActorBinding): Promise<void> {

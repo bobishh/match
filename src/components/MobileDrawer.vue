@@ -47,7 +47,7 @@ function handleAction(event: () => void) {
       <div class="drawer-header">
         <div class="drawer-workspace-info">
           <span class="drawer-eyebrow">WORKSPACE</span>
-          <strong class="drawer-workspace-title">{{ activeWorkspaceTitle || "Match" }}</strong>
+          <strong class="drawer-workspace-title">{{ activeWorkspaceTitle || "tincanban" }}</strong>
         </div>
         <button
           ref="closeButtonRef"

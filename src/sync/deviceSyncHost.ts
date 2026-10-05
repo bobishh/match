@@ -382,7 +382,7 @@ function matchesKeeperAdmission(runtime: HostRuntime, personId: string) {
 async function prepareWorkspaceAccess(runtime: HostRuntime, approval: {
   personId: string; grants: WorkspaceGrant[]; ownerConnection?: { controllerPersonId: string }
 }, keeperSnapshot?: (snapshot: Uint8Array) => Promise<void>) {
-  const injectedFailure = (window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__
+  const injectedFailure = (window as Window & { __TINCANBAN_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__TINCANBAN_INJECT_SYNC_SNAPSHOT_FAILURE__
   if (injectedFailure) throw new Error(injectedFailure)
   const snapshot = await runtime.replica.snapshot()
   await keeperSnapshot?.(snapshot)

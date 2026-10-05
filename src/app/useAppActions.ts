@@ -24,15 +24,15 @@ export function useAppActions(core: ReturnType<typeof useAppCore>, board: Return
 }
 
 function useLeadSelection(core: ReturnType<typeof useAppCore>) {
-  const selectedLead = computed(() => core.match.workspace.leads.find(lead => lead.id === core.selectedLeadId.value) ?? null)
+  const selectedLead = computed(() => core.tincanban.workspace.leads.find(lead => lead.id === core.selectedLeadId.value) ?? null)
   const selectedLeadItem = computed(() => {
-    void core.match.docVersion.value
-    const entity = core.selectedLeadId.value ? core.match.getActiveDoc()?.entities[core.selectedLeadId.value] : null
+    void core.tincanban.docVersion.value
+    const entity = core.selectedLeadId.value ? core.tincanban.getActiveDoc()?.entities[core.selectedLeadId.value] : null
     return isItem(entity) ? entity : null
   })
-  const selectedDocuments = computed(() => selectedLead.value ? core.match.documentsFor(selectedLead.value.id) : [])
-  const selectedArtifacts = computed(() => selectedLead.value ? core.match.artifactsFor(selectedLead.value.id) : [])
-  const availableArtifactTemplates = computed(() => core.match.workspace.templates)
+  const selectedDocuments = computed(() => selectedLead.value ? core.tincanban.documentsFor(selectedLead.value.id) : [])
+  const selectedArtifacts = computed(() => selectedLead.value ? core.tincanban.artifactsFor(selectedLead.value.id) : [])
+  const availableArtifactTemplates = computed(() => core.tincanban.workspace.templates)
   return { selectedLead, selectedLeadItem, selectedDocuments, selectedArtifacts, availableArtifactTemplates }
 }
 
@@ -43,7 +43,7 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
     core.historyRestoreError.value = ""
     core.historyRestoreNotice.value = ""
     try {
-      await core.match.executeCommandAsync({ kind: "restoreItemVersion", entityId: core.selectedItemId.value, changeHash })
+      await core.tincanban.executeCommandAsync({ kind: "restoreItemVersion", entityId: core.selectedItemId.value, changeHash })
       core.historyRestoreNotice.value = "Version restored"
     } catch (error) {
       core.historyRestoreError.value = `Restore failed: ${messageFrom(error)}`
@@ -54,34 +54,34 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
     if (!note || core.quickNoteSaving.value) return
     core.quickNoteSaving.value = true
     core.quickNoteError.value = ""
-    const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
+    const notesFieldId = core.tincanban.activeBoard.value?.preset?.bindings["field.notes"]
     try {
       const fieldId = notesFieldId && board.leadForItem(item) && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
       const narrative = appendQuickNote(board.cardNotes(item), note)
-      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, body: narrative, ...(fieldId ? { values: { [fieldId]: "" } } : {}), foldNarrativeSources: foldSources(core, item, fieldId) })
+      await core.tincanban.executeCommandAsync({ kind: "patchItem", entityId: item.id, body: narrative, ...(fieldId ? { values: { [fieldId]: "" } } : {}), foldNarrativeSources: foldSources(core, item, fieldId) })
       core.quickNoteDraft.value = ""
       core.notice.value = "Note added"
     } catch (error) { core.quickNoteError.value = `Note not saved: ${messageFrom(error)}` }
     finally { core.quickNoteSaving.value = false }
   }
   const submitDocument = async (itemId: string, draft: Omit<DocumentInput, "leadId">) => {
-    await core.match.createDocumentAsync({ leadId: itemId, ...draft, title: draft.title.trim() })
+    await core.tincanban.createDocumentAsync({ leadId: itemId, ...draft, title: draft.title.trim() })
     core.notice.value = "Document attached"
   }
-  const updateDocumentMarkdown = (documentId: string, markdown: string) => core.match.updateDocumentAsync(documentId, markdown)
+  const updateDocumentMarkdown = (documentId: string, markdown: string) => core.tincanban.updateDocumentAsync(documentId, markdown)
   const updateItemMarkdown = async (item: Item, markdown: string) => {
-    const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
+    const notesFieldId = core.tincanban.activeBoard.value?.preset?.bindings["field.notes"]
     const fieldId = notesFieldId && board.leadForItem(item) && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
     try {
-      await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, body: markdown, ...(fieldId ? { values: { [fieldId]: "" } } : {}), foldNarrativeSources: foldSources(core, item, fieldId) })
+      await core.tincanban.executeCommandAsync({ kind: "patchItem", entityId: item.id, body: markdown, ...(fieldId ? { values: { [fieldId]: "" } } : {}), foldNarrativeSources: foldSources(core, item, fieldId) })
       core.notice.value = "Checklist updated"
     } catch (error) {
       core.notice.value = `Checklist not saved: ${messageFrom(error)}`
     }
   }
   const handleSaveTemplate = async (payload: { id?: string; name: string; markdown: string }) => {
-    if (payload.id) await core.match.updateTemplateAsync(payload.id, { name: payload.name, markdown: payload.markdown })
-    else await core.match.createTemplateAsync({ name: payload.name, markdown: payload.markdown })
+    if (payload.id) await core.tincanban.updateTemplateAsync(payload.id, { name: payload.name, markdown: payload.markdown })
+    else await core.tincanban.createTemplateAsync({ name: payload.name, markdown: payload.markdown })
     core.notice.value = "Template saved"
   }
   const openArtifactForm = () => {
@@ -92,10 +92,10 @@ function useContentActions(core: ReturnType<typeof useAppCore>, board: ReturnTyp
   const submitArtifact = () => saveArtifact(core, selection.selectedLead.value)
   const moveCardToColumn = (item: Item, columnId: string) => moveItemToColumn(core, item, columnId)
   const handleUpdateRejectionReason = async (workspaceId: string, itemId: string, reason: string) => {
-    if (core.match.activeWorkspace.id !== workspaceId) throw new Error("Workspace changed before saving")
-    const fieldId = core.match.activeBoard.value?.preset?.bindings["field.rejectionReason"]
+    if (core.tincanban.activeWorkspace.id !== workspaceId) throw new Error("Workspace changed before saving")
+    const fieldId = core.tincanban.activeBoard.value?.preset?.bindings["field.rejectionReason"]
     if (!fieldId) throw new Error("Rejection notes field is missing from the board")
-    await core.match.executeCommandAsync({ kind: "patchItem", entityId: itemId, values: { [fieldId]: reason } })
+    await core.tincanban.executeCommandAsync({ kind: "patchItem", entityId: itemId, values: { [fieldId]: reason } })
   }
   return { restoreSelectedItemVersion, saveQuickNote, submitDocument, updateDocumentMarkdown, updateItemMarkdown, handleSaveTemplate, openArtifactForm, submitArtifact, moveCardToColumn, handleUpdateRejectionReason }
 }
@@ -106,11 +106,11 @@ function appendQuickNote(existing: unknown, note: string) {
 }
 
 function isPresetTextNotesField(core: ReturnType<typeof useAppCore>, fieldId: string): boolean {
-  return core.match.boardFields.value.some(field => field.id === fieldId && field.valueType === "text")
+  return core.tincanban.boardFields.value.some(field => field.id === fieldId && field.valueType === "text")
 }
 
 function foldSources(core: ReturnType<typeof useAppCore>, item: Item, notesFieldId?: string) {
-  const entities = core.match.getActiveDoc()?.entities ?? {}
+  const entities = core.tincanban.getActiveDoc()?.entities ?? {}
   const notes = Object.values(entities).filter((entity): entity is AttachedDocument =>
     entity.kind === "document" && entity.placement.parentId === item.id && !entity.archivedAt && isInlineNarrativeNote(entity as NarrativeNoteSource))
   return {
@@ -127,28 +127,28 @@ async function saveArtifact(core: ReturnType<typeof useAppCore>, lead: ReturnTyp
     core.artifactError.value = "Title, base template, and PDF path required"
     return
   }
-  if (!core.match.workspace.templates.some(template => template.id === artifact.templateId)) {
+  if (!core.tincanban.workspace.templates.some(template => template.id === artifact.templateId)) {
     core.artifactError.value = "Choose a base template"
     return
   }
-  await core.match.createArtifactAsync({ leadId: lead.id, kind: artifact.kind, title: artifact.title.trim(), templateId: artifact.templateId, pdfPath: artifact.pdfPath.trim(), sourceMarkdownPath: artifact.sourceMarkdownPath.trim() || undefined })
+  await core.tincanban.createArtifactAsync({ leadId: lead.id, kind: artifact.kind, title: artifact.title.trim(), templateId: artifact.templateId, pdfPath: artifact.pdfPath.trim(), sourceMarkdownPath: artifact.sourceMarkdownPath.trim() || undefined })
   core.showArtifactForm.value = false
   core.artifactError.value = ""
   core.notice.value = "PDF artifact attached"
 }
 
 async function moveItemToColumn(core: ReturnType<typeof useAppCore>, item: Item, columnId: string) {
-  const target = core.match.genericColumns.value.find(column => column.id === columnId)
+  const target = core.tincanban.genericColumns.value.find(column => column.id === columnId)
   if (!target) throw new Error("Column no longer exists")
   if (isArchiveColumn(target)) {
     if (item.archivedAt) return
-    await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: item.id, archived: true })
-    core.archiveUndo.value = { workspaceId: core.match.activeWorkspace.id, itemId: item.id, title: item.title }
+    await core.tincanban.executeCommandAsync({ kind: "setEntityArchived", entityId: item.id, archived: true })
+    core.archiveUndo.value = { workspaceId: core.tincanban.activeWorkspace.id, itemId: item.id, title: item.title }
     core.notice.value = "Item archived"
     return
   }
   if (target.id === item.placement.parentId && !item.archivedAt) return
-  await core.match.executeCommandAsync({ kind: item.archivedAt ? "restoreAndMove" : "moveEntity", entityId: item.id, parentId: target.id, beforeId: null })
+  await core.tincanban.executeCommandAsync({ kind: item.archivedAt ? "restoreAndMove" : "moveEntity", entityId: item.id, parentId: target.id, beforeId: null })
   core.notice.value = "Item moved"
 }
 
@@ -157,7 +157,7 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   const newBoardColumnArchive = ref(false)
   const addingBoardColumn = ref(false)
   const addBoardColumnError = ref("")
-  const openBoardItem = (item: Item) => { if (!core.match.isBlankBoard.value && board.leadForItem(item)) core.selectedLeadId.value = item.id; else handleOpenItem(item) }
+  const openBoardItem = (item: Item) => { if (!core.tincanban.isBlankBoard.value && board.leadForItem(item)) core.selectedLeadId.value = item.id; else handleOpenItem(item) }
   const closeDetail = () => {
     core.selectedLeadId.value = null
     core.selectedItemId.value = null
@@ -171,7 +171,7 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
     core.showItemForm.value = true
   }
   const handleSaveItem = (payload: ItemSavePayload) => saveItem(core, board, payload, itemInsertion.value)
-  const currentDocHeads = computed(() => { void core.match.docVersion.value; const doc = core.match.getActiveDoc(); return doc ? Automerge.getHeads(doc) : [] })
+  const currentDocHeads = computed(() => { void core.tincanban.docVersion.value; const doc = core.tincanban.getActiveDoc(); return doc ? Automerge.getHeads(doc) : [] })
   const handleApplySchema = (payload: { schema: BoardSchemaDraft; expectedHeads?: Heads }) => applySchema(core, payload)
   const handleApplyWorkspaceSettings = (payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }) => applyWorkspaceSettings(core, payload)
   const handleArchiveItem = (itemId: string) => archiveItem(core, board.selectedItem.value, itemId)
@@ -205,10 +205,10 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
 type ItemSavePayload = { title: string; body: string; parentId?: string; values: Record<string, FieldValue>; foldSnapshot?: NarrativeFoldSources }
 
 function initialItemParent(core: ReturnType<typeof useAppCore>) {
-  const columns = core.match.genericColumns.value
+  const columns = core.tincanban.genericColumns.value
   if (columns[0]) return columns[0].id
-  const doc = core.match.getActiveDoc()
-  return doc ? Object.values(doc.entities).find((entity): entity is Column => hasEntityKind(entity, "column") && !entity.archivedAt)?.id ?? core.match.activeBoard.value?.id ?? "" : core.match.activeBoard.value?.id ?? ""
+  const doc = core.tincanban.getActiveDoc()
+  return doc ? Object.values(doc.entities).find((entity): entity is Column => hasEntityKind(entity, "column") && !entity.archivedAt)?.id ?? core.tincanban.activeBoard.value?.id ?? "" : core.tincanban.activeBoard.value?.id ?? ""
 }
 
 async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, payload: ItemSavePayload, insertion: { columnId: string; beforeId: string } | null = null) {
@@ -218,8 +218,8 @@ async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<t
     core.storageError.value = ""
     core.itemFormError.value = ""
     const narrativePayload = { ...payload, values: { ...payload.values } }
-    const notesFieldId = core.match.activeBoard.value?.preset?.bindings["field.notes"]
-    const fieldId = notesFieldId && !core.match.isBlankBoard.value && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
+    const notesFieldId = core.tincanban.activeBoard.value?.preset?.bindings["field.notes"]
+    const fieldId = notesFieldId && !core.tincanban.isBlankBoard.value && isPresetTextNotesField(core, notesFieldId) ? notesFieldId : undefined
     if (fieldId) narrativePayload.values[fieldId] = ""
     const details = itemSaveDetails(core, board, narrativePayload)
     if (details.item) await saveExistingItem(core, details.item, details, payload.body, fieldId, payload.foldSnapshot)
@@ -235,32 +235,32 @@ async function saveItem(core: ReturnType<typeof useAppCore>, board: ReturnType<t
 function itemSaveDetails(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, payload: ItemSavePayload) {
   const values = { ...payload.values }
   const requestedParent = payload.parentId || core.itemFormParentId.value
-  const parentId = core.match.genericColumns.value.find(column => column.id === requestedParent || board.columnStatus(column.id) === requestedParent)?.id ?? requestedParent
+  const parentId = core.tincanban.genericColumns.value.find(column => column.id === requestedParent || board.columnStatus(column.id) === requestedParent)?.id ?? requestedParent
   const item = board.editingItem.value
-  const bindings = core.match.activeBoard.value?.preset?.bindings ?? {}
+  const bindings = core.tincanban.activeBoard.value?.preset?.bindings ?? {}
   const titleParts = [values[bindings["field.company"]], values[bindings["field.role"]]].filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map(value => value.trim())
-  return { item, parentId, values, title: core.match.isBlankBoard.value ? payload.title || item?.title || "Untitled item" : titleParts.join(" — ") || item?.title || "Untitled item" }
+  return { item, parentId, values, title: core.tincanban.isBlankBoard.value ? payload.title || item?.title || "Untitled item" : titleParts.join(" — ") || item?.title || "Untitled item" }
 }
 
 async function saveExistingItem(core: ReturnType<typeof useAppCore>, item: Item, details: ReturnType<typeof itemSaveDetails>, body: string, notesFieldId?: string, snapshot?: NarrativeFoldSources) {
-  await core.match.executeCommandAsync({ kind: "patchItem", entityId: item.id, title: details.title, body, values: details.values, foldNarrativeSources: snapshot ?? foldSources(core, item, notesFieldId) })
-  if (details.parentId && details.parentId !== item.placement.parentId) await core.match.executeCommandAsync({ kind: "moveEntity", entityId: item.id, parentId: details.parentId, beforeId: null })
+  await core.tincanban.executeCommandAsync({ kind: "patchItem", entityId: item.id, title: details.title, body, values: details.values, foldNarrativeSources: snapshot ?? foldSources(core, item, notesFieldId) })
+  if (details.parentId && details.parentId !== item.placement.parentId) await core.tincanban.executeCommandAsync({ kind: "moveEntity", entityId: item.id, parentId: details.parentId, beforeId: null })
   core.editingItemId.value = null
-  if (!core.match.isBlankBoard.value) core.selectedLeadId.value = item.id
+  if (!core.tincanban.isBlankBoard.value) core.selectedLeadId.value = item.id
 }
 
 async function saveNewItem(core: ReturnType<typeof useAppCore>, details: ReturnType<typeof itemSaveDetails>, body: string, beforeId?: string) {
-  const before = new Set(Object.keys(core.match.getActiveDoc()?.entities ?? {}))
-  await core.match.executeCommandAsync({ kind: "createItem", parentId: details.parentId, title: details.title, body, values: details.values, beforeId })
-  if (core.match.isBlankBoard.value) return
-  const created = Object.values(core.match.getActiveDoc()?.entities ?? {}).find(entity => isItem(entity) && !before.has(entity.id))
+  const before = new Set(Object.keys(core.tincanban.getActiveDoc()?.entities ?? {}))
+  await core.tincanban.executeCommandAsync({ kind: "createItem", parentId: details.parentId, title: details.title, body, values: details.values, beforeId })
+  if (core.tincanban.isBlankBoard.value) return
+  const created = Object.values(core.tincanban.getActiveDoc()?.entities ?? {}).find(entity => isItem(entity) && !before.has(entity.id))
   if (created) core.selectedLeadId.value = created.id
 }
 
 async function applySchema(core: ReturnType<typeof useAppCore>, payload: { schema: BoardSchemaDraft; expectedHeads?: Heads }) {
-  if (!core.match.activeBoard.value) return
+  if (!core.tincanban.activeBoard.value) return
   try {
-    await core.match.executeCommandAsync({ kind: "updateBoardSchema", boardId: core.match.activeBoard.value.id, schema: payload.schema, expectedHeads: payload.expectedHeads })
+    await core.tincanban.executeCommandAsync({ kind: "updateBoardSchema", boardId: core.tincanban.activeBoard.value.id, schema: payload.schema, expectedHeads: payload.expectedHeads })
     core.showEntitySettings.value = false
     core.notice.value = "Schema updated"
   } catch (error) { core.notice.value = `Schema update failed: ${messageFrom(error)}` }
@@ -268,7 +268,7 @@ async function applySchema(core: ReturnType<typeof useAppCore>, payload: { schem
 
 async function applyWorkspaceSettings(core: ReturnType<typeof useAppCore>, payload: { settings: WorkspaceSettingsDraft; expectedHeads?: Heads }) {
   try {
-    await core.match.executeCommandAsync({ kind: "updateWorkspaceSettings", settings: payload.settings, expectedHeads: payload.expectedHeads })
+    await core.tincanban.executeCommandAsync({ kind: "updateWorkspaceSettings", settings: payload.settings, expectedHeads: payload.expectedHeads })
     core.notice.value = "Workspace settings updated"
     return true
   } catch (error) {
@@ -280,23 +280,23 @@ async function applyWorkspaceSettings(core: ReturnType<typeof useAppCore>, paylo
 async function archiveItem(core: ReturnType<typeof useAppCore>, item: Item | null, itemId: string) {
   try {
     core.archiveError.value = ""
-    await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: itemId, archived: true })
-    core.archiveUndo.value = item ? { workspaceId: core.match.activeWorkspace.id, itemId, title: item.title } : null
+    await core.tincanban.executeCommandAsync({ kind: "setEntityArchived", entityId: itemId, archived: true })
+    core.archiveUndo.value = item ? { workspaceId: core.tincanban.activeWorkspace.id, itemId, title: item.title } : null
     core.selectedItemId.value = null
     core.notice.value = "Item archived"
   } catch (error) { reportArchiveFailure(core, error) }
 }
 
 async function restoreItem(core: ReturnType<typeof useAppCore>, itemId: string) {
-  const item = core.match.getActiveDoc()?.entities[itemId]
+  const item = core.tincanban.getActiveDoc()?.entities[itemId]
   if (!isItem(item)) return
-  const source = core.match.genericColumns.value.find(column => column.id === item.placement.parentId)
+  const source = core.tincanban.genericColumns.value.find(column => column.id === item.placement.parentId)
   try {
     if (source && isArchiveColumn(source)) {
-      const target = core.match.genericColumns.value.find(column => !isArchiveColumn(column))
+      const target = core.tincanban.genericColumns.value.find(column => !isArchiveColumn(column))
       if (!target) throw new Error("No active column to restore into")
-      await core.match.executeCommandAsync({ kind: "restoreAndMove", entityId: itemId, parentId: target.id, beforeId: null })
-    } else await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: itemId, archived: false })
+      await core.tincanban.executeCommandAsync({ kind: "restoreAndMove", entityId: itemId, parentId: target.id, beforeId: null })
+    } else await core.tincanban.executeCommandAsync({ kind: "setEntityArchived", entityId: itemId, archived: false })
     core.selectedItemId.value = null
     core.archiveUndo.value = null
     core.notice.value = `Restored ${item.title}`
@@ -305,10 +305,10 @@ async function restoreItem(core: ReturnType<typeof useAppCore>, itemId: string) 
 
 async function restoreArchivedItem(core: ReturnType<typeof useAppCore>, highlightMoved: ReturnType<typeof useAppBoard>["highlightMoved"]) {
   const archived = core.archiveUndo.value
-  if (!archived || archived.workspaceId !== core.match.activeWorkspace.id || core.undoSaving.value) return
+  if (!archived || archived.workspaceId !== core.tincanban.activeWorkspace.id || core.undoSaving.value) return
   core.undoSaving.value = true
   try {
-    await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: archived.itemId, archived: false })
+    await core.tincanban.executeCommandAsync({ kind: "setEntityArchived", entityId: archived.itemId, archived: false })
     core.archiveUndo.value = null
     core.archiveError.value = ""
     core.notice.value = `Restored ${archived.title}`
@@ -329,7 +329,7 @@ function openItemEdit(core: ReturnType<typeof useAppCore>, item: Item) {
 
 async function confirmMove(core: ReturnType<typeof useAppCore>, newParentId: string) {
   if (!core.itemToMove.value) return
-  await core.match.executeCommandAsync({ kind: "moveEntity", entityId: core.itemToMove.value.id, parentId: newParentId, beforeId: null })
+  await core.tincanban.executeCommandAsync({ kind: "moveEntity", entityId: core.itemToMove.value.id, parentId: newParentId, beforeId: null })
   core.showMoveDialog.value = false
   core.itemToMove.value = null
   core.notice.value = "Item moved"
@@ -337,21 +337,21 @@ async function confirmMove(core: ReturnType<typeof useAppCore>, newParentId: str
 
 async function renameColumn(core: ReturnType<typeof useAppCore>, title: string) {
   if (!core.editingColumn.value) return
-  await core.match.executeCommandAsync({ kind: "renameEntity", entityId: core.editingColumn.value.id, title })
+  await core.tincanban.executeCommandAsync({ kind: "renameEntity", entityId: core.editingColumn.value.id, title })
   core.editingColumn.value = null
   core.notice.value = "Column renamed"
 }
 
 async function archiveColumn(core: ReturnType<typeof useAppCore>) {
   if (!core.editingColumn.value) return
-  await core.match.executeCommandAsync({ kind: "setEntityArchived", entityId: core.editingColumn.value.id, archived: true })
+  await core.tincanban.executeCommandAsync({ kind: "setEntityArchived", entityId: core.editingColumn.value.id, archived: true })
   core.editingColumn.value = null
   core.notice.value = "Column removed"
 }
 
 async function addColumn(core: ReturnType<typeof useAppCore>, title: string, archive: boolean) {
-  if (!title.trim() || !core.match.activeBoard.value) return
-  await core.match.executeCommandAsync({ kind: "createColumn", boardId: core.match.activeBoard.value.id, title: title.trim(), ...(archive ? { archive: true as const } : {}) })
+  if (!title.trim() || !core.tincanban.activeBoard.value) return
+  await core.tincanban.executeCommandAsync({ kind: "createColumn", boardId: core.tincanban.activeBoard.value.id, title: title.trim(), ...(archive ? { archive: true as const } : {}) })
   core.notice.value = `Column "${title.trim()}" created`
 }
 
@@ -362,21 +362,21 @@ function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
   const createAndSyncWorkspace = (title: string, preset: "blank" | "job-search") =>
     createWorkspaceWithOwnerCredential(core, title, preset)
   const handleCreateWorkspace = async (payload: { title: string; preset: "blank" | "job-search"; config?: WorkspaceCreationDraft }) => {
-    const doc = await core.match.createWorkspaceAsync(payload.title, payload.preset, undefined, payload.config)
+    const doc = await core.tincanban.createWorkspaceAsync(payload.title, payload.preset, undefined, payload.config)
     core.notice.value = `Workspace "${payload.title}" created`
     core.showWorkspaces.value = false
     try { await core.sync.addOwnerWorkspace(doc.id) }
     catch (error) { core.notice.value = `Workspace created; sync setup failed: ${messageFrom(error)}` }
   }
-  const handleSwitchWorkspace = async (id: string) => { await core.match.switchWorkspace(id); core.notice.value = "Switched workspace" }
-  const handleRenameWorkspace = async (payload: { id: string; title: string }) => { await core.match.renameWorkspaceAsync(payload.id, payload.title); core.notice.value = `Workspace renamed to "${payload.title}"` }
+  const handleSwitchWorkspace = async (id: string) => { await core.tincanban.switchWorkspace(id); core.notice.value = "Switched workspace" }
+  const handleRenameWorkspace = async (payload: { id: string; title: string }) => { await core.tincanban.renameWorkspaceAsync(payload.id, payload.title); core.notice.value = `Workspace renamed to "${payload.title}"` }
   const handleArchiveWorkspace = async (id: string) => {
-    const fallback = await core.match.archiveWorkspaceAsync(id)
+    const fallback = await core.tincanban.archiveWorkspaceAsync(id)
     if (fallback) await core.sync.addOwnerWorkspace(fallback.id)
     core.notice.value = "Workspace archived"
   }
   const handleRestoreWorkspace = async (id: string) => {
-    await core.match.restoreWorkspaceAsync(id)
+    await core.tincanban.restoreWorkspaceAsync(id)
     core.notice.value = "Workspace restored"
   }
   return { exportWorkspace, openImport, importWorkspace, createAndSyncWorkspace, handleCreateWorkspace, handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace }
@@ -384,13 +384,13 @@ function useWorkspaceActions(core: ReturnType<typeof useAppCore>) {
 
 async function createWorkspaceWithOwnerCredential(core: ReturnType<typeof useAppCore>, title: string,
   preset: "blank" | "job-search") {
-  const doc = await core.match.createWorkspaceAsync(title, preset)
+  const doc = await core.tincanban.createWorkspaceAsync(title, preset)
   await core.sync.addOwnerWorkspace(doc.id)
   return doc
 }
 
 async function exportActiveWorkspace(core: ReturnType<typeof useAppCore>) {
-  const doc = core.match.getActiveDoc()
+  const doc = core.tincanban.getActiveDoc()
   if (!doc) {
     core.notice.value = "Export unavailable: the current board is not ready"
     return
@@ -403,14 +403,14 @@ async function exportActiveWorkspace(core: ReturnType<typeof useAppCore>) {
   if (!inspection.ok) throw new Error(inspection.error.message)
   downloadBundle(bundle, doc.title)
   const missing = inspection.value.manifest.missingBlobHashes.length
-  core.notice.value = `Match bundle exported; ${missing} attachment${missing === 1 ? "" : "s"} unavailable in the file`
+  core.notice.value = `tincanban bundle exported; ${missing} attachment${missing === 1 ? "" : "s"} unavailable in the file`
 }
 
 function downloadBundle(bytes: Uint8Array, title: string) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.match+zip" }))
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.tincanban+zip" }))
   const anchor = document.createElement("a")
   anchor.href = url
-  anchor.download = `${title.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.match`
+  anchor.download = `${title.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.tincanban`
   document.body.append(anchor)
   anchor.click()
   anchor.remove()
@@ -433,14 +433,14 @@ async function importWorkspaceFile(core: ReturnType<typeof useAppCore>, event: E
     core.notice.value = result.syncError
       ? `Imported as a new board; ${attachmentNotice}; sync setup failed: ${result.syncError}`
       : `Imported as a new board; ${attachmentNotice}`
-  } catch (error) { core.notice.value = error instanceof Error ? error.message : "Match bundle import failed" }
+  } catch (error) { core.notice.value = error instanceof Error ? error.message : "tincanban bundle import failed" }
 }
 
 type Version2Bundle = { doc: WorkspaceDocumentV2; blobs: BundleBlob[]; manifest: { missingBlobHashes: string[] } }
 
 async function importVersion2Bundle(core: ReturnType<typeof useAppCore>, bundle: Version2Bundle): Promise<{ missingAttachments: number; syncError?: string }> {
   await restoreBundleAttachments(bundle)
-  const doc = await core.match.importWorkspaceAsNew(bundle.doc)
+  const doc = await core.tincanban.importWorkspaceAsNew(bundle.doc)
   try {
     await core.sync.addOwnerWorkspace(doc.id)
     return { missingAttachments: bundle.manifest.missingBlobHashes.length }

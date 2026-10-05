@@ -38,14 +38,14 @@ test("Given quick-note persistence fails, when retry succeeds, then the draft st
   const detail = page.getByRole("dialog", { name: "Item overview", exact: true })
   const draft = detail.getByRole("textbox", { name: "Quick note", exact: true })
   await draft.fill("Do not lose this draft")
-  await page.evaluate(() => { (window as unknown as { __MATCH_INJECT_STORAGE_FAILURE__: boolean }).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
 
   await detail.getByRole("button", { name: "Add note", exact: true }).click()
 
   await expect(detail.getByRole("alert")).toContainText("Note not saved")
   await expect(draft).toHaveValue("Do not lose this draft")
   await expect(detail.getByText("Do not lose this draft", { exact: true })).toHaveCount(0)
-  await page.evaluate(() => { (window as unknown as { __MATCH_INJECT_STORAGE_FAILURE__: boolean }).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
   await detail.getByRole("button", { name: "Retry note", exact: true }).click()
   await expect(detail.getByText("Do not lose this draft", { exact: true })).toHaveCount(1)
 })

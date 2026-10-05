@@ -36,8 +36,8 @@ import { stateRuntime } from "./stateContext";
 import { readLocal, writeLocal } from "./localDb";
 
 type FixtureItem = { id: string; title: string; parentId: string };
-type MatchWindow = Window & {
-  __MATCH_INJECT_FIXTURE__?: { items?: FixtureItem[] };
+type TincanbanWindow = Window & {
+  __TINCANBAN_INJECT_FIXTURE__?: { items?: FixtureItem[] };
 };
 
 type ReadinessWaiter = {
@@ -90,11 +90,11 @@ export function updateReactiveState(
 
 export async function prepareLocalState(storage = defaultStorage): Promise<void> {
   try {
-    console.info("[match.startup] prepare", "automerge")
+    console.info("[tincanban.startup] prepare", "automerge")
     await initializeAutomerge();
-    console.info("[match.startup] prepare", "identity")
+    console.info("[tincanban.startup] prepare", "identity")
     stateRuntime.currentProfile = await bootstrapIdentity();
-    console.info("[match.startup] prepare", "catalog")
+    console.info("[tincanban.startup] prepare", "catalog")
     await refreshAvailableWorkspaces(storage);
   } catch (error) {
     rejectReadinessWaiters(error);
@@ -112,13 +112,13 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
     const profile = stateRuntime.currentProfile;
     if (!profile) throw new Error("Local identity is unavailable");
     await migrateOwnedWorkspaces(storage, profile);
-    console.info("[match.startup] hydrate", "workspace")
+    console.info("[tincanban.startup] hydrate", "workspace")
     const doc = await loadInitialWorkspace(storage, profile);
     updateReactiveState(doc);
-    console.info("[match.startup] hydrate", "personal-root")
+    console.info("[tincanban.startup] hydrate", "personal-root")
     await initializePersonalRoot(storage, profile);
     applyInjectedFixture();
-    console.info("[match.startup] hydrate", "catalog")
+    console.info("[tincanban.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
     stateRuntime.ready.value = true;
     for (const waiter of readinessWaiters) waiter.resolve();
@@ -283,7 +283,7 @@ async function loadInitialWorkspace(
 }
 
 async function activeWorkspaceId(): Promise<string> {
-  return await readLocal("match.active_workspace_id") ?? "default";
+  return await readLocal("tincanban.active_workspace_id") ?? "default";
 }
 
 async function loadPreferredWorkspace(
@@ -311,11 +311,11 @@ async function initializeFirstWorkspace(
     await recordGenesisAuthority(doc, profile);
     await storage.saveSnapshot(workspaceId, doc, Automerge.save(doc));
     await storage.registerWorkspace(workspaceId, "Untitled");
-    await writeLocal("match.active_workspace_id", workspaceId);
+    await writeLocal("tincanban.active_workspace_id", workspaceId);
     return doc;
   };
   return typeof navigator !== "undefined" && navigator.locks
-    ? navigator.locks.request("match-first-workspace", initialize)
+    ? navigator.locks.request("tincanban-first-workspace", initialize)
     : initialize();
 }
 
@@ -344,7 +344,7 @@ function applyInjectedFixture(): void {
   const fixture =
     typeof window === "undefined"
       ? undefined
-      : (window as MatchWindow).__MATCH_INJECT_FIXTURE__;
+      : (window as TincanbanWindow).__TINCANBAN_INJECT_FIXTURE__;
   const items = fixture?.items;
   if (!items || !stateRuntime.activeDoc) return;
   const updated = Automerge.change(stateRuntime.activeDoc, (draft) => {

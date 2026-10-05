@@ -19,7 +19,7 @@ export type WorkspaceDoc = Automerge.Doc<WorkspaceDocument>
 
 export function newWorkspaceDoc(workspace: Workspace): WorkspaceDoc {
   let doc = Automerge.init<WorkspaceDocument>()
-  doc = Automerge.change(doc, { message: "Create Match workspace" }, (draft) => {
+  doc = Automerge.change(doc, { message: "Create tincanban workspace" }, (draft) => {
     draft.leads = clone(workspace.leads)
     draft.documents = clone(workspace.documents)
     draft.templates = clone(workspace.templates)

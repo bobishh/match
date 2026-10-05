@@ -59,7 +59,7 @@ Each numbered item is a bounded handoff: implement it, run its listed evidence, 
 ## 5. Integration and handoff
 
 - [x] 5.1 Update README and public agent guidance with generic commands, two connection scopes, export guarantees, browser lifetime, and explicitly unsupported revocation/recovery. Remove contradictory v0 product copy only after replacements pass.
-- [x] 5.2 Reconcile pending `match-v0-0-1` overlapping requirements using the design precedence table when archiving. Preserve still-applicable mobile/template/artifact behavior.
+- [x] 5.2 Reconcile pending `tincanban-v0-0-1` overlapping requirements using the design precedence table when archiving. Preserve still-applicable mobile/template/artifact behavior.
 - [x] 5.3 Run `openspec validate workspace-kernel-and-scoped-sync --strict --no-interactive`, build, relevant tests, and final real-route happy/failure checks. Report exact evidence and any remaining unchecked items; never mark the whole change complete while a gate remains unverified.
 
 ## 6. Gate E: Typed JSON and visual structural tree schema editor

@@ -16,10 +16,10 @@ describe("identity-scoped owner-keeper policy", () => {
 
   it("ignores malformed local policy records", async () => {
     const owner = `owner-${crypto.randomUUID()}`
-    await writeLocal(`match.owner-keepers.v1:${owner}`, '[null,{"personId":"keeper","role":"owner"}]')
+    await writeLocal(`tincanban.owner-keepers.v1:${owner}`, '[null,{"personId":"keeper","role":"owner"}]')
 
     await expect(ownerKeepers(owner)).resolves.toEqual([])
-    await writeLocal(`match.owner-keepers.v1:${owner}`, "not-json")
+    await writeLocal(`tincanban.owner-keepers.v1:${owner}`, "not-json")
     await expect(ownerKeepers(owner)).resolves.toEqual([])
   })
 

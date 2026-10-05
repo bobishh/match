@@ -5,7 +5,7 @@ export async function faviconColor(page: Page) {
     const href = link.getAttribute("href") ?? ""
     if (!href.startsWith("data:image/svg+xml,")) return null
     const svg = new DOMParser().parseFromString(decodeURIComponent(href.split(",")[1]!), "image/svg+xml")
-    return svg.querySelector("circle")?.getAttribute("fill") ?? null
+    return svg.querySelector("[data-connection-fill]")?.getAttribute("fill") ?? null
   })
 }
 

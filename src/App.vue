@@ -9,8 +9,9 @@ import { useCardAges } from "./app/useAgingClock"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
 import { artifactKindLabels, priorityLabels, type DocumentInput } from "./types"
 import ModalLayer from "./components/ModalLayer.vue"
-import MatchPageLayout from "./components/MatchPageLayout.vue"
-import MatchHeading from "./components/MatchHeading.vue"
+import TincanbanPageLayout from "./components/TincanbanPageLayout.vue"
+import TincanbanHeading from "./components/TincanbanHeading.vue"
+import BrandCan from "./components/BrandCan.vue"
 import BoardDragOverlay from "./components/BoardDragOverlay.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import WorkspaceChat from "./components/WorkspaceChat.vue"
@@ -101,7 +102,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
 </script>
 
 <template>
-  <MatchPageLayout :busy="!uiReady && !startupError">
+  <TincanbanPageLayout :busy="!uiReady && !startupError">
     <template #header>
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!uiReady" @click="showWorkspaces = true">
         <span class="brand-presence">
@@ -115,10 +116,10 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
               <path d="m9.5 9.5 4 4" />
             </svg>
           </span>
-          <span class="brand-mark" :class="`is-${meshPresence}`" role="img" :aria-label="meshPresenceLabel">M</span>
+          <BrandCan :presence="meshPresence" :label="meshPresenceLabel" />
         </span>
         <div>
-          <MatchHeading :label="ready.value ? workspaceLabel : '…'" />
+          <TincanbanHeading :label="ready.value ? workspaceLabel : '…'" />
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -143,7 +144,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         <button v-if="canEditBoard" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
         <button v-if="isEditingBoard" class="button button-primary" type="button" @click="showEntitySettings = true">Edit {{ entityName }}</button>
         <a v-if="hasExperimentalMcp" class="button button-quiet agent-guide-desktop" href="/agent">Agent guide</a>
-        <input ref="importInput" class="sr-only" type="file" accept=".match,application/vnd.match+zip" @change="importWorkspace" />
+        <input ref="importInput" class="sr-only" type="file" accept=".tincanban,.match,application/vnd.tincanban+zip,application/vnd.match+zip" @change="importWorkspace" />
       </div>
     </template>
 
@@ -196,7 +197,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       </div>
     </TransitionGroup>
 
-    <section class="toolbar" aria-label="Match controls">
+    <section class="toolbar" aria-label="tincanban controls">
       <label class="search-field">
         <span aria-hidden="true">⌕</span>
         <input v-model="search" type="search" aria-label="Search cards" :placeholder="isBlankBoard ? 'Search cards' : 'Search company, role, notes'" />
@@ -520,6 +521,6 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       @stop="sync.stopLiveSync"
     />
 
-  </MatchPageLayout>
+  </TincanbanPageLayout>
   <BuildFooter />
 </template>

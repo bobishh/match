@@ -16,7 +16,7 @@ test("Given 55 detailed leads, when Company and Role are typed, then keystrokes 
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
   await session.send("Profiler.enable")
   await page.evaluate(async () => {
-    const state = (await import("/src/state.ts")).useMatch()
+    const state = (await import("/src/state.ts")).useTincanban()
     const paints: number[] = []
     const events: number[] = []
     const tasks: number[] = []
@@ -46,7 +46,7 @@ test("Given 55 detailed leads, when Company and Role are typed, then keystrokes 
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const { profile } = await session.send("Profiler.stop")
   const measured = await page.evaluate(async () => {
-    const state = (await import("/src/state.ts")).useMatch()
+    const state = (await import("/src/state.ts")).useTincanban()
     const data = (window as unknown as { editMeasurement: {
       paints: number[]; events: number[]; tasks: number[]; version: number;
       eventObserver: PerformanceObserver; taskObserver: PerformanceObserver;

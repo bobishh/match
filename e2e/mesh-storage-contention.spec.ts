@@ -9,7 +9,7 @@ async function observeController(page: Page) {
     const constructor = "constructor(options) {"
     if (!source.includes(constructor)) throw new Error("Controller observation target changed")
     await route.fulfill({ response, body: source.replace(constructor,
-      `${constructor}\n(window.__MATCH_BENCH_CONTROLLERS__ ??= []).push(this);`) })
+      `${constructor}\n(window.__TINCANBAN_BENCH_CONTROLLERS__ ??= []).push(this);`) })
   })
 }
 
@@ -20,14 +20,14 @@ async function createBoard(page: Page, index: number) {
   await dialog.getByLabel("Title", { exact: true }).fill(`Catalog load ${index}`)
   await dialog.getByRole("radio", { name: "Blank board", exact: true }).check()
   await dialog.getByRole("button", { name: "Create", exact: true }).click()
-  await expect(page.getByRole("heading", { name: `MATCH // Catalog load ${index}`, exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: `TINCANBAN // Catalog load ${index}`, exact: true })).toBeVisible()
 }
 
 test("Given three tabs sharing nine boards, when signed catalogs replay, then processing stays bounded and a checklist change remains visible", async ({ context, page }, testInfo) => {
   test.setTimeout(120_000)
   await observeController(page)
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "MATCH // Untitled", exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "TINCANBAN // Untitled", exact: true })).toBeVisible()
   for (let index = 1; index < 9; index += 1) await createBoard(page, index)
   await page.getByRole("button", { name: "Add item to To do", exact: true }).click()
   const form = page.getByRole("dialog", { name: "Item details", exact: true })
@@ -81,14 +81,14 @@ test("Given three tabs sharing nine boards, when signed catalogs replay, then pr
   for (const target of pages) {
     await target.evaluate(async () => {
       const { DurableMesh } = await import("/src/sync/durableMesh.ts")
-      const controller = (window as any).__MATCH_BENCH_CONTROLLERS__.at(-1)
+      const controller = (window as any).__TINCANBAN_BENCH_CONTROLLERS__.at(-1)
       const options = controller.meshOptions(controller.meshWorkspaceStore)
-      ;(window as any).__MATCH_BENCH_MESH__ = new DurableMesh(options)
+      ;(window as any).__TINCANBAN_BENCH_MESH__ = new DurableMesh(options)
     })
   }
   const replay = async () => Promise.all(pages.map(target => target.evaluate(async snapshots => {
-    const controller = (window as any).__MATCH_BENCH_CONTROLLERS__.at(-1)
-    const mesh = (window as any).__MATCH_BENCH_MESH__
+    const controller = (window as any).__TINCANBAN_BENCH_CONTROLLERS__.at(-1)
+    const mesh = (window as any).__TINCANBAN_BENCH_MESH__
     const before = controller.api().ownershipRevision.value
     const started = performance.now()
     await Promise.all(snapshots.map(snapshot => mesh.mergeWorkspace(snapshot.workspaceId, snapshot.catalog)))
@@ -115,5 +115,5 @@ test("Given three tabs sharing nine boards, when signed catalogs replay, then pr
     catalogBytes: catalogs.map(value => Buffer.byteLength(JSON.stringify(value.catalog))), rounds, deliveryMs }, null, 2))
   await testInfo.attach("shared-idb-catalog-benchmark.json", { path: report, contentType: "application/json" })
   await page.screenshot({ path: testInfo.outputPath("checklist-after-catalog-replay.png"), fullPage: true })
-  for (const target of pages) await target.evaluate(async () => (window as any).__MATCH_BENCH_MESH__.dispose())
+  for (const target of pages) await target.evaluate(async () => (window as any).__TINCANBAN_BENCH_MESH__.dispose())
 })

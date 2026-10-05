@@ -28,7 +28,7 @@ One person may have N workspaces. A workspace has N boards. One board has its ow
 
 The root is a logical catalog, not a giant document containing every workspace. Never merge different workspace IDs or root IDs. Never disclose a personal root or its private workspace names to another person. A document ID is not a permission. Same-origin tabs using the same local profile are replicas of the same documents.
 
-`formatVersion` describes Match's persisted data format. Board columns and fields are data, not changes to that format. Renaming a column or changing a field label does not run a migration. Declarative UI documents and `uiSchema` are deliberately absent. `WorkspaceSettingsDraft` is a validated projection over existing typed records, not an authoritative second state object.
+`formatVersion` describes tincanban's persisted data format. Board columns and fields are data, not changes to that format. Renaming a column or changing a field label does not run a migration. Declarative UI documents and `uiSchema` are deliberately absent. `WorkspaceSettingsDraft` is a validated projection over existing typed records, not an authoritative second state object.
 
 ## 2. Typed records and hierarchy
 
@@ -108,7 +108,7 @@ Migration is coordinated once per legacy lineage. Before writing, save the origi
 
 An already-migrated device enrolls other devices or exports its canonical v2 lineage. Do not independently reconstruct the same workspace on every device from UUID guesses. Reapplying the durable migration plan returns the same resulting document; a prepared result is persisted once. Two independently migrated copies are separate workspaces and are detected as a migration conflict on attempted reconciliation; neither is silently overwritten or merged. Surface export/keep-both recovery. Supporting automatic reconciliation of those competing migrations is deferred.
 
-Native `.match` v2 includes manifest, canonical Automerge bytes, readable snapshot, public proofs, and selected content-addressed blobs. It never includes identity private keys, a personal root, invitation secrets, or machine-local paths as portable files. Legacy local paths are retained in local location records; missing files appear as unavailable on another device. A same-workspace import merges the original lineage; different workspace IDs remain separate catalog entries. JSON-only import creates a new workspace and clearly lacks history. Unsigned legacy content is labeled legacy/imported, not falsely attributed to the importing person as its original author.
+Native `.tincanban` v2 includes manifest, canonical Automerge bytes, readable snapshot, public proofs, and selected content-addressed blobs. It never includes identity private keys, a personal root, invitation secrets, or machine-local paths as portable files. Legacy local paths are retained in local location records; missing files appear as unavailable on another device. A same-workspace import merges the original lineage; different workspace IDs remain separate catalog entries. JSON-only import creates a new workspace and clearly lacks history. Unsigned legacy content is labeled legacy/imported, not falsely attributed to the importing person as its original author.
 
 ## 6. Identity and collaboration authority
 

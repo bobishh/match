@@ -8,16 +8,16 @@ test("Given an unreadable authority on one board, when creating and importing an
   await page.evaluate(async () => {
     const { bootstrapIdentity } = await import("/src/domain/identity.ts")
     const { peerStore } = await import("/src/sync/peerStore.ts")
-    const { useMatch } = await import("/src/state.ts")
+    const { useTincanban } = await import("/src/state.ts")
     const { createWorkspaceRevocation } = await import("/src/sync/meshRecords.ts")
     const { workspaceRole } = await import("/src/sync/changeAuthorization.ts")
     const { getHeads } = await import("/@id/@automerge/automerge/slim")
     const profile = await bootstrapIdentity("Owner")
-    const workspaceId = useMatch().activeWorkspace.id
-    await workspaceRole(useMatch().getActiveDoc()!, profile)
+    const workspaceId = useTincanban().activeWorkspace.id
+    await workspaceRole(useTincanban().getActiveDoc()!, profile)
     const authority = await peerStore.getWorkspaceAuthority(workspaceId)
     if (!authority) throw new Error("Missing workspace authority")
-    const revocation = await createWorkspaceRevocation(profile, workspaceId, "former-member", 2, getHeads(useMatch().getActiveDoc()!))
+    const revocation = await createWorkspaceRevocation(profile, workspaceId, "former-member", 2, getHeads(useTincanban().getActiveDoc()!))
     Reflect.deleteProperty(revocation.payload, "workspaceHeads")
     await peerStore.putWorkspaceAuthority({ ...authority,
       updatedAt: new Date(Date.parse(authority.updatedAt) + 1_000).toISOString(),
@@ -37,7 +37,7 @@ test("Given an unreadable authority on one board, when creating and importing an
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync" })
   const downloadEvent = page.waitForEvent("download")
-  await sync.getByRole("button", { name: "Export .match", exact: true }).click()
+  await sync.getByRole("button", { name: "Export .tincanban", exact: true }).click()
   const bundle = await (await downloadEvent).path()
   const chooserEvent = page.waitForEvent("filechooser")
   await sync.getByRole("button", { name: "Import as new board", exact: true }).click()

@@ -1,6 +1,6 @@
 ## Context
 
-Match must feel like the existing Trello workflow, not like a CRM. The agent should be able to add a vacancy with one flat payload, then attach documents with separate simple commands. The browser renders the same state the agent mutates.
+tincanban must feel like the existing Trello workflow, not like a CRM. The agent should be able to add a vacancy with one flat payload, then attach documents with separate simple commands. The browser renders the same state the agent mutates.
 
 ## Decisions
 
@@ -55,7 +55,7 @@ The app checks exact normalized source URL first, then company + role. It return
 
 ### 5. Local storage and sync
 
-IndexedDB stores the serialized Automerge workspace document in v0.0.1. A `.match` export contains a manifest, readable card/document JSON, and the Automerge bytes. `updatedAt` is display metadata, never conflict resolution. No LWW policy is part of the domain model.
+IndexedDB stores the serialized Automerge workspace document in v0.0.1. A `.tincanban` export contains a manifest, readable card/document JSON, and the Automerge bytes. `updatedAt` is display metadata, never conflict resolution. No LWW policy is part of the domain model.
 
 Device sync has a transport boundary:
 
@@ -71,7 +71,7 @@ Device sync has a transport boundary:
 
 The browser adapter comes from canonical `@meta-uber/mesh-transport/wasm`. Its browser-only dependency remains isolated in meta-mesh because the upstream crate is alpha and main-thread-only. UI must show failure rather than claim connection before a peer and ALPN `match/sync/0` stream exist; implementation names stay out of the product flow.
 
-Long documents and file payloads remain separate addressable objects. A future `.match` export may package manifest, cards, documents, and blobs without making one monolithic sync payload.
+Long documents and file payloads remain separate addressable objects. A future `.tincanban` export may package manifest, cards, documents, and blobs without making one monolithic sync payload.
 
 ### 6. Visual direction
 

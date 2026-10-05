@@ -77,12 +77,12 @@ test("Given two open tabs, when both edit one workspace together, then both conv
   const second = await page.context().newPage()
   await second.goto("/")
   const edit = async (target: typeof page, id: string, title: string) => target.evaluate(async ({ id, title }) => {
-    const { useMatch } = await import("/src/state.ts")
-    const match = useMatch()
-    await match.whenReady()
-    const doc = match.getActiveDoc()!
+    const { useTincanban } = await import("/src/state.ts")
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    const doc = tincanban.getActiveDoc()!
     const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
-    await match.executeCommandAsync({ kind: "createItem", id, parentId: column.id, title })
+    await tincanban.executeCommandAsync({ kind: "createItem", id, parentId: column.id, title })
   }, { id, title })
 
   try {
@@ -91,10 +91,10 @@ test("Given two open tabs, when both edit one workspace together, then both conv
       edit(second, crypto.randomUUID(), "Cross-tab B"),
     ])
     await expect.poll(async () => Promise.all([page, second].map(target => target.evaluate(async () => {
-      const { useMatch } = await import("/src/state.ts")
-      const match = useMatch()
-      await match.whenReady()
-      return Object.values(match.getActiveDoc()!.entities)
+      const { useTincanban } = await import("/src/state.ts")
+      const tincanban = useTincanban()
+      await tincanban.whenReady()
+      return Object.values(tincanban.getActiveDoc()!.entities)
         .map(entity => "title" in entity ? entity.title : "")
         .filter(title => title === "Cross-tab A" || title === "Cross-tab B")
         .sort()
@@ -113,14 +113,14 @@ test("Given independent tabs receive peer branches together, when both admission
   await second.goto("/")
   try {
     const branches = await page.evaluate(async () => {
-      const { useMatch } = await import("/src/state.ts")
+      const { useTincanban } = await import("/src/state.ts")
       const { executeCommand } = await import("/src/domain/commands.ts")
       const { prepareLocalChangeAuthorizations, exportAuthorizationBundle } = await import("/src/sync/changeAuthorization.ts")
       const Automerge = await import("/@id/@automerge/automerge/slim")
-      const match = useMatch()
-      await match.whenReady()
-      const base = match.getActiveDoc()!
-      const profile = match.getCurrentProfile()!
+      const tincanban = useTincanban()
+      await tincanban.whenReady()
+      const base = tincanban.getActiveDoc()!
+      const profile = tincanban.getCurrentProfile()!
       const column = Object.values(base.entities).find(entity => entity.kind === "column")!
       return Promise.all(["Incoming A", "Incoming B"].map(async title => {
         const result = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title }, profile)
@@ -132,23 +132,23 @@ test("Given independent tabs receive peer branches together, when both admission
     })
     await Promise.all([
       ...[page, second].map((target, index) => target.evaluate(async branch => {
-        const { useMatch } = await import("/src/state.ts")
-        await useMatch().whenReady()
-        await useMatch().mergeAuthorizedWorkspace(branch.id, new Uint8Array(branch.bytes), branch.authorization)
+        const { useTincanban } = await import("/src/state.ts")
+        await useTincanban().whenReady()
+        await useTincanban().mergeAuthorizedWorkspace(branch.id, new Uint8Array(branch.bytes), branch.authorization)
       }, branches[index]!)),
       second.evaluate(async () => {
-        const { useMatch } = await import("/src/state.ts")
-        const match = useMatch()
-        await match.whenReady()
-        const column = Object.values(match.getActiveDoc()!.entities).find(entity => entity.kind === "column")!
-        await match.executeCommandAsync({ kind: "createItem", parentId: column.id, title: "Local alongside peers" })
+        const { useTincanban } = await import("/src/state.ts")
+        const tincanban = useTincanban()
+        await tincanban.whenReady()
+        const column = Object.values(tincanban.getActiveDoc()!.entities).find(entity => entity.kind === "column")!
+        await tincanban.executeCommandAsync({ kind: "createItem", parentId: column.id, title: "Local alongside peers" })
       }),
     ])
     await second.reload()
     await expect.poll(() => second.evaluate(async () => {
-      const { useMatch } = await import("/src/state.ts")
-      await useMatch().whenReady()
-      return Object.values(useMatch().getActiveDoc()!.entities).flatMap(entity => "title" in entity && ["Incoming A", "Incoming B", "Local alongside peers"].includes(entity.title) ? [entity.title] : []).sort()
+      const { useTincanban } = await import("/src/state.ts")
+      await useTincanban().whenReady()
+      return Object.values(useTincanban().getActiveDoc()!.entities).flatMap(entity => "title" in entity && ["Incoming A", "Incoming B", "Local alongside peers"].includes(entity.title) ? [entity.title] : []).sort()
     })).toEqual(["Incoming A", "Incoming B", "Local alongside peers"])
   } finally { await second.close() }
 })
@@ -156,15 +156,15 @@ test("Given independent tabs receive peer branches together, when both admission
 test("Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged", async ({ page }) => {
   await page.goto("/")
   const result = await page.evaluate(async () => {
-    const { useMatch } = await import("/src/state.ts")
+    const { useTincanban } = await import("/src/state.ts")
     const { WorkspaceStorage } = await import("/src/storage.ts")
     const { executeCommand } = await import("/src/domain/commands.ts")
     const { prepareLocalChangeAuthorizations, exportAuthorizationBundle, exportAuthorizations } = await import("/src/sync/changeAuthorization.ts")
     const Automerge = await import("/@id/@automerge/automerge/slim")
-    const match = useMatch()
-    await match.whenReady()
-    const base = match.getActiveDoc()!
-    const profile = match.getCurrentProfile()!
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    const base = tincanban.getActiveDoc()!
+    const profile = tincanban.getCurrentProfile()!
     const column = Object.values(base.entities).find(entity => entity.kind === "column")!
     const command = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title: "Rejected peer item" }, profile)
     if (!command.ok) throw new Error(command.error.message)
@@ -172,7 +172,7 @@ test("Given authorization write fails during admission, when transaction aborts,
     const bundle = await exportAuthorizationBundle(Automerge.save(base), profile)
     const beforeProofs = JSON.stringify(await exportAuthorizations(Automerge.save(base)))
     let notifications = 0
-    const unsubscribe = match.subscribeLocalChanges(() => { notifications++ })
+    const unsubscribe = tincanban.subscribeLocalChanges(() => { notifications++ })
     const originalPut = IDBObjectStore.prototype.put
     IDBObjectStore.prototype.put = function (...args: Parameters<IDBObjectStore["put"]>) {
       if (this.name === "authorizations") throw new Error("authorization write failed")
@@ -180,11 +180,11 @@ test("Given authorization write fails during admission, when transaction aborts,
     }
     let error = ""
     try {
-      await match.mergeAuthorizedWorkspace(base.id, Automerge.save(command.value.newDoc), { ...bundle, records: [...bundle.records, ...incoming] })
+      await tincanban.mergeAuthorizedWorkspace(base.id, Automerge.save(command.value.newDoc), { ...bundle, records: [...bundle.records, ...incoming] })
     } catch (cause) { error = cause instanceof Error ? cause.message : String(cause) }
     finally { IDBObjectStore.prototype.put = originalPut; unsubscribe() }
     const durable = (await new WorkspaceStorage().loadWorkspaceDoc(base.id))!.doc
-    return { error, notifications, durableHeads: Automerge.getHeads(durable), beforeHeads: Automerge.getHeads(base), uiHeads: Automerge.getHeads(match.getActiveDoc()!), beforeProofs, afterProofs: JSON.stringify(await exportAuthorizations(Automerge.save(durable))) }
+    return { error, notifications, durableHeads: Automerge.getHeads(durable), beforeHeads: Automerge.getHeads(base), uiHeads: Automerge.getHeads(tincanban.getActiveDoc()!), beforeProofs, afterProofs: JSON.stringify(await exportAuthorizations(Automerge.save(durable))) }
   })
   expect(result.error).toContain("authorization write failed")
   expect(result.notifications).toBe(0)
@@ -196,7 +196,7 @@ test("Given authorization write fails during admission, when transaction aborts,
 test("Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog", async ({ page }) => {
   await page.goto("/")
   const result = await page.evaluate(async () => {
-    const { useMatch } = await import("/src/state.ts")
+    const { useTincanban } = await import("/src/state.ts")
     const { WorkspaceStorage } = await import("/src/storage.ts")
     const { writeLocal } = await import("/src/localDb.ts")
     const { toBase64Url } = await import("/src/domain/identity.ts")
@@ -206,9 +206,9 @@ test("Given legacy snapshot and proof databases, when a command commits, then mi
     const { recordGenesisAuthority } = await import("/src/sync/changeAuthorization.ts")
     const { openWorkspaceJournal, transactionDone } = await import("/src/storageJournal.ts")
     const A = await import("/@id/@automerge/automerge/slim")
-    const match = useMatch()
-    await match.whenReady()
-    const profile = match.getCurrentProfile()!
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    const profile = tincanban.getCurrentProfile()!
     const { initializeWasm } = A
     const { default: wasmUrl } = await import("/@id/@automerge/automerge/automerge.wasm?url")
     await initializeWasm(wasmUrl)
@@ -218,7 +218,7 @@ test("Given legacy snapshot and proof databases, when a command commits, then mi
     const proofs = await prepareLocalChangeAuthorizations(doc, profile, hashes)
     // Seed the pre-migration databases, not the new snapshot/proof stores.
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("match-write-authorizations-v1")
+      const request = indexedDB.open("tincanban-write-authorizations-v1")
       request.onupgradeneeded = () => request.result.createObjectStore("records")
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
@@ -233,7 +233,7 @@ test("Given legacy snapshot and proof databases, when a command commits, then mi
     const cleared = transactionDone(clear)
     clear.objectStore("authorizations").delete(doc.id)
     await cleared
-    await writeLocal(`match.snapshot.${doc.id}`, JSON.stringify({ heads: A.getHeads(doc), bytesBase64: toBase64Url(A.save(doc)), savedAt: new Date().toISOString() }))
+    await writeLocal(`tincanban.snapshot.${doc.id}`, JSON.stringify({ heads: A.getHeads(doc), bytesBase64: toBase64Url(A.save(doc)), savedAt: new Date().toISOString() }))
     const storage = new WorkspaceStorage()
     const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
     await persistAuthorizedCommand((await storage.loadWorkspaceDoc(doc.id))!.doc, { kind: "createItem", parentId: column.id, title: "Migrated edit" }, profile, storage)

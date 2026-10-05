@@ -1,11 +1,11 @@
 import { expect, test } from "./support/coverage"
 
 test.describe("Agent guide", () => {
-  test("Given current Match, when an agent opens the guide, then workspace and MCP instructions match the live contract", async ({ page }) => {
+  test("Given current tincanban, when an agent opens the guide, then workspace and MCP instructions match the live contract", async ({ page }) => {
     await page.goto("/agent/")
 
-    await expect(page.getByRole("heading", { level: 1, name: "Match agent guide" })).toBeVisible()
-    await expect(page.getByRole("banner")).toContainText("MATCH")
+    await expect(page.getByRole("heading", { level: 1, name: "tincanban agent guide" })).toBeVisible()
+    await expect(page.getByRole("banner")).toContainText("TINCANBAN")
     await expect(page.getByRole("banner")).not.toContainText("jobs")
 
     const guide = page.getByRole("main")

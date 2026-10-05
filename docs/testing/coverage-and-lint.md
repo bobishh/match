@@ -26,7 +26,7 @@ References: [Vitest coverage](https://vitest.dev/guide/coverage.html), [typescri
 
 ## Browser coverage for redundancy review
 
-Run `npm run test:e2e:coverage` for core coverage, or select a smaller candidate group with `MATCH_E2E_COVERAGE=1 npx playwright test --project=core <specs>` followed by `node scripts/e2e-coverage.mjs`. Raw source coverage is attached to each test's output directory; the converter writes `coverage/e2e/index.html` and `coverage/e2e/test-contributions.json`.
+Run `npm run test:e2e:coverage` for core coverage, or select a smaller candidate group with `TINCANBAN_E2E_COVERAGE=1 npx playwright test --project=core <specs>` followed by `node scripts/e2e-coverage.mjs`. Raw source coverage is attached to each test's output directory; the converter writes `coverage/e2e/index.html` and `coverage/e2e/test-contributions.json`.
 
 The contribution report counts statements uniquely executed by each passed scenario within the selected group. A zero count is a review signal, not proof that the assertions duplicate another test. Failed attempts are excluded from the aggregate. Unimported files are included by the unit report; the browser report lists executed modules only. Do not compare its percentage directly to the unit denominator.
 

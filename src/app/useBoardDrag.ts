@@ -121,7 +121,7 @@ export function useBoardDragController(core: AppBoardContext, presentation: Drag
   const setupBoardDrag = async () => {
     await nextTick()
     const current = core.boardRef.value
-    if (!current || !core.match.activeBoard.value || !canDrag(core)) { detach(); return }
+    if (!current || !core.tincanban.activeBoard.value || !canDrag(core)) { detach(); return }
     attach(current)
     if (active && !validDrag(active, current, core)) clear()
   }
@@ -173,7 +173,7 @@ function locateDragSource(event: PointerEvent, board: HTMLElement, core: AppBoar
   const preview = createDragPreview(id, kind, bounds.width, core, presentation)
   if (!preview) return null
   Object.assign(preview, previewAge(source))
-  return { workspaceId: core.match.activeWorkspace.id, boardId: core.match.activeBoard.value!.id, id, kind, source, sourceParentId: source.closest<HTMLElement>("[data-column-id]")?.dataset.columnId ?? "", preview }
+  return { workspaceId: core.tincanban.activeWorkspace.id, boardId: core.tincanban.activeBoard.value!.id, id, kind, source, sourceParentId: source.closest<HTMLElement>("[data-column-id]")?.dataset.columnId ?? "", preview }
 }
 
 function previewAge(source: HTMLElement) {
@@ -183,10 +183,10 @@ function previewAge(source: HTMLElement) {
 
 function createDragPreview(id: string, kind: "item" | "column", width: number, core: AppBoardContext, presentation: DragPresentation): DragPreview | null {
   if (kind === "column") {
-    const column = core.match.genericColumns.value.find(candidate => candidate.id === id)
+    const column = core.tincanban.genericColumns.value.find(candidate => candidate.id === id)
     return column ? { id, kind, title: column.title, width, context: [] } : null
   }
-  const item = core.match.getActiveDoc()?.entities[id]
+  const item = core.tincanban.getActiveDoc()?.entities[id]
   if (!isItem(item)) return null
   const lead = presentation.leadForItem(item)
   return { id, kind, title: item.title, lead, body: item.body, context: presentation.cardFields(item), notes: presentation.cardNotes(item) ?? undefined, width }
@@ -250,7 +250,7 @@ function refreshTarget(drag: ActiveDrag, board: HTMLElement, marker: Ref<DropMar
 }
 
 function validDrag(drag: ActiveDrag, board: HTMLElement | null, core: AppBoardContext) {
-  if (!board?.contains(drag.source) || core.match.activeWorkspace.id !== drag.workspaceId || core.match.activeBoard.value?.id !== drag.boardId) return false
+  if (!board?.contains(drag.source) || core.tincanban.activeWorkspace.id !== drag.workspaceId || core.tincanban.activeBoard.value?.id !== drag.boardId) return false
   if (core.isEditingBoard.value !== (drag.kind === "column")) return false
   if (!(drag.kind === "column" ? core.canEditBoard.value : core.canEditItems.value)) return false
   return !drag.target || Boolean(board.querySelector(`[data-column-id="${CSS.escape(drag.target.targetId)}"]`))

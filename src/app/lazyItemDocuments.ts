@@ -4,9 +4,9 @@ const statusComponent = (failed: boolean) => defineComponent({
   inheritAttrs: false,
   render: () => h("section", { class: "detail-section documents-section" }, [
     h("p", { role: failed ? "alert" : "status" }, failed
-      ? "Document controls could not load. Reload Match to retry."
+      ? "Document controls could not load. Reload tincanban to retry."
       : "Loading document controls…"),
-    ...(failed ? [h("button", { class: "button button-primary", type: "button", onClick: () => window.location.reload() }, "Reload Match")] : []),
+    ...(failed ? [h("button", { class: "button button-primary", type: "button", onClick: () => window.location.reload() }, "Reload tincanban")] : []),
   ]),
 })
 

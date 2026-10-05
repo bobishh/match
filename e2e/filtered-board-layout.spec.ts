@@ -152,7 +152,7 @@ test("Given filtered cards and a failed save, when dragging ends then the previe
   await createBoard(page)
   await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
   await expect(page.locator(".board > .column")).toHaveCount(2)
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   const source = page.getByRole("button", { name: "Open Launch design", exact: true })
   const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
   const from = (await source.boundingBox())!

@@ -14,8 +14,7 @@ type MeshInstanceLeaseOptions = {
 
 export function acquireMeshInstanceLease(options: MeshInstanceLeaseOptions = {}): Promise<MeshInstanceLease> {
   return acquireSharedMeshInstanceLease({
-    namespace: "match",
-    compatibilityLockNames: ["match:mesh-leader"],
+    namespace: "tincanban",
     ...options,
   })
 }

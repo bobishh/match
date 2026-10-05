@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises"
 import { initializeAutomerge } from "./crdt"
 import { registerWebMcp, type ModelContext } from "./webmcp"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
-import { useMatch, hydrate, resetStateForTest } from "./state"
+import { useTincanban, hydrate, resetStateForTest } from "./state"
 import { isItem } from "./domain/model"
 import { clearMeshTrace, meshTrace } from "./sync/meshTrace"
 
@@ -18,7 +18,7 @@ beforeAll(async () => {
 describe("generic WebMCP tools", () => {
   let registeredTools: Map<string, any>
   let mockContext: ModelContext
-  let match: ReturnType<typeof useMatch>
+  let tincanban: ReturnType<typeof useTincanban>
 
   beforeEach(async () => {
     for (const workspace of [...await defaultStorage.listWorkspaces(), ...await defaultStorage.listArchivedWorkspaces()]) await defaultStorage.purgeWorkspaceForTest(workspace.id)
@@ -26,7 +26,7 @@ describe("generic WebMCP tools", () => {
     resetStateForTest()
     await bootstrapIdentity("WebMCP Test User")
     await hydrate()
-    match = useMatch()
+    tincanban = useTincanban()
 
     registeredTools = new Map()
     mockContext = {
@@ -39,11 +39,11 @@ describe("generic WebMCP tools", () => {
   it("registers generic workspace commands without job-search aliases", async () => {
     const sendChatMessage = vi.fn().mockResolvedValue(undefined)
     await registerWebMcp({
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
+      getActiveDoc: tincanban.getActiveDoc,
+      executeCommandAsync: tincanban.executeCommandAsync,
+      createWorkspaceAsync: tincanban.createWorkspaceAsync,
+      availableWorkspaces: tincanban.availableWorkspaces,
+      activeWorkspace: tincanban.activeWorkspace,
       sendChatMessage,
     }, mockContext)
 
@@ -76,30 +76,30 @@ describe("generic WebMCP tools", () => {
   it("reads lifecycle evidence without changing workspace data or allowing write inputs", async () => {
     clearMeshTrace()
     meshTrace("session.closed", { connectionId: "in-7", cause: "heartbeat failed" })
-    await registerWebMcp({ getActiveDoc: match.getActiveDoc }, mockContext)
+    await registerWebMcp({ getActiveDoc: tincanban.getActiveDoc }, mockContext)
     const trace = registeredTools.get("get_sync_trace")
-    const before = match.getActiveDoc()
+    const before = tincanban.getActiveDoc()
     expect(trace.annotations.readOnlyHint).toBe(true)
     const result = trace.execute({})
     expect(result.events).toEqual([expect.objectContaining({
       event: "session.closed", connectionId: "in-7", cause: "heartbeat failed",
     })])
     expect(() => structuredClone(result)).not.toThrow()
-    expect(match.getActiveDoc()).toBe(before)
+    expect(tincanban.getActiveDoc()).toBe(before)
     expect(() => trace.execute({ reconnect: true })).toThrow()
     clearMeshTrace()
   })
 
   it("returns cloneable workspace records and switches the active workspace", async () => {
-    const originalId = match.activeWorkspace.id
-    const second = await match.createWorkspaceAsync("Second workspace", "blank")
+    const originalId = tincanban.activeWorkspace.id
+    const second = await tincanban.createWorkspaceAsync("Second workspace", "blank")
     await registerWebMcp({
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      switchWorkspaceAsync: match.switchWorkspace,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
+      getActiveDoc: tincanban.getActiveDoc,
+      executeCommandAsync: tincanban.executeCommandAsync,
+      createWorkspaceAsync: tincanban.createWorkspaceAsync,
+      switchWorkspaceAsync: tincanban.switchWorkspace,
+      availableWorkspaces: tincanban.availableWorkspaces,
+      activeWorkspace: tincanban.activeWorkspace,
     }, mockContext)
 
     const workspaces = await registeredTools.get("list_workspaces").execute({})
@@ -111,18 +111,18 @@ describe("generic WebMCP tools", () => {
 
     await expect(registeredTools.get("switch_workspace").execute({ workspaceId: originalId }))
       .resolves.toEqual(expect.objectContaining({ switched: true, id: originalId }))
-    expect(match.activeWorkspace.id).toBe(originalId)
+    expect(tincanban.activeWorkspace.id).toBe(originalId)
     await expect(registeredTools.get("switch_workspace").execute({ workspaceId: "missing" }))
       .rejects.toThrow("Workspace not found")
   })
 
   it("reads and atomically applies the complete workspace settings through WebMCP", async () => {
     await registerWebMcp({
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
+      getActiveDoc: tincanban.getActiveDoc,
+      executeCommandAsync: tincanban.executeCommandAsync,
+      createWorkspaceAsync: tincanban.createWorkspaceAsync,
+      availableWorkspaces: tincanban.availableWorkspaces,
+      activeWorkspace: tincanban.activeWorkspace,
     }, mockContext)
 
     const read = await registeredTools.get("get_workspace_settings").execute({})
@@ -144,15 +144,15 @@ describe("generic WebMCP tools", () => {
 
   it("executes valid create_item and rejects invalid create_item without mutating", async () => {
     await registerWebMcp({
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
+      getActiveDoc: tincanban.getActiveDoc,
+      executeCommandAsync: tincanban.executeCommandAsync,
+      createWorkspaceAsync: tincanban.createWorkspaceAsync,
+      availableWorkspaces: tincanban.availableWorkspaces,
+      activeWorkspace: tincanban.activeWorkspace,
     }, mockContext)
 
     const createItem = registeredTools.get("create_item")
-    const doc = match.getActiveDoc()!
+    const doc = tincanban.getActiveDoc()!
     const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column"))!
     expect(col).toBeDefined()
 
@@ -161,14 +161,14 @@ describe("generic WebMCP tools", () => {
     await expect(createItem.execute({ title: "Valid Title" })).rejects.toThrow(/parentId is required/i)
 
     // Invariant: no item created on failure
-    const itemCountBefore = Object.values(match.getActiveDoc()!.entities).filter(isItem).length
+    const itemCountBefore = Object.values(tincanban.getActiveDoc()!.entities).filter(isItem).length
     expect(itemCountBefore).toBe(0)
 
     // 2. Valid input: creates item visibly
     const result = await createItem.execute({ parentId: col.id, title: "Architectural Review", body: "Review BDD dual-loop" })
     expect(result).toHaveProperty("created", true)
 
-    const docAfter = match.getActiveDoc()!
+    const docAfter = tincanban.getActiveDoc()!
     const items = Object.values(docAfter.entities).filter(isItem)
     expect(items.length).toBe(1)
     expect(items[0].title).toBe("Architectural Review")
@@ -176,14 +176,14 @@ describe("generic WebMCP tools", () => {
 
   it("executes move_entity and rename_entity with proper validation", async () => {
     await registerWebMcp({
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
+      getActiveDoc: tincanban.getActiveDoc,
+      executeCommandAsync: tincanban.executeCommandAsync,
+      createWorkspaceAsync: tincanban.createWorkspaceAsync,
+      availableWorkspaces: tincanban.availableWorkspaces,
+      activeWorkspace: tincanban.activeWorkspace,
     }, mockContext)
 
-    const doc = match.getActiveDoc()!
+    const doc = tincanban.getActiveDoc()!
     const cols = Object.values(doc.entities).filter((e) => hasEntityKind(e, "column"))
     const col1 = cols[0]
     const col2 = cols[1]
@@ -198,23 +198,23 @@ describe("generic WebMCP tools", () => {
     // Rename
     await expect(renameEntity.execute({ entityId: itemId, title: "" })).rejects.toThrow(/title is required/i)
     await renameEntity.execute({ entityId: itemId, title: "Renamed Item" })
-    expect(match.getActiveDoc()!.entities[itemId].title).toBe("Renamed Item")
+    expect(tincanban.getActiveDoc()!.entities[itemId].title).toBe("Renamed Item")
 
     // Move to col2
     await moveEntity.execute({ entityId: itemId, parentId: col2.id })
-    expect(match.getActiveDoc()!.entities[itemId].placement.parentId).toBe(col2.id)
+    expect(tincanban.getActiveDoc()!.entities[itemId].placement.parentId).toBe(col2.id)
   })
 
   it("archives an item and lists it through the same archive state", async () => {
     await registerWebMcp({
-      getActiveDoc: match.getActiveDoc,
-      executeCommandAsync: match.executeCommandAsync,
-      createWorkspaceAsync: match.createWorkspaceAsync,
-      availableWorkspaces: match.availableWorkspaces,
-      activeWorkspace: match.activeWorkspace,
+      getActiveDoc: tincanban.getActiveDoc,
+      executeCommandAsync: tincanban.executeCommandAsync,
+      createWorkspaceAsync: tincanban.createWorkspaceAsync,
+      availableWorkspaces: tincanban.availableWorkspaces,
+      activeWorkspace: tincanban.activeWorkspace,
     }, mockContext)
 
-    const doc = match.getActiveDoc()!
+    const doc = tincanban.getActiveDoc()!
     const col = Object.values(doc.entities).find((e) => hasEntityKind(e, "column"))!
     const createItem = registeredTools.get("create_item")
     const setArchived = registeredTools.get("set_item_archived")
@@ -224,7 +224,7 @@ describe("generic WebMCP tools", () => {
     const itemId = res.id
 
     await setArchived.execute({ itemId, archived: true })
-    expect(match.getActiveDoc()!.entities[itemId].archivedAt).toEqual(expect.any(String))
+    expect(tincanban.getActiveDoc()!.entities[itemId].archivedAt).toEqual(expect.any(String))
 
     const archived = await listArchived.execute({})
     expect(archived.some((item: any) => item.id === itemId)).toBe(true)

@@ -2,7 +2,7 @@ use std::{fs, io::Write, path::PathBuf, str::FromStr, time::Duration};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use iroh::{EndpointAddr, EndpointId};
-use match_lighthouse::{now_ms, MatchLighthouseState, MatchScopeStore};
+use tincanban_lighthouse::{now_ms, TincanbanLighthouseState, TincanbanScopeStore};
 use meta_mesh_core::{
     decode_workspace_set, parse_invitation, public_key_from_seed, public_key_id,
     sign_device_certificate, sign_json_envelope, verify_workspace_grant,
@@ -127,7 +127,7 @@ pub async fn join(raw_invite: &str, directory: PathBuf) -> Result<(), BoxError> 
     }
     let config = result?;
     println!(
-        "Lighthouse joined {} as {}. Start: match-lighthouse {}",
+        "Lighthouse joined {} as {}. Start: tincanban-lighthouse {}",
         config.workspace_id,
         config.device_id,
         directory.join("config.json").display(),
@@ -253,12 +253,12 @@ fn prepare_config(
     let workspace_set = URL_SAFE_NO_PAD.decode(received.snapshot)?;
     let entries = decode_workspace_set(&workspace_set, &[invite.workspace_id.clone()])?;
     let entry = &entries[0];
-    let mut state = MatchLighthouseState {
+    let mut state = TincanbanLighthouseState {
         document: URL_SAFE_NO_PAD.decode(&entry.bytes)?,
         authorization: entry
             .authorization
             .clone()
-            .ok_or("Missing Match write authorization")?,
+            .ok_or("Missing Tincanban write authorization")?,
         chat: entry
             .chat
             .clone()
@@ -283,7 +283,7 @@ fn prepare_config(
     if verified_local.role != role {
         return Err("Lighthouse grant and advertisement disagree".into());
     }
-    let mut store = MatchScopeStore::open(
+    let mut store = TincanbanScopeStore::open(
         invite.workspace_id.clone(),
         invite.issuer_person_id.clone(),
         directory.join("state.json"),
@@ -293,7 +293,7 @@ fn prepare_config(
     if authority.expected_current_owner.person_id != invite.issuer_person_id
         || authority.expected_current_owner.public_key != owner_public_key
     {
-        return Err("Match document owner differs from invitation issuer".into());
+        return Err("Tincanban document owner differs from invitation issuer".into());
     }
     let mut initial_peers = peers.clone();
     initial_peers.push(local_peer.clone());

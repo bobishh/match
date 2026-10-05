@@ -111,7 +111,7 @@ async function validateAuthorizedWorkspace(
   }
   const local = await mergeAuthorizationBase(id, remote);
   if (!validation.ok && (!local || local.formatVersion !== 3))
-    throw invalidWorkspaceReceived({ code: "unsupported_format", message: "Workspace owner must reopen this board in updated Match before sharing it." });
+    throw invalidWorkspaceReceived({ code: "unsupported_format", message: "Workspace owner must reopen this board in updated tincanban before sharing it." });
   const verified = await validateIncomingChangeAuthorizations(local, remote, authorization);
   return { remote, local, verified };
 }

@@ -9,7 +9,7 @@ import { meshTrace } from "../sync/meshTrace"
 export type ChatChange = { workspaceId: string; added: StoredChatMessage[]; remote: boolean; history: boolean; typing?: ChatRecord[] }
 export type ChatTyping = { personId: string; deviceId: string }
 const listeners = new Set<(event: ChatChange) => void>()
-const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("match-chat")
+const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("tincanban-chat")
 const typingTtlMs = 6_000
 const typingRecords = new Map<string, Map<string, { record: ChatRecord; receivedAt: number }>>()
 let readOwner: (workspaceId: string) => Promise<string> = async () => { throw new Error("Workspace unavailable") }
@@ -98,7 +98,7 @@ async function signed(workspaceId: string, kind: "chat-message" | "chat-profile"
 }
 
 async function exclusive<T>(workspaceId: string, action: () => Promise<T>): Promise<T> {
-  return navigator.locks.request(`match-chat-write:${workspaceId}`, action)
+  return navigator.locks.request(`tincanban-chat-write:${workspaceId}`, action)
 }
 
 export async function ensureChatProfile(workspaceId: string) {
@@ -172,7 +172,7 @@ function parseChatWire(value: unknown): ChatWire {
 }
 
 function rejectRecord(workspaceId: string, section: string, error: unknown): void {
-  console.warn("[match.chat]", JSON.stringify({
+  console.warn("[tincanban.chat]", JSON.stringify({
     event: "record.rejected", workspaceId, section,
     reason: error instanceof Error ? error.message : String(error),
   }))

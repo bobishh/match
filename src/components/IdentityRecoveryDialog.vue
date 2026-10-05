@@ -18,7 +18,7 @@ function downloadEnvelope(envelope: IdentityRecoveryEnvelope) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" }))
   const anchor = document.createElement("a")
   anchor.href = url
-  anchor.download = "match-identity-recovery.json"
+  anchor.download = "tincanban-identity-recovery.json"
   anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 2_000)
 }
@@ -49,7 +49,7 @@ async function restore() {
   <ModalLayer class="overlay-level-120" @close="emit('close')">
     <section class="dialog" role="dialog" aria-modal="true" aria-label="Identity recovery">
       <div class="dialog-head"><div><span class="eyebrow">Account recovery</span><h2>Back up or restore your identity</h2></div><button class="icon-button" type="button" aria-label="Close" @click="emit('close')">×</button></div>
-      <p class="dialog-copy">Your recovery file and words restore your Match identity, not workspace or board content. Keep both somewhere safe and separate.</p>
+      <p class="dialog-copy">Your recovery file and words restore your tincanban identity, not workspace or board content. Keep both somewhere safe and separate.</p>
       <section class="mesh-member-action">
         <h3>Create a backup</h3>
         <label>Recovery words <select v-model="security"><option value="better">12 words</option><option value="insane">24 words</option></select></label>

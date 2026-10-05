@@ -1,7 +1,7 @@
 import { expect, test } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
-test("Given newer local databases, when Match saves workspace and chat data, then it opens without downgrade errors", async ({ page }) => {
+test("Given newer local databases, when tincanban saves workspace and chat data, then it opens without downgrade errors", async ({ page }) => {
   await page.route("**/db-bootstrap", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>bootstrap</title>" }))
   await page.goto("/db-bootstrap")
   await page.evaluate(async () => {
@@ -15,8 +15,8 @@ test("Given newer local databases, when Match saves workspace and chat data, the
       request.onerror = () => reject(request.error)
     })
     await createVersionTwo("match", database => database.createObjectStore("workspace"))
-    await createVersionTwo("match-write-authorizations-v1", database => database.createObjectStore("records"))
-    await createVersionTwo("match-chat-v1", database => {
+    await createVersionTwo("tincanban-write-authorizations-v1", database => database.createObjectStore("records"))
+    await createVersionTwo("tincanban-chat-v1", database => {
       const messages = database.createObjectStore("messages", { keyPath: ["workspaceId", "id"] })
       messages.createIndex("by_workspace_order", ["workspaceId", "orderKey"], { unique: false })
       messages.createIndex("by_workspace", "workspaceId", { unique: false })
@@ -60,7 +60,7 @@ test("Given storage failure, when an item is saved, then failure stays visible a
   await page.getByRole("button", { name: /Add item to/ }).first().click()
   const form = page.getByRole("dialog", { name: "Item details" })
   await form.getByLabel("Title *").fill("Unsaved item")
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
 
   await form.getByRole("button", { name: "Save item" }).click()
 

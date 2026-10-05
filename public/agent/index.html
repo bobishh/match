@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Match is a local-first workspace board and item kernel with Automerge durability, scoped sync, and WebMCP tools." />
+    <meta name="description" content="tincanban is a local-first workspace board and item kernel with Automerge durability, scoped sync, and WebMCP tools." />
     <link rel="canonical" href="/agent/" />
-    <title>Match — agent guide</title>
-    <link rel="icon" href="/favicon.png" type="image/png" sizes="32x32" />
+    <title>tincanban — agent guide</title>
+    <link rel="icon" href="/favicon.png?v=6" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="stylesheet" href="/assets/site-foundation.css" />
     <style>
@@ -18,7 +18,7 @@
       code, .eyebrow, .route, .badge, .tool-name, .pipeline span { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
       .topbar { position: sticky; top: 0; z-index: 5; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; background: rgba(243, 240, 232, .96); }
       .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: var(--site-brand-size); font-weight: var(--site-brand-weight); letter-spacing: var(--site-brand-tracking); line-height: 1; text-decoration: none; }
-      .brand-mark { width: 18px; height: 18px; display: grid; place-items: center; border: 2px solid var(--ink); border-radius: 50%; color: transparent; background: var(--red); }
+      .brand-can { display: block; flex-shrink: 0; }
       main { width: min(1080px, 100%); margin: 0 auto; padding: clamp(34px, 7vw, 82px) clamp(16px, 4vw, 56px) 80px; }
       .hero { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 28px; align-items: end; margin-bottom: 34px; }
       .eyebrow { color: var(--blue); font-size: .68rem; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
@@ -52,14 +52,14 @@
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="/"><span class="brand-mark">M</span><span>MATCH</span></a>
+      <a class="brand" href="/"><img class="brand-can" src="/logo.svg?v=1" alt="" width="32" height="40" /><span>TINCANBAN</span></a>
     </header>
 
     <main>
       <div class="hero">
         <div>
           <span class="eyebrow">Agent surface · Workspace kernel</span>
-          <h1>Match agent guide</h1>
+          <h1>tincanban agent guide</h1>
           <p class="lede">Operate the same local-first workspace the user sees. Read stable IDs first, then mutate typed entities through WebMCP commands.</p>
         </div>
         <aside class="hero-card"><span class="eyebrow">Core rule</span><strong>Read schema.<br />Use IDs.</strong><p>Never infer columns or fields from a workspace title or preset.</p></aside>
@@ -67,7 +67,7 @@
 
       <section class="guide-card">
         <h2>Working model</h2>
-        <p>A device owns a local catalog of independent workspaces. Each workspace is one Automerge document containing its board schema, items, document templates, history, and collaboration metadata. WebMCP commands target the current workspace shown in Match; creating a workspace makes it current.</p>
+        <p>A device owns a local catalog of independent workspaces. Each workspace is one Automerge document containing its board schema, items, document templates, history, and collaboration metadata. WebMCP commands target the current workspace shown in tincanban; creating a workspace makes it current.</p>
         <div class="model-grid"><span>board</span><span>columns</span><span>fields</span><span>items</span><span>document templates</span><span>artifacts</span></div>
         <ul>
           <li>Every entity has a stable UUID. Titles are display text and may change.</li>
@@ -93,12 +93,12 @@
         <h2>Complete workspace settings</h2>
         <p><code>get_workspace_settings</code> returns <code>settings</code> plus <code>heads</code>. Settings contain <code>formatVersion</code>, <code>workspace.title</code>, the board title and item name, ordered columns, typed fields and select options, and <code>documentTemplates</code>. Templates belong to that workspace and describe documents generated for its items; they have no fixed CV/cover-letter kind enum.</p>
         <p>To change the complete configuration, edit the returned object and call <code>apply_workspace_settings</code> with those <code>heads</code> as <code>expectedHeads</code>. The apply is one validated CRDT transaction. Omitted columns, fields, and templates are soft-archived. Existing descendants and field values remain stored.</p>
-        <p class="note">Keep IDs returned by Match when editing. Omit an ID only when adding a column, field, field option, or document template. A field's <code>valueType</code> cannot change in place.</p>
+        <p class="note">Keep IDs returned by tincanban when editing. Omit an ID only when adding a column, field, field option, or document template. A field's <code>valueType</code> cannot change in place.</p>
       </section>
 
       <section class="guide-card">
         <h2>Generic WebMCP tools</h2>
-        <p>Match registers these tools when the browser exposes <code>document.modelContext</code> or <code>navigator.modelContext</code>.</p>
+        <p>tincanban registers these tools when the browser exposes <code>document.modelContext</code> or <code>navigator.modelContext</code>.</p>
         <h3 class="subhead">Workspace</h3>
         <div class="tool-grid">
           <article class="tool"><span class="tool-name">list_workspaces</span><p>List all local workspaces.</p></article>
@@ -141,7 +141,7 @@
           <li><strong>Share workspaces:</strong> Sync opens with the current workspace selected. Select one or more existing workspaces, then generate one invitation for that fixed set. The recipient keeps a separate person and device identity.</li>
           <li><strong>Sync all / Add my device:</strong> enrolls another device under the same personal identity and shares the personal workspace catalog after mutual code approval.</li>
           <li>Automerge changes sync incrementally while peer sessions are live. Workspace snapshots and trust state persist in IndexedDB.</li>
-          <li>A <code>.match</code> export carries workspace data, Automerge history, and public proofs. It excludes private signing keys, the personal root, and pairing secrets.</li>
+          <li>A <code>.tincanban</code> export carries workspace data, Automerge history, and public proofs. It excludes private signing keys, the personal root, and pairing secrets.</li>
         </ul>
       </section>
 
@@ -151,6 +151,6 @@
       </section>
     </main>
 
-    <footer><a href="/">Open Match board</a></footer>
+    <footer><a href="/">Open tincanban board</a></footer>
   </body>
 </html>

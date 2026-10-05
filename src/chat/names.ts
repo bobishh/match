@@ -1,5 +1,5 @@
 /**
- * Pure display name utilities for Match chat.
+ * Pure display name utilities for tincanban chat.
  * No Vue, persistence, or networking dependencies.
  */
 

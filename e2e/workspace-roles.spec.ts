@@ -34,7 +34,7 @@ for (const role of ["visitor", "editor"] as const) {
       await expect(guest.getByLabel(`Workspace role: ${role}`)).toBeVisible()
       if (role === "editor") {
         const structuralMove = await guest.evaluate(async () => {
-          const state = (await import("/src/state.ts")).useMatch()
+          const state = (await import("/src/state.ts")).useTincanban()
           const column = state.genericColumns.value[0]!
           try { await state.executeCommandAsync({ kind: "moveEntity", entityId: column.id, parentId: column.placement.parentId, beforeId: null }); return "allowed" }
           catch (error) { return String(error) }
@@ -67,11 +67,11 @@ for (const role of ["visitor", "editor"] as const) {
       await workspaces.getByRole("button", { name: "Close", exact: true }).last().click()
       await guest.getByRole("button", { name: "Sync", exact: true }).click()
       const guestSync = guest.getByRole("dialog", { name: "Device sync" })
-      await expect(guestSync.getByRole("button", { name: "Import .match" })).toHaveCount(0)
+      await expect(guestSync.getByRole("button", { name: "Import .tincanban" })).toHaveCount(0)
       await guestSync.getByRole("button", { name: "Close", exact: true }).first().click()
       const rejection = await guest.evaluate(async () => {
-        const { useMatch } = await import('/src/state.ts')
-        const state = useMatch()
+        const { useTincanban } = await import('/src/state.ts')
+        const state = useTincanban()
         try { await state.executeCommandAsync({ kind: 'renameWorkspace', title: 'editor renamed' }); return 'allowed' }
         catch (error) { return String(error) }
       })
@@ -111,10 +111,10 @@ test("Given a pending access request, when the owner declines, then no shared wo
   } finally { await context.close() }
 })
 
-test("Given another browser uses the owner's identity, when it opens an editor invite, then Match explains the identity conflict before approval", async ({ page, browser }) => {
+test("Given another browser uses the owner's identity, when it opens an editor invite, then tincanban explains the identity conflict before approval", async ({ page, browser }) => {
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
-  const ownerProfile = await page.evaluate(async () => (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))
+  const ownerProfile = await page.evaluate(async () => (await import("/src/localDb.ts")).readLocal("tincanban.local_profile.v1"))
   expect(ownerProfile).toBeTruthy()
   const host = page.getByRole("dialog", { name: "Device sync" })
   await host.getByRole("button", { name: "Add someone" }).click()
@@ -125,7 +125,7 @@ test("Given another browser uses the owner's identity, when it opens an editor i
     const guest = await context.newPage()
     await guest.goto("/")
     await expect(guest.getByLabel("Workspace role: owner")).toBeVisible()
-    await guest.evaluate(async profile => (await import("/src/localDb.ts")).writeLocal("match.local_profile.v1", profile), ownerProfile!)
+    await guest.evaluate(async profile => (await import("/src/localDb.ts")).writeLocal("tincanban.local_profile.v1", profile), ownerProfile!)
     await guest.goto(invite)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Accept and join" }).click()
@@ -146,7 +146,7 @@ test("Given snapshot preparation fails, when an editor is approved, then both de
   const invite = await host.getByLabel("Pairing link").inputValue()
 
   await page.evaluate(() => {
-    ;(window as Window & { __MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__MATCH_INJECT_SYNC_SNAPSHOT_FAILURE__ =
+    ;(window as Window & { __TINCANBAN_INJECT_SYNC_SNAPSHOT_FAILURE__?: string }).__TINCANBAN_INJECT_SYNC_SNAPSHOT_FAILURE__ =
       "E2E snapshot preparation failure"
   })
 

@@ -36,7 +36,7 @@ describe("mesh transport instance lease", () => {
     await first.release()
   })
 
-  it("Given the previous bundle still owns its legacy endpoint, when the new bundle starts, then it uses another instance slot", async () => {
+  it("Given an old Match tab is open, when tincanban starts with its own identity, then old transport locks do not consume its slots", async () => {
     const locks = new FakeLocks()
     let releaseLegacy!: () => void
     let markLegacyReady!: () => void
@@ -49,7 +49,7 @@ describe("mesh transport instance lease", () => {
     await legacyReady
 
     const upgraded = await acquireMeshInstanceLease({ locks })
-    expect(upgraded.instanceId).toBe("slot-1")
+    expect(upgraded.instanceId).toBe("slot-0")
 
     await upgraded.release()
     releaseLegacy()

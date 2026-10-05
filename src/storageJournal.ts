@@ -33,8 +33,8 @@ export type StoredWorkspaceSnapshot = {
   savedAt: string
 }
 
-const journalDatabaseName = "match-workspace-state"
-const legacyJournalDatabaseName = "match-workspace-journal-v1"
+const journalDatabaseName = "tincanban-workspace-state"
+const legacyJournalDatabaseName = "tincanban-workspace-journal-v1"
 const legacyMigrationMarkerId = "__meta__legacy-journal-migration-complete__"
 const journalStores = ["changes", "proofs", "receipts", "snapshots", "authorizations"] as const
 type JournalStoreName = typeof journalStores[number]
@@ -98,7 +98,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
   return legacyJournalDatabasePromise ??= (async () => {
     if (typeof indexedDB.databases === "function") {
       const queryStartedAt = Date.now()
-      console.info("[match.storage] legacy-enumeration-started")
+      console.info("[tincanban.storage] legacy-enumeration-started")
       let timeout: ReturnType<typeof setTimeout> | undefined
       let databases: IDBDatabaseInfo[]
       try {
@@ -113,7 +113,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
           }),
         ])
       } catch (error) {
-        console.info("[match.storage] legacy-enumeration-error", {
+        console.info("[tincanban.storage] legacy-enumeration-error", {
           name: error instanceof Error ? error.name : "UnknownError",
           elapsedMs: Date.now() - queryStartedAt,
         })
@@ -122,7 +122,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
         if (timeout) clearTimeout(timeout)
       }
       const legacyDatabase = databases.find(database => database.name === legacyJournalDatabaseName)
-      console.info("[match.storage] legacy-enumeration-complete", {
+      console.info("[tincanban.storage] legacy-enumeration-complete", {
         count: databases.length,
         exists: Boolean(legacyDatabase),
         version: legacyDatabase?.version,
@@ -131,7 +131,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
       const exists = legacyDatabase !== undefined
       if (!exists) return undefined
     } else {
-      console.info("[match.storage] legacy-existence-query-unavailable")
+      console.info("[tincanban.storage] legacy-existence-query-unavailable")
       const error = new Error("Legacy workspace storage could not be safely identified")
       error.name = "LegacyJournalEnumerationUnavailableError"
       throw error
@@ -139,7 +139,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
 
     return new Promise<IDBDatabase | undefined>((resolve, reject) => {
       const openStartedAt = Date.now()
-      console.info("[match.storage] legacy-open-started")
+      console.info("[tincanban.storage] legacy-open-started")
       const request = indexedDB.open(legacyJournalDatabaseName)
       let settled = false
       let vanishedAfterEnumeration = false
@@ -153,13 +153,13 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
         else resolve(database)
       }
       const openTimer = setTimeout(() => {
-        console.info("[match.storage] legacy-open-timeout", { elapsedMs: Date.now() - openStartedAt })
+        console.info("[tincanban.storage] legacy-open-timeout", { elapsedMs: Date.now() - openStartedAt })
         const error = new Error("Legacy workspace storage open did not complete")
         error.name = "LegacyJournalOpenTimeoutError"
         settle(error)
       }, 5000)
       request.onupgradeneeded = event => {
-        console.info("[match.storage] legacy-open-upgrade", {
+        console.info("[tincanban.storage] legacy-open-upgrade", {
           oldVersion: event.oldVersion,
           elapsedMs: Date.now() - openStartedAt,
         })
@@ -169,7 +169,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
         }
       }
       request.onsuccess = () => {
-        console.info("[match.storage] legacy-open-success", { elapsedMs: Date.now() - openStartedAt })
+        console.info("[tincanban.storage] legacy-open-success", { elapsedMs: Date.now() - openStartedAt })
         if (settled) { request.result.close(); return }
         request.result.onversionchange = () => {
           request.result.close()
@@ -178,7 +178,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
         settle(undefined, request.result)
       }
       request.onerror = () => {
-        console.info("[match.storage] legacy-open-error", {
+        console.info("[tincanban.storage] legacy-open-error", {
           name: request.error?.name ?? "UnknownError",
           elapsedMs: Date.now() - openStartedAt,
         })
@@ -190,7 +190,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
         else settle(request.error ?? new Error("Legacy workspace storage could not be opened"))
       }
       request.onblocked = () => {
-        console.info("[match.storage] legacy-open-blocked", { elapsedMs: Date.now() - openStartedAt })
+        console.info("[tincanban.storage] legacy-open-blocked", { elapsedMs: Date.now() - openStartedAt })
         const error = new Error("Legacy workspace storage is busy in another tab")
         error.name = "LegacyJournalUnavailableError"
         if (blockedTimer) clearTimeout(blockedTimer)

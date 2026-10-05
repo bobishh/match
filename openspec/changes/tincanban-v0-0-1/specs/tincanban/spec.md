@@ -44,12 +44,12 @@ The system SHALL keep the board usable in portrait on a 390-by-844 CSS-pixel vie
 
 ### Requirement: Legible desktop controls
 
-The system SHALL keep MATCH branding and all filter controls readable on a 1024 CSS-pixel-wide desktop viewport.
+The system SHALL keep TINCANBAN branding and all filter controls readable on a 1024 CSS-pixel-wide desktop viewport.
 
 #### Scenario: Mid-size desktop shows complete controls
 
 - **WHEN** the app opens on a 1024 CSS-pixel-wide viewport
-- **THEN** the brand reads `MATCH`
+- **THEN** the brand reads `TINCANBAN`
 - **AND** search and each filter select remain visible without clipping or page-level horizontal overflow
 - **AND** each filter label and control are laid out as one field rather than squeezed into adjacent controls.
 
@@ -131,7 +131,7 @@ The system SHALL persist leads and documents on the current device without a bac
 #### Scenario: User exports workspace
 
 - **WHEN** the user invokes the visible workspace export action
-- **THEN** the app downloads a `.match` bundle containing a manifest, readable leads/documents JSON, and Automerge state.
+- **THEN** the app downloads a `.tincanban` bundle containing a manifest, readable leads/documents JSON, and Automerge state.
 
 ### Requirement: Local merge transport
 
@@ -146,7 +146,7 @@ The system SHALL merge same-origin tab changes through Automerge without choosin
 
 #### Scenario: A stale tab catches up from local storage
 
-- **GIVEN** two Match tabs share one browser profile
+- **GIVEN** two tincanban tabs share one browser profile
 - **WHEN** one tab persists a workspace change, including a change received from a paired device
 - **THEN** the other tab reads the latest Automerge document from IndexedDB and merges it automatically
 - **AND** returning focus to a background tab triggers the same IndexedDB reconciliation

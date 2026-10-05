@@ -1,6 +1,6 @@
 ## Why
 
-Match currently couples one local workspace to a fixed job-search pipeline. A second use case requires changing application code, and device pairing cannot distinguish another device of the same person from another person joining one workspace. The next foundation must support reusable boards, preserved relationships, complete personal replication, and scoped collaboration without adding a second state or synchronization engine.
+tincanban currently couples one local workspace to a fixed job-search pipeline. A second use case requires changing application code, and device pairing cannot distinguish another device of the same person from another person joining one workspace. The next foundation must support reusable boards, preserved relationships, complete personal replication, and scoped collaboration without adding a second state or synchronization engine.
 
 ## What Changes
 
@@ -8,7 +8,7 @@ Match currently couples one local workspace to a fixed job-search pipeline. A se
 - **BREAKING** Use reversible `archivedAt` state and inherited visibility. Preserve all relationships and historical changes.
 - Introduce a private personal-root document containing public identity, registered devices, and workspace references. Each workspace is a separate Automerge document and sharing boundary.
 - Route UI and WebMCP writes through one validated, durable transaction API. Automerge remains the canonical history, materialized state, and merge engine.
-- Add safe legacy migration and versioned `.match` workspace bundles. Preserve existing IDs, documents, writing templates, artifacts, and old Automerge history.
+- Add safe legacy migration and versioned `.tincanban` workspace bundles. Preserve existing IDs, documents, writing templates, artifacts, and old Automerge history.
 - **BREAKING** Split Sync all / Add my device from Sync workspace / Invite person. Invitations have distinct types and scopes; successful enrollment persists across reloads.
 - Authenticate person/device attribution, transmit incremental changes, and keep files addressable separately from document history.
 - Deliver a native Vue generic board, column editing, nested items, recovery views, and generic commands. No declarative interface language is included.
@@ -27,7 +27,7 @@ Match currently couples one local workspace to a fixed job-search pipeline. A se
 
 ### Modified Capabilities
 
-None are archived under `openspec/specs` yet. The pending `match-v0-0-1` change is the legacy baseline. On implementation/archive, reconcile its overlapping requirements using the precedence table in `design.md`; do not silently retain contradictory fixed-status or ephemeral-pairing requirements.
+None are archived under `openspec/specs` yet. The pending `tincanban-v0-0-1` change is the legacy baseline. On implementation/archive, reconcile its overlapping requirements using the precedence table in `design.md`; do not silently retain contradictory fixed-status or ephemeral-pairing requirements.
 
 ## Non-Goals
 

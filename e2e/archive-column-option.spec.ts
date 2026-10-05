@@ -39,7 +39,7 @@ test("Given a blank board, when Archive column is enabled and item archived, the
 test("Given archive column save fails, when checked column is added, then draft remains and board has no Archive", async ({ page }) => {
   await createBlankBoard(page)
   await page.getByRole("button", { name: "Edit board" }).click()
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await page.getByRole("checkbox", { name: "Archive column" }).check()
   await page.getByRole("button", { name: "+ Add column" }).click()
   await expect(page.getByRole("checkbox", { name: "Archive column" })).toBeChecked()

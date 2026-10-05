@@ -3,7 +3,7 @@ import { expect, test, type Page } from "./support/coverage"
 async function seedFormatTwoWorkspace(page: Page, malformed = false) {
   await page.goto("/")
   return page.evaluate(async broken => {
-    const { useMatch } = await import("/src/state.ts")
+    const { useTincanban } = await import("/src/state.ts")
     const { createWorkspaceDoc } = await import("/src/domain/seeds.ts")
     const { recordGenesisAuthority } = await import("/src/sync/changeAuthorization.ts")
     const { defaultStorage } = await import("/src/storage.ts")
@@ -13,9 +13,9 @@ async function seedFormatTwoWorkspace(page: Page, malformed = false) {
     await initializeAutomerge()
     const { default: wasmUrl } = await import("/@id/@automerge/automerge/automerge.wasm?url")
     await Automerge.initializeWasm(wasmUrl)
-    const match = useMatch()
-    await match.whenReady()
-    const profile = match.getCurrentProfile()!
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    const profile = tincanban.getCurrentProfile()!
     const old = createWorkspaceDoc(crypto.randomUUID(), "Older board", profile.identity.personId, "blank") as unknown as Record<string, any>
     old.formatVersion = 2
     old.deleted = false
@@ -38,7 +38,7 @@ async function seedFormatTwoWorkspace(page: Page, malformed = false) {
     await recordGenesisAuthority(doc as never, profile)
     await defaultStorage.saveSnapshot(old.id, doc as never, Automerge.save(doc))
     await defaultStorage.registerWorkspace(old.id, old.title)
-    await writeLocal("match.active_workspace_id", old.id)
+    await writeLocal("tincanban.active_workspace_id", old.id)
     return old.id as string
   }, malformed)
 }
@@ -49,8 +49,8 @@ test("Given an older signed board, when owner reloads and invites a visitor, the
   await page.reload()
   await expect(page.getByRole("button", { name: "Open Old card" })).toBeVisible()
   const format = await page.evaluate(async () => {
-    const { useMatch } = await import("/src/state.ts")
-    return useMatch().getActiveDoc()?.formatVersion
+    const { useTincanban } = await import("/src/state.ts")
+    return useTincanban().getActiveDoc()?.formatVersion
   })
   expect(format).toBe(3)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
@@ -70,8 +70,8 @@ test("Given an older signed board, when owner reloads and invites a visitor, the
     await dialog.getByRole("button", { name: "Close", exact: true }).first().click()
     await expect(guest.getByRole("button", { name: "Open Old card" })).toBeVisible()
     expect(await guest.evaluate(async () => {
-      const { useMatch } = await import("/src/state.ts")
-      return useMatch().getActiveDoc()?.id
+      const { useTincanban } = await import("/src/state.ts")
+      return useTincanban().getActiveDoc()?.id
     })).toBe(id)
   } finally { await context.close() }
 })

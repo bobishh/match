@@ -3,8 +3,8 @@ import { approveLighthouseLogin, prepareLighthouseLogin } from "../sync/lighthou
 export type LighthouseLoginApproval = {
   keeperName: string
   keeperOrigin: string
-  matchName: string
-  matchPersonId: string
+  tincanbanName: string
+  tincanbanPersonId: string
   approve(): Promise<string>
 }
 
@@ -13,8 +13,8 @@ export async function prepareLighthouseLoginApproval(origin: string, challengeId
   return {
     keeperName: request.discovery.displayName,
     keeperOrigin: request.discovery.origin,
-    matchName: request.profile.identity.displayName,
-    matchPersonId: request.profile.identity.personId,
+    tincanbanName: request.profile.identity.displayName,
+    tincanbanPersonId: request.profile.identity.personId,
     approve: () => approveLighthouseLogin(request),
   }
 }

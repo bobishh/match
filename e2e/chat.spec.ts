@@ -80,7 +80,7 @@ test("Given paired workspaces, when matching names and messages sync, then both 
       const statePath = "/src/state.ts"
       const service = await import(/* @vite-ignore */ path)
       const state = await import(/* @vite-ignore */ statePath)
-      await service.sendChatMessage(state.useMatch().activeWorkspace.id, "Background message")
+      await service.sendChatMessage(state.useTincanban().activeWorkspace.id, "Background message")
     })
     await expect(page.locator(".chat-toast")).toContainText("Background message", { timeout: 15_000 })
     await page.getByRole("button", { name: "Dismiss chat notification" }).click()
@@ -88,13 +88,13 @@ test("Given paired workspaces, when matching names and messages sync, then both 
       const path = "/src/chat/service.ts"
       const statePath = "/src/state.ts"
       const state = await import(/* @vite-ignore */ statePath)
-      return (await import(/* @vite-ignore */ path)).exportChat(state.useMatch().activeWorkspace.id)
+      return (await import(/* @vite-ignore */ path)).exportChat(state.useTincanban().activeWorkspace.id)
     })
     await page.evaluate(async wire => {
       const path = "/src/chat/service.ts"
       const statePath = "/src/state.ts"
       const state = await import(/* @vite-ignore */ statePath)
-      await (await import(/* @vite-ignore */ path)).receiveChat(state.useMatch().activeWorkspace.id, wire, false)
+      await (await import(/* @vite-ignore */ path)).receiveChat(state.useTincanban().activeWorkspace.id, wire, false)
     }, replay)
     await expect(page.locator(".chat-toast")).toHaveCount(0)
     await openChat(page)

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, shallowRef } from "vue"
-import MatchPageLayout from "./MatchPageLayout.vue"
-import MatchHeading from "./MatchHeading.vue"
+import TincanbanPageLayout from "./TincanbanPageLayout.vue"
+import TincanbanHeading from "./TincanbanHeading.vue"
+import BrandCan from "./BrandCan.vue"
 import { prepareLighthouseLoginApproval, type LighthouseLoginApproval } from "../app/lighthouseLogin"
 
 const request = shallowRef<LighthouseLoginApproval | null>(null)
@@ -45,22 +46,23 @@ onMounted(() => { void loadRequest() })
 </script>
 
 <template>
-  <MatchPageLayout class="lighthouse-login" aria-labelledby="login-title" :busy="loading || submitting">
+  <TincanbanPageLayout class="lighthouse-login" aria-labelledby="login-title" :busy="loading || submitting">
     <template #header>
       <div class="brand">
-        <div><MatchHeading label="Identity approval" uppercase /></div>
+        <BrandCan />
+        <div><TincanbanHeading label="Identity approval" uppercase /></div>
       </div>
     </template>
     <section class="identity-login-content">
       <article v-if="loading" class="identity-login-card" role="status">Checking signed keeper request…</article>
       <article v-else-if="request" class="identity-login-card">
         <p class="eyebrow">Review before signing</p>
-        <h2 id="login-title">Sign in with your Match identity?</h2>
+        <h2 id="login-title">Sign in with your tincanban identity?</h2>
         <dl class="identity-review">
           <div><dt>Lighthouse</dt><dd>{{ request.keeperName }}</dd></div>
           <div><dt>Keeper address</dt><dd>{{ request.keeperOrigin }}</dd></div>
-          <div><dt>Match identity</dt><dd>{{ request.matchName }}</dd></div>
-          <div><dt>Person ID</dt><dd>{{ request.matchPersonId }}</dd></div>
+          <div><dt>tincanban identity</dt><dd>{{ request.tincanbanName }}</dd></div>
+          <div><dt>Person ID</dt><dd>{{ request.tincanbanPersonId }}</dd></div>
         </dl>
         <p class="section-copy">Approval signs this one-time sign-in request. It does not grant keeper access to your boards.</p>
         <div class="dialog-actions">
@@ -75,7 +77,7 @@ onMounted(() => { void loadRequest() })
       </article>
       <p v-if="error && request" class="sync-error" role="alert">{{ error }}</p>
     </section>
-  </MatchPageLayout>
+  </TincanbanPageLayout>
 </template>
 
 <style scoped>

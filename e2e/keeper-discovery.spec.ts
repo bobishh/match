@@ -39,7 +39,7 @@ function testIdentity() {
   }
 }
 
-test("Given an owned board, when a Lighthouse origin is discovered, then Match shows identity, capabilities and pending-only boundary", async ({ page }) => {
+test("Given an owned board, when a Lighthouse origin is discovered, then tincanban shows identity, capabilities and pending-only boundary", async ({ page }) => {
   await page.route("http://127.0.0.1:8080/.well-known/mesh-lighthouse", route => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
@@ -65,7 +65,7 @@ test("Given an owned board, when a Lighthouse origin is discovered, then Match s
   await expect(dialog.getByText("Connected", { exact: true })).toHaveCount(0)
 })
 
-test("Given discovery reports another origin, when Match checks it, then it rejects identity redirection", async ({ page }) => {
+test("Given discovery reports another origin, when tincanban checks it, then it rejects identity redirection", async ({ page }) => {
   await page.route("http://127.0.0.1:8080/.well-known/mesh-lighthouse", route => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({ protocolVersions: [1], service: { personId: "keeper-person", publicKey: "key", deviceId: "device", certificates: [] }, displayName: "Wrong origin", capabilities: {}, publicOrigin: "https://other.example", managementPath: "/admin" }),
@@ -80,8 +80,8 @@ test("Given discovery reports another origin, when Match checks it, then it reje
   await expect(dialog.getByRole("heading", { name: "Wrong origin" })).toHaveCount(0)
 })
 
-test("Given a compatible discovered keeper, when the owner starts a pairing, then Match stays pending until both approvals", async ({ page }) => {
-  const origin = `http://127.0.0.1:${process.env.MATCH_E2E_PORT ?? "4244"}`
+test("Given a compatible discovered keeper, when the owner starts a pairing, then tincanban stays pending until both approvals", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()
   let transcriptHash = ""
   let nonce = ""

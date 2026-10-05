@@ -69,7 +69,7 @@ async function targetDocumentReceives(page: Page, title: string) {
 async function discardTransportState(page: Page) {
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("match-peer-catalog-v1")
+      const request = indexedDB.open("tincanban-peer-catalog-v1")
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })
@@ -198,10 +198,10 @@ test("Given signed workspace authority, when transport state disappears, then ow
     await expect(guest.getByLabel("Mesh empty")).toBeVisible()
 
     await guest.evaluate(async () => {
-      const workspaceId = await (await import("/src/localDb.ts")).readLocal("match.active_workspace_id")
+      const workspaceId = await (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id")
       if (!workspaceId) throw new Error("Active workspace missing")
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("match-peer-catalog-v1")
+        const request = indexedDB.open("tincanban-peer-catalog-v1")
         request.onsuccess = () => resolve(request.result)
         request.onerror = () => reject(request.error)
       })
@@ -233,13 +233,13 @@ test("Given a paired editor, when the invitation tab reloads repeatedly, then tr
   try {
     await Promise.all([page.goto("/"), guest.goto("/")])
     const invite = await pairWorkspace(page, guest)
-    const identity = await guest.evaluate(async () => JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)
+    const identity = await guest.evaluate(async () => JSON.parse((await (await import("/src/localDb.ts")).readLocal("tincanban.local_profile.v1"))!).identity.personId)
     for (let i = 0; i < 2; i++) {
       await guest.reload()
       await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
       await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
       await expect(guest.getByRole("dialog", { name: "Device sync" })).toHaveCount(0)
-      expect(await guest.evaluate(async () => JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)).toBe(identity)
+      expect(await guest.evaluate(async () => JSON.parse((await (await import("/src/localDb.ts")).readLocal("tincanban.local_profile.v1"))!).identity.personId)).toBe(identity)
       await addLead(guest, `Reload ${i}`)
       await expect(page.getByRole("button", { name: `Open Reload ${i} — Engineer` })).toBeVisible({ timeout: 20_000 })
       await addLead(page, `Host after reload ${i}`)
@@ -306,7 +306,7 @@ test("Given a paired editor, when its actual Iroh node closes unexpectedly, then
     await Promise.all([captureRealIrohNodes(host), captureRealIrohNodes(guest)])
     await Promise.all([host.goto("/"), guest.goto("/")])
     await pairWorkspace(host, guest)
-    await guest.evaluate(() => { (window as Window & { __MATCH_RECOVERY_SENTINEL__?: string }).__MATCH_RECOVERY_SENTINEL__ = "still-running" })
+    await guest.evaluate(() => { (window as Window & { __TINCANBAN_RECOVERY_SENTINEL__?: string }).__TINCANBAN_RECOVERY_SENTINEL__ = "still-running" })
     const ownershipBeforeClose = await realIrohNodeOwnership(guest)
     expect(ownershipBeforeClose.created).toBeGreaterThan(0)
     const before = await guest.evaluate(async () => {
@@ -323,7 +323,7 @@ test("Given a paired editor, when its actual Iroh node closes unexpectedly, then
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
     await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
     expect(await guest.evaluate(() => window.location.href)).toBe(before.href)
-    expect(await guest.evaluate(() => (window as Window & { __MATCH_RECOVERY_SENTINEL__?: string }).__MATCH_RECOVERY_SENTINEL__)).toBe("still-running")
+    expect(await guest.evaluate(() => (window as Window & { __TINCANBAN_RECOVERY_SENTINEL__?: string }).__TINCANBAN_RECOVERY_SENTINEL__)).toBe("still-running")
 
     await addLead(host, "After actual node recovery")
     await expect(guest.getByRole("button", { name: "Open After actual node recovery — Engineer" })).toBeVisible({ timeout: 30_000 })
@@ -355,16 +355,16 @@ test("Given a paired editor, when live receive persistence fails, then no saved 
     await pairWorkspace(host, guest)
     await guest.waitForTimeout(1_000)
     await guest.evaluate(() => {
-      window.__MATCH_E2E_DOCUMENT_RECEIVES__ = []
+      window.__TINCANBAN_E2E_DOCUMENT_RECEIVES__ = []
     })
-    const workspaceId = await guest.evaluate(async () => (await (await import("/src/localDb.ts")).readLocal("match.active_workspace_id"))!)
+    const workspaceId = await guest.evaluate(async () => (await (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id"))!)
     const journalBefore = await journalChangeIds(guest, workspaceId)
     await Promise.all([host, guest].map(target => target.evaluate(async () => {
       const { clearMeshTrace } = await import("/src/sync/meshTrace.ts")
       clearMeshTrace()
     })))
 
-    await guest.evaluate(() => { window.__MATCH_INJECT_STORAGE_FAILURE__ = true })
+    await guest.evaluate(() => { window.__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
     await addLead(host, "Replay after receive failure")
     // The same receive can arrive on an incoming stream or as a document
     // response. Observe the target persistence attempt, not either path's log.
@@ -378,7 +378,7 @@ test("Given a paired editor, when live receive persistence fails, then no saved 
     expect(failedAttempts.every(attempt => attempt.failed && !attempt.persisted && !attempt.responseSent)).toBe(true)
 
     await closeLatestRealIrohNode(guest)
-    await guest.evaluate(() => { window.__MATCH_INJECT_STORAGE_FAILURE__ = false })
+    await guest.evaluate(() => { window.__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
     await expect(host.getByLabel("Mesh connected")).toBeVisible({ timeout: 40_000 })
     await expect(guest.getByRole("button", { name: "Open Replay after receive failure — Engineer" })).toBeVisible({ timeout: 40_000 })
@@ -413,7 +413,7 @@ test("Given two tabs for one editor device, when their real Iroh nodes disconnec
     await expect(secondEditor.getByLabel("Mesh connected")).toBeVisible({ timeout: 35_000 })
     await expect(secondEditor.getByLabel("Workspace role: editor")).toBeVisible()
     const people = await Promise.all([host, editor, secondEditor].map(page => page.evaluate(async () =>
-      JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)))
+      JSON.parse((await (await import("/src/localDb.ts")).readLocal("tincanban.local_profile.v1"))!).identity.personId)))
     expect(people[1]).toBe(people[2])
 
     for (const [cycle, target] of [editor, secondEditor, editor, secondEditor].entries()) {
@@ -441,7 +441,7 @@ test("Given two tabs for one editor device, when their real Iroh nodes disconnec
       await expect(host.getByLabel("Workspace role: owner")).toBeVisible()
       await Promise.all([editor, secondEditor].map(page => expect(page.getByLabel("Workspace role: editor")).toBeVisible()))
       expect(await Promise.all([host, editor, secondEditor].map(page => page.evaluate(async () =>
-        JSON.parse((await (await import("/src/localDb.ts")).readLocal("match.local_profile.v1"))!).identity.personId)))).toEqual(people)
+        JSON.parse((await (await import("/src/localDb.ts")).readLocal("tincanban.local_profile.v1"))!).identity.personId)))).toEqual(people)
       const sessions = await target.evaluate(async () => {
         const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
         const trace = meshTraceSnapshot()
@@ -496,12 +496,12 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
     await expect.poll(async () => (await meshResourceCounts(guest)).heartbeats, { timeout: 20_000 }).toBeGreaterThan(0)
 
     const before = await Promise.all([host, guest].map((target, index) => target.evaluate(async sentinel => {
-      const current = window as Window & { __MATCH_RECONNECT_SENTINEL__?: string }
-      current.__MATCH_RECONNECT_SENTINEL__ = sentinel
+      const current = window as Window & { __TINCANBAN_RECONNECT_SENTINEL__?: string }
+      current.__TINCANBAN_RECONNECT_SENTINEL__ = sentinel
       const { readLocal } = await import("/src/localDb.ts")
-      const profile = JSON.parse((await readLocal("match.local_profile.v1"))!) as { identity: { personId: string } }
-      const { useMatch } = await import("/src/state.ts")
-      const workspaceId = useMatch().getActiveDoc()!.id
+      const profile = JSON.parse((await readLocal("tincanban.local_profile.v1"))!) as { identity: { personId: string } }
+      const { useTincanban } = await import("/src/state.ts")
+      const workspaceId = useTincanban().getActiveDoc()!.id
       const { meshTraceSnapshot, clearMeshTrace } = await import("/src/sync/meshTrace.ts")
       const session = meshTraceSnapshot().findLast(event => event.event === "session.started")
       clearMeshTrace()
@@ -511,7 +511,7 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
     expect(before[1].connectionId).toEqual(expect.any(String))
     const guestJournalBefore = await journalChangeIds(guest, before[1].workspaceId)
 
-    // Chromium's network emulation emits the production offline event. Match's
+    // Chromium's network emulation emits the production offline event. tincanban's
     // handler closes the real Iroh session even when WebRTC itself stays viable.
     await guestContext.setOffline(true)
     await expect(guest.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
@@ -531,11 +531,11 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
     await expect(guest.getByRole("button", { name: "Open Host queued remotely — Engineer" })).toBeVisible({ timeout: 30_000 })
 
     const after = await Promise.all([host, guest].map(target => target.evaluate(async () => {
-      const current = window as Window & { __MATCH_RECONNECT_SENTINEL__?: string }
+      const current = window as Window & { __TINCANBAN_RECONNECT_SENTINEL__?: string }
       const { readLocal } = await import("/src/localDb.ts")
-      const profile = JSON.parse((await readLocal("match.local_profile.v1"))!) as { identity: { personId: string } }
+      const profile = JSON.parse((await readLocal("tincanban.local_profile.v1"))!) as { identity: { personId: string } }
       const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
-      return { sentinel: current.__MATCH_RECONNECT_SENTINEL__, personId: profile.identity.personId,
+      return { sentinel: current.__TINCANBAN_RECONNECT_SENTINEL__, personId: profile.identity.personId,
         trace: meshTraceSnapshot() }
     })))
     expect(after.map(value => value.sentinel)).toEqual(before.map(value => value.sentinel))
@@ -549,7 +549,7 @@ test("Given a paired editor goes offline, when both sides edit and it comes onli
     expect(after[1].trace.some(event => event.event === "node.shutdown"), JSON.stringify(after[1].trace)).toBe(false)
     expect(after[1].trace.some(event => event.event === "run.start"), JSON.stringify(after[1].trace)).toBe(false)
 
-    // Match currently replays persisted Automerge state; it does not drain a
+    // tincanban currently replays persisted Automerge state; it does not drain a
     // separate outbox. The committed offline change therefore remains journaled.
     const guestJournalAfter = await journalChangeIds(guest, before[1].workspaceId)
     expect(guestJournalAfter).toEqual(guestJournalOffline)
@@ -873,7 +873,7 @@ test("Given sibling tabs on both devices, when mesh reconnects concurrently, the
   const guest = await context.newPage()
   const messages: string[] = []
   const observe = (target: Page) => target.on("console", message => {
-    if (message.text().includes("[match.mesh]")) messages.push(message.text())
+    if (message.text().includes("[tincanban.mesh]")) messages.push(message.text())
   })
   observe(page); observe(guest)
   try {
@@ -909,7 +909,7 @@ test("Given an editor has an unsigned change, when sync rejects it, then the cha
       const state = await import("/src/state.ts")
       const storage = await import("/src/storage.ts")
       const A = await import("/@id/@automerge/automerge/slim")
-      const doc = state.useMatch().getActiveDoc()!
+      const doc = state.useTincanban().getActiveDoc()!
       const unsigned = A.change(A.clone(doc), {message:"Regression unsigned edit"}, (draft: any) => { draft.title = "Untrusted title" })
       await storage.defaultStorage.saveSnapshot(doc.id, unsigned, A.save(unsigned))
     })
@@ -956,9 +956,9 @@ test("Given chat history exceeds one control frame, when paired peers reconnect,
     await page.goto("/")
     await ensureJobSearchWorkspace(page)
     const before = await page.evaluate(async () => {
-      const { useMatch } = await import("/src/state.ts")
+      const { useTincanban } = await import("/src/state.ts")
       const { sendChatMessage, exportChat, loadChat } = await import("/src/chat/service.ts")
-      const id = useMatch().getActiveDoc()!.id
+      const id = useTincanban().getActiveDoc()!.id
       for (let i = 0; i < 40; i++) await sendChatMessage(id, `${i}: ${"x".repeat(7500)}`)
       const exported = await exportChat(id)
       return { id, size: new TextEncoder().encode(JSON.stringify(exported)).length,
@@ -968,11 +968,11 @@ test("Given chat history exceeds one control frame, when paired peers reconnect,
     expect(before.count).toBe(40)
     await guest.goto("/")
     await pairWorkspace(page, guest)
-    expect(await page.evaluate(async () => (await import("/src/state.ts")).useMatch().getActiveDoc()!.id)).toBe(before.id)
+    expect(await page.evaluate(async () => (await import("/src/state.ts")).useTincanban().getActiveDoc()!.id)).toBe(before.id)
     const chatCount = () => guest.evaluate(async () => {
-      const { useMatch } = await import("/src/state.ts")
+      const { useTincanban } = await import("/src/state.ts")
       const { loadChat } = await import("/src/chat/service.ts")
-      return (await loadChat(useMatch().getActiveDoc()!.id)).messages.length
+      return (await loadChat(useTincanban().getActiveDoc()!.id)).messages.length
     })
     await expect.poll(chatCount, { timeout: 20_000 }).toBe(40)
     await guest.reload()

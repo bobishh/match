@@ -2,7 +2,7 @@ import { computed, ref, watch } from "vue"
 import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, exportDocumentAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
-import { useMatch } from "../state"
+import { useTincanban } from "../state"
 import type { ArtifactKind } from "../types"
 import { type Column, type Item, type WorkspaceDocumentV2 } from "../domain/model"
 import { configureChat, exportChat, receiveChat, subscribeChat } from "../chat/service"
@@ -20,11 +20,11 @@ import { workspaceBlobDescriptor, workspaceChatRoomId } from "./workspaceMetadat
 type ArchiveUndo = { workspaceId: string; itemId: string; title: string }
 
 export function useAppCore() {
-  const match = useMatch()
+  const tincanban = useTincanban()
   const ui = useAppUiState()
-  const collaboration = useAppCollaboration(match, ui)
+  const collaboration = useAppCollaboration(tincanban, ui)
   const drafts = useAppDrafts()
-  return { match, ...ui, ...collaboration, ...drafts }
+  return { tincanban, ...ui, ...collaboration, ...drafts }
 }
 
 function useAppUiState() {
@@ -88,61 +88,61 @@ function useAppDrafts() {
   return { artifactDraft }
 }
 
-function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<typeof useAppUiState>) {
+function useAppCollaboration(tincanban: ReturnType<typeof useTincanban>, ui: ReturnType<typeof useAppUiState>) {
   configureChat(
-    async id => (await match.readWorkspaceDoc(id)).ownerPersonId,
-    async id => workspaceChatRoomId(await match.readWorkspaceDoc(id)),
+    async id => (await tincanban.readWorkspaceDoc(id)).ownerPersonId,
+    async id => workspaceChatRoomId(await tincanban.readWorkspaceDoc(id)),
   )
-  const chatWorkspaceId = computed(() => match.ready.value ? match.activeWorkspace.id : "")
-  const chatOwnerId = computed(() => { void match.docVersion.value; return match.getActiveDoc()?.ownerPersonId ?? "" })
-  const identityName = computed(() => { void match.docVersion.value; return match.getCurrentProfile()?.identity.displayName ?? "" })
+  const chatWorkspaceId = computed(() => tincanban.ready.value ? tincanban.activeWorkspace.id : "")
+  const chatOwnerId = computed(() => { void tincanban.docVersion.value; return tincanban.getActiveDoc()?.ownerPersonId ?? "" })
+  const identityName = computed(() => { void tincanban.docVersion.value; return tincanban.getCurrentProfile()?.identity.displayName ?? "" })
   const chat = useWorkspaceChat(chatWorkspaceId, chatOwnerId, identityName)
   const sync = useDeviceSync({
     displayName: () => identityName.value,
-    identityChanged: match.refreshIdentity,
+    identityChanged: tincanban.refreshIdentity,
     workspace: {
-      subscribe: listener => subscribeWorkspaceAndChat(match.subscribeLocalChanges, listener),
-      subscribeWorkspace: listener => subscribeWorkspaceAndChatScoped(match.subscribeLocalChanges, listener),
+      subscribe: listener => subscribeWorkspaceAndChat(tincanban.subscribeLocalChanges, listener),
+      subscribeWorkspace: listener => subscribeWorkspaceAndChatScoped(tincanban.subscribeLocalChanges, listener),
     },
     workspaceStore: {
-      read: id => timedWorkspaceStoreStage("read", id, () => match.readWorkspaceBytes(id)),
+      read: id => timedWorkspaceStoreStage("read", id, () => tincanban.readWorkspaceBytes(id)),
       validate: (id, bytes, authorization) => timedWorkspaceStoreStage("validate", id, async () => {
-        await match.validateAuthorizedWorkspace(id, bytes, authorization)
+        await tincanban.validateAuthorizedWorkspace(id, bytes, authorization)
       }),
       merge: (id, bytes, authorization) => timedWorkspaceStoreStage("merge", id, () =>
-        match.mergeAuthorizedWorkspace(id, bytes, authorization)),
+        tincanban.mergeAuthorizedWorkspace(id, bytes, authorization)),
       readAuthorization: (bytes, id) => timedWorkspaceStoreStage("read-authorization", id ?? "unknown", () =>
         // Proofs and authority are read fresh; genesis ownership is already in the local document.
-        id ? match.readWorkspaceDoc(id).then(doc => exportDocumentAuthorizationBundle(doc)) : exportAuthorizationBundle(bytes)),
-      activate: match.switchWorkspace,
+        id ? tincanban.readWorkspaceDoc(id).then(doc => exportDocumentAuthorizationBundle(doc)) : exportAuthorizationBundle(bytes)),
+      activate: tincanban.switchWorkspace,
       readChat: exportChat,
       mergeChat: receiveChat,
       blob: {
-        resolve: async (workspaceId, blobId) => workspaceBlobDescriptor(await match.readWorkspaceDoc(workspaceId), blobId),
+        resolve: async (workspaceId, blobId) => workspaceBlobDescriptor(await tincanban.readWorkspaceDoc(workspaceId), blobId),
         read: readStoredAttachment,
         write: writeStoredAttachment,
       },
     },
     origin: () => window.location.origin,
-    availableWorkspaces: match.availableWorkspaces,
-    activeWorkspaceId: () => match.activeWorkspace.id || "default",
+    availableWorkspaces: tincanban.availableWorkspaces,
+    activeWorkspaceId: () => tincanban.activeWorkspace.id || "default",
     workspaceOwner: id => timedWorkspaceStoreStage("owner-check", id, () =>
-      resolveWorkspaceOwner(match.readWorkspaceDoc, id)),
+      resolveWorkspaceOwner(tincanban.readWorkspaceDoc, id)),
   })
-  configureAttachmentFetcher(descriptor => sync.fetchBlob(match.activeWorkspace.id, descriptor))
-  const policy = useWorkspacePolicy(match, ui, sync)
-  const mesh = useAppMesh({ activeWorkspace: match.activeWorkspace, chat, sync, ...policy })
+  configureAttachmentFetcher(descriptor => sync.fetchBlob(tincanban.activeWorkspace.id, descriptor))
+  const policy = useWorkspacePolicy(tincanban, ui, sync)
+  const mesh = useAppMesh({ activeWorkspace: tincanban.activeWorkspace, chat, sync, ...policy })
   return { chat, sync, ...policy, ...mesh }
 }
 
-function subscribeWorkspaceAndChat(subscribeLocalChanges: ReturnType<typeof useMatch>["subscribeLocalChanges"], listener: () => void) {
+function subscribeWorkspaceAndChat(subscribeLocalChanges: ReturnType<typeof useTincanban>["subscribeLocalChanges"], listener: () => void) {
   const stopWorkspace = subscribeLocalChanges(listener)
   const stopChat = subscribeChat(listener)
   return () => { stopWorkspace(); stopChat() }
 }
 
 function subscribeWorkspaceAndChatScoped(
-  subscribeLocalChanges: ReturnType<typeof useMatch>["subscribeLocalChanges"],
+  subscribeLocalChanges: ReturnType<typeof useTincanban>["subscribeLocalChanges"],
   listener: (workspaceId?: string) => void,
 ) {
   const stopWorkspace = subscribeLocalChanges(listener)
@@ -161,45 +161,45 @@ async function timedWorkspaceStoreStage<T>(stage: string, workspaceId: string, o
   }
 }
 
-async function resolveWorkspaceOwner(readWorkspaceDoc: ReturnType<typeof useMatch>["readWorkspaceDoc"], id: string) {
+async function resolveWorkspaceOwner(readWorkspaceDoc: ReturnType<typeof useTincanban>["readWorkspaceDoc"], id: string) {
   const doc = await readWorkspaceDoc(id)
   await workspaceRole(doc, await bootstrapIdentity("My Device"))
   return effectiveWorkspaceOwner(id, doc.ownerPersonId)
 }
 
-function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<typeof useAppUiState>, sync: ReturnType<typeof useDeviceSync>) {
+function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: ReturnType<typeof useAppUiState>, sync: ReturnType<typeof useDeviceSync>) {
   const currentRole = ref<WorkspaceRole>("visitor")
   const roleWorkspaceId = ref("")
   const currentWorkspaceOwnerId = ref("")
   const workspaceAccess = ref<Record<string, WorkspaceAccessResult>>({})
   const workspaceAccessErrors = ref<string[]>([])
-  const workspaceRoleStatus = computed(() => roleWorkspaceId.value !== match.activeWorkspace.id ? "loading" : workspaceAccess.value[match.activeWorkspace.id]?.error ? "unavailable" : "verified")
+  const workspaceRoleStatus = computed(() => roleWorkspaceId.value !== tincanban.activeWorkspace.id ? "loading" : workspaceAccess.value[tincanban.activeWorkspace.id]?.error ? "unavailable" : "verified")
   const refreshAccess = async (includeOthers: boolean, onCleanup: (cleanup: () => void) => void) => {
     let cancelled = false
     onCleanup(() => { cancelled = true })
-    const doc = match.getActiveDoc()
+    const doc = tincanban.getActiveDoc()
     if (!doc) return
     await refreshWorkspaceAccess({ workspaceId: doc.id, includeOthers, cancelled: () => cancelled,
-      getActiveWorkspaceId: () => match.activeWorkspace.id, getDocVersion: () => match.docVersion.value,
-      getWorkspaceIds: () => match.availableWorkspaces.value.map(item => item.id),
-      load: (all, onActive) => loadWorkspaceAccess(match, doc, all, onActive),
+      getActiveWorkspaceId: () => tincanban.activeWorkspace.id, getDocVersion: () => tincanban.docVersion.value,
+      getWorkspaceIds: () => tincanban.availableWorkspaces.value.map(item => item.id),
+      load: (all, onActive) => loadWorkspaceAccess(tincanban, doc, all, onActive),
       state: { currentRole, currentWorkspaceOwnerId, roleWorkspaceId, workspaceAccess, workspaceAccessErrors } })
   }
   const identityFingerprint = () => {
-    void match.docVersion.value
-    const profile = match.getCurrentProfile()
+    void tincanban.docVersion.value
+    const profile = tincanban.getCurrentProfile()
     return profile ? `${profile.identity.personId}|${profile.identity.publicKey}|${profile.device.deviceId}|${profile.certificate.signature}` : ""
   }
-  watch([() => match.activeWorkspace.id, () => match.availableWorkspaces.value.map(item => item.id).join("|"), () => match.ready.value, sync.ownershipRevision, identityFingerprint],
+  watch([() => tincanban.activeWorkspace.id, () => tincanban.availableWorkspaces.value.map(item => item.id).join("|"), () => tincanban.ready.value, sync.ownershipRevision, identityFingerprint],
     (_, __, onCleanup) => refreshAccess(true, onCleanup), { immediate: true })
-  watch(match.docVersion, (_, __, onCleanup) => refreshAccess(false, onCleanup))
-  const activePolicyAvailable = computed(() => roleWorkspaceId.value === match.activeWorkspace.id && workspaceAccess.value[match.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(match.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === match.activeWorkspace.id)?.conflicted)
+  watch(tincanban.docVersion, (_, __, onCleanup) => refreshAccess(false, onCleanup))
+  const activePolicyAvailable = computed(() => roleWorkspaceId.value === tincanban.activeWorkspace.id && workspaceAccess.value[tincanban.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(tincanban.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === tincanban.activeWorkspace.id)?.conflicted)
   const allowed = (permission: Parameters<typeof canWorkspace>[1]) => computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, permission))
   const canEditItems = allowed("content.write")
   const canEditBoard = allowed("board.configure")
   const canManageAccess = allowed("access.manage")
   const canImportWorkspace = allowed("workspace.import")
-  const keeperOwnedWorkspaces = computed(() => match.availableWorkspaces.value.filter(item => {
+  const keeperOwnedWorkspaces = computed(() => tincanban.availableWorkspaces.value.filter(item => {
     const access = workspaceAccess.value[item.id]
     return access?.role === "owner" && !access.blocked && !access.error
   }))
@@ -212,12 +212,12 @@ function useWorkspacePolicy(match: ReturnType<typeof useMatch>, ui: ReturnType<t
   return { currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace }
 }
 
-async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: WorkspaceDocumentV2, includeOthers = true,
+async function loadWorkspaceAccess(tincanban: ReturnType<typeof useTincanban>, doc: WorkspaceDocumentV2, includeOthers = true,
   onActive?: (result: { role: WorkspaceRole; ownerId: string; access: Record<string, WorkspaceAccessResult> }) => void) {
   const profile = await bootstrapIdentity("My Device")
   const resolve = async (item: { id: string; title: string }) => {
     try {
-      const role = item.id === doc.id ? await workspaceRole(doc, profile) : await match.getWorkspaceRole(item.id)
+      const role = item.id === doc.id ? await workspaceRole(doc, profile) : await tincanban.getWorkspaceRole(item.id)
       return [item.id, { role, blocked: await workspaceWritesBlocked(item.id) }] as const
     } catch (cause) {
       const detail = cause instanceof Error ? cause.message : String(cause)
@@ -225,7 +225,7 @@ async function loadWorkspaceAccess(match: ReturnType<typeof useMatch>, doc: Work
       return [item.id, { role: "visitor" as const, blocked: true, error }] as const
     }
   }
-  const items = match.availableWorkspaces.value
+  const items = tincanban.availableWorkspaces.value
   const activeItem = items.find(item => item.id === doc.id) ?? { id: doc.id, title: doc.title }
   const [activeId, activeRaw] = await resolve(activeItem)
   const active: WorkspaceAccessResult = activeRaw

@@ -18,25 +18,25 @@ async function createLead(page: Page, company: string, description: string) {
 
 async function addLegacySources(page: Page, notes: string, inlineNote: string) {
   return page.evaluate(async ({ notes, inlineNote }) => {
-    const { useMatch } = await import("/src/state.ts")
-    const match = useMatch()
-    await match.whenReady()
-    const lead = Object.values(match.getActiveDoc()!.entities).filter(entity =>
+    const { useTincanban } = await import("/src/state.ts")
+    const tincanban = useTincanban()
+    await tincanban.whenReady()
+    const lead = Object.values(tincanban.getActiveDoc()!.entities).filter(entity =>
       "body" in entity && "values" in entity && !entity.archivedAt,
     ).at(-1)
-    if (!lead) throw new Error(`Job search lead missing: meta=${JSON.stringify(match.activeWorkspace)} leads=${match.workspace.leads.length} entities=${Object.values(match.getActiveDoc()!.entities).map(entity => `${entity.kind ?? "item"}:${entity.title}`).join("|")}`)
-    const board = Object.values(match.getActiveDoc()!.entities).find(entity => entity.kind === "board")!
+    if (!lead) throw new Error(`Job search lead missing: meta=${JSON.stringify(tincanban.activeWorkspace)} leads=${tincanban.workspace.leads.length} entities=${Object.values(tincanban.getActiveDoc()!.entities).map(entity => `${entity.kind ?? "item"}:${entity.title}`).join("|")}`)
+    const board = Object.values(tincanban.getActiveDoc()!.entities).find(entity => entity.kind === "board")!
     const notesFieldId = board.kind === "board" ? board.preset?.bindings["field.notes"] : undefined
     if (!notesFieldId) throw new Error("Job search Notes field missing")
-    await match.executeCommandAsync({ kind: "patchItem", entityId: lead.id, values: { [notesFieldId]: notes } })
-    const note = await match.createDocumentAsync({
+    await tincanban.executeCommandAsync({ kind: "patchItem", entityId: lead.id, values: { [notesFieldId]: notes } })
+    const note = await tincanban.createDocumentAsync({
       leadId: lead.id,
       kind: "note",
       title: "Interview note",
       format: "markdown",
       content: inlineNote,
     })
-    await match.createDocumentAsync({
+    await tincanban.createDocumentAsync({
       leadId: lead.id,
       kind: "cover_letter",
       title: "Cover letter.pdf",
@@ -100,21 +100,21 @@ test("Given a failed narrative save, when retry succeeds, then draft commits onc
   const form = page.getByRole("dialog", { name: "Edit item" })
   const description = form.getByLabel("Description")
   await description.fill("Retry narrative draft")
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
 
   await form.getByRole("button", { name: "Save changes" }).click()
 
   await expect(form.getByRole("alert")).toBeVisible()
   await expect(description).toHaveValue("Retry narrative draft")
   const originalSources = await page.evaluate(async ({ itemId, notesFieldId, noteId }) => {
-    const { useMatch } = await import("/src/state.ts")
-    const doc = useMatch().getActiveDoc()!
+    const { useTincanban } = await import("/src/state.ts")
+    const doc = useTincanban().getActiveDoc()!
     const item = doc.entities[itemId] as any
     const note = doc.entities[noteId] as any
     return { body: item.body, notes: item.values[notesFieldId], noteContent: note.content, noteArchivedAt: note.archivedAt }
   }, { itemId: sources.itemId, notesFieldId: sources.notesFieldId, noteId: sources.noteId })
   expect(originalSources).toEqual({ body: "Original text", notes: "Original preset text", noteContent: "Original note document", noteArchivedAt: null })
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
   await form.getByRole("button", { name: "Retry save" }).click()
 
   await expect(form).toBeHidden()
@@ -134,9 +134,9 @@ test("Given an inline note changes while Description edit open, when stale form 
   const description = form.getByLabel("Description")
   await description.fill("User's open-form draft")
   await page.evaluate(async noteId => {
-    const { useMatch } = await import("/src/state.ts")
-    const match = useMatch()
-    await match.updateDocumentAsync(noteId, "Newer note from concurrent edit")
+    const { useTincanban } = await import("/src/state.ts")
+    const tincanban = useTincanban()
+    await tincanban.updateDocumentAsync(noteId, "Newer note from concurrent edit")
   }, noteId)
 
   await form.getByRole("button", { name: "Save changes" }).click()
@@ -145,8 +145,8 @@ test("Given an inline note changes while Description edit open, when stale form 
   await expect(description).toHaveValue("User's open-form draft")
   await expect(form).toBeVisible()
   const latestNote = await page.evaluate(async noteId => {
-    const { useMatch } = await import("/src/state.ts")
-    const doc = useMatch().getActiveDoc()!
+    const { useTincanban } = await import("/src/state.ts")
+    const doc = useTincanban().getActiveDoc()!
     const note = doc.entities[noteId] as any
     return { content: note.content, archivedAt: note.archivedAt }
   }, noteId)

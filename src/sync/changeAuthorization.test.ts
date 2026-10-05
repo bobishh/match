@@ -62,7 +62,7 @@ it("exports the same fresh authorization evidence from a hydrated document witho
   expect(Automerge.change(doc, draft => { draft.title = "Still writable" }).title).toBe("Still writable")
 })
 
-it.runIf(process.env.MATCH_PROOF_BENCHMARK === "1")("benchmarks complete TS/WASM admission and one delta on deterministic signed histories", async () => {
+it.runIf(process.env.TINCANBAN_PROOF_BENCHMARK === "1")("benchmarks complete TS/WASM admission and one delta on deterministic signed histories", async () => {
   const timings: unknown[] = []
   for (const count of [100, 1000, 20_001]) {
     let doc = Automerge.from(createWorkspaceDoc(`proof-benchmark-${count}`, "Proof benchmark", owner.identity.personId, "blank"))
@@ -112,7 +112,7 @@ it.runIf(process.env.MATCH_PROOF_BENCHMARK === "1")("benchmarks complete TS/WASM
     Automerge.free(doc)
   }
   console.info("proof_admission_benchmark", JSON.stringify(timings))
-  await writeFile("/tmp/match-proof-admission-benchmark.json", JSON.stringify(timings, null, 2))
+  await writeFile("/tmp/tincanban-proof-admission-benchmark.json", JSON.stringify(timings, null, 2))
 }, 180_000)
 it("rejects visitor writes even with a valid device signature and owner-issued visitor grant", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")

@@ -4,7 +4,7 @@ import { fromBase64Url } from "./domain/identity"
 import { getStorageRaw, setStorageRaw, storageKeys } from "./storageRaw"
 import { listCommittedWorkspaces, readWorkspaceSnapshot, type CommittedWorkspaceMeta } from "./storageJournal"
 
-const workspaceMetaPrefix = "match.workspace-meta."
+const workspaceMetaPrefix = "tincanban.workspace-meta."
 export type WorkspaceMeta = { id: string; title: string; updatedAt: string; archivedAt?: string | null }
 
 export function partitionCatalog(records: WorkspaceMeta[]) {
@@ -61,8 +61,8 @@ async function readLegacyCatalog(records: Map<string, WorkspaceMeta>, keys: stri
       if (raw) acceptCatalogRecord(records, JSON.parse(raw) as WorkspaceMeta)
     } catch { /* Recover from the snapshot below. */ }
   }
-  for (const key of keys.filter(key => key.startsWith("match.snapshot."))) {
-    const id = key.slice("match.snapshot.".length)
+  for (const key of keys.filter(key => key.startsWith("tincanban.snapshot."))) {
+    const id = key.slice("tincanban.snapshot.".length)
     if (records.has(id)) continue
     const recovered = await recoverSnapshotCatalogRecord(key, id)
     if (recovered) acceptCatalogRecord(records, recovered)

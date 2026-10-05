@@ -1,9 +1,9 @@
 import { expect, test } from "./support/coverage"
 
-test("Given Match is open in development, when the footer renders, then it shows the tower and honest dev build label", async ({ page }) => {
+test("Given tincanban is open in development, when the footer renders, then it shows the tower and honest dev build label", async ({ page }) => {
   await page.goto("/")
 
-  const footer = page.getByRole("contentinfo", { name: "Match build information" })
+  const footer = page.getByRole("contentinfo", { name: "tincanban build information" })
   await expect(footer.locator(".tower-mark")).toBeVisible()
   await expect(footer).toContainText("Berlin")
   await expect(footer).toContainText("Berlin · 2026")
@@ -82,7 +82,7 @@ test("Lighthouse uses its client marker for a beacon while a browser with the sa
   await expect(keepers).toContainText("Lighthouse service")
   await expect(dialog.getByRole("list", { name: "Mesh members" })).not.toContainText("Lighthouse service")
   await keepers.getByRole("button", { name: /Lighthouse service/ }).click()
-  await dialog.screenshot({ path: testInfo.outputPath("match-keeper-show.png"), animations: "disabled" })
+  await dialog.screenshot({ path: testInfo.outputPath("tincanban-keeper-show.png"), animations: "disabled" })
   await expect(dialog.getByRole("heading", { name: "Lighthouse service" })).toBeVisible()
   await expect(dialog.getByRole("list", { name: "Mesh members" })).toHaveCount(0)
   const native = dialog.locator(".keeper-devices li").filter({ hasText: "Renamed worker" })
@@ -104,9 +104,9 @@ test("Given Device sync shows Keepers, when adding one, then compact form replac
     mountLighthouseDialog()
   })
   const dialog = page.getByRole("dialog", { name: "Device sync" })
-  await dialog.screenshot({ path: testInfo.outputPath("match-keepers.png"), animations: "disabled" })
+  await dialog.screenshot({ path: testInfo.outputPath("tincanban-keepers.png"), animations: "disabled" })
   await dialog.getByRole("button", { name: "Add keeper" }).click()
-  await dialog.screenshot({ path: testInfo.outputPath("match-keeper-create.png"), animations: "disabled" })
+  await dialog.screenshot({ path: testInfo.outputPath("tincanban-keeper-create.png"), animations: "disabled" })
   await expect(dialog.getByRole("textbox", { name: "Keeper hostname" })).toBeVisible()
   await expect(dialog.getByRole("list", { name: "Mesh members" })).toHaveCount(0)
   await expect(dialog.getByRole("heading", { name: "Ownership succession" })).toHaveCount(0)

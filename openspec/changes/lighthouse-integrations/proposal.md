@@ -1,6 +1,6 @@
 ## Why
 
-Match users currently provision Lighthouse through a command-line invitation to one board. They need to connect a self-hosted keeper by hostname, choose their boards, and see whether data has actually been persisted while their other devices are offline.
+tincanban users currently provision Lighthouse through a command-line invitation to one board. They need to connect a self-hosted keeper by hostname, choose their boards, and see whether data has actually been persisted while their other devices are offline.
 
 ## What Changes
 
@@ -21,4 +21,4 @@ None. Existing workspace access checks remain authoritative; new integration man
 
 ## Impact
 
-Match Sync UI, identity-scoped preferences, workspace invitations, signed authority, document/chat/blob persistence evidence, and browser integration tests. Shared cryptographic transitions belong to MetaMesh Rust and its bindings. The companion service change is [multi-integration-service](../../../../mesh-lighthouse/openspec/changes/multi-integration-service/proposal.md). This proposal does not claim the feature is implemented.
+tincanban Sync UI, identity-scoped preferences, workspace invitations, signed authority, document/chat/blob persistence evidence, and browser integration tests. Shared cryptographic transitions belong to MetaMesh Rust and its bindings. The companion service change is [multi-integration-service](../../../../mesh-lighthouse/openspec/changes/multi-integration-service/proposal.md). This proposal does not claim the feature is implemented.

@@ -39,7 +39,7 @@ for (const width of [1440, 390]) {
     await expect(dialog.getByRole("button", { name: "Customize board" })).toHaveAttribute("aria-expanded", "false")
     await dialog.getByRole("button", { name: "Create", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "MATCH // Reading List", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "TINCANBAN // Reading List", exact: true })).toBeVisible()
     for (const column of ["Queue", "Reading", "Finished"]) {
       await expect(page.getByRole("region", { name: column, exact: true })).toBeVisible()
     }
@@ -88,13 +88,13 @@ test("Given edited configuration, when preset changes, then draft stays intact; 
   await dialog.getByLabel("Column 1", { exact: true }).fill("Draft column")
   await dialog.getByRole("button", { name: "Customize board" }).click()
   await expect(dialog.getByRole("button", { name: "Customize board" })).toHaveAttribute("aria-expanded", "false")
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await dialog.getByRole("button", { name: "Create", exact: true }).click()
   await expect(dialog.getByRole("alert")).toContainText("Storage failure injected")
   await dialog.getByRole("button", { name: "Customize board" }).click()
   await expect(dialog.getByLabel("Column 1", { exact: true })).toHaveValue("Draft column")
   await expect(dialog.getByRole("button", { name: "Create", exact: true })).toBeEnabled()
-  await page.evaluate(() => { delete (window as any).__MATCH_INJECT_STORAGE_FAILURE__ })
+  await page.evaluate(() => { delete (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ })
   await dialog.getByRole("button", { name: "Create", exact: true }).click()
   await expect(dialog).toBeHidden()
   await expect(page.getByRole("region", { name: "Draft column", exact: true })).toBeVisible()

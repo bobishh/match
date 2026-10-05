@@ -2,7 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate"
 import type { Workspace } from "./types"
 import type { StoredProofsV1 } from "./domain/proofs"
 
-const databaseName = "match"
+const databaseName = "tincanban"
 const storeName = "workspace"
 const workspaceKey = "default"
 
@@ -12,7 +12,7 @@ export type WorkspaceRecord = {
 }
 
 type WorkspaceBundleManifestV2 = {
-  format: "match"
+  format: "tincanban" | "match"
   version: 2
   workspaceId: string
   heads: string[]
@@ -59,7 +59,7 @@ export function createWorkspaceBundleV2(
   workspaceSnapshot?: JsonValue
 ): Uint8Array {
   const manifest: WorkspaceBundleManifestV2 = {
-    format: "match",
+    format: "tincanban",
     version: 2,
     workspaceId,
     heads,
@@ -104,7 +104,7 @@ export function readWorkspaceBundleV2(bytes: Uint8Array): WorkspaceBundleV2 {
 function isWorkspaceBundleManifest(value: unknown): value is WorkspaceBundleManifestV2 {
   if (!value || typeof value !== "object") return false
   const manifest = value as Record<string, unknown>
-  return manifest.format === "match" && manifest.version === 2 && typeof manifest.workspaceId === "string" &&
+  return (manifest.format === "tincanban" || manifest.format === "match") && manifest.version === 2 && typeof manifest.workspaceId === "string" &&
     Array.isArray(manifest.heads) && manifest.heads.every((head) => typeof head === "string") &&
     Array.isArray(manifest.includedBlobHashes) && Array.isArray(manifest.missingBlobHashes) &&
     manifest.proofFormatVersion === 1

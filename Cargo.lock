@@ -524,15 +524,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
-name = "match-authority"
-version = "0.1.0"
-dependencies = [
- "automerge",
- "meta-mesh-core",
- "serde_json",
-]
-
-[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -855,6 +846,15 @@ checksum = "7e689342a48d2ea927c87ea50cabf8594854bf940e9310208848d680d668ed85"
 dependencies = [
  "num-conv",
  "time-core",
+]
+
+[[package]]
+name = "tincanban-authority"
+version = "0.1.0"
+dependencies = [
+ "automerge",
+ "meta-mesh-core",
+ "serde_json",
 ]
 
 [[package]]

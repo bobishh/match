@@ -73,13 +73,13 @@ test("Given mobile save failure, when retry succeeds, then draft persists exactl
   await page.getByRole("button", { name: "Add item to To do", exact: true }).click()
   const form = page.getByRole("dialog", { name: "Item details", exact: true })
   await form.getByLabel("Title *", { exact: true }).fill("Retry safely")
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await form.getByRole("button", { name: "Save item", exact: true }).click()
   await expect(form.getByRole("alert")).toBeVisible()
   await expect(page.locator(".save-state:visible")).toContainText("Not saved")
   await expect(form.getByLabel("Title *", { exact: true })).toHaveValue("Retry safely")
   await expect(page.locator(".item-card")).toHaveCount(0)
-  await page.evaluate(() => { (window as any).__MATCH_INJECT_STORAGE_FAILURE__ = false })
+  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
   await form.getByRole("button", { name: "Retry save", exact: true }).click()
   await expect(form).toBeHidden()
   await expect(page.getByRole("button", { name: "Open Retry safely", exact: true })).toHaveCount(1)
@@ -147,7 +147,7 @@ test("Given a pending save, when the user tries to edit or submit again, then th
     const { defaultStorage } = await import(path)
     const commit = defaultStorage.commitWorkspace.bind(defaultStorage)
     defaultStorage.commitWorkspace = async (...args: Parameters<typeof defaultStorage.commitWorkspace>) => {
-      await new Promise<void>(resolve => { (window as any).__MATCH_RELEASE_SAVE__ = resolve })
+      await new Promise<void>(resolve => { (window as any).__TINCANBAN_RELEASE_SAVE__ = resolve })
       defaultStorage.commitWorkspace = commit
       return commit(...args)
     }
@@ -160,7 +160,7 @@ test("Given a pending save, when the user tries to edit or submit again, then th
   await page.keyboard.press("Escape")
   await expect(form).toBeVisible()
   await expect(page.locator(".item-card")).toHaveCount(0)
-  await page.evaluate(() => (window as any).__MATCH_RELEASE_SAVE__())
+  await page.evaluate(() => (window as any).__TINCANBAN_RELEASE_SAVE__())
   await expect(form).toBeHidden()
   await expect(page.getByRole("button", { name: "Open One durable card", exact: true })).toHaveCount(1)
 })
@@ -169,13 +169,13 @@ test("Given fast startup, when data arrives before the progress delay, then no l
   await page.clock.install()
   await page.clock.pauseAt(new Date())
   await page.addInitScript(() => {
-    ;(window as any).__MATCH_SAW_LOADING__ = false
+    ;(window as any).__TINCANBAN_SAW_LOADING__ = false
     new MutationObserver(() => {
-      if (document.querySelector(".loading-indicator")) (window as any).__MATCH_SAW_LOADING__ = true
+      if (document.querySelector(".loading-indicator")) (window as any).__TINCANBAN_SAW_LOADING__ = true
     }).observe(document, { childList: true, subtree: true })
   })
   await page.goto("/")
   await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
   await page.clock.runFor(250)
-  expect(await page.evaluate(() => (window as any).__MATCH_SAW_LOADING__)).toBe(false)
+  expect(await page.evaluate(() => (window as any).__TINCANBAN_SAW_LOADING__)).toBe(false)
 })

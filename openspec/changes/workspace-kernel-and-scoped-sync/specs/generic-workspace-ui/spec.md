@@ -115,7 +115,7 @@ The system SHALL provide a mobile-first header with an accessible hamburger menu
 
 #### Scenario: Mobile drawer navigation and focus management
 
-- **GIVEN** Match is opened on a mobile viewport (360px, 390px, or 430px)
+- **GIVEN** tincanban is opened on a mobile viewport (360px, 390px, or 430px)
 - **WHEN** the user activates the accessible hamburger button
 - **THEN** the navigation drawer opens with focus placed inside
 - **AND** navigation options are organized into labeled groups (Workspaces, Board & Schema, Collaboration, Data & Storage, Recovery, Resources)
