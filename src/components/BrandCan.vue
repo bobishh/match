@@ -22,8 +22,7 @@ const colors = computed(() => appearance.value ? {
       <use :href="'/logo.svg?v=2#can-logo'" />
     </svg>
     <svg v-if="appearance" class="can-role-stamp" viewBox="0 0 64 80" role="img" :aria-label="`Workspace role: ${accessRole}`" :data-role-stamp="accessRole">
-      <circle cx="32" cy="50" r="14" :fill="appearance.body" />
-      <path transform="translate(20 38)" :d="appearance.stamp" fill="#171717" />
+      <path transform="translate(20 38)" :d="appearance.stamp" fill="#171717" fill-opacity=".75" stroke="#171717" stroke-width="1.5" stroke-linejoin="round" />
     </svg>
   </span>
 </template>
