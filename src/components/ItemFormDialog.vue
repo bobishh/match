@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
-import { reactive, ref } from "vue"
+import { computed, reactive, ref } from "vue"
 import { useDelayedFlag } from "../ui/useDelayedFlag"
 import type { Column, FieldDefinition, FieldValue, Item } from "../domain/model"
 import { validateFieldValue } from "../domain/fields"
@@ -42,6 +42,26 @@ for (const field of props.fields) {
 }
 const localError = ref("")
 const showSaving = useDelayedFlag(() => Boolean(props.saving))
+
+// Materialize schema metadata once per schema change. Draft keystrokes must not
+// repeatedly traverse Automerge proxies or rebuild every select's options.
+const formFields = computed(() => props.fields
+  .filter(field => !field.archivedAt && !props.hiddenFieldIds?.includes(field.id))
+  .map(field => ({
+    id: field.id,
+    title: field.title,
+    required: field.required,
+    valueType: field.valueType,
+    min: field.valueType === "number" ? field.min : undefined,
+    max: field.valueType === "number" ? field.max : undefined,
+    options: field.valueType === "select"
+      ? Object.values(field.options || {}).filter(option => !option.archivedAt)
+        .map(option => ({ id: option.id, title: option.title, value: props.optionValues?.[option.id] ?? option.id }))
+      : [],
+  })))
+const formColumns = computed(() => props.columns?.map(column => ({
+  id: column.id, title: column.title, value: column.formValue ?? column.id,
+})) ?? [])
 
 function invalidFieldMessage(): string | undefined {
   for (const field of props.fields) {
@@ -102,10 +122,10 @@ function handleSave() {
             <input v-model="title" autofocus required placeholder="Item title" />
           </label>
 
-          <label v-if="columns && columns.length" class="wide">
+          <label v-if="formColumns.length" class="wide">
             <span>Status *</span>
             <select v-model="selectedParentId">
-              <option v-for="col in columns" :key="col.id" :value="col.formValue ?? col.id">
+              <option v-for="col in formColumns" :key="col.id" :value="col.value">
                 {{ col.title }}
               </option>
             </select>
@@ -118,8 +138,8 @@ function handleSave() {
 
           <p v-if="computedFieldsMessage" class="wide computed-priority-note">{{ computedFieldsMessage }}</p>
 
-          <template v-for="field in fields" :key="field.id">
-            <label v-if="!field.archivedAt && !hiddenFieldIds?.includes(field.id)">
+          <template v-for="field in formFields" :key="field.id">
+            <label>
               <span>{{ field.title }}{{ field.required ? " *" : "" }}</span>
               <input
                 v-if="field.valueType === 'text' || field.valueType === 'url'"
@@ -159,9 +179,9 @@ function handleSave() {
               >
                 <option value="">Select option</option>
                 <option
-                  v-for="opt in Object.values(field.options || {}).filter(o => !o.archivedAt)"
+                  v-for="opt in field.options"
                   :key="opt.id"
-                  :value="optionValues?.[opt.id] ?? opt.id"
+                  :value="opt.value"
                 >
                   {{ opt.title }}
                 </option>

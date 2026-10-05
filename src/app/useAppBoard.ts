@@ -78,21 +78,37 @@ function useBoardPresentation(core: AppBoardContext) {
     const id = match.activeBoard.value?.preset?.bindings["field.notes"]
     return id && match.boardFields.value.some(field => field.id === id && field.valueType === "text") ? id : undefined
   }
-  const cardNotes = (item: Item) => {
-    const notes = notesByItem.value.get(item.id) ?? []
-    return itemNarrative(item, leadForItem(item) ? textNotesFieldId() : undefined, notes)
-  }
-  const cardFields = (item: Item) => cardFieldValues(item, match.boardFields.value, match.activeBoard.value?.preset?.bindings ?? {}, leadForItem(item))
-  const itemsByColumn = computed(() => {
+  const narrativeForCard = computed(() => {
+    void match.docVersion.value
+    const notes = notesByItem.value
+    const leads = leadsById.value
+    const notesFieldId = textNotesFieldId()
+    return cachedItemProjection(item => itemNarrative(item, leads.has(item.id) ? notesFieldId : undefined, notes.get(item.id) ?? []))
+  })
+  const fieldsForCard = computed(() => {
+    void match.docVersion.value
+    const fields = match.boardFields.value
+    const bindings = match.activeBoard.value?.preset?.bindings ?? {}
+    const leads = leadsById.value
+    return cachedItemProjection(item => cardFieldValues(item, fields, bindings, leads.get(item.id)))
+  })
+  const cardNotes = (item: Item) => narrativeForCard.value(item)
+  const cardFields = (item: Item) => fieldsForCard.value(item)
+  // Priority depends on workspace data, never on the current search query.
+  // Filtering an already ordered column preserves its stable priority order.
+  const orderedItemsByColumn = computed(() => {
     const board = match.activeBoard.value
+    const notesFieldId = textNotesFieldId()
+    return new Map(match.genericColumns.value.map(column => [column.id, orderItemsByPriority(board, column.items, notesFieldId)]))
+  })
+  const itemsByColumn = computed(() => {
     const query = normalizedSearch.value
     const activeFilters = filters.value
-    const notesFieldId = textNotesFieldId()
     const searchable = query ? searchableTextByItem.value : null
-    return new Map(match.genericColumns.value.map(column => [column.id, orderItemsByPriority(board, column.items.filter(item => {
+    return new Map([...orderedItemsByColumn.value].map(([columnId, items]) => [columnId, items.filter(item => {
       const matchesSearch = !query || searchable?.get(item.id)?.includes(query) === true
-      return matchesSearch && matchesItemFilters(item, column.id, activeFilters)
-    }), notesFieldId)]))
+      return matchesSearch && matchesItemFilters(item, columnId, activeFilters)
+    })]))
   })
   const itemsForColumn = (column: { id: string; items: Item[] }) => itemsByColumn.value.get(column.id) ?? []
   const totalItems = computed(() => match.genericColumns.value.reduce((total, column) => total + column.items.length, 0))
@@ -101,7 +117,21 @@ function useBoardPresentation(core: AppBoardContext) {
   const workspacePresenceSummary = computed(() => summarizeWorkspace(totalItems.value, visibleItems.value, match.workspace.documents.length + match.workspace.artifacts.length, core.onlineWorkspaceDevices.value, hasFilters.value))
   const visibleColumns = computed(() => visibleBoardColumns(match.genericColumns.value, hasFilters.value, isEditingBoard.value, filters.value.columnId, itemsForColumn))
   const clearFilters = () => { search.value = ""; filters.value = defaultBoardFilters() }
-  const updateMobileColumnIndex = () => { activeMobileColumnIndex.value = mobileColumnIndex(boardRef.value) }
+  let scrolledBoard: HTMLElement | null = null
+  let boardScrollLeft = 0
+  const updateMobileColumnIndex = () => {
+    scrolledBoard = boardRef.value
+    boardScrollLeft = scrolledBoard?.scrollLeft ?? 0
+    activeMobileColumnIndex.value = mobileColumnIndex(scrolledBoard)
+  }
+  const resetBoardScroll = () => {
+    // Reading geometry or calling scrollTo after a filter patch forces layout.
+    // Scroll events already tell us whether this board needs resetting.
+    if (scrolledBoard === boardRef.value && boardScrollLeft !== 0) {
+      boardRef.value?.scrollTo({ left: 0, behavior: "instant" })
+      boardScrollLeft = 0
+    }
+  }
   const moveMobileColumn = (direction: -1 | 1) => moveBoardColumn(boardRef.value, visibleColumns.value, activeMobileColumnIndex, direction)
   let highlightTimer: ReturnType<typeof setTimeout> | undefined
   const highlightMoved = (entityId: string, kind: "item" | "column") => {
@@ -111,7 +141,16 @@ function useBoardPresentation(core: AppBoardContext) {
     highlightTimer = setTimeout(() => { movedItemId.value = null; movedColumnId.value = null }, 700)
   }
   const clearHighlightTimer = () => { if (highlightTimer) clearTimeout(highlightTimer) }
-  return { workspaceLabel, entityName, addItemLabel, itemFormColumns, itemFormParentValue, computedItemFieldIds, itemFormOptionValues, leadForItem, cardNotes, cardFields, columnStatus, itemsForColumn, totalItems, visibleItems, hasFilters, workspacePresenceSummary, visibleColumns, clearFilters, updateMobileColumnIndex, moveMobileColumn, highlightMoved, clearHighlightTimer }
+  return { workspaceLabel, entityName, addItemLabel, itemFormColumns, itemFormParentValue, computedItemFieldIds, itemFormOptionValues, leadForItem, cardNotes, cardFields, columnStatus, itemsForColumn, totalItems, visibleItems, hasFilters, workspacePresenceSummary, visibleColumns, clearFilters, updateMobileColumnIndex, resetBoardScroll, moveMobileColumn, highlightMoved, clearHighlightTimer }
+}
+
+function cachedItemProjection<T>(project: (item: Item) => T) {
+  // Detail and board can hold different immutable revisions of the same ID.
+  const cache = new WeakMap<Item, T>()
+  return (item: Item): T => {
+    if (!cache.has(item)) cache.set(item, project(item))
+    return cache.get(item)!
+  }
 }
 
 function cardFieldValues(item: Item, fields: ReturnType<typeof useAppCore>["match"]["boardFields"]["value"], bindings: Record<string, string>, lead: unknown) {

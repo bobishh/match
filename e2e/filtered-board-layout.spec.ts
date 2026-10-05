@@ -136,6 +136,18 @@ test("Given a mobile status filter, when one column remains then it uses the scr
   await expect(page.getByText("No matches in this column", { exact: true })).toBeVisible()
 })
 
+test("Given a horizontally scrolled mobile board, when search changes visible columns, then the first matching column returns into view", async ({ page }) => {
+  await createBoard(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  const board = page.locator(".board")
+  await board.evaluate(element => element.scrollTo({ left: element.scrollWidth, behavior: "instant" }))
+  await expect.poll(() => board.evaluate(element => element.scrollLeft)).toBeGreaterThan(300)
+  await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
+  await expect(page.locator(".board > .column")).toHaveCount(2)
+  await expect.poll(() => board.evaluate(element => element.scrollLeft)).toBeLessThan(1)
+  await expect(page.getByRole("button", { name: "Open Launch design", exact: true })).toBeInViewport()
+})
+
 test("Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await createBoard(page)

@@ -178,6 +178,6 @@ function watchWorkspaceReset(core: ReturnType<typeof useAppCore>) {
 function watchVisibleColumns(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
   watch(() => board.visibleColumns.value.map(column => column.id).join("|"), () => {
     core.activeMobileColumnIndex.value = 0
-    core.boardRef.value?.scrollTo({ left: 0, behavior: "instant" })
+    board.resetBoardScroll()
   }, { flush: "post" })
 }
