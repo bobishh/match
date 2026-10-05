@@ -1,0 +1,16 @@
+/* Nine-slice ink changes only paint. Layout and hit boxes stay rectangular.
+   Explicit priority keeps component border shorthands from resetting the artwork. */
+:root { --ink-frame: url("/assets/ink-frame-0.svg?v=1"); }
+:where(*) {
+  border-image-source: var(--ink-frame) !important;
+  border-image-slice: 12 !important;
+  border-image-width: 1.7 !important;
+  border-image-outset: .35 !important;
+  border-image-repeat: stretch !important;
+}
+/* Stable identity chooses paint once; moving changes neither outline nor hit box. */
+:where(.lead-card) { --ink-frame: url("/assets/ink-frame-0.svg?v=1"); }
+:is([data-item-id$="1"], [data-item-id$="4"], [data-item-id$="7"], [data-item-id$="a"], [data-item-id$="d"], [data-ink-id$="1"], [data-ink-id$="4"], [data-ink-id$="7"], [data-ink-id$="a"], [data-ink-id$="d"], [data-column-id$="1"], [data-column-id$="4"], [data-column-id$="7"], [data-column-id$="a"], [data-column-id$="d"]) { --ink-frame: url("/assets/ink-frame-1.svg?v=1"); }
+:is([data-item-id$="2"], [data-item-id$="5"], [data-item-id$="8"], [data-item-id$="b"], [data-item-id$="e"], [data-ink-id$="2"], [data-ink-id$="5"], [data-ink-id$="8"], [data-ink-id$="b"], [data-ink-id$="e"], [data-column-id$="2"], [data-column-id$="5"], [data-column-id$="8"], [data-column-id$="b"], [data-column-id$="e"]) { --ink-frame: url("/assets/ink-frame-2.svg?v=1"); }
+:where(.count, .column-dot, .mesh-member-presence, .mesh-device-presence, .keeper-dot, .chat-presence-dot, .bin-icon, .bin-icon::before, input[type="checkbox"], input[type="radio"], .pairing-qr, .sr-only) { border-image: none !important; }
+.notice-dismiss, .notice-undo { --ink-frame: url("/assets/ink-frame-white.svg?v=1"); }

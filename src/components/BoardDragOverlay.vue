@@ -12,7 +12,7 @@ function setMarker(element: unknown) { props.controller.setDropMarkerElement(ele
 </script>
 
 <template>
-  <div v-if="preview" :ref="setPreview" class="board-drag-preview lead-card" :class="[{ 'lead-card-expanded': filtered }, preview.ageLevel]" :style="{ width: `${preview.width}px` }" aria-hidden="true">
+  <div v-if="preview" :ref="setPreview" class="board-drag-preview lead-card" :class="[{ 'lead-card-expanded': filtered }, preview.ageLevel]" :style="{ width: `${preview.width}px` }" :data-ink-id="preview.id" aria-hidden="true">
     <template v-if="preview.kind === 'item'">
       <div class="card-layout"><div class="card-main">
         <template v-if="preview.lead">

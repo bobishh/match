@@ -62,9 +62,9 @@ function presenceFrames(source: string, accessRole: WorkspaceRole | null): Frame
     interior.setAttribute("fill", fill)
     return `data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}`
   }
-  const yellow = frame(color("yellow", "#ffd43b"))
-  return { connected: frame(color("green", "#69db7c")), reconnecting: yellow, empty: yellow,
-    offline: frame(color("red", "#ff5a36")), dim: frame(color("paper", "#f3f0e8")) }
+  const yellow = frame(color("presence-yellow", "#ffd43b"))
+  return { connected: frame(color("presence-green", "#69db7c")), reconnecting: yellow, empty: yellow,
+    offline: frame(color("presence-red", "#ff5a36")), dim: frame(color("paper", "#f3f0e8")) }
 }
 
 function stampRole(svg: Document, role: WorkspaceRole) {

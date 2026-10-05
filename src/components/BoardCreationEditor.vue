@@ -145,9 +145,9 @@ onMounted(() => emit("update:modelValue", draft.value))
 <style scoped>
 .creation-config-disabled { min-width: 0; margin: 0; padding: 0; border: 0; }
 .creation-config { display: grid; gap: 16px; min-width: 0; }
-.creation-config-item-name, .creation-config-field > label:not(.creation-config-required) { display: grid; gap: 6px; min-width: 0; color: var(--muted); font: 800 .68rem/1.3 ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase; }
+.creation-config-item-name, .creation-config-field > label:not(.creation-config-required) { display: grid; gap: 6px; min-width: 0; color: var(--muted); font: 700 .8rem/1.3 var(--site-font-sans); letter-spacing: .06em; text-transform: uppercase; }
 .creation-config-list { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 2px solid var(--line); }
-.creation-config-list legend { padding: 0 6px; color: var(--muted); font: 800 .68rem/1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.creation-config-list legend { padding: 0 6px; color: var(--muted); font: 700 .8rem/1 var(--site-font-sans); letter-spacing: .08em; text-transform: uppercase; }
 .creation-config-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
 .creation-config-column-row { grid-template-columns: minmax(0, 1fr) auto auto; }
 .creation-config-order { display: flex; gap: 4px; }
@@ -155,7 +155,7 @@ onMounted(() => emit("update:modelValue", draft.value))
 .creation-config-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; min-width: 0; padding: 10px; border: 1px solid var(--line); }
 .creation-config-field-name { min-width: 0; }
 .creation-config-field > label:not(.creation-config-required) { grid-column: 1 / -1; }
-.creation-config-required { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: .82rem; }
+.creation-config-required { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: .8rem; }
 .creation-config-required input { width: 18px; height: 18px; accent-color: var(--ink); }
 .creation-config-options { grid-column: 1 / -1; display: grid; gap: 8px; }
 .creation-config-options-list { display: grid; gap: 8px; min-width: 0; }

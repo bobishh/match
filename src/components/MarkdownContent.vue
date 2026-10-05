@@ -49,6 +49,6 @@ function stopTaskClick(event: MouseEvent) {
 .markdown-content img { max-width: 100%; height: auto; }
 .markdown-content table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
 .markdown-content th, .markdown-content td { padding: .4em .6em; border: 1px solid var(--muted); }
-.markdown-compact { font-size: .85rem; }
+.markdown-compact { font-size: 1rem; }
 .document-preview-markdown { max-height: 65dvh; overflow: auto; padding: 16px; }
 </style>

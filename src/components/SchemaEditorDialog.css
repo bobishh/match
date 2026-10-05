@@ -24,15 +24,15 @@
 .schema-tab-btn {
   min-height: 44px;
   padding: 10px 16px;
-  background: var(--soft, #e9e5db);
+  background: var(--soft, #e9e9e7);
   border: 1px solid var(--line, #171717);
   border-bottom: none;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 1rem;
   cursor: pointer;
 }
 .schema-tab-btn.active {
-  background: var(--yellow, #ffd43b);
+  background: var(--yellow, #e9e9e7);
   border-top: 2px solid var(--line, #171717);
 }
 .schema-tab-content {
@@ -59,11 +59,11 @@
 }
 .schema-section-head h3 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1rem;
 }
-.schema-help { margin: -4px 0 0; color: var(--muted); font-size: .82rem; line-height: 1.45; }
+.schema-help { margin: -4px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
 .schema-aging-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.schema-aging-fields label { display: grid; gap: 7px; color: var(--muted); font: 800 .68rem/1.3 ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase; }
+.schema-aging-fields label { display: grid; gap: 7px; color: var(--muted); font: 700 .8rem/1.3 var(--site-font-sans); letter-spacing: .04em; text-transform: uppercase; }
 .schema-aging-fields input { min-width: 0; padding: 9px 10px; border: 2px solid var(--line); background: white; }
 @media (max-width: 560px) { .schema-aging-fields { grid-template-columns: 1fr; } }
 .schema-field-label {
@@ -71,8 +71,7 @@
   gap: 10px;
   color: var(--muted);
   font:
-    800 0.68rem/1.4 ui-monospace,
-    monospace;
+    700 .8rem/1.4 var(--site-font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -85,7 +84,7 @@
   padding: 8px 10px;
   border: 2px solid var(--line, #171717);
   border-radius: 0;
-  font-size: 0.9rem;
+  font-size: 1rem;
   background: white;
 }
 .schema-select {
@@ -93,7 +92,7 @@
   padding: 8px 10px;
   border: 2px solid var(--line, #171717);
   border-radius: 0;
-  font-size: 0.85rem;
+  font-size: 1rem;
   background: white;
 }
 .schema-fields-list {
@@ -132,11 +131,10 @@
 .field-type {
   color: var(--muted);
   font:
-    0.75rem/1.4 ui-monospace,
-    monospace;
+    .8rem/1.4 var(--site-font-sans);
 }
 .required-badge {
-  font-size: 0.7rem;
+  font-size: .8rem;
   background: var(--soft);
   color: var(--ink);
   padding: 3px 6px;
@@ -150,7 +148,7 @@
   gap: 0.35rem;
 }
 .option-pill {
-  font-size: 0.75rem;
+  font-size: .8rem;
   background: rgba(0, 0, 0, 0.08);
   padding: 2px 6px;
   border-radius: 0;
@@ -171,8 +169,7 @@
   gap: 7px;
   color: var(--muted);
   font:
-    800 0.68rem/1 ui-monospace,
-    monospace;
+    700 .8rem/1 var(--site-font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -191,9 +188,7 @@
   letter-spacing: 0 !important;
   text-transform: none !important;
   font:
-    700 0.95rem/1 Inter,
-    ui-sans-serif,
-    sans-serif !important;
+    700 1rem/1 var(--site-font-sans) !important;
 }
 .schema-checkbox-label input {
   width: 22px;
@@ -209,11 +204,11 @@
 .schema-empty-state {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 .schema-json-textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.85rem;
+  font-family: var(--site-font-sans);
+  font-size: 1rem;
   line-height: 1.4;
   padding: 0.75rem;
   border: 2px solid var(--line, #171717);
@@ -232,8 +227,7 @@
   min-height: 0;
   color: var(--muted);
   font:
-    800 0.68rem/1 ui-monospace,
-    monospace;
+    700 .8rem/1 var(--site-font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -272,8 +266,7 @@
   max-width: 320px;
   color: var(--muted);
   font:
-    800 0.68rem/1 ui-monospace,
-    monospace;
+    700 .8rem/1 var(--site-font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -284,9 +277,7 @@
   background: white;
   padding: 8px 10px;
   font:
-    700 0.9rem/1.2 Inter,
-    ui-sans-serif,
-    sans-serif;
+    700 1rem/1.2 var(--site-font-sans);
 }
 .priority-rules,
 .priority-thresholds {
@@ -308,8 +299,7 @@
   gap: 6px;
   color: var(--muted);
   font:
-    800 0.68rem/1 ui-monospace,
-    monospace;
+    700 .8rem/1 var(--site-font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -323,9 +313,7 @@
   background: white;
   padding: 8px 10px;
   font:
-    700 0.9rem/1.2 Inter,
-    ui-sans-serif,
-    sans-serif;
+    700 1rem/1.2 var(--site-font-sans);
 }
 .priority-rule-remove {
   min-height: 42px;
@@ -336,8 +324,7 @@
 .priority-thresholds legend {
   padding: 0 8px;
   font:
-    800 0.75rem/1 ui-monospace,
-    monospace;
+    700 .8rem/1 var(--site-font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -350,27 +337,27 @@
 }
 .preview-body h4 {
   margin: 0 0 8px;
-  font-size: 0.9rem;
+  font-size: 1rem;
   text-transform: uppercase;
 }
 .preview-danger {
   color: var(--red);
 }
 .schema-error-banner {
-  background: #fff0f0;
-  border: 1px solid #ff4757;
-  color: #c0392b;
+  background: #e9e9e7;
+  border: 1px solid #171717;
+  color: #171717;
   padding: 0.75rem;
   border-radius: 0;
-  font-size: 0.85rem;
+  font-size: 1rem;
 }
 .schema-error-banner ul {
   margin: 0.25rem 0 0 1.25rem;
   padding: 0;
 }
 .button-danger {
-  color: #9d2f21;
-  border-color: #9d2f21;
+  color: #171717;
+  border-color: #171717;
   background: white;
 }
 .schema-dialog-actions {
@@ -412,7 +399,7 @@
   .schema-tab-btn {
     flex: 1;
     padding: 8px 6px;
-    font-size: 0.72rem;
+    font-size: .8rem;
   }
   .schema-field-item {
     padding: 12px;

@@ -94,7 +94,7 @@ async function handleCreate() {
 .workspace-customize { display: grid; gap: 14px; }
 .workspace-customize-toggle { display: flex; width: 100%; min-width: 0; min-height: 54px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); background: var(--soft); text-align: left; }
 .workspace-customize-toggle > span:first-child { display: grid; gap: 4px; min-width: 0; }
-.workspace-customize-toggle small { color: var(--muted); font-size: .78rem; overflow-wrap: anywhere; }
+.workspace-customize-toggle small { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
 .workspace-create-content :deep(.creation-config) { padding-bottom: 4px; }
 @media (max-width: 520px) { .workspace-create-dialog { padding: 18px; } .workspace-create-form { margin: 14px 0; } }
 </style>
