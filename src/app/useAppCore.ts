@@ -1,5 +1,5 @@
 import { computed, ref, watch } from "vue"
-import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, exportDocumentAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
 import { useMatch } from "../state"
@@ -112,7 +112,8 @@ function useAppCollaboration(match: ReturnType<typeof useMatch>, ui: ReturnType<
       merge: (id, bytes, authorization) => timedWorkspaceStoreStage("merge", id, () =>
         match.mergeAuthorizedWorkspace(id, bytes, authorization)),
       readAuthorization: (bytes, id) => timedWorkspaceStoreStage("read-authorization", id ?? "unknown", () =>
-        exportAuthorizationBundle(bytes)),
+        // Proofs and authority are read fresh; genesis ownership is already in the local document.
+        id ? match.readWorkspaceDoc(id).then(doc => exportDocumentAuthorizationBundle(doc)) : exportAuthorizationBundle(bytes)),
       activate: match.switchWorkspace,
       readChat: exportChat,
       mergeChat: receiveChat,

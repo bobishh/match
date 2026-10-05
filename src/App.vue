@@ -233,11 +233,11 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       >
         <button v-if="isArchiveColumn(column) && !isArchiveOpen && !hasFilters" class="bin-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="isArchiveOpen = true"><span class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ itemsForColumn(column).length }}</small></button>
         <template v-else>
-          <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
-            <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
-            <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
-          </header>
           <div class="card-stack" :data-column-id="column.id">
+            <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
+              <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
+              <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
+            </header>
             <template v-for="(item, index) in itemsForColumn(column)" :key="item.id"><div v-if="index > 0 && !isEditingBoard && canEditItems && !isArchiveColumn(column)" class="card-add-gap"><button class="column-add-button card-insert-button" type="button" :aria-label="`Add ${entityName} between cards in ${column.title}, before ${item.title}`" @click="openAddItem(column.id, item.id)">{{ addItemLabel }}</button></div><article class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id, 'lead-card-expanded': hasFilters }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id">
               <button class="card-open-button" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)"></button>
               <div class="card-layout"><div class="card-main">
@@ -257,8 +257,8 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
               </div><span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
             </article></template>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
+            <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
           </div>
-          <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
         </template>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>

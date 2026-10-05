@@ -119,6 +119,11 @@ function useBoardPresentation(core: AppBoardContext) {
   const clearFilters = () => { search.value = ""; filters.value = defaultBoardFilters() }
   let scrolledBoard: HTMLElement | null = null
   let boardScrollLeft = 0
+  watch(() => visibleColumns.value.map(column => column.id).join("|"), () => {
+    // Capture before Vue patches columns; the scroll event may still be queued.
+    scrolledBoard = boardRef.value
+    boardScrollLeft = scrolledBoard?.scrollLeft ?? 0
+  }, { flush: "pre" })
   const updateMobileColumnIndex = () => {
     scrolledBoard = boardRef.value
     boardScrollLeft = scrolledBoard?.scrollLeft ?? 0

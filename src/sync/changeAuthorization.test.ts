@@ -9,7 +9,7 @@ import { createWorkspaceDoc } from "../domain/seeds"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, createWorkspaceDeparture, createWorkspaceDeviceRevocation, createWorkspaceRevocation } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
-import { exportAuthorizations, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
+import { exportAuthorizations, exportAuthorizationBundle, exportDocumentAuthorizationBundle, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
@@ -55,6 +55,12 @@ function authorizationBundle(doc: Automerge.Doc<WorkspaceDocumentV2>, records: u
   currentEpoch: 1,
   ownershipTransfers: [] as WorkspaceOwnershipTransfer[], successionClaims: [], revocations: [], deviceRevocations: [], departures: [] } }
 }
+
+it("exports the same fresh authorization evidence from a hydrated document without consuming it", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Hydrated proofs", owner.identity.personId, "blank"))
+  expect(await exportDocumentAuthorizationBundle(doc, owner)).toEqual(await exportAuthorizationBundle(Automerge.save(doc), owner))
+  expect(Automerge.change(doc, draft => { draft.title = "Still writable" }).title).toBe("Still writable")
+})
 
 it.runIf(process.env.MATCH_PROOF_BENCHMARK === "1")("benchmarks complete TS/WASM admission and one delta on deterministic signed histories", async () => {
   const timings: unknown[] = []

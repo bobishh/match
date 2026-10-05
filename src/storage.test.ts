@@ -112,6 +112,28 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     expect((await storage.loadWorkspaceDoc(doc.id, doc))!.doc.title).toBe("Other tab saved")
   })
 
+  it("reuses decoded documents across reads, but sees another storage instance's snapshot and journal writes", async () => {
+    const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc(crypto.randomUUID(), "Cached read", profile.identity.personId, "blank"))
+    await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
+    const first = (await storage.loadWorkspaceDoc(doc.id))!.doc
+    const second = (await storage.loadWorkspaceDoc(doc.id))!.doc
+    expect(second.title).toBe("Cached read")
+    expect(Automerge.change(second, draft => { draft.title = "Private branch" }).title).toBe("Private branch")
+    expect(first.title).toBe("Cached read")
+    const other = new WorkspaceStorage()
+    const newer = Automerge.change(Automerge.clone(doc), draft => { draft.title = "Other tab saved" })
+    await other.saveSnapshot(doc.id, newer, Automerge.save(newer))
+    expect((await storage.loadWorkspaceDoc(doc.id))!.doc.title).toBe("Other tab saved")
+    const column = Object.values(newer.entities).find(e => hasEntityKind(e, "column"))!
+    const result = await executeCommand(Automerge.clone(newer), { kind: "createItem", parentId: column.id, title: "Journal delta" }, profile)
+    if (!result.ok) throw new Error(result.error.message)
+    await other.commitTransaction(doc.id, result.value.receipt, Automerge.getLastLocalChange(result.value.newDoc)!, result.value.proof)
+    const updated = (await storage.loadWorkspaceDoc(doc.id))!.doc
+    expect(Object.values(updated.entities).filter(isItem).map(item => item.title)).toEqual(["Journal delta"])
+    await storage.saveSnapshot(doc.id, updated, Automerge.save(updated))
+    expect((await storage.loadWorkspaceDoc(doc.id))!.heads).toEqual(Automerge.getHeads(updated))
+  })
+
   it("selects the current identity root after enrollment instead of the first stored root", async () => {
     await storage.savePersonalRoot(createPersonalRoot(profile, "old-cert", "00000000-0000-4000-8000-000000000001"))
     resetIdentityStorageForTest()

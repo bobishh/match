@@ -113,9 +113,30 @@ async function readIndexedJournalRecord<T>(
 
 export class WorkspaceStorage {
   private inMemory: InMemoryStore
+  private loadedDocuments = new Map<string, Automerge.Doc<WorkspaceDocumentV2>>()
 
   constructor(store = memoryStore) {
     this.inMemory = store
+  }
+
+  private rememberDocument(workspaceId: string, doc?: Automerge.Doc<WorkspaceDocumentV2>) {
+    const previous = this.loadedDocuments.get(workspaceId)
+    this.loadedDocuments.delete(workspaceId)
+    if (previous) Automerge.free(previous)
+    if (doc) this.loadedDocuments.set(workspaceId, Automerge.clone(doc))
+    if (this.loadedDocuments.size > 8) {
+      const oldest = this.loadedDocuments.keys().next().value!
+      Automerge.free(this.loadedDocuments.get(oldest)!)
+      this.loadedDocuments.delete(oldest)
+    }
+  }
+
+  private decodeSnapshot(snapshot: StoredSnapshot, reusable?: Automerge.Doc<WorkspaceDocumentV2>) {
+    // Recheck durable heads on every read so other tabs cannot leave a stale cache.
+    const cached = canReuseDocument(reusable, snapshot.workspaceId, snapshot.heads)
+      ? reusable : this.loadedDocuments.get(snapshot.workspaceId)
+    return canReuseDocument(cached, snapshot.workspaceId, snapshot.heads)
+      ? Automerge.clone(cached!) : Automerge.load<WorkspaceDocumentV2>(snapshot.bytes)
   }
 
   async listWorkspaces(): Promise<WorkspaceMeta[]> {
@@ -161,6 +182,7 @@ export class WorkspaceStorage {
 
     await removeStorageRaw(`${workspaceMetaPrefix}${oldId}`)
     this.inMemory.snapshots.delete(oldId)
+    this.rememberDocument(oldId)
     this.inMemory.workspaces.delete(oldId)
     for (const map of [this.inMemory.changes, this.inMemory.proofs, this.inMemory.receipts]) {
       for (const key of map.keys()) {
@@ -177,6 +199,7 @@ export class WorkspaceStorage {
   async purgeWorkspaceForTest(workspaceId: string): Promise<void> {
     await removeStorageRaw(`${workspaceMetaPrefix}${workspaceId}`)
     this.inMemory.snapshots.delete(workspaceId)
+    this.rememberDocument(workspaceId)
     this.inMemory.workspaces.delete(workspaceId)
     for (const map of [this.inMemory.changes, this.inMemory.proofs, this.inMemory.receipts]) {
       for (const key of map.keys()) {
@@ -347,6 +370,7 @@ export class WorkspaceStorage {
     }
     // Memory projections advance only after the durable transaction completes.
     this.inMemory.snapshots.set(workspaceId, snapshot)
+    this.rememberDocument(workspaceId, doc)
     await this.registerWorkspace(workspaceId, doc.title, doc.archivedAt ?? null, true)
     return { proofChanged }
   }
@@ -363,15 +387,15 @@ export class WorkspaceStorage {
     let doc: Automerge.Doc<WorkspaceDocumentV2>
 
     if (snapshot) {
-      doc = canReuseDocument(reusable, workspaceId, snapshot.heads)
-        ? Automerge.clone(reusable!) : Automerge.load<WorkspaceDocumentV2>(snapshot.bytes)
+      doc = this.decodeSnapshot(snapshot, reusable)
     } else {
       doc = Automerge.init<WorkspaceDocumentV2>()
     }
 
     const changes = await this.listChanges(workspaceId)
-    if (changes.length > 0) {
-      const changeByteArrays = changes.map((c) => c.bytes)
+    const missingChanges = changes.filter(change => !Automerge.hasHeads(doc, [change.changeHash]))
+    if (missingChanges.length > 0) {
+      const changeByteArrays = missingChanges.map((c) => c.bytes)
       try {
         const [updatedDoc] = Automerge.applyChanges(doc, changeByteArrays)
         doc = updatedDoc
@@ -392,7 +416,7 @@ export class WorkspaceStorage {
     if (!snapshot && changes.length === 0) {
       return null
     }
-
+    this.rememberDocument(workspaceId, doc)
     return { doc, heads }
   }
 

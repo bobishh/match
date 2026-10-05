@@ -120,7 +120,8 @@ async function mergeAuthorizationBase(
   id: string,
   remote: Automerge.Doc<WorkspaceDocumentV2>,
 ) {
-  const local = (await defaultStorage.loadWorkspaceDoc(id))?.doc;
+  const reusable = stateRuntime.activeDoc?.id === id ? stateRuntime.activeDoc : undefined;
+  const local = (await defaultStorage.loadWorkspaceDoc(id, reusable))?.doc;
   if (local && !sharesBoard(local, remote)) throw new Error(`Workspace conflict: ${id} identifies different boards. Nothing was replaced.`);
   return local;
 }

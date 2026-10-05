@@ -436,6 +436,8 @@ async function latestWorkspaceDocument(
     stateRuntime.activeDoc?.id === workspaceId ? stateRuntime.activeDoc : null;
   const stored = (await storage.loadWorkspaceDoc(workspaceId, local ?? undefined))?.doc ?? null;
   if (!local && !stored) throw new Error("Workspace not hydrated");
+  if (local && stored && Automerge.getHeads(local).sort().join() === Automerge.getHeads(stored).sort().join())
+    return stored;
   return local && stored
     ? Automerge.merge(Automerge.clone(local), Automerge.clone(stored))
     : (local ?? (stored as Automerge.Doc<WorkspaceDocumentV2>));

@@ -183,7 +183,8 @@ export async function authorizeLocalChanges(doc: Automerge.Doc<WorkspaceDocument
 }
 export async function exportAuthorizations(bytes: Uint8Array) {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
-  return records(doc.id)
+  try { return await records(doc.id) }
+  finally { Automerge.free(doc) }
 }
 
 /**
@@ -193,6 +194,11 @@ export async function exportAuthorizations(bytes: Uint8Array) {
  */
 export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?: LocalProfile): Promise<Extract<IncomingAuthorizationBundle, { version: 1 }>> {
   const doc = Automerge.load<WorkspaceDocumentV2>(bytes)
+  try { return await exportDocumentAuthorizationBundle(doc, knownProfile) }
+  finally { Automerge.free(doc) }
+}
+
+export async function exportDocumentAuthorizationBundle(doc: Automerge.Doc<WorkspaceDocumentV2>, knownProfile?: LocalProfile): Promise<Extract<IncomingAuthorizationBundle, { version: 1 }>> {
   let authority = (await storedWorkspaceAuthority(doc.id)).authority
   if (!authority && typeof indexedDB === "undefined" && knownProfile?.identity.personId === doc.ownerPersonId) {
     authority = {
@@ -204,7 +210,7 @@ export async function exportAuthorizationBundle(bytes: Uint8Array, knownProfile?
   }
   const evidence = workspaceWriteAuthorityEvidence(doc, authority)
   if (!evidence) throw new Error("Workspace authority is unavailable for write authorization")
-  return { version: 1, records: await exportAuthorizations(bytes), authority: evidence }
+  return { version: 1, records: await records(doc.id), authority: evidence }
 }
 
 function workspaceWriteAuthorityEvidence(doc: WorkspaceDocumentV2, authority: StoredWorkspaceAuthority | null): WorkspaceWriteAuthorityEvidence | undefined {
