@@ -46,6 +46,10 @@ shared document.
 Compare the authentication codes and approve on the existing device. Use a fresh
 profile for a demo so you do not enroll someone else's browser into your identity.
 
+The tab icon follows the active board's connection status: green when connected,
+blinking yellow while reconnecting, red when offline, and steady yellow without
+peers. Reduced motion keeps the reconnecting icon steady.
+
 Standalone Lighthouse can request an owner connection through the same invitation
 flow. During approval, **Connect all my boards, including future boards** grants
 its separate identity the selected role across owned boards. The checkbox starts

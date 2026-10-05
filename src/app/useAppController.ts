@@ -5,9 +5,11 @@ import { runAppStartup, startupFailureDetail, startupFailureMessage } from "./st
 import { useAppActions } from "./useAppActions"
 import { useAppBoard, type AppBoardContext } from "./useAppBoard"
 import { useAppCore } from "./useAppCore"
+import { useMeshFavicon } from "../ui/useMeshFavicon"
 
 export function useAppController() {
   const core = useAppCore()
+  useMeshFavicon(core.meshPresence)
   const board = useAppBoard(boardContext(core))
   const actions = useAppActions(core, board)
   useAppLifecycle(core, board, actions)

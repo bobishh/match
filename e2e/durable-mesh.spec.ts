@@ -3,6 +3,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "./su
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 import { captureRealIrohNodes, captureSavedAcknowledgements, closeLatestRealIrohNode, documentReceiveAttempts, realIrohNodeOwnership } from "./support/recovery"
 import { captureMeshResources, meshResourceCounts } from "./support/meshResources"
+import { expectFaviconColor, faviconColor, faviconChanges } from "./support/favicon"
 
 async function addLead(page: Page, company: string) {
   await ensureJobSearchWorkspace(page)
@@ -686,14 +687,21 @@ test("Given a connected peer closes its tab, when it returns, then presence turn
     await Promise.all([page.goto("/"), guest.goto("/")])
     await pairWorkspace(page, guest)
     await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expectFaviconColor(page, "#69db7c")
 
     await guest.close()
     await expect(page.getByLabel("Mesh reconnecting")).toBeVisible({ timeout: 20_000 })
+    const firstFrame = await faviconColor(page)
+    expect(["#ffd43b", "#f3f0e8"]).toContain(firstFrame)
+    await expect.poll(() => faviconColor(page), { timeout: 2_000 }).not.toBe(firstFrame)
+    expect(["#ffd43b", "#f3f0e8"]).toContain(await faviconColor(page))
     await page.getByRole("button", { name: "Sync", exact: true }).click()
     const syncDialog = page.getByRole("dialog", { name: "Device sync" })
     await expect(syncDialog.getByText("Reconnecting · Checking live channel. Changes stay saved on this device.")).toBeVisible()
     await expect(syncDialog.getByRole("list", { name: "Mesh members" }).locator(".mesh-member-presence.is-reconnecting")).toHaveCount(1)
     await expect(page.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
+    await expectFaviconColor(page, "#ff5a36")
+    await page.emulateMedia({ reducedMotion: "reduce" })
     await expect(syncDialog.getByText(/^Offline · No live channel\. (?:Retrying in \d+s\.|Reconnecting automatically\.)$/)).toBeVisible()
     await expect(syncDialog.getByText(/^Reconnect:/)).toHaveCount(0)
     await expect(syncDialog.locator(".mesh-member-presence.is-online")).toHaveCount(1)
@@ -720,7 +728,13 @@ test("Given a connected peer closes its tab, when it returns, then presence turn
     await guest.goto("/")
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await expectFaviconColor(page, "#69db7c")
     await expect(guest.getByRole("button", { name: "Open Queued while closed — Engineer" })).toBeVisible({ timeout: 20_000 })
+    await guest.close()
+    await expect(page.getByLabel("Mesh reconnecting")).toBeVisible({ timeout: 20_000 })
+    await expectFaviconColor(page, "#ffd43b")
+    expect(await faviconChanges(page)).toBe(0)
+    await expectFaviconColor(page, "#ffd43b")
   } finally {
     await guestContext.close()
   }

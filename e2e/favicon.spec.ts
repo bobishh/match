@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "./support/coverage"
+import { expectFaviconColor, faviconChanges } from "./support/favicon"
 
-async function faviconLoads(page: Page) {
+async function faviconLoads(page: Page, center: number[]) {
   const href = await page.locator('link[rel="icon"][type="image/svg+xml"]').getAttribute("href")
-  expect(href).toBe("/favicon.svg?v=5")
 
   const image = await page.evaluate(async (src) => {
     const icon = new Image()
@@ -33,22 +33,32 @@ async function faviconLoads(page: Page) {
   expect({ width: image.width, height: image.height }).toEqual({ width: 64, height: 64 })
   expect(image.corner[3]).toBe(0)
   for (const color of [image.center, image.circleEdge]) {
-    expect(color[0]).toBeLessThan(160)
-    expect(color[1]).toBeGreaterThan(180)
-    expect(color[2]).toBeLessThan(180)
-    expect(color[3]).toBe(255)
+    expect(color).toEqual([...center, 255])
   }
   expect(image.crownPixels).toBeGreaterThan(10)
 }
 
-test("Given a ready board, when its tab opens, then Match icon loads", async ({ page }) => {
+test("Given a ready board with no peers, when its tab opens, then Match favicon matches empty mesh without blinking", async ({ page }) => {
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
-  await faviconLoads(page)
+  await expectFaviconColor(page, "#ffd43b")
+  await faviconLoads(page, [255, 212, 59])
+  expect(await faviconChanges(page)).toBe(0)
 })
 
 test("Given app startup fails, when its tab opens, then Match icon still loads", async ({ page }) => {
   await page.route("**/src/main.ts", route => route.abort())
   await page.goto("/", { waitUntil: "domcontentloaded" })
-  await faviconLoads(page)
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=5")
+  await faviconLoads(page, [105, 219, 124])
+})
+
+test("Given favicon animation cannot load, when the board opens, then the static icon and local board remain available", async ({ page }) => {
+  await page.route("**/favicon.svg?v=5", route => route.request().resourceType() === "fetch"
+    ? route.fulfill({ status: 503, body: "Unavailable" }) : route.continue())
+  await page.goto("/")
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
+  await expect(page.getByLabel("Mesh empty", { exact: true })).toBeVisible()
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=5")
+  await faviconLoads(page, [105, 219, 124])
 })
