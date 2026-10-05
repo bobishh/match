@@ -1,3 +1,4 @@
+import { validateMessageContext, type MessageContext } from "./context"
 import { signEnvelope, verifyEnvelope, type LocalProfile, type SignedEnvelope } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { validateDisplayName, normalizeDisplayName } from "./names"
@@ -7,7 +8,8 @@ import { canWorkspace } from "../domain/permissions"
 
 export type ChatPayload = {
   kind: "chat-message" | "chat-profile" | "chat-typing"
-  version: 1
+  version: 1 | 2
+  context?: MessageContext
   workspaceId: string
   personId: string
   deviceId: string
@@ -64,7 +66,12 @@ function validatePayloadTimestamp(payload: ChatPayload): void {
 
 function validateRecordShape(record: ChatRecord, workspaceId: string): ChatPayload {
   const payload = record?.signed?.payload
-  if (!payload || payload.version !== 1) return invalidRecord()
+  if (!payload || ![1, 2].includes(payload.version)) return invalidRecord()
+  if (payload.version === 1 && payload.context !== undefined) return invalidRecord()
+  if (payload.version === 2) {
+    if (payload.kind !== "chat-message") return invalidRecord()
+    validateMessageContext(payload.context, workspaceId, payload.id)
+  }
   validatePayloadIdentity(record, payload, workspaceId)
   validatePayloadTimestamp(payload)
   return payload
@@ -164,9 +171,9 @@ export async function verifyChatRecord(value: unknown, workspaceId: string, owne
 }
 
 export async function createChatRecord(profile: LocalProfile, certificates: DeviceCertificate[], authority: ChatAuthority,
-  workspaceId: string, kind: ChatPayload["kind"], text: string, revision = 0): Promise<ChatRecord> {
+  workspaceId: string, kind: ChatPayload["kind"], text: string, revision = 0, context?: MessageContext): Promise<ChatRecord> {
   const payload: ChatPayload = {
-    kind, version: 1, workspaceId, personId: profile.identity.personId, deviceId: profile.device.deviceId,
+    kind, version: context ? 2 : 1, ...(context ? { context } : {}), workspaceId, personId: profile.identity.personId, deviceId: profile.device.deviceId,
     id: `${profile.device.deviceId}:${crypto.randomUUID()}`, createdAt: new Date().toISOString(), text, revision,
   }
   return {

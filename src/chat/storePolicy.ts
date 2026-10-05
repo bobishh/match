@@ -1,3 +1,4 @@
+import { validateMessageContext, type MessageContext } from "./context"
 export type StoredChatMessage = {
   id: string
   workspaceId: string
@@ -5,6 +6,7 @@ export type StoredChatMessage = {
   createdAt: string
   body: string
   record: unknown
+  context?: MessageContext
 }
 
 export type StoredChatProfile = {
@@ -136,6 +138,13 @@ export function validateMessage(message: StoredChatMessage): void {
   validateMessageTimestamp(message.createdAt)
   validateMessageBody(message.body)
   validateRecordSize(message.record, "Message")
+  if (message.context !== undefined) validateMessageContext(message.context, message.workspaceId, message.id)
+  const payload = (message.record as { signed?: { payload?: Record<string, unknown> } })?.signed?.payload
+  if (payload?.kind === "chat-message") {
+    if (payload.id !== message.id || payload.workspaceId !== message.workspaceId || payload.personId !== message.personId || payload.createdAt !== message.createdAt || payload.text !== message.body || canonicalJson(payload.context) !== canonicalJson(message.context)) {
+      throw new Error("Message projection differs from signed payload")
+    }
+  }
 }
 
 export function validateProfile(profile: StoredChatProfile): void {
@@ -164,6 +173,7 @@ export function areMessagesIdentical(left: StoredChatMessage, right: StoredChatM
     left.personId === right.personId &&
     left.createdAt === right.createdAt &&
     left.body === right.body &&
+    canonicalJson(left.context) === canonicalJson(right.context) &&
     canonicalJson(left.record) === canonicalJson(right.record)
   )
 }

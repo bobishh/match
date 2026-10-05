@@ -1,3 +1,4 @@
+import { normalizeMessageContext, type MessageContext } from "./context"
 import { bootstrapIdentity, type LocalProfile } from "../domain/identity"
 import { defaultProofStore } from "../domain/proofs"
 import { chatStore, type StoredChatMessage, type StoredChatProfile } from "./store"
@@ -13,6 +14,7 @@ const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastCh
 const typingTtlMs = 6_000
 const typingRecords = new Map<string, Map<string, { record: ChatRecord; receivedAt: number }>>()
 let readOwner: (workspaceId: string) => Promise<string> = async () => { throw new Error("Workspace unavailable") }
+const peerCapabilities = new Map<string, Map<string, boolean>>()
 let readScope: (workspaceId: string) => Promise<string> = async id => id
 
 function publish(event: ChatChange) {
@@ -29,6 +31,7 @@ channel?.addEventListener("message", event => {
 
 export function configureChat(owner: typeof readOwner, scope: typeof readScope) { readOwner = owner; readScope = scope }
 export function subscribeChat(listener: (event: ChatChange) => void) { listeners.add(listener); return () => { listeners.delete(listener) } }
+export async function getChatScope(workspaceId: string) { return readScope(workspaceId) }
 export async function loadChat(workspaceId: string) { return chatStore.load(await readScope(workspaceId)) }
 export async function readChatCursor(workspaceId: string) { return chatStore.readCursor(await readScope(workspaceId)) }
 export async function markChatRead(workspaceId: string, cursor: string) { return chatStore.markRead(await readScope(workspaceId), cursor) }
@@ -61,7 +64,7 @@ export function loadChatTyping(workspaceId: string): ChatTyping[] {
 
 function message(record: ChatRecord): StoredChatMessage {
   const p = record.signed.payload
-  return { id: p.id, workspaceId: p.workspaceId, personId: p.personId, createdAt: p.createdAt, body: p.text, record }
+  return { id: p.id, workspaceId: p.workspaceId, personId: p.personId, createdAt: p.createdAt, body: p.text, record, ...(p.context ? { context: p.context } : {}) }
 }
 function member(record: ChatRecord): StoredChatProfile {
   const p = record.signed.payload
@@ -88,12 +91,12 @@ async function credentials(workspaceId: string, profile: LocalProfile): Promise<
   return { ...source.authority, grant }
 }
 
-async function signed(workspaceId: string, kind: "chat-message" | "chat-profile" | "chat-typing", text: string, revision = 0) {
+async function signed(workspaceId: string, kind: "chat-message" | "chat-profile" | "chat-typing", text: string, revision = 0, context?: MessageContext) {
   const profile = await bootstrapIdentity()
   const chain = (await defaultProofStore.listCertificates()).filter(c => c.payload.personId === profile.identity.personId)
   if (!chain.some(c => c.payload.deviceId === profile.device.deviceId)) chain.push(profile.certificate)
   const scope = await readScope(workspaceId)
-  const record = await createChatRecord(profile, chain, await credentials(workspaceId, profile), scope, kind, text, revision)
+  const record = await createChatRecord(profile, chain, await credentials(workspaceId, profile), scope, kind, text, revision, context)
   return verifyChatRecord(record, scope, await readOwner(workspaceId), workspaceId)
 }
 
@@ -113,17 +116,25 @@ export async function ensureChatProfile(workspaceId: string) {
   })
 }
 
-export async function sendChatMessage(workspaceId: string, body: string) {
+export async function sendChatMessage(workspaceId: string, body: string, context?: MessageContext) {
+  const scope = await readScope(workspaceId)
+  let normalized: MessageContext | undefined
+  if (context) {
+    await assertContextualCompatibility(workspaceId, scope)
+    normalized = normalizeMessageContext(context, (await loadChat(workspaceId)).messages, scope)
+  }
   const timestampMs = Date.now()
   const text = body.trim()
   if (!text || [...text].length > 8000) throw new Error("Message must contain 1–8,000 characters")
   await ensureChatProfile(workspaceId)
-  const value = message(await signed(workspaceId, "chat-message", text))
+  const value = message(await signed(workspaceId, "chat-message", text, 0, normalized))
   meshTrace("chat.submit", { workspaceId, recordId: value.id, timestampMs })
   if (await chatStore.append(value)) {
     meshTrace("chat.persisted", { workspaceId, recordId: value.id, elapsedMs: Date.now() - timestampMs, phase: "local" })
     publish({ workspaceId, added: [value], remote: false, history: false })
+    return value
   }
+  throw new Error("Message could not be retained")
 }
 
 export async function sendChatTyping(workspaceId: string, active: boolean) {
@@ -133,10 +144,14 @@ export async function sendChatTyping(workspaceId: string, active: boolean) {
   publish({ workspaceId, added: [], remote: false, history: false, typing: [record] })
 }
 
-export async function exportChat(workspaceId: string, known?: Set<string>): Promise<{ version: 1; messages: unknown[]; profiles: unknown[]; typing: unknown[] }> {
+export async function exportChat(workspaceId: string, known?: Set<string>, remoteDeviceId?: string): Promise<{ version: 1 | 2; capabilities: string[]; upgradeRequired?: boolean; messages: unknown[]; profiles: unknown[]; typing: unknown[] }> {
   // Existing installations may not yet have received owner credentials. Do not interrupt board sync.
   try { await ensureChatProfile(workspaceId) } catch { /* A received profile will supply owner credentials. */ }
   const snapshot = await loadChat(workspaceId)
+  // Advertise capability before transmitting v2. Withhold whole signed records;
+  // never strip metadata, re-sign, or mark withheld records as known.
+  const compatible = !remoteDeviceId || peerCapabilities.get(await readScope(workspaceId))?.get(remoteDeviceId) === true
+  const upgradeRequired = !compatible && snapshot.messages.some(message => message.context !== undefined)
   if (known && known.size > 4096) known.clear()
   const unseen = (value: unknown) => {
     const record = value as ChatRecord
@@ -147,18 +162,23 @@ export async function exportChat(workspaceId: string, known?: Set<string>): Prom
   }
   const activeTyping = [...(typingRecords.get(workspaceId)?.values() ?? [])]
     .filter(state => Date.now() - state.receivedAt < typingTtlMs).map(state => state.record)
-  return { version: 1, messages: snapshot.messages.map(m => m.record).filter(unseen),
+  const messages = snapshot.messages.filter(message => compatible || !message.context).map(m => m.record).filter(unseen)
+  // Legacy readers reject the whole v2 batch, rather than silently dropping
+  // signed contextual records during enrollment or history transfer.
+  const version = messages.some(record => (record as ChatRecord).signed.payload.version === 2) ? 2 : 1
+  return { version, capabilities: ["contextual-v2"], ...(upgradeRequired ? { upgradeRequired: true } : {}), messages,
     profiles: snapshot.profiles.map(p => p.record).filter(unseen), typing: activeTyping.filter(unseen) }
 }
 
-type ChatWire = { version: 1; messages: unknown[]; profiles: unknown[]; typing: unknown[] }
+type ChatWire = { version: 1 | 2; capabilities?: string[]; messages: unknown[]; profiles: unknown[]; typing: unknown[] }
 
 function parseChatWire(value: unknown): ChatWire {
   const wire = value as Partial<ChatWire>
-  if (wire.version !== 1 || !Array.isArray(wire.messages) || !Array.isArray(wire.profiles)) {
+  if (![1, 2].includes(wire.version!) || !Array.isArray(wire.messages) || !Array.isArray(wire.profiles)) {
     throw new Error("Invalid chat batch")
   }
   if (wire.typing !== undefined && !Array.isArray(wire.typing)) throw new Error("Invalid chat batch")
+  if (wire.capabilities !== undefined && (!Array.isArray(wire.capabilities) || wire.capabilities.length > 16 || wire.capabilities.some(value => typeof value !== "string" || value.length > 64))) throw new Error("Invalid chat capabilities")
   const messages = wire.messages
   const profiles = wire.profiles
   const typing = wire.typing ?? []
@@ -168,7 +188,7 @@ function parseChatWire(value: unknown): ChatWire {
   if (new TextEncoder().encode(JSON.stringify(wire)).byteLength > 8 * 1024 * 1024) {
     throw new Error("Invalid chat batch")
   }
-  return { version: 1, messages, profiles, typing }
+  return { version: wire.version as 1 | 2, capabilities: wire.capabilities, messages, profiles, typing }
 }
 
 function rejectRecord(workspaceId: string, section: string, error: unknown): void {
@@ -198,11 +218,16 @@ async function verifiedRecords(
   return records
 }
 
-export async function receiveChat(workspaceId: string, value: unknown, history: boolean) {
+export async function receiveChat(workspaceId: string, value: unknown, history: boolean, remoteDeviceId?: string) {
   const timestampMs = Date.now()
   const wire = parseChatWire(value)
   const owner = await readOwner(workspaceId)
   const scope = await readScope(workspaceId)
+  if (remoteDeviceId) {
+    const capabilities = peerCapabilities.get(scope) ?? new Map<string, boolean>()
+    capabilities.set(remoteDeviceId, wire.capabilities?.includes("contextual-v2") === true)
+    peerCapabilities.set(scope, capabilities)
+  }
   const profileRecords = await verifiedRecords(wire.profiles, "chat-profile", scope, owner, workspaceId)
   const messageRecords = await verifiedRecords(wire.messages, "chat-message", scope, owner, workspaceId)
   const typingRecords = await verifiedRecords(wire.typing, "chat-typing", scope, owner, workspaceId)
@@ -215,4 +240,14 @@ export async function receiveChat(workspaceId: string, value: unknown, history: 
     meshTrace("chat.persisted", { workspaceId, recordId: message.id, elapsedMs: Date.now() - timestampMs, phase: "remote" })
   }
   if (result.changed || typing.length) publish({ workspaceId, added: result.added, remote: true, history, typing })
+}
+
+async function assertContextualCompatibility(workspaceId: string, scope: string): Promise<void> {
+  const capabilities = peerCapabilities.get(scope)
+  const peers = typeof indexedDB === "undefined" ? [] : await peerStore.listPeers(workspaceId)
+  const localDeviceId = (await bootstrapIdentity()).device.deviceId
+  if (peers.some(peer => peer.deviceId !== localDeviceId && !peer.revokedAt && capabilities?.get(peer.deviceId) !== true) ||
+      [...(capabilities?.entries() ?? [])].some(([deviceId, supported]) => deviceId !== localDeviceId && !supported && !peers.some(peer => peer.deviceId === deviceId && peer.revokedAt))) {
+    throw new Error("Peer upgrade required for contextual chat; connect upgraded peers first")
+  }
 }

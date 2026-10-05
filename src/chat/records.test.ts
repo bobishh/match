@@ -75,6 +75,22 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
     }
   })
 
+  it("signs bounded v2 context, rejects tampering, and preserves legacy v1", async () => {
+    const owner = await createProfile("Owner")
+    const context = { references: [{ workspaceScope: workspaceId, boardId: "board", itemId: "item" }], mentions: ["person"] }
+    const record = await createChatRecord(owner, [owner.certificate], makeOwnerAuthority(owner), workspaceId, "chat-message", "Discuss", 0, context)
+    expect(record.signed.payload.version).toBe(2)
+    await expect(verifyChatRecord(record, workspaceId, owner.identity.personId)).resolves.toBe(record)
+    const forged = structuredClone(record)
+    forged.signed.payload.context!.references[0]!.itemId = "changed"
+    await expect(verifyChatRecord(forged, workspaceId, owner.identity.personId)).rejects.toThrow("Invalid message signature")
+    const legacy = await createChatRecord(owner, [owner.certificate], makeOwnerAuthority(owner), workspaceId, "chat-message", "Legacy")
+    expect(legacy.signed.payload.version).toBe(1)
+    await expect(verifyChatRecord(legacy, workspaceId, owner.identity.personId)).resolves.toBe(legacy)
+    legacy.signed.payload.context = context
+    await expect(verifyChatRecord(legacy, workspaceId, owner.identity.personId)).rejects.toThrow("Invalid chat record")
+  })
+
   describe("1. Owner signed message admitted", () => {
     it("admits signed ephemeral typing state and rejects unknown typing values", async () => {
       const owner = await createProfile("Owner Alice")

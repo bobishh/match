@@ -14,7 +14,9 @@ import TincanbanHeading from "./components/TincanbanHeading.vue"
 import BrandCan from "./components/BrandCan.vue"
 import BoardDragOverlay from "./components/BoardDragOverlay.vue"
 import LeadFilters from "./components/LeadFilters.vue"
-import WorkspaceChat from "./components/WorkspaceChat.vue"
+import SpatialWindow from "./components/SpatialWindow.vue"
+import { useObjectConversations } from "./app/useObjectConversations"
+import ObjectConversationLayer from "./components/ObjectConversationLayer.vue"
 import ItemDetailDialog from "./components/ItemDetailDialog.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
@@ -40,6 +42,7 @@ const MoveItemDialog = defineAsyncComponent<Component>(() => import("./component
 const WorkspaceParticipants = defineAsyncComponent<Component>(() => import("./components/WorkspaceParticipants.vue"))
 
 const app = useAppController()
+const conversations = useObjectConversations(app)
 const showIdentityRecovery = ref(false)
 const showSettings = ref(false)
 const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
@@ -69,6 +72,7 @@ const {
 const { sync, chat } = app.collaboration.device
 const SyncDialog = createLazySyncDialog(sync.dismiss)
 const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
+const chatCanView = computed(() => confirmedRole.value !== null && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
 const showAccessLoading = useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading")
 const { meshPresence, meshPresenceLabel,
@@ -320,12 +324,8 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
     </ModalLayer>
     <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
 
-    <WorkspaceChat v-if="chat.open.value" :key="activeWorkspace.id" :workspace-title="activeWorkspace.title"
-      :read-only="!canEditItems"
-      :messages="chat.messages.value" :current-person-id="chat.personId.value" :sending="chat.sending.value"
-      :error="chat.error.value" :loading="chat.loading.value" :connected="sync.isWorkspaceLive(activeWorkspace.id)"
-      :typing-people="chat.typingPeople.value"
-      @close="chat.open.value = false" @send="chat.send" @typing="chat.setTyping" />
+    <ObjectConversationLayer :workspace-id="activeWorkspace.id" :workspace-title="activeWorkspace.title" :chat="chat" :conversations="conversations"
+      :can-view="chatCanView" :read-only="!canEditItems" :connected="sync.isWorkspaceLive(activeWorkspace.id)" @workspaces="showWorkspaces = true" @chat-close="chat.open.value = false" @source-dismiss="conversations.sourceState.value = ''" />
     <aside v-if="chat.toast.value" class="chat-toast" role="status">
       <button class="button button-quiet" type="button" @click="chat.open.value = true">{{ chat.toast.value.text }}</button>
       <button class="icon-button" type="button" aria-label="Dismiss chat notification" @click="chat.toast.value = null">×</button>
@@ -348,7 +348,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
 
     <ItemDetailDialog
       v-if="selectedItem"
-      :item="selectedItem" :columns="genericColumns" :card-stage-buttons="cardStageButtons(activeBoard, genericColumns)"
+      :workspace-id="activeWorkspace.id" @discuss="conversations.discuss(selectedItem!.id, $event)" :item="selectedItem" :columns="genericColumns" :card-stage-buttons="cardStageButtons(activeBoard, genericColumns)"
       :move-to-column="moveCardToColumn" :archived="Boolean(selectedItem?.archivedAt)"
       :narrative="selectedItem ? cardNotes(selectedItem) : ''"
       :read-only="!canEditItems"
@@ -403,13 +403,13 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       @confirm="handleConfirmMove"
     />
 
-    <ModalLayer v-if="selectedLead" class="overlay detail-overlay" @close="closeDetail">
-      <section ref="detailDialog" class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Lead details" tabindex="-1" @keydown.esc="closeDetail">
+    <SpatialWindow v-if="selectedLead" :window-id="`item:${selectedLead.id}`" :workspace-id="activeWorkspace.id" :title="selectedLead.company" aria-label="Lead details" close-label="Close detail" :initial-width="760" :initial-height="700" @close="closeDetail">
+      <section ref="detailDialog" class="detail-dialog spatial-detail" :data-discussion-item="selectedLead.id">
         <div class="detail-head">
           <div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div>
           <div class="detail-head-actions">
             <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="editItem(selectedLeadItem)">Edit</button>
-            <button class="icon-button" type="button" aria-label="Close detail" @click="closeDetail">×</button>
+            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="conversations.discuss(selectedLeadItem.id)">Discuss</button>
           </div>
         </div>
       <CardStageStrip v-if="selectedLeadItem" :item="selectedLeadItem" :columns="genericColumns" :buttons="cardStageButtons(activeBoard, genericColumns)" :read-only="!canEditItems" :move="moveCardToColumn" />
@@ -423,7 +423,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
           <div><span class="detail-label">Work mode</span><strong>{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><MarkdownContent class="detail-copy" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
+        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><button class="button button-small" type="button" aria-label="Discuss description" :disabled="!canEditItems" @click="conversations.discuss(selectedLeadItem.id, 'narrative')">Discuss</button><MarkdownContent class="detail-copy" data-discussion-text data-discussion-field="narrative" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"
@@ -454,7 +454,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         />
       </div>
       </section>
-    </ModalLayer>
+    </SpatialWindow>
     </template>
 
     <SyncDialog
@@ -515,3 +515,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
   </TincanbanPageLayout>
   <BuildFooter />
 </template>
+
+<style scoped>
+.spatial-detail { height: 100%; max-height: none; width: 100%; display: flex; flex-direction: column; padding: 16px; }
+</style>

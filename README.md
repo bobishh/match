@@ -193,6 +193,29 @@ retry the same computation on the UI thread. Admission and access checks retain
 their separate workers. Transport and lightweight lifecycle bookkeeping remain
 in the browser's main context.
 
+## Discuss objects
+
+Use **Discuss** on an item or field, or select text and choose **Discuss selection**.
+Messages keep signed references to their source. Item discussions and reply views
+show the same records as workspace chat; replies quote their immediate target.
+Select participants through **Invite @participant** to attach stable identity
+mentions. Mentions retain workspace visibility and do not create private messages.
+
+Item, chat, and discussion windows share movement, resizing, and focus order.
+Drag the title bar or resize handle; focused controls support arrow keys and
+Shift for larger steps. **Next window** cycles views, including on narrow screens.
+Window geometry stays local to each workspace. Native content zoom remains available.
+Default illustrated avatars derive from participant identity and survive renames;
+no image service or avatar upload is required.
+
+**Copy message link** targets a committed message. Receiving devices must already
+have workspace access; links do not download or join workspaces. Missing history,
+unknown workspaces, loading failures, and revoked access have separate feedback.
+Contextual messages require current, connected peer capability negotiation;
+older peers must upgrade before rich messages can be sent. Existing plain chat
+messages remain readable. The chat journal still retains at most 2,000 messages
+or 4 MiB per scope.
+
 ## What to expect
 
 - **Availability:** another device must be reachable to receive new data or fetch

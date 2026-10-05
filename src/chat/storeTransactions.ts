@@ -131,6 +131,7 @@ function publicMessage(message: StoredMessageInternal): StoredChatMessage {
     createdAt: message.createdAt,
     body: message.body,
     record: message.record,
+    ...(message.context ? { context: message.context } : {}),
   }
 }
 

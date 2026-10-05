@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { MarkdownContent } from "../ui/markdownContent"
 import { ref, computed, watch, nextTick, onMounted } from "vue"
-import ModalLayer from "./ModalLayer.vue"
+import SpatialWindow from "./SpatialWindow.vue"
+import ParticipantAvatar from "./ParticipantAvatar.vue"
+import MessageLinkAction from "./MessageLinkAction.vue"
+import { chatDraft } from "../ui/chatDrafts"
+import { MAX_REFERENCES, MAX_MENTIONS, type Anchor, type MessageContext } from "../chat/context"
 
 interface ChatMessage {
   id: string
@@ -9,12 +13,24 @@ interface ChatMessage {
   name: string
   body: string
   createdAt: string
+  context?: MessageContext
   status?: "saving"
 }
 
 const props = withDefaults(
   defineProps<{
   readOnly?: boolean
+    workspaceId?: string
+    workspaceScope?: string
+    windowId?: string
+    title?: string
+    initialContext?: MessageContext
+    referenceChoices?: readonly { title: string; anchor: Anchor }[]
+    members?: readonly {personId: string; name: string}[]
+    allMessages?: readonly ChatMessage[]
+    targetId?: string
+    navigationState?: string
+    sendMessage?: (body: string, context?: MessageContext) => Promise<boolean>
     workspaceTitle: string
     messages: readonly ChatMessage[]
     currentPersonId: string
@@ -40,61 +56,38 @@ const emit = defineEmits<{
   close: []
   send: [body: string]
   typing: [active: boolean]
+  reference: [anchor: Anchor]
+  read: [ids: string[]]
 }>()
 
-const draft = ref("")
+function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
+const cached = chatDraft(props.workspaceId ?? "", props.windowId ?? "chat", props.initialContext)
+const draft = computed({ get: () => cached.body, set: value => { cached.body = value } })
+const context = computed({ get: () => cached.context, set: value => { cached.context = value } })
+const mentionQuery = ref("")
+const mentionChoices = computed(() => (props.members ?? []).filter(member => member.name.toLowerCase().includes(mentionQuery.value.toLowerCase())))
+function mention(member: {personId: string; name: string}) {
+  if (context.value.mentions.length >= MAX_MENTIONS && !context.value.mentions.includes(member.personId)) return
+  if (!context.value.mentions.includes(member.personId)) context.value.mentions.push(member.personId)
+  draft.value += `${draft.value && !draft.value.endsWith(" ") ? " " : ""}@${member.name} `
+  mentionQuery.value = ""
+}
+function reply(message: ChatMessage) {
+  context.value.replyTo = message.id
+  context.value.conversationRootId = message.context?.conversationRootId ?? message.id
+  if (!context.value.references.length) context.value.references = clone(message.context?.references ?? [])
+}
+const replyQuote = computed(() => props.messages.find(message => message.id === context.value.replyTo)?.body ?? "Message unavailable")
+function quote(message: ChatMessage) { return (props.allMessages ?? props.messages).find(candidate => candidate.id === message.context?.replyTo)?.body ?? "Message unavailable" }
+function anchorLabel(anchor: Anchor) { return anchor.selection?.exact ?? (anchor.fieldId ? `Field · ${anchor.fieldId}` : props.referenceChoices?.find(choice => choice.anchor.itemId === anchor.itemId)?.title ?? "Open item") }
+watch(() => props.initialContext, value => { if (value && !context.value.replyTo) { context.value.references = clone(value.references) } })
 const isSubmitting = ref(false)
 const isComposing = ref(false)
 const userJustSent = ref(false)
 const submittedDraft = ref("")
 const messageListRef = ref<HTMLElement | null>(null)
-const chatDialogRef = ref<HTMLElement | null>(null)
 const isAtBottom = ref(true)
 const visibleCount = ref(100)
-const chatSize = ref<{ width: number; height: number } | null>(null)
-const chatDialogStyle = computed<Record<string, string> | undefined>(() => chatSize.value
-  ? { "--chat-width": `${chatSize.value.width}px`, "--chat-height": `${chatSize.value.height}px` }
-  : undefined)
-
-function boundedChatSize(width: number, height: number) {
-  const gutter = 48
-  return {
-    width: Math.min(Math.max(width, Math.min(360, window.innerWidth - gutter)), window.innerWidth - gutter),
-    height: Math.min(Math.max(height, Math.min(360, window.innerHeight - gutter)), window.innerHeight - gutter),
-  }
-}
-
-function startResize(event: PointerEvent) {
-  if (window.matchMedia("(max-width: 600px)").matches) return
-  const dialog = chatDialogRef.value
-  const handle = event.currentTarget as HTMLElement
-  if (!dialog) return
-  const rect = dialog.getBoundingClientRect()
-  const origin = { x: event.clientX, y: event.clientY, width: rect.width, height: rect.height }
-  handle.setPointerCapture(event.pointerId)
-  const move = (next: PointerEvent) => {
-    chatSize.value = boundedChatSize(origin.width + next.clientX - origin.x, origin.height + next.clientY - origin.y)
-  }
-  const stop = () => {
-    handle.removeEventListener("pointermove", move)
-    handle.removeEventListener("pointerup", stop)
-    handle.removeEventListener("pointercancel", stop)
-  }
-  handle.addEventListener("pointermove", move)
-  handle.addEventListener("pointerup", stop)
-  handle.addEventListener("pointercancel", stop)
-  event.preventDefault()
-}
-
-function resizeWithKeyboard(event: KeyboardEvent) {
-  const delta = { ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] }[event.key]
-  const dialog = chatDialogRef.value
-  if (!delta || !dialog) return
-  const rect = dialog.getBoundingClientRect()
-  chatSize.value = boundedChatSize(rect.width + delta[0], rect.height + delta[1])
-  event.preventDefault()
-}
-
 const availableMessages = computed<readonly ChatMessage[]>(() => {
   if (!props.messages) return []
   if (props.messages.length > 2000) {
@@ -126,6 +119,19 @@ function handleScroll() {
   const el = messageListRef.value
   if (!el) return
   isAtBottom.value = isScrolledToBottom(el)
+  reportVisible()
+}
+
+function reportVisible() {
+  const log = messageListRef.value
+  const window = log?.closest<HTMLElement>(".spatial-window")
+  if (!log || !window?.contains(document.activeElement) || props.loading) return
+  const bounds = log.getBoundingClientRect()
+  const ids = [...log.querySelectorAll<HTMLElement>("[data-message-id]")].filter(element => {
+    const rect = element.getBoundingClientRect()
+    return rect.bottom > bounds.top && rect.top < bounds.bottom
+  }).map(element => element.dataset.messageId!)
+  emit("read", ids)
 }
 
 async function scrollToBottom(smooth = false) {
@@ -155,7 +161,7 @@ async function loadEarlier() {
   el.scrollTop = prevTop + (newHeight - prevHeight)
 }
 
-function handleSubmit() {
+async function handleSubmit() {
   const text = draft.value.trim()
   if (!text || props.sending || isSubmitting.value) {
     return
@@ -165,7 +171,15 @@ function handleSubmit() {
   submittedDraft.value = text
   draft.value = ""
   emit("typing", false)
-  emit("send", text)
+  if (props.sendMessage) {
+    const sentContext = clone(context.value)
+    const success = await props.sendMessage(text, sentContext.references.length || sentContext.mentions.length || sentContext.replyTo ? sentContext : undefined)
+    if (success) {
+      context.value = { references: clone(props.initialContext?.references ?? []), mentions: [] }
+      cached.context = clone(context.value)
+    } else if (!draft.value) { draft.value = text; cached.body = text }
+    isSubmitting.value = false
+  } else emit("send", text)
   void scrollToBottom(true)
 }
 
@@ -175,6 +189,16 @@ function closeChat() {
 }
 
 watch(draft, value => emit("typing", Boolean(value.trim())))
+async function revealTarget() {
+  if (!props.targetId) return
+  visibleCount.value = 2000
+  await nextTick()
+  const element = messageListRef.value?.querySelector(`[data-message-id="${CSS.escape(props.targetId)}"]`) as HTMLElement | null
+  element?.scrollIntoView({ block: "center" })
+  element?.focus({ preventScroll: true })
+  reportVisible()
+}
+watch(() => [props.targetId, props.messages.length, props.loading], () => { void revealTarget() }, { immediate: true })
 
 function handleKeyDown(e: KeyboardEvent) {
   if (e.key === "Enter") {
@@ -182,7 +206,7 @@ function handleKeyDown(e: KeyboardEvent) {
       return
     }
     e.preventDefault()
-    handleSubmit()
+    void handleSubmit()
   }
 }
 
@@ -215,12 +239,13 @@ watch(
       lastMsg.personId === props.currentPersonId
     )
 
-    const shouldScroll = userJustSent.value || isFromMe || isAtBottom.value
+    const shouldScroll = !props.targetId && (userJustSent.value || isFromMe || isAtBottom.value)
     if (shouldScroll) {
       userJustSent.value = false
       await nextTick()
       await scrollToBottom(true)
     }
+    if (!props.targetId) reportVisible()
   },
   { deep: true }
 )
@@ -237,7 +262,9 @@ watch(
 
 onMounted(async () => {
   await nextTick()
-  await scrollToBottom(false)
+  if (props.targetId) await revealTarget()
+  else await scrollToBottom(false)
+  reportVisible()
 })
 
 function formatDisplayTime(createdAt: string): string {
@@ -253,142 +280,69 @@ function formatDisplayTime(createdAt: string): string {
 </script>
 
 <template>
-  <ModalLayer
-    :protect-draft="true"
-    :busy="sending"
-    class="overlay chat-overlay"
-    @close="closeChat"
-  >
-    <section
-      ref="chatDialogRef"
-      class="dialog chat-dialog"
-      :style="chatDialogStyle"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Workspace chat"
-    >
-      <header class="dialog-head chat-head">
-        <div class="chat-head-content">
-          <span v-if="workspaceTitle" class="eyebrow">{{ workspaceTitle }}</span>
-          <h2 class="chat-title">Chat{{ workspaceTitle ? ` · ${workspaceTitle}` : "" }}</h2>
-          <div class="chat-connection" :class="{ 'is-connected': connected }">
-            <span
-              class="connection-dot"
-              :class="connected ? 'dot-live' : 'dot-local'"
-              aria-hidden="true"
-            ></span>
-            <span class="connection-status-text">
-              {{ connected ? "Live" : "Saved locally · sync when connected" }}
-            </span>
-          </div>
-        </div>
-        <button
-          class="icon-button chat-close-btn"
-          type="button"
-          aria-label="Close"
-          :disabled="sending"
-          @click="closeChat"
-        >×</button>
-      </header>
-
-      <div
-        ref="messageListRef"
-        class="chat-messages-log"
-        role="log"
-        aria-label="Chat messages"
-        tabindex="0"
-        @scroll.passive="handleScroll"
-      >
-        <div v-if="hasEarlier" class="chat-load-earlier">
-          <button
-            class="button button-quiet button-small"
-            type="button"
-            @click="loadEarlier"
-          >
-            Load earlier messages
-          </button>
-        </div>
-
-        <div v-if="loading" class="chat-status chat-loading" role="status">
-          <div class="loading-indicator">
-            <div class="loading-track"><span></span></div>
-            <span>Loading messages...</span>
-          </div>
-        </div>
-
-        <div v-else-if="displayedMessages.length === 0" class="chat-status chat-empty">
-          <p class="chat-empty-text">No messages yet. Send a message to start chatting.</p>
-        </div>
-
-        <article
-          v-for="msg in displayedMessages"
-          :key="msg.id"
-          v-memo="[msg.id, msg.personId, msg.name, msg.body, msg.createdAt, msg.status]"
-          class="chat-message-item"
-          :class="{ 'is-own': msg.personId === currentPersonId }"
-        >
+  <SpatialWindow :window-id="windowId ?? 'chat'" :workspace-id="workspaceId ?? ''" :title="title ?? (`Chat${workspaceTitle ? ` · ${workspaceTitle}` : ''}`)" resize-label="Resize chat" :aria-label="title ?? 'Workspace chat'" close-label="Close" :initial-width="680" :initial-height="720" @close="closeChat">
+    <div class="chat-dialog conversation-content">
+      <div class="chat-connection" :class="{ 'is-connected': connected }">{{ connected ? 'Connected' : 'Offline · saved locally' }}</div>
+      <p v-if="navigationState" role="status">{{ navigationState }}</p>
+      <div ref="messageListRef" class="chat-messages-log" role="log" aria-label="Messages" @scroll="handleScroll">
+        <button v-if="hasEarlier" class="button button-small" type="button" @click="loadEarlier">Load earlier messages</button>
+        <p v-if="loading" role="status">Loading messages…</p>
+        <p v-else-if="!displayedMessages.length">No messages yet. Send a message to start chatting.</p>
+        <article v-for="msg in displayedMessages" :key="msg.id" class="chat-message-item" :data-message-id="msg.id" tabindex="-1" :class="{ 'is-own': msg.personId === currentPersonId, 'is-reply': Boolean(msg.context?.replyTo), 'is-linked-message': msg.id === targetId }">
           <div class="chat-message-meta">
-            <strong class="chat-message-author">{{ msg.name || "Anonymous" }}</strong>
+            <ParticipantAvatar :person-id="msg.personId" />
+            <strong class="chat-message-author">{{ msg.name || 'Anonymous' }}</strong>
             <span v-if="msg.personId === currentPersonId" class="chat-author-tag">(You)</span>
-            <time
-              class="chat-message-time"
-              :datetime="msg.createdAt"
-              :title="msg.createdAt"
-            >
-              {{ formatDisplayTime(msg.createdAt) }}
-            </time>
+            <time class="chat-message-time" :datetime="msg.createdAt">{{ formatDisplayTime(msg.createdAt) }}</time>
             <span v-if="msg.status === 'saving'" class="chat-message-pending">Saving locally…</span>
           </div>
+          <blockquote v-if="msg.context?.replyTo" class="reply-quote">{{ quote(msg) }}</blockquote>
+          <div v-if="msg.context?.references.length" class="reference-chips">
+            <button v-for="(anchor, index) in msg.context.references" :key="index" class="button button-small" type="button" @click="emit('reference', anchor)">{{ anchorLabel(anchor) }}</button>
+          </div>
           <MarkdownContent class="chat-message-body" :source="msg.body" />
+          <div class="message-actions">
+            <button v-if="!readOnly && !msg.status" class="button button-small button-quiet" type="button" aria-label="Reply to message" @click="reply(msg)">Reply</button>
+            <MessageLinkAction v-if="workspaceScope" :workspace-scope="workspaceScope" :message-id="msg.id" :disabled="Boolean(msg.status)" />
+          </div>
         </article>
-
         <div v-if="typingLabel" class="chat-typing" role="status" aria-label="Typing presence">{{ typingLabel }}</div>
       </div>
-
-      <p v-if="error" class="form-error chat-error-banner" role="alert">
-        {{ error }}
-      </p>
-
+      <p v-if="error" class="form-error chat-error-banner" role="alert">{{ error }}</p>
       <p v-if="readOnly" class="chat-status">Visitor · view only</p>
       <footer v-else class="chat-footer">
-        <form class="chat-composer-form" novalidate @submit.prevent="handleSubmit">
-          <div class="chat-composer-field">
-            <label for="chat-message-textarea" class="chat-composer-label">
-              <span>Message</span>
-            </label>
-            <textarea
-              id="chat-message-textarea"
-              v-model="draft"
-              class="chat-textarea"
-              maxlength="8000"
-              placeholder="Write a message... (Enter to send, Shift+Enter for newline)"
-              :disabled="sending"
-              rows="2"
-              @keydown="handleKeyDown"
-              @blur="emit('typing', false)"
-              @compositionstart="isComposing = true"
-              @compositionend="isComposing = false"
-            ></textarea>
-          </div>
-          <div class="chat-composer-actions">
-            <button
-              class="button button-primary chat-submit-btn"
-              type="submit"
-              :disabled="sending || isSubmitting || !draft.trim()"
-            >
-              Send message
-            </button>
-          </div>
+        <div class="reference-chips">
+          <span v-for="(anchor, index) in context.references" :key="index" class="draft-reference"><button class="button button-small" type="button" @click="emit('reference', anchor)">{{ anchorLabel(anchor) }}</button><button class="button button-small" type="button" aria-label="Remove reference" @click="context.references.splice(index, 1)">×</button></span>
+        </div>
+        <div v-if="context.replyTo" class="reply-quote">Replying to: {{ replyQuote }} <button type="button" aria-label="Cancel reply" @click="context.replyTo = undefined; context.conversationRootId = undefined">×</button></div>
+        <div v-if="context.mentions.length" class="reference-chips"><span v-for="personId in context.mentions" :key="personId">@{{ members?.find(member => member.personId === personId)?.name ?? 'Participant' }} <button class="button button-small" type="button" aria-label="Remove mention" @click="context.mentions = context.mentions.filter(id => id !== personId)">×</button></span></div>
+        <details v-if="referenceChoices?.length"><summary>Attach item reference</summary><button v-for="choice in referenceChoices" :key="choice.anchor.itemId" class="button button-small" type="button" :disabled="context.references.length >= MAX_REFERENCES || context.references.some(anchor => anchor.itemId === choice.anchor.itemId)" @click="context.references.some(anchor => anchor.itemId === choice.anchor.itemId) || context.references.push(clone(choice.anchor))">{{ choice.title }}</button></details>
+        <details v-if="members?.length" class="mention-picker">
+          <summary>Invite @participant</summary>
+          <input v-model="mentionQuery" aria-label="Find participant" />
+          <button v-for="member in mentionChoices" :key="member.personId" class="button button-small" type="button" :disabled="context.mentions.length >= MAX_MENTIONS" @click="mention(member)"><ParticipantAvatar :person-id="member.personId" />{{ member.name }}</button>
+        </details>
+        <form class="chat-composer-form" @submit.prevent="handleSubmit">
+          <label :for="`message-${windowId ?? 'chat'}`" class="chat-composer-label">Message</label>
+          <textarea :id="`message-${windowId ?? 'chat'}`" v-model="draft" class="chat-textarea" aria-label="Message" :disabled="isSubmitting" rows="3" @keydown="handleKeyDown" @compositionstart="isComposing = true" @compositionend="isComposing = false" />
+          <button class="button button-primary chat-submit-btn" type="submit" aria-label="Send message" :disabled="!draft.trim() || sending || isSubmitting">{{ sending ? 'Saving…' : 'Send' }}</button>
         </form>
       </footer>
-      <button class="chat-resize-handle" type="button" aria-label="Resize chat"
-        @pointerdown="startResize" @keydown="resizeWithKeyboard">
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M14 5 5 14M14 10l-4 4" />
-        </svg>
-      </button>
-    </section>
-  </ModalLayer>
+    </div>
+  </SpatialWindow>
 </template>
 
 <style src="./WorkspaceChat.css" scoped></style>
+<style scoped>
+.conversation-content { width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; border: 0; box-shadow: none; padding: 12px 16px 44px; }
+.chat-message-meta { align-items: center; }
+.reference-chips, .message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 6px; }
+.draft-reference { display: inline-flex; align-items: center; }
+.reference-chips button { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.reply-quote { margin: 6px 0; padding: 4px 8px; border-left: 2px solid var(--muted); color: var(--muted); overflow-wrap: anywhere; }
+.is-reply { margin-left: 12px; }
+.is-linked-message { outline: 3px solid var(--blue); outline-offset: -3px; }
+.mention-picker { margin-block: 6px; }
+.mention-picker button { display: inline-flex; align-items: center; gap: 4px; }
+.chat-composer-form { display: grid; gap: 6px; }
+</style>

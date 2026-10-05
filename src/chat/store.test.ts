@@ -243,3 +243,16 @@ describe("ChatStore", () => {
     })
   })
 })
+
+
+describe("signed message context projection", () => {
+  const context = { references: [{ workspaceScope: "ws", boardId: "board", itemId: "item" }], mentions: [] }
+  const value: StoredChatMessage = { id: "device:message", workspaceId: "ws", personId: "person", createdAt: "2026-10-05T00:00:00.000Z", body: "Discuss", context, record: { signed: { payload: { kind: "chat-message", version: 2, workspaceId: "ws", id: "device:message", personId: "person", createdAt: "2026-10-05T00:00:00.000Z", text: "Discuss", context } } } }
+  it("requires projected metadata and body to agree with signed payload", () => {
+    expect(() => validateMessage(value)).not.toThrow()
+    expect(() => validateMessage({ ...value, context: { ...context, mentions: ["other"] } })).toThrow("projection")
+    expect(() => validateMessage({ ...value, body: "Forged" })).toThrow("projection")
+    expect(() => validateMessage({ ...value, context: undefined })).toThrow("projection")
+    expect(areMessagesIdentical(value, { ...value, context: { ...context, mentions: ["other"] } })).toBe(false)
+  })
+})

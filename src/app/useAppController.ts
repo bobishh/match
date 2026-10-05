@@ -6,9 +6,11 @@ import { useAppActions } from "./useAppActions"
 import { useAppBoard, type AppBoardContext } from "./useAppBoard"
 import { useAppCore } from "./useAppCore"
 import { useMeshFavicon } from "../ui/useMeshFavicon"
+import { useWorkspaceWindowSelection } from "./useWorkspaceWindowSelection"
 
 export function useAppController() {
   const core = useAppCore()
+  useWorkspaceWindowSelection(() => core.tincanban.activeWorkspace.id, core)
   useMeshFavicon(core.meshPresence, core.confirmedRole)
   const board = useAppBoard(boardContext(core))
   const actions = useAppActions(core, board)
@@ -138,7 +140,7 @@ async function registerWebMcpForApp(core: ReturnType<typeof useAppCore>, actions
     availableWorkspaces: core.tincanban.availableWorkspaces,
     activeWorkspace: core.tincanban.activeWorkspace,
     placementIssues: core.tincanban.placementIssues,
-    sendChatMessage: body => sendChatMessage(core.tincanban.activeWorkspace.id, body),
+    sendChatMessage: async body => { await sendChatMessage(core.tincanban.activeWorkspace.id, body) },
   })
   core.hasExperimentalMcp.value = Boolean(unregister)
 }

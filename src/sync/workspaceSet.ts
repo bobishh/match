@@ -38,8 +38,8 @@ export type WorkspaceSetStore = {
   merge: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   activate: (id: string) => Promise<void>
   readAuthorization?: (bytes: Uint8Array, workspaceId?: string) => Promise<unknown>
-  readChat?: (id: string, known?: Set<string>) => Promise<unknown>
-  mergeChat?: (id: string, value: unknown, history: boolean) => Promise<void>
+  readChat?: (id: string, known?: Set<string>, remoteDeviceId?: string) => Promise<unknown>
+  mergeChat?: (id: string, value: unknown, history: boolean, remoteDeviceId?: string) => Promise<void>
   readMesh?: (id: string) => Promise<unknown>
   mergeMesh?: (id: string, value: unknown) => Promise<void>
   blob?: {
@@ -341,7 +341,7 @@ export function liveAutomergeWorkspaceSync(
     readAuthorization: store.readAuthorization ? bytes => measureScopePhase("store.read-authorization", workspaceId,
       remoteDeviceId, () => store.readAuthorization!(bytes, workspaceId), bytes.byteLength) : undefined,
     readChat: store.readChat ? known => measureScopePhase("store.read-chat", workspaceId, remoteDeviceId,
-      () => store.readChat!(workspaceId, known)) : undefined,
+      () => store.readChat!(workspaceId, known, remoteDeviceId)) : undefined,
     readMesh: store.readMesh ? () => measureScopePhase("store.read-mesh", workspaceId, remoteDeviceId,
       () => store.readMesh!(workspaceId)) : undefined,
     persistDocument: async (candidate, proof) => {
@@ -368,7 +368,7 @@ export function liveAutomergeWorkspaceSync(
         () => store.merge(workspaceId, bytes, authorization), bytes.byteLength)
     },
     mergeChat: store.mergeChat ? chat => measureScopePhase("store.merge-chat", workspaceId, remoteDeviceId,
-      () => store.mergeChat!(workspaceId, chat, false)) : undefined,
+      () => store.mergeChat!(workspaceId, chat, false, remoteDeviceId)) : undefined,
     mergeMesh: store.mergeMesh ? mesh => measureScopePhase("store.merge-mesh", workspaceId, remoteDeviceId,
       () => store.mergeMesh!(workspaceId, mesh)) : undefined,
     onTiming: timing => {

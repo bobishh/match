@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { MarkdownContent } from "../ui/markdownContent"
-import ModalLayer from "./ModalLayer.vue"
+import SpatialWindow from "./SpatialWindow.vue"
 import QuickNoteForm from "./QuickNoteForm.vue"
 import type { Item, FieldDefinition } from "../domain/model"
 import type { HistoryEntry } from "../domain/history"
@@ -11,6 +11,7 @@ import type { CardStageButton } from "../domain/cardStageButtons"
 import { LazyItemDocuments as ItemDocuments } from "../app/lazyItemDocuments"
 
 defineProps<{
+  workspaceId?: string
   readOnly?: boolean
   item: Item
   columns: Column[]
@@ -35,6 +36,7 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void
+  (e: "discuss", fieldId?: string): void
   (e: "edit", item: Item): void
   (e: "addSubitem", parentItemId: string): void
   (e: "startMove", item: Item): void
@@ -48,8 +50,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <ModalLayer class="overlay detail-overlay" @close="emit('close')">
-    <section class="dialog detail-dialog" role="dialog" aria-modal="true" aria-label="Item overview" tabindex="-1">
+  <SpatialWindow :window-id="`item:${item.id}`" :workspace-id="workspaceId ?? 'local'" :title="item.title" aria-label="Item overview" close-label="Dismiss" @close="emit('close')">
+      <template #header>
       <div class="detail-head">
         <div>
           <span class="eyebrow">Item</span>
@@ -57,15 +59,18 @@ const emit = defineEmits<{
         </div>
         <div class="detail-head-actions">
           <button class="button button-small" type="button" :disabled="readOnly" @click="emit('edit', item)">Edit</button>
-          <button class="icon-button" type="button" aria-label="Dismiss" @click="emit('close')">×</button>
+          <button class="button button-small" type="button" :disabled="readOnly" @click="emit('discuss')">Discuss</button>
         </div>
       </div>
 
+      </template>
+    <section class="detail-dialog" :data-discussion-item="item.id">
       <div class="detail-scroll detail-content">
         <CardStageStrip :item="item" :columns="columns" :buttons="cardStageButtons" :read-only="readOnly" :move="moveToColumn" />
         <div v-if="narrative" class="detail-section">
           <span class="detail-label">Description</span>
-          <MarkdownContent class="detail-copy" :source="narrative" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
+          <button class="button button-small" type="button" aria-label="Discuss description" :disabled="readOnly" @click="emit('discuss', 'narrative')">Discuss</button>
+          <MarkdownContent class="detail-copy" data-discussion-field="narrative" data-discussion-text :source="narrative" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
         </div>
 
         <QuickNoteForm
@@ -88,10 +93,11 @@ const emit = defineEmits<{
           <template v-for="field in fields" :key="field.id">
             <div v-if="item.values[field.id] !== undefined && item.values[field.id] !== null && item.values[field.id] !== ''">
               <span class="detail-label">{{ field.title }}</span>
-              <strong v-if="field.valueType === 'select'">
+              <button class="button button-small" type="button" :aria-label="`Discuss ${field.title}`" :disabled="readOnly" @click="emit('discuss', field.id)">Discuss</button>
+              <strong v-if="field.valueType === 'select'" :data-discussion-field="field.id" data-discussion-text>
                 {{ field.options[String(item.values[field.id])]?.title ?? item.values[field.id] }}
               </strong>
-              <strong v-else>{{ String(item.values[field.id]) }}</strong>
+              <strong v-else :data-discussion-field="field.id" data-discussion-text>{{ String(item.values[field.id]) }}</strong>
             </div>
           </template>
         </div>
@@ -161,5 +167,14 @@ const emit = defineEmits<{
       </div>
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
     </section>
-  </ModalLayer>
+  </SpatialWindow>
 </template>
+
+<style scoped>
+.detail-head { margin: 0; align-items: center; gap: 12px; }
+.detail-head h2 { font-size: 1.1rem; margin: 2px 0 0; }
+.detail-head-actions { flex-wrap: wrap; }
+.detail-dialog { width: 100%; height: 100%; max-height: none; padding: 18px; border: 0; box-shadow: none; }
+.detail-scroll { flex: 1; }
+.dialog-actions { padding-right: 30px; flex-shrink: 0; }
+</style>

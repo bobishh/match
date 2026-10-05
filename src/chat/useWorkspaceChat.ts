@@ -1,3 +1,4 @@
+import type { MessageContext } from "./context"
 import { computed, nextTick, onBeforeUnmount, ref, watch, type Ref } from "vue"
 import { meshTrace } from "../sync/meshTrace"
 import { bootstrapIdentity } from "../domain/identity"
@@ -24,7 +25,7 @@ type SubscriptionOptions = {
   names: Ref<Record<string, string>>
   toast: Ref<{ workspaceId: string; text: string } | null>
   nameError: Ref<string>
-  refresh: () => Promise<void>
+  refresh: () => Promise<boolean | undefined>
   refreshTyping: () => void
 }
 
@@ -35,11 +36,12 @@ type PendingChatMessage = {
   createdAt: string
   body: string
   status: "saving"
+  context?: MessageContext
 }
 
-function createPendingMessage(workspaceId: string, personId: string, body: string): PendingChatMessage {
+function createPendingMessage(workspaceId: string, personId: string, body: string, context?: MessageContext): PendingChatMessage {
   return { id: `pending:${crypto.randomUUID()}`, workspaceId, personId,
-    createdAt: new Date().toISOString(), body: body.trim(), status: "saving" }
+    createdAt: new Date().toISOString(), body: body.trim(), status: "saving", ...(context ? { context } : {}) }
 }
 
 function appendMessages(snapshot: Ref<ChatSnapshot>, added: ChatSnapshot["messages"]): void {
@@ -144,6 +146,21 @@ function subscribeWorkspaceChat(options: SubscriptionOptions): () => void {
   }
 }
 
+function createReadMarker(workspaceId: Ref<string>, snapshot: Ref<ChatSnapshot>, cursor: Ref<string | null>) {
+  async function markVisible(ids: string[]) {
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return
+    const id = workspaceId.value
+    const visible = snapshot.value.messages.filter(message => ids.includes(message.id))
+    const last = visible.at(-1)
+    if (!last) return
+    const key = messageOrderKey(last)
+    await markChatRead(id, key)
+    if (id === workspaceId.value && (!cursor.value || key > cursor.value)) cursor.value = key
+  }
+
+  return markVisible
+}
+
 export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>, identityName: Ref<string>) {
   const open = ref(false), loading = ref(false), sending = ref(false)
   const error = ref("")
@@ -159,6 +176,7 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
   let typingAnnounced = false
   let lastTypingPublished = 0
   let generation = 0
+  let sendGeneration = 0
   const { names, displayName, members, messages, unread, typingPeople } = createChatViews(
     snapshot, pending, identityName, personId, ownerId, cursor, typing
   )
@@ -190,15 +208,7 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
     typingIdleTimer = setTimeout(() => setTyping(false), 1_500)
   }
 
-  async function markRead() {
-    if (!open.value || document.visibilityState !== "visible") return
-    const id = workspaceId.value
-    const last = snapshot.value.messages.at(-1)
-    if (!last) return
-    const key = messageOrderKey(last)
-    await markChatRead(id, key)
-    if (id === workspaceId.value) cursor.value = key
-  }
+  const markVisible = createReadMarker(workspaceId, snapshot, cursor)
 
   async function refresh() {
     const id = workspaceId.value
@@ -209,13 +219,18 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
       if (current !== generation || id !== workspaceId.value) return
       snapshot.value = next
       cursor.value = read
-      await markRead()
-    } catch (err) { if (id === workspaceId.value) error.value = err instanceof Error ? err.message : "Could not load chat" }
+      return true
+    } catch (err) {
+      if (id === workspaceId.value) error.value = err instanceof Error ? err.message : "Could not load chat"
+      return false
+    }
   }
 
   watch([workspaceId, ownerId], async () => {
     setTyping(false)
     generation++
+    sendGeneration++
+    sending.value = false
     snapshot.value = { messages: [], profiles: [] }
     pending.value = []
     error.value = ""
@@ -252,21 +267,22 @@ export function useWorkspaceChat(workspaceId: Ref<string>, ownerId: Ref<string>,
     document.removeEventListener("visibilitychange", visibility)
   })
 
-  async function send(body: string) {
-    if (sending.value) return
+  async function send(body: string, context?: MessageContext) {
+    if (sending.value) return false
     setTyping(false)
     sending.value = true
     error.value = ""
     const id = workspaceId.value
-    const pendingMessage = createPendingMessage(id, personId.value, body)
+    const operation = ++sendGeneration
+    const pendingMessage = createPendingMessage(id, personId.value, body, context)
     pending.value = [...pending.value, pendingMessage]
-    try { await sendChatMessage(id, body) }
-    catch (err) { error.value = err instanceof Error ? err.message : "Could not save message. Try again." }
+    try { await sendChatMessage(id, body, context); return true }
+    catch (err) { if (operation === sendGeneration && id === workspaceId.value) error.value = err instanceof Error ? err.message : "Could not save message. Try again."; return false }
     finally {
       pending.value = pending.value.filter(message => message.id !== pendingMessage.id)
-      sending.value = false
+      if (operation === sendGeneration) sending.value = false
     }
   }
   return { open, loading, sending, error, nameError, personId, displayName, members, messages, unread, toast,
-    typingPeople, setTyping, send }
+    typingPeople, setTyping, send, refresh, markVisible }
 }

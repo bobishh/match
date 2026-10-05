@@ -188,6 +188,7 @@ export class ChatStore {
         createdAt: m.createdAt,
         body: m.body,
         record: m.record,
+        ...(m.context ? { context: m.context } : {}),
       }))
 
       const profiles: StoredChatProfile[] = (storedProfs || []).map((p) => ({

@@ -1,0 +1,88 @@
+## ADDED Requirements
+
+### Requirement: Contextual Discuss composer
+
+The system SHALL expose one Discuss action for whole items, fields, and selected text. It SHALL attach the chosen anchor to the composer and accept a message with optional explicit participant mentions. Desktop, touch, and keyboard paths SHALL be available without relying on modifying the operating system selection menu.
+
+#### Scenario: Discuss selected text
+- **GIVEN** an item field contains selectable text
+- **WHEN** the user selects a passage, activates Discuss, and submits a message
+- **THEN** one committed message appears in the workspace log and item conversation with a quote chip for that passage.
+
+#### Scenario: Whole-item discussion on tablet
+- **GIVEN** an item is open at a tablet viewport
+- **WHEN** the user taps its stable Discuss control
+- **THEN** a reachable composer opens with a whole-item reference without requiring text selection or right click.
+
+#### Scenario: Persistence failure retains context
+- **GIVEN** a composer contains text, an anchor, and a reply target
+- **WHEN** its durable write fails
+- **THEN** the draft and context remain with a visible error and retry action
+- **AND** no committed message or send-success event is published.
+
+### Requirement: One signed message across conversation views
+
+The system SHALL store body, bounded references, mentions, and reply metadata in one immutable signed message. Conversation views SHALL project the workspace log without duplicating records. Existing plain messages SHALL remain readable. Metadata SHALL obey signature, authorization, record-size, retention, and import-idempotency rules.
+
+#### Scenario: Message references two items
+- **GIVEN** a composer references two items in the same workspace
+- **WHEN** its message commits
+- **THEN** the same message ID appears once in each item discussion and once in the workspace log
+- **AND** reload and peer sync preserve both references.
+
+#### Scenario: Tampered reference is rejected
+- **GIVEN** a contextual message has been signed
+- **WHEN** a received record changes an anchor or reply target without a valid signature
+- **THEN** import rejects the record and no view displays it as accepted.
+
+#### Scenario: Unsupported peer schema
+- **GIVEN** a peer cannot read the contextual payload schema
+- **WHEN** contextual sending would require that peer's unsupported capability
+- **THEN** the negotiated compatibility boundary exposes an upgrade-required state
+- **AND** context is not silently stripped or downgraded.
+
+### Requirement: Mentions invite workspace participants
+
+The system SHALL resolve explicitly selected mentions to stable person IDs. A mention SHALL invite attention within existing workspace visibility and SHALL NOT define private delivery or grant access. Notification eligibility SHALL follow existing policy and SHALL be deduplicated across views and tabs. Read-only users SHALL NOT send contextual messages.
+
+#### Scenario: Mention participant in item discussion
+- **GIVEN** a workspace participant is selected through mention completion
+- **WHEN** the contextual message commits
+- **THEN** the mention records that person's stable ID and the message remains visible in the workspace log
+- **AND** eligible notification is produced at most once through existing notification policy.
+
+#### Scenario: Visitor attempts contextual send
+- **GIVEN** workspace access is read-only
+- **WHEN** the user opens an item discussion
+- **THEN** references remain navigable and write controls remain unavailable.
+
+### Requirement: Replies share roots and remain globally visible
+
+The system SHALL retain the immediate reply target and normalize the conversation root. Reply-to-reply SHALL render at one reply level with an immediate-target quote. All committed replies SHALL remain in the global log. Missing ancestors SHALL render unavailable context without preventing valid out-of-order import; self references, cycles, and inconsistent root membership SHALL NOT create misleading conversation groups.
+
+#### Scenario: Reply to reply
+- **GIVEN** a root message has a reply
+- **WHEN** the user replies to that reply
+- **THEN** the new message renders as another child of the original root with a quote of its immediate target
+- **AND** it appears once in the global log.
+
+#### Scenario: Parent absent from retained history
+- **GIVEN** a valid signed reply arrives before its parent or after the parent was pruned
+- **WHEN** the reply is imported
+- **THEN** its body remains visible with unavailable reply context
+- **AND** a later available parent resolves the quote without duplicating the reply.
+
+### Requirement: Safe source navigation
+
+The system SHALL resolve item/field identity independently of display titles and highlight only a verified captured range or unique contextual match. Changed, ambiguous, and deleted sources SHALL retain the captured quote with an explicit state.
+
+#### Scenario: Source renamed and text shifted
+- **GIVEN** a referenced item was renamed and text was inserted before its uniquely identifiable passage
+- **WHEN** the user activates its quote chip
+- **THEN** the owning item and field are focused and the matching passage is highlighted.
+
+#### Scenario: Passage became ambiguous or unavailable
+- **GIVEN** the referenced passage no longer has a unique contextual match or its field was deleted
+- **WHEN** the user activates the reference
+- **THEN** the original quote remains visible with changed-source or unavailable-source feedback
+- **AND** no unrelated text is highlighted.

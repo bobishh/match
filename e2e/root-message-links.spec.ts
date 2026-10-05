@@ -1,0 +1,31 @@
+import { expect, test } from "./support/coverage"
+import { ensureJobSearchWorkspace } from "./support/workspaces"
+
+test("Given a root message with replies, when its copied local link reloads, then root conversation reveals the root and its siblings", async ({ page }) => {
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Workspace chat", exact: true }).filter({ visible: true }).click()
+  const chat = page.getByRole("dialog", { name: "Workspace chat", exact: true })
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Linked conversation root")
+  await chat.getByRole("button", { name: "Send message", exact: true }).click()
+  await expect(chat.getByText("Saving locally…", { exact: true })).toHaveCount(0)
+  const root = chat.locator(".chat-message-item").filter({ hasText: "Linked conversation root" })
+  const rootId = await root.getAttribute("data-message-id")
+  await root.getByRole("button", { name: "Reply to message" }).click()
+  await chat.getByRole("textbox", { name: "Message", exact: true }).fill("First root reply")
+  await chat.getByRole("button", { name: "Send message", exact: true }).click()
+  await expect(chat.getByText("Saving locally…", { exact: true })).toHaveCount(0)
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (url: string) => { sessionStorage.setItem("root-message-link", url) } } })
+  })
+  await chat.locator(`[data-message-id="${rootId}"]`).getByRole("button", { name: "Copy message link" }).click()
+  await expect(chat.getByText("Message link copied", { exact: true })).toBeVisible()
+  const url = await page.evaluate(() => sessionStorage.getItem("root-message-link"))
+  expect(url).toBeTruthy()
+  await page.goto(url!)
+  const discussion = page.getByRole("dialog", { name: "Discussion · replies", exact: true })
+  await expect(discussion).toBeVisible()
+  await expect(discussion.locator(`[data-message-id="${rootId}"]`)).toHaveClass(/is-linked-message/)
+  await expect(discussion.getByText("First root reply", { exact: true })).toBeVisible()
+  await expect(discussion.locator(".chat-message-item")).toHaveCount(2)
+})
