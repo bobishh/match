@@ -4,7 +4,10 @@ Finite executable specifications; **no formal proof of production code**.
 Baseline storage ordering maps to commit `b082f9e`; fixed storage design maps
 to `8740708`. Paging remains a proposed protocol, not an implemented fix.
 Transport models state required ACK/retry behavior; no claim that connection
-flapping, stalls, or history/export growth is fixed.
+flapping, stalls, or history/export growth is fixed. `ItemTransitions` checks item
+placement/workflow pairing, independent column collapse, archive/restore workflow
+preservation, failed publish silence, and idempotent single archive-column
+reference under finite interleavings.
 
 ## Run
 
@@ -55,6 +58,7 @@ the entire reachable finite graph. No symmetry or state constraints used.
 | TransportReconnectOnly | Reconnect fairness alone defeats liveness | 37 / 18 |
 | TransportEarlyAck | AckDurable violated | 9 / 6 |
 | TransportConnection | ConnectionImpliesCoverage violated | 2 / 2 |
+| ItemTransitions | Safety holds | 2257 / 360 |
 
 ## Interpretation and code mapping
 
@@ -123,4 +127,11 @@ record identity/order, authority evidence on each page or bound session,
 validation of complete dependency coverage, restart protocol, and API design.
 Actual signatures, CRDT dependencies, command replay, legacy migration, browser
 crash recovery, and multi-store database semantics remain implementation-test
-obligations. Model validity does not establish production refinement.
+obligations. `ItemTransitions` bounds logical clock to three changes so TLC explores
+a finite graph; lifecycle writes and placement writes are atomic actions, collapse
+is an independent Boolean map, failed publish is only modeled before success, and
+archive concurrency is represented by idempotent writes of one configured ID. It
+does not model competing archive-role assignments, Automerge register conflict
+resolution, JSON parsing, rank-only reorder, or database scheduling. The finite
+model checks abstract invariants and interleavings; it does not prove production
+refinement. Model validity does not establish production refinement.

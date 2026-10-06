@@ -13,7 +13,7 @@ import { createPeerAdvertisement,
   type WorkspaceDeparture, type WorkspaceDeviceRevocation } from "./meshRecords"
 import { type PeerStore, type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import type { SyncConnection, SyncNode, DuplexStream } from "./transport"
-import { DurableMeshBase, MeshNodeRestart, departures, deviceRevocations, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
+import { DurableMeshBase, MeshNodeRestart, assertRequiredMeshCapabilities, CAUSAL_WRITE_ADMISSION_CAPABILITY, departures, deviceRevocations, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, uniqueCertificates, type DurableMeshOptions } from "./durableMeshBase"
 import { DurableMeshAuthority } from "./durableMeshAuthority"
 
 type InstallSessionArguments = [
@@ -114,7 +114,14 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   }
 
   protected async canStartRuntime(): Promise<boolean> {
-    if ((await this.store.listWorkspaceCredentials()).length > 0) return true
+    const credentials = await this.store.listWorkspaceCredentials()
+    if (credentials.length > 0) {
+      if (this.adoptedNode) return true
+      const profile = await this.options.getProfile()
+      const workspaceIds = new Set(credentials.map(credential => credential.workspaceId))
+      const peers = await this.store.listPeers()
+      return peers.some(peer => workspaceIds.has(peer.workspaceId) && peer.deviceId !== profile.device.deviceId)
+    }
     await this.adoptedNode?.close("No mesh credentials").catch(() => {})
     this.adoptedNode = undefined
     return false
@@ -293,7 +300,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   }): Promise<WorkspaceMeshCredential> {
     const workspaceId = credential.workspaceId
     const effects: Record<string, () => Promise<void>> = {
-      validateCapabilities: async () => { meshRustRuntime().state.validateMeshCapabilities(request.capabilities) },
+      validateCapabilities: async () => { assertRequiredMeshCapabilities(request.capabilities) },
       deviceRevocations: () => this.mergeDeviceRevocations(credential, request.deviceRevocations ?? []),
       departures: () => this.mergeDepartures(credential, request.departures ?? []),
       ownershipTransfers: async () => { credential = await this.mergeOwnershipTransfers(credential, request.ownershipTransfers ?? []) },
@@ -306,6 +313,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       if (!effect) throw new Error(`Unexpected handshake authority action: ${action}`)
       await effect()
     }
+    await this.options.workspaceStore.reclassify?.(workspaceId)
     return await this.store.getWorkspaceCredential(workspaceId) ?? credential
   }
 
@@ -327,7 +335,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
-      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, credential.workspaceId)
+      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), CAUSAL_WRITE_ADMISSION_CAPABILITY] }, credential.workspaceId)
   }
 
   protected async afterIncomingInstall(credential: WorkspaceMeshCredential, remote: IncomingPeer,

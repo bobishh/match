@@ -2,8 +2,7 @@
 <script setup lang="ts">
 import { MarkdownContent } from "./ui/markdownContent"
 import { useAppController } from "./app/useAppController"
-import { useDelayedFlag } from "./ui/useDelayedFlag"
-import { isArchiveColumn } from "./domain/archive"
+import { isArchiveColumn, isItemArchived } from "./domain/archive"
 import { cardStageButtons } from "./domain/cardStageButtons"
 import { useCardAges } from "./app/useAgingClock"
 import { showEnteringElement, hideLeavingElement } from "./ui/modal"
@@ -24,13 +23,15 @@ import QuickNoteForm from "./components/QuickNoteForm.vue"
 import AutosaveTextarea from "./components/AutosaveTextarea.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
+import CausalChangeReview from "./components/CausalChangeReview.vue"
 import { LazyItemDocuments as ItemDocuments } from "./app/lazyItemDocuments"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
-import { computed, defineAsyncComponent, ref, type Component } from "vue"
+import { defineAsyncComponent, ref, type Component } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
-import { createLazySyncDialog } from "./app/syncDialogStatus"
+import { useColumnCollapse } from "./app/useColumnCollapse"
+import { useAppViewState } from "./app/useAppViewState"
 
 const IdentityRecoveryDialog = defineAsyncComponent(() => import("./components/IdentityRecoveryDialog.vue"))
 const IdentitySettingsPanel = defineAsyncComponent(() => import("./components/IdentitySettingsPanel.vue"))
@@ -42,18 +43,20 @@ const MoveItemDialog = defineAsyncComponent<Component>(() => import("./component
 const WorkspaceParticipants = defineAsyncComponent<Component>(() => import("./components/WorkspaceParticipants.vue"))
 
 const app = useAppController()
+const { SyncDialog, reviewCausalChange, chatCanView, activeOwnerLabel, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)
 const showIdentityRecovery = ref(false)
 const showSettings = ref(false)
 const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
 const stopSyncForIdentityRestore = () => app.collaboration.device.sync.shutdown()
 const restoredIdentity = () => window.location.reload()
-const { workspace, ready, saveState, availableWorkspaces, archivedWorkspaces, activeWorkspace, activeBoard, isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor } = app.workspace
+const { workspace, ready, saveState, availableWorkspaces, archivedWorkspaces, causalReview, causalReviewError, activeWorkspace, activeBoard, isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor } = app.workspace
 const { state: ui, controls: uiControls } = app.ui
+const { isCollapsed: isColumnCollapsed, toggle: toggleColumnCollapse } = useColumnCollapse(() => activeWorkspace.id, () => hasFilters.value)
 const {
   detailDialog, importInput, showArtifactForm, search, filters,
   notice, archiveUndo, undoSaving, archiveError, historyRestoreSaving,
-  historyRestoreError, historyRestoreNotice, isArchiveOpen, artifactError,
+  historyRestoreError, historyRestoreNotice, artifactError,
   showWorkspaces, showEntitySettings, isEditingBoard,
   newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId,
   activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
@@ -70,14 +73,7 @@ const {
   selectedItemHistory, editingItem, candidateParentsForMove,
 } = app.board
 const { sync, chat } = app.collaboration.device
-const SyncDialog = createLazySyncDialog(sync.dismiss)
 const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
-const chatCanView = computed(() => confirmedRole.value !== null && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
-const activeOwnerLabel = computed(() => currentWorkspaceOwnerId.value === chat.personId.value
-  ? (chat.displayName.value || "You")
-  : chat.members.value.find(member => member.personId === currentWorkspaceOwnerId.value)?.name ?? `Participant · ${currentWorkspaceOwnerId.value.slice(0, 6)}`)
-const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
-const showAccessLoading = useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading")
 const { meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
   canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
@@ -146,6 +142,9 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         <input ref="importInput" class="sr-only" type="file" accept=".tincanban,.match,application/vnd.tincanban+zip,application/vnd.match+zip" @change="importWorkspace" />
       </div>
     </template>
+
+    <CausalChangeReview :changes="causalReview" :error="causalReviewError"
+      :can-review="uiReady && canEditItems" :review-change="reviewCausalChange" />
 
     <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
       <div class="boot-toolbar">
@@ -219,7 +218,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       <button class="button button-small button-quiet" type="button" aria-label="Next column" :disabled="activeMobileColumnIndex === visibleColumns.length - 1" @click="moveMobileColumn(1)">→</button>
     </nav>
 
-    <section :key="boardRenderKey" ref="boardRef" class="board" :class="{ 'board-editing': isEditingBoard, 'board-bin-open': isArchiveOpen || hasFilters, 'board-filtered': hasFilters, 'board-single-column': visibleColumns.length === 1 }" role="region" :aria-label="activeWorkspace.title" @scroll.passive="updateMobileColumnIndex">
+    <section :key="boardRenderKey" ref="boardRef" class="board" :class="{ 'board-editing': isEditingBoard, 'board-bin-open': visibleColumns.some(column => isArchiveColumn(column) && !isColumnCollapsed(column)), 'board-filtered': hasFilters, 'board-single-column': visibleColumns.length === 1 }" role="region" :aria-label="activeWorkspace.title" @scroll.passive="updateMobileColumnIndex">
       <article
         v-for="column in visibleColumns"
         :key="column.id"
@@ -227,32 +226,32 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         :data-column-id="column.id"
         role="region"
         :aria-label="column.title"
-        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && (isArchiveOpen || hasFilters), 'column-moved': movedColumnId === column.id }]"
+        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
       >
-        <button v-if="isArchiveColumn(column) && !isArchiveOpen && !hasFilters" class="bin-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="isArchiveOpen = true"><span class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ itemsForColumn(column).length }}</small></button>
+        <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span v-if="isArchiveColumn(column)" class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ itemsForColumn(column).length }}</small></button>
         <template v-else>
           <div class="card-stack" :data-column-id="column.id">
             <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
               <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
-              <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="isArchiveColumn(column) && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="isArchiveOpen = false">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
+              <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="column.collapsible && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="toggleColumnCollapse(column)">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
             </header>
-            <template v-for="(item, index) in itemsForColumn(column)" :key="item.id"><div v-if="index > 0 && !isEditingBoard && canEditItems && !isArchiveColumn(column)" class="card-add-gap"><button class="column-add-button card-insert-button" type="button" :aria-label="`Add ${entityName} between cards in ${column.title}, before ${item.title}`" @click="openAddItem(column.id, item.id)">{{ addItemLabel }}</button></div><article class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id, 'lead-card-expanded': hasFilters }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id">
+            <template v-for="(item, index) in itemsForColumn(column)" :key="item.id"><div v-if="index > 0 && !isEditingBoard && canEditItems && !isArchiveColumn(column)" class="card-add-gap"><button class="column-add-button card-insert-button" type="button" :aria-label="`Add ${entityName} between cards in ${column.title}, before ${item.title}`" @click="openAddItem(column.id, item.id)">{{ addItemLabel }}</button></div><article class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id, 'lead-card-expanded': hasFilters }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id" :data-discussion-item="item.id" @click="conversations.openCard(item, $event)">
               <button class="card-open-button" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)"></button>
               <div class="card-layout"><div class="card-main">
               <template v-if="leadForItem(item)">
-                <div class="card-head"><span class="company">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
-                <strong>{{ leadForItem(item)?.role }}</strong>
-                <div class="card-meta"><span v-if="leadForItem(item)?.location">{{ leadForItem(item)?.location }}</span><span v-if="leadForItem(item)?.fitScore !== undefined" class="fit">{{ leadForItem(item)?.fitScore }}/10 fit</span></div>
+                <div class="card-head"><span class="company" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.company']">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.priority']" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
+                <strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.role']">{{ leadForItem(item)?.role }}</strong>
+                <div class="card-meta"><span v-if="leadForItem(item)?.location" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.location']">{{ leadForItem(item)?.location }}</span><span v-if="leadForItem(item)?.fitScore !== undefined" class="fit"><span data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.fitScore']">{{ leadForItem(item)?.fitScore }}</span>/10 fit</span></div>
               </template>
-              <template v-else><strong>{{ item.title }}</strong><MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" /></template>
+              <template v-else><strong data-discussion-text data-discussion-field="title">{{ item.title }}</strong><MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" data-discussion-text data-discussion-field="narrative" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" /></template>
               </div>
               <div v-if="hasFilters && (cardNotes(item) || cardFields(item).length)" class="card-context">
-                <MarkdownContent v-if="cardNotes(item)" class="card-notes" :source="cardNotes(item) || ''" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" />
+                <MarkdownContent v-if="cardNotes(item)" class="card-notes" data-discussion-text data-discussion-field="narrative" :source="cardNotes(item) || ''" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" />
                 <dl v-if="cardFields(item).length" class="card-fields">
-                  <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd>{{ field.value }}</dd></div>
+                  <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd data-discussion-text :data-discussion-field="field.id">{{ field.value }}</dd></div>
                 </dl>
               </div>
-              </div><span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
+              </div><button v-if="canEditItems" class="card-chat-action" type="button" :aria-label="`Discuss ${item.title}`" title="Discuss card" @click.stop="conversations.discuss(item.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8l-6 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /><path d="M7 9h10M7 13h7" /></svg></button><span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
             </article></template>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
             <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
@@ -260,7 +259,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         </template>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
-      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(isArchiveColumn) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
+      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(column => isArchiveColumn(column)) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
     </section>
 
     <BoardDragOverlay :controller="app.board" :filtered="hasFilters" />
@@ -284,6 +283,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       v-if="editingColumn"
       :column-id="editingColumn.id"
       :initial-title="editingColumn.title"
+      :initial-collapsible="editingColumn.collapsible"
       @close="editingColumn = null"
       @save="handleRenameColumn"
       @archive="handleArchiveColumn"
@@ -354,8 +354,8 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
 
     <ItemDetailDialog
       v-if="selectedItem"
-      :workspace-id="activeWorkspace.id" @discuss="conversations.discuss(selectedItem!.id, $event)" :item="selectedItem" :columns="genericColumns" :card-stage-buttons="cardStageButtons(activeBoard, genericColumns)"
-      :move-to-column="moveCardToColumn" :archived="Boolean(selectedItem?.archivedAt)"
+      :workspace-id="activeWorkspace.id" :item="selectedItem" :columns="genericColumns" :card-stage-buttons="cardStageButtons(activeBoard, genericColumns)"
+      :move-to-column="moveCardToColumn" :archived="Boolean(selectedItem && isItemArchived(selectedItem))"
       :narrative="selectedItem ? cardNotes(selectedItem) : ''"
       :read-only="!canEditItems"
       :subitems="subitemsForSelectedItem"
@@ -410,26 +410,25 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
     />
 
     <SpatialWindow v-if="selectedLead" :window-id="`item:${selectedLead.id}`" :workspace-id="activeWorkspace.id" :title="selectedLead.company" aria-label="Lead details" close-label="Close detail" :initial-width="760" :initial-height="700" @close="closeDetail">
-      <section ref="detailDialog" class="detail-dialog spatial-detail" :data-discussion-item="selectedLead.id">
+      <section ref="detailDialog" class="detail-dialog spatial-detail" tabindex="-1" :data-discussion-item="selectedLead.id">
         <div class="detail-head">
-          <div><span class="eyebrow">Lead card</span><h2>{{ selectedLead.company }}</h2><p>{{ selectedLead.role }}</p></div>
+          <div><span class="eyebrow">Lead card</span><h2 data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.company']">{{ selectedLead.company }}</h2><p data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.role']">{{ selectedLead.role }}</p></div>
           <div class="detail-head-actions">
             <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="editItem(selectedLeadItem)">Edit</button>
-            <button v-if="selectedLeadItem" class="button button-small" type="button" :disabled="!canEditItems" @click="conversations.discuss(selectedLeadItem.id)">Discuss</button>
           </div>
         </div>
       <CardStageStrip v-if="selectedLeadItem" :item="selectedLeadItem" :columns="genericColumns" :buttons="cardStageButtons(activeBoard, genericColumns)" :read-only="!canEditItems" :move="moveCardToColumn" />
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       <button v-if="archiveUndo && archiveUndo.workspaceId === activeWorkspace.id" class="button button-small" type="button" :disabled="undoSaving" @click="undoArchive">{{ undoSaving ? 'Restoring…' : 'Undo archive' }}</button>
       <div class="detail-scroll">
-        <div class="detail-grid">
-          <div><span class="detail-label">Priority</span><strong>{{ selectedLead.priority ? priorityLabels[selectedLead.priority] : "—" }}</strong></div>
-          <div><span class="detail-label">Fit</span><strong>{{ selectedLead.fitScore ?? "—" }}<small v-if="selectedLead.fitScore !== undefined">/10</small></strong></div>
-          <div><span class="detail-label">Location</span><strong>{{ selectedLead.location || "—" }}</strong></div>
-          <div><span class="detail-label">Work mode</span><strong>{{ selectedLead.workMode || "—" }}</strong></div>
+        <div class="detail-grid" data-discussion-text data-discussion-field="overview">
+          <div><span class="detail-label">Priority</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.priority']">{{ selectedLead.priority ? priorityLabels[selectedLead.priority] : "—" }}</strong></div>
+          <div><span class="detail-label">Fit</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.fitScore']">{{ selectedLead.fitScore ?? "—" }}<small v-if="selectedLead.fitScore !== undefined">/10</small></strong></div>
+          <div><span class="detail-label">Location</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.location']">{{ selectedLead.location || "—" }}</strong></div>
+          <div><span class="detail-label">Work mode</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.workMode']">{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><button class="button button-small" type="button" aria-label="Discuss description" :disabled="!canEditItems" @click="conversations.discuss(selectedLeadItem.id, 'narrative')">Discuss</button><MarkdownContent class="detail-copy" data-discussion-text data-discussion-field="narrative" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
+        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><MarkdownContent class="detail-copy" data-discussion-text data-discussion-field="narrative" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"
@@ -438,7 +437,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
           :read-only="!canEditItems"
           @save="saveQuickNote(selectedLeadItem)"
         />
-        <section v-if="selectedLead.sourceText" class="detail-section"><span class="detail-label">Source snapshot</span><p class="source-snapshot">{{ selectedLead.sourceText }}</p></section>
+        <section v-if="selectedLead.sourceText" class="detail-section"><span class="detail-label">Source snapshot</span><p class="source-snapshot" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.sourceText']">{{ selectedLead.sourceText }}</p></section>
         <section v-if="selectedLead.status === 'rejected' || selectedLead.rejectionReason" class="detail-section">
           <span class="detail-label">Rejection notes / retrospective</span>
           <AutosaveTextarea

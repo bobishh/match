@@ -36,7 +36,6 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void
-  (e: "discuss", fieldId?: string): void
   (e: "edit", item: Item): void
   (e: "addSubitem", parentItemId: string): void
   (e: "startMove", item: Item): void
@@ -52,14 +51,13 @@ const emit = defineEmits<{
 <template>
   <SpatialWindow :window-id="`item:${item.id}`" :workspace-id="workspaceId ?? 'local'" :title="item.title" aria-label="Item overview" close-label="Dismiss" @close="emit('close')">
       <template #header>
-      <div class="detail-head">
+      <div class="detail-head" :data-discussion-item="item.id">
         <div>
           <span class="eyebrow">Item</span>
-          <h2>{{ item.title }}</h2>
+          <h2 data-discussion-text data-discussion-field="title">{{ item.title }}</h2>
         </div>
         <div class="detail-head-actions">
           <button class="button button-small" type="button" :disabled="readOnly" @click="emit('edit', item)">Edit</button>
-          <button class="button button-small" type="button" :disabled="readOnly" @click="emit('discuss')">Discuss</button>
         </div>
       </div>
 
@@ -69,7 +67,6 @@ const emit = defineEmits<{
         <CardStageStrip :item="item" :columns="columns" :buttons="cardStageButtons" :read-only="readOnly" :move="moveToColumn" />
         <div v-if="narrative" class="detail-section">
           <span class="detail-label">Description</span>
-          <button class="button button-small" type="button" aria-label="Discuss description" :disabled="readOnly" @click="emit('discuss', 'narrative')">Discuss</button>
           <MarkdownContent class="detail-copy" data-discussion-field="narrative" data-discussion-text :source="narrative" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
         </div>
 
@@ -89,11 +86,10 @@ const emit = defineEmits<{
           :update="updateDocument"
         />
 
-        <div v-if="fields.length" class="detail-grid">
+        <div v-if="fields.length" class="detail-grid" data-discussion-text data-discussion-field="overview">
           <template v-for="field in fields" :key="field.id">
             <div v-if="item.values[field.id] !== undefined && item.values[field.id] !== null && item.values[field.id] !== ''">
               <span class="detail-label">{{ field.title }}</span>
-              <button class="button button-small" type="button" :aria-label="`Discuss ${field.title}`" :disabled="readOnly" @click="emit('discuss', field.id)">Discuss</button>
               <strong v-if="field.valueType === 'select'" :data-discussion-field="field.id" data-discussion-text>
                 {{ field.options[String(item.values[field.id])]?.title ?? item.values[field.id] }}
               </strong>

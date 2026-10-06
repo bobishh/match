@@ -9,7 +9,7 @@ import { blobDescriptor, readStoredAttachment, writeStoredAttachment } from "../
 import type { BoardSchemaDraft } from "../domain/schema"
 import type { WorkspaceCreationDraft } from "../domain/seeds"
 import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
-import { isArchiveColumn } from "../domain/archive"
+import { isArchiveColumn, isItemArchived } from "../domain/archive"
 import { isInlineNarrativeNote, type NarrativeNoteSource } from "../domain/narrative"
 import type { NarrativeFoldSources } from "../domain/commandTypes"
 import { isItem, type AttachedDocument, type Column, type FieldValue, type Heads, type Item, type WorkspaceDocumentV2 } from "../domain/model"
@@ -141,14 +141,14 @@ async function moveItemToColumn(core: ReturnType<typeof useAppCore>, item: Item,
   const target = core.tincanban.genericColumns.value.find(column => column.id === columnId)
   if (!target) throw new Error("Column no longer exists")
   if (isArchiveColumn(target)) {
-    if (item.archivedAt) return
+    if (isItemArchived(item)) return
     await core.tincanban.executeCommandAsync({ kind: "setEntityArchived", entityId: item.id, archived: true })
     core.archiveUndo.value = { workspaceId: core.tincanban.activeWorkspace.id, itemId: item.id, title: item.title }
     core.notice.value = "Item archived"
     return
   }
-  if (target.id === item.placement.parentId && !item.archivedAt) return
-  await core.tincanban.executeCommandAsync({ kind: item.archivedAt ? "restoreAndMove" : "moveEntity", entityId: item.id, parentId: target.id, beforeId: null })
+  if (target.id === item.placement.parentId && !isItemArchived(item)) return
+  await core.tincanban.executeCommandAsync({ kind: isItemArchived(item) ? "restoreAndMove" : "moveEntity", entityId: item.id, parentId: target.id, beforeId: null })
   core.notice.value = "Item moved"
 }
 
@@ -182,7 +182,7 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   const handleAddSubitem = (parentItemId: string) => { core.itemFormParentId.value = parentItemId; core.itemFormError.value = ""; core.showItemForm.value = true }
   const handleStartMove = (item: Item) => { core.itemToMove.value = item; core.showMoveDialog.value = true }
   const handleConfirmMove = (newParentId: string) => confirmMove(core, newParentId)
-  const handleRenameColumn = (newTitle: string) => renameColumn(core, newTitle)
+  const handleRenameColumn = (newTitle: string, collapsible: boolean) => renameColumn(core, newTitle, collapsible)
   const handleArchiveColumn = () => archiveColumn(core)
   const addBoardColumn = async () => {
     if (addingBoardColumn.value || !core.newBoardColumnTitle.value.trim()) return
@@ -335,9 +335,9 @@ async function confirmMove(core: ReturnType<typeof useAppCore>, newParentId: str
   core.notice.value = "Item moved"
 }
 
-async function renameColumn(core: ReturnType<typeof useAppCore>, title: string) {
+async function renameColumn(core: ReturnType<typeof useAppCore>, title: string, collapsible: boolean) {
   if (!core.editingColumn.value) return
-  await core.tincanban.executeCommandAsync({ kind: "renameEntity", entityId: core.editingColumn.value.id, title })
+  await core.tincanban.executeCommandAsync({ kind: "renameEntity", entityId: core.editingColumn.value.id, title, collapsible })
   core.editingColumn.value = null
   core.notice.value = "Column renamed"
 }

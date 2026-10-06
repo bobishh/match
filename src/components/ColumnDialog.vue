@@ -5,19 +5,21 @@ import { ref } from "vue"
 const props = defineProps<{
   columnId: string
   initialTitle: string
+  initialCollapsible?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: "close"): void
-  (e: "save", title: string): void
+  (e: "save", title: string, collapsible: boolean): void
   (e: "archive"): void
 }>()
 
 const title = ref(props.initialTitle)
+const collapsible = ref(props.initialCollapsible ?? false)
 
 function handleSave() {
   if (!title.value.trim()) return
-  emit("save", title.value.trim())
+  emit("save", title.value.trim(), collapsible.value)
 }
 </script>
 
@@ -38,6 +40,7 @@ function handleSave() {
             <span>Column title</span>
             <input v-model="title" autofocus required />
           </label>
+          <label class="check-row"><input v-model="collapsible" type="checkbox" /> Allow this column to collapse</label>
 
         </div>
 

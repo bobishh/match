@@ -51,7 +51,7 @@ async function revealMessage(app: App, discussions: Ref<Discussion[]>, linkedMes
   const existing = discussions.value.find(view => view.workspaceId === workspaceId && view.id === id)
   if (existing) existing.targetId = target.id
   else discussions.value.push({ workspaceId, id, title: "Discussion · replies", rootId: root.rootId, targetId: target.id,
-    context: { references: target.context?.references ?? [], mentions: [] } })
+    context: { references: target.context?.references ?? [], mentions: [], replyTo: root.rootId, conversationRootId: root.rootId } })
   await nextTick(); focusSpatialWindow(workspaceId, id)
   return true
 }

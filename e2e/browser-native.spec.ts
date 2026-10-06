@@ -82,7 +82,7 @@ test("Given a signed editor and native Rust peer, when they sync and revoke acce
     const result = await page.evaluate(async ({ remote, bytes, localDeviceId, snapshot, proof }) => {
       const { startIrohBrowserNode } = await import("/src/iroh.ts")
       const { meshRustRuntime } = await import("/vendor/meta-mesh/packages/mesh-replication/src/runtime.ts")
-      const { WasmMeshAuthenticatedSessions } = await import("/vendor/meta-mesh/packages/mesh-transport/wasm/meta_mesh.js")
+      const { WasmMeshAuthenticatedSessions } = await import("/vendor/meta-mesh/packages/mesh-transport/wasm/policy/meta_mesh_policy.js")
       const signedHandshake = (globalThis as typeof globalThis & {
         signedHandshake: (endpoint: string, withGrant: boolean) => Promise<{ frame: number[]; payload: unknown }>
       }).signedHandshake

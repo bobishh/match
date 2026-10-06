@@ -25,7 +25,7 @@ export type Command =
   | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue>; foldNarrativeSources?: NarrativeFoldSources }
   | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
-  | { kind: "renameEntity"; entityId: string; title: string }
+  | { kind: "renameEntity"; entityId: string; title: string; collapsible?: boolean }
   | { kind: "setEntityArchived"; entityId: string; archived: boolean }
   | { kind: "restoreAndMove"; entityId: string; parentId: string; beforeId?: string | null }
   | {

@@ -2,7 +2,6 @@ import { hasEntityKind } from "./model"
 import type { WorkspaceDocumentV2, WorkspaceEntity, Column, FieldDefinition, Board, DocumentTemplate, LegacyWritingTemplate } from "./model"
 import { isItem } from "./model"
 import { calculateRankBetween, getChildren, renumberSiblings } from "./ancestry"
-import { setArchiveColumn } from "./archive"
 import type { BoardSchemaDraft } from "./schema"
 
 export function findRootBoardId(entities: Record<string, WorkspaceEntity>, entityId: string): string | null {
@@ -58,30 +57,37 @@ export function applyBoardSchemaSettings(draft: WorkspaceDocumentV2, boardId: st
 }
 
 function applyColumns(draft: WorkspaceDocumentV2, boardId: string, schema: BoardSchemaDraft, nowIso: string, changedIds: string[]) {
+  const board = draft.entities[boardId] as Board
   const existing = Object.values(draft.entities).filter((entity): entity is Column => hasEntityKind(entity, "column") && entity.placement.parentId === boardId)
   const ids = new Set<string>()
+  let archiveColumnId: string | null = null
   schema.columns.forEach((column, index) => {
     const id = column.id || `col-${crypto.randomUUID()}`
     ids.add(id)
+    if (column.archive === true) archiveColumnId = id
+    const collapsible = column.collapsible ?? (column.archive === true ? true : undefined)
     const target = draft.entities[id]
-    if (hasEntityKind(target, "column")) updateColumn(target, column.title, column.archive === true, index, nowIso)
-    else draft.entities[id] = createColumn(id, boardId, column.title, column.archive === true, index, nowIso)
+    if (hasEntityKind(target, "column")) updateColumn(target, column.title, collapsible, index, nowIso)
+    else draft.entities[id] = createColumn(id, boardId, column.title, collapsible, index, nowIso)
     changedIds.push(id)
   })
+  board.archiveColumnId = archiveColumnId
   markRemoved(existing, ids, nowIso, changedIds)
 }
 
-function updateColumn(column: Column, title: string, archive: boolean, index: number, nowIso: string) {
+function updateColumn(column: Column, title: string, collapsible: boolean | undefined, index: number, nowIso: string) {
   column.title = title.trim()
-  setArchiveColumn(column, archive)
+  delete column.archive
+  if (collapsible === undefined) delete column.collapsible
+  else column.collapsible = collapsible
   column.placement = { parentId: column.placement.parentId, rank: `${index}/1` }
   column.archivedAt = null
   column.updatedAt = nowIso
 }
 
-function createColumn(id: string, boardId: string, title: string, archive: boolean, index: number, nowIso: string): Column {
+function createColumn(id: string, boardId: string, title: string, collapsible: boolean | undefined, index: number, nowIso: string): Column {
   const column: Column = { id, kind: "column", title: title.trim(), placement: { parentId: boardId, rank: `${index}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso }
-  if (archive) column.archive = true
+  if (collapsible !== undefined) column.collapsible = collapsible
   return column
 }
 

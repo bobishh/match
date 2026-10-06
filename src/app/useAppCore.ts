@@ -1,5 +1,5 @@
 import { computed, ref, watch } from "vue"
-import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, exportDocumentAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
 import { useTincanban } from "../state"
@@ -106,14 +106,15 @@ function useAppCollaboration(tincanban: ReturnType<typeof useTincanban>, ui: Ret
     },
     workspaceStore: {
       read: id => timedWorkspaceStoreStage("read", id, () => tincanban.readWorkspaceBytes(id)),
+      reclassify: id => timedWorkspaceStoreStage("reclassify", id, () => tincanban.reclassifyWorkspace(id)),
       validate: (id, bytes, authorization) => timedWorkspaceStoreStage("validate", id, async () => {
         await tincanban.validateAuthorizedWorkspace(id, bytes, authorization)
       }),
       merge: (id, bytes, authorization) => timedWorkspaceStoreStage("merge", id, () =>
         tincanban.mergeAuthorizedWorkspace(id, bytes, authorization)),
       readAuthorization: (bytes, id) => timedWorkspaceStoreStage("read-authorization", id ?? "unknown", () =>
-        // Proofs and authority are read fresh; genesis ownership is already in the local document.
-        id ? tincanban.readWorkspaceDoc(id).then(doc => exportDocumentAuthorizationBundle(doc)) : exportAuthorizationBundle(bytes)),
+        // The exchanged bytes include quarantined history; export proofs for that raw evidence.
+        exportAuthorizationBundle(bytes)),
       activate: tincanban.switchWorkspace,
       readChat: exportChat,
       mergeChat: receiveChat,

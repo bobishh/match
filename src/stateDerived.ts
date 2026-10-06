@@ -15,7 +15,7 @@ import {
   type WorkspaceDocumentV2,
 } from "./domain/model";
 import { projectItemPriority } from "./domain/priority";
-import { archivedItemsForBoard, isArchiveColumn } from "./domain/archive";
+import { archivedItemsForBoard, isArchiveColumn, isItemArchived } from "./domain/archive";
 import { stateRuntime } from "./stateContext";
 import { statusOrder } from "./types";
 
@@ -68,13 +68,14 @@ function projectGenericColumns(board: Board | null) {
     )
     .map((column) => ({
       ...column,
-      items: (isArchiveColumn(column)
+      ...(isArchiveColumn(column, board) ? { archive: true as const } : {}),
+      items: (isArchiveColumn(column, board)
         ? archivedItems
         : visibleIndexedChildren(childrenByParent, doc.entities, column.id).filter((entity): entity is Item => isItem(entity)))
         .map((sourceItem) => ({
           ...projectItemPriority(board, sourceItem, textNotesFieldId(doc.entities, board)),
           subitems: indexedChildren(childrenByParent, sourceItem.id).filter(
-            (entity): entity is Item => isItem(entity) && !entity.archivedAt,
+            (entity): entity is Item => isItem(entity) && !isItemArchived(entity),
           ),
         })),
     }));

@@ -32,7 +32,6 @@ test("Given a blank board, when Archive column is enabled and item archived, the
   await page.getByRole("button", { name: "Open Archive with 1 cards" }).click()
   await expect(page.getByRole("region", { name: "Archive" }).getByRole("button", { name: "Open Keep this card" })).toBeVisible()
   await page.reload()
-  await page.getByRole("button", { name: "Open Archive with 1 cards" }).click()
   await expect(page.getByRole("region", { name: "Archive" }).getByRole("button", { name: "Open Keep this card" })).toBeVisible()
 })
 

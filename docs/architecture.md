@@ -23,16 +23,19 @@ browser notifications rather than pretending each tab is a different user.
 
 ## Startup is not transport startup
 
-The current browser artifact bundles Rust policy code and transport bindings.
-tincanban must initialize that WASM module before reading state that calls Rust policy
-functions. It then hydrates local documents. Starting an Iroh node and connecting
-to peers happens afterwards.
+The browser build has separate policy and transport WASM artifacts. Startup loads
+policy before validating and hydrating local documents. Policy has no Iroh or
+WebRTC dependency. Local-only workspaces do not start a transport node; invitations
+and reconnecting known remote devices load the transport artifact when needed.
+The access, admission, and scope workers use the same policy entry point.
 
-Therefore **local-first is not lazy-loading all of Iroh**. A failed WASM download
-can prevent opening local data; a failed peer connection should not. Startup errors
-must identify which stage failed instead of suggesting that stored data is corrupt.
-Splitting policy WASM from transport is future packaging work, not something fixed
-by moving `hydrate()` above initialization.
+A failed policy download blocks local access with an explicit runtime error.
+A failed transport download leaves local data usable; retrying a network action
+can initialize transport after assets become available. Hydration still follows
+policy initialization because local authority checks require Rust policy.
+
+Packaging checks and browser acceptance scenarios are tracked in
+[policy/transport packaging tasks](../openspec/changes/split-policy-transport-wasm/tasks.md).
 
 ## Identity and access
 
@@ -111,3 +114,25 @@ Authorization export still returns the complete history and retains the existing
 record/byte limits. Paging, restart-safe transfer cursors, and any authenticated
 history checkpoint remain separate protocol work. This commit boundary does not
 fix transport timeout causes or establish replication coverage on Lighthouse.
+
+## Causal write admission
+
+The journal retains raw signed history separately from the authorized document.
+New authority evidence reclassifies already-known hashes as well as incoming
+changes. A valid old-grant write outside the signed revocation frontier becomes
+quarantined; descendants with missing or unadmitted dependencies remain pending.
+Invalid signatures and unauthorized visitor writes still reject admission.
+Raw history, verified proofs, decisions, and the authorized snapshot commit
+atomically before the UI or replication announces success.
+
+The board shows quarantined changes for explicit review. Applying a reviewed edit
+creates a new signed command against the current authorized document; it does not
+rewrite the original or attach a renewed grant to its old hash. Receiver clocks
+and transaction timestamps do not decide write authority.
+
+Match negotiates `causal-write-admission-v1` in both handshake directions. Older
+clients must upgrade. Other MetaMesh consumers require their own integration.
+The core accepts detached pending change bytes, but Match currently transports
+serialized Automerge documents. Its review UI covers pending descendants already
+in retained history, without an orphan-byte transport or persistence path.
+See [admission policy and limits](../vendor/meta-mesh/docs/causal-admission.md).

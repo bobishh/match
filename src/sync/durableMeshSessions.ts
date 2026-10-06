@@ -12,7 +12,7 @@ import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerSt
 import { workspaceAuthorityFingerprint } from "./authorityFingerprint"
 import type { SyncConnection} from "./transport"
 import { liveAutomergeWorkspaceSync, type LiveWorkspaceSync} from "./workspaceSet"
-import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revocations, isGrantRevoked,
+import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, CAUSAL_WRITE_ADMISSION_CAPABILITY, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revocations, isGrantRevoked,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
 
@@ -104,6 +104,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     if (this.runtime().routeAttemptActive(key)) return
     const attempt = this.runtime().beginRouteAttempt(key, Date.now())
     try {
+      this.throwIfDialCancelled(signal, signal)
       if (!this.node || this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) return
       const routeEntries = await Promise.all(peers.map(async candidate => ({
         peer: candidate,
@@ -135,6 +136,10 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame)
       }
     } catch (error) {
+      if (signal.aborted || error instanceof MeshDialCancelled) {
+        this.trace("dial.device.cancelled", { peerId: peer.deviceId.slice(0, 8), workspaceId: peer.workspaceId.slice(0, 8) })
+        return
+      }
       if (this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) {
         this.trace("dial.device.superseded", {
           peerId: peer.deviceId.slice(0, 8),
@@ -212,7 +217,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ownershipTransfers: ownershipTransfers(credential), successionPolicy: successionPolicy(credential),
       successionVotes: successionVotes(credential), successionClaims: successionClaims(credential),
       revocations: revocations(credential), deviceRevocations: deviceRevocations(credential), departures: departures(credential),
-      ownerWorkspaceIds, capabilities: this.handshakeCodec.capabilities() }, peer.workspaceId)
+      ownerWorkspaceIds, capabilities: [...this.handshakeCodec.capabilities(), CAUSAL_WRITE_ADMISSION_CAPABILITY] }, peer.workspaceId)
   }
 
   protected async verifyOutgoingHandshakePeer(credential: WorkspaceMeshCredential, bundle: WorkspaceMemberBundle) {

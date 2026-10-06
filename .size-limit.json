@@ -25,8 +25,13 @@
     "limit": "1.1 MB"
   },
   {
-    "name": "mesh WebAssembly",
+    "name": "transport WebAssembly (loaded on network demand)",
     "path": "dist/assets/meta_mesh_bg-*.wasm",
     "limit": "2.3 MB"
+  },
+  {
+    "name": "policy WebAssembly (required for local access)",
+    "path": "dist/assets/meta_mesh_policy_bg-*.wasm",
+    "limit": "1.2 MB"
   }
 ]

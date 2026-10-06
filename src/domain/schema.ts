@@ -1,12 +1,13 @@
 import type { Board, CardAgingPolicy, Column, FieldDefinition, PriorityPolicy, WorkspaceDocumentV2 } from "./model"
 import { getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
+import { isItemArchived } from "./archive"
 import { cardAgingPolicySchema, priorityPolicySchema } from "./entitySchemas"
 import { validatePriorityPolicy } from "./priority"
 import { entityKind, isItem } from "./model"
 import { cardStageButtons, type CardStageButton } from "./cardStageButtons"
 
-type BoardSchemaColumn = { id?: string; title: string; archive?: true }
+type BoardSchemaColumn = { id?: string; title: string; archive?: true; collapsible?: boolean }
 type BoardSchemaSelectOption = { id?: string; title: string }
 type BoardSchemaField = { id?: string; title: string; valueType: "text" | "number" | "boolean" | "select" | "url" | "date" | "datetime"; required: boolean; min?: number | null; max?: number | null; options?: BoardSchemaSelectOption[] }
 export type BoardSchemaDraft = { boardId: string; boardTitle: string; entityName: string; columns: BoardSchemaColumn[]; fields: BoardSchemaField[]; cardStageButtons?: CardStageButton[]; priorityPolicy?: PriorityPolicy | null; cardAgingPolicy?: CardAgingPolicy }
@@ -21,7 +22,7 @@ export type SchemaDiff = {
 
 export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): BoardSchemaDraft {
   const board = doc.entities[boardId] as Board | undefined
-  const columns = childEntities<Column>(doc, boardId, "column").map(column => ({ id: column.id, title: column.title, ...(isArchiveColumn(column) ? { archive: true as const } : {}) }))
+  const columns = childEntities<Column>(doc, boardId, "column").map(column => ({ id: column.id, title: column.title, ...(isArchiveColumn(column, board) ? { archive: true as const } : {}), ...(column.collapsible !== undefined ? { collapsible: column.collapsible } : {}) }))
   const fields = childEntities<FieldDefinition>(doc, boardId, "field").map(projectField)
   return {
     boardId,
@@ -75,9 +76,10 @@ function validateColumns(value: unknown, errors: SchemaValidationError[]): void 
 function validateColumn(value: unknown, index: number, archive: boolean, errors: SchemaValidationError[]): boolean {
   const path = `/columns/${index}`
   if (!record(value)) { errors.push({ path, message: "Column definition must be an object" }); return archive }
-  Object.keys(value).filter(key => !["id", "title", "archive"].includes(key)).forEach(key => errors.push({ path: `${path}/${key}`, message: "Unknown column setting" }))
+  Object.keys(value).filter(key => !["id", "title", "archive", "collapsible"].includes(key)).forEach(key => errors.push({ path: `${path}/${key}`, message: "Unknown column setting" }))
   requiredText(value.title, `${path}/title`, "Column title is required", errors)
   if (value.archive !== undefined && value.archive !== true) errors.push({ path: `${path}/archive`, message: "archive must be true when present" })
+  if (value.collapsible !== undefined && typeof value.collapsible !== "boolean") errors.push({ path: `${path}/collapsible`, message: "collapsible must be boolean" })
   if (archive && value.archive === true) errors.push({ path: `${path}/archive`, message: "Only one archive column is allowed" })
   return archive || value.archive === true
 }
@@ -157,7 +159,7 @@ function diffColumns(current: BoardSchemaColumn[], draft: BoardSchemaColumn[], d
   const columnsArchived = current.flatMap(column => {
     if (!column.id || incoming.has(column.id)) return []
     const retainedItemCount = getChildren(doc.entities, column.id)
-      .filter(entity => isItem(entity) && !entity.archivedAt).length
+      .filter(entity => isItem(entity) && isItemArchived(entity)).length
     return [{ id: column.id, title: column.title, retainedItemCount }]
   })
   return { columnsRenamed, columnsAdded, columnsArchived, columnsReordered: JSON.stringify(current.map(column => column.id).filter(Boolean)) !== JSON.stringify(draft.map(column => column.id).filter(Boolean)) }

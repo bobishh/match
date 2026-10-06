@@ -21,6 +21,7 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     expect(boards).toHaveLength(1)
     const board = boards[0]
     expect(board.preset?.key).toBe("blank")
+    expect(board.archiveColumnId).toBeNull()
 
     const columns = entities.filter((e) => hasEntityKind(e, "column"))
     expect(columns.map((c) => c.title)).toEqual(["To do", "Doing", "Done"])
@@ -50,7 +51,8 @@ describe("Workspace creation and seeds (Requirement 1.3)", () => {
     expect(rejectedCol?.archive).toBeUndefined()
 
     const archiveCol = columns.find((c) => c.title === "Archive")
-    expect(archiveCol?.archive).toBe(true)
+    expect(archiveCol?.collapsible).toBe(true)
+    expect(board.archiveColumnId).toBe(archiveCol?.id)
 
     // Check bound status keys
     const bindings = board.preset!.bindings

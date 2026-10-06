@@ -7,7 +7,7 @@ export function createWorkspaceDocFromDraft(id: string, title: string, ownerPers
   const columns = draft.columns.map((definition, index): Column => ({
     id: definition.id ?? crypto.randomUUID(), kind: "column", title: definition.title.trim(),
     placement: { parentId: boardId, rank: `${index}/1` }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso,
-    ...(definition.archive ? { archive: true as const } : {}),
+    ...(definition.collapsible !== undefined ? { collapsible: definition.collapsible } : {}),
   }))
   columns.forEach(column => { entities[column.id] = column })
   const fields = draft.fields.map((definition, index): FieldDefinition => {
@@ -33,7 +33,8 @@ export function createWorkspaceDocFromDraft(id: string, title: string, ownerPers
     id: boardId, kind: "board", title: title.trim(), entityName: draft.entityName.trim(),
     placement: { parentId: null, rank: "0/1" }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso,
     preset: { key: presetKey, version: 1, bindings },
-    cardStageButtons: columns.filter(column => !column.archive).map(column => ({ columnId: column.id })),
+    cardStageButtons: columns.filter((_, index) => !draft.columns[index]?.archive).map(column => ({ columnId: column.id })),
+    archiveColumnId: columns.find((_, index) => draft.columns[index]?.archive)?.id ?? null,
     priorityPolicy: null,
     cardAgingPolicy: draft.cardAgingPolicy ?? { version: 1, thresholds: { watch: 7, aged: 14, overdue: 30 } },
   }

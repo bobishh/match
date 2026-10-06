@@ -1,7 +1,7 @@
 import { hasEntityKind } from "./domain/model"
 import type * as Automerge from "@automerge/automerge/slim";
 import { isEntityVisible } from "./domain/ancestry";
-import { archivedItemsForBoard, isArchiveColumn } from "./domain/archive";
+import { archivedItemsForBoard, isArchiveColumn, isItemArchived } from "./domain/archive";
 import {
   isItem,
   type AttachedDocument,
@@ -111,13 +111,13 @@ function projectLead(
   const item = projectItemPriority(board, source, textNotesFieldId(doc, board))
   const column = findColumn(doc.entities, item.placement.parentId);
   if (!column) return undefined;
-  if (isArchiveColumn(column) && !item.archivedAt) return undefined;
+  if (isArchiveColumn(column, board) && !isItemArchived(item)) return undefined;
   const title = splitTitle(item.title);
   const lead: Lead = {
     id: item.id,
     company: title.company,
     role: title.role,
-    status: item.archivedAt ? "archived" : bindings.columnStatuses[column.id] ?? "lead",
+    status: isItemArchived(item) ? "archived" : bindings.columnStatuses[column.id] ?? "lead",
     description: item.body,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
@@ -202,7 +202,9 @@ export function projectWorkspace(
     (entity): entity is Board => hasEntityKind(entity, "board"),
   );
   const bindings = invertBindings(board?.preset?.bindings ?? {});
-  const archiveExists = Boolean(board && Object.values(doc.entities).some(entity => hasEntityKind(entity, "column") && !entity.archivedAt && entity.placement.parentId === board.id && isArchiveColumn(entity)));
+  const archiveExists = Boolean(board && (board.archiveColumnId !== undefined
+    ? board.archiveColumnId !== null
+    : Object.values(doc.entities).some(entity => hasEntityKind(entity, "column") && !entity.archivedAt && entity.placement.parentId === board.id && isArchiveColumn(entity, board))));
   const archivedIds = new Set(board && archiveExists ? archivedItemsForBoard(doc, board.id).map(item => item.id) : []);
   const leads = Object.values(doc.entities)
     .filter(

@@ -17,15 +17,18 @@ import {
   reconcilePersonalRootWorkspaces,
 } from "./domain/personalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
+import { needsWorkspaceStateMigration } from "./domain/workspaceMigration";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
-import { executeCommand, type Command } from "./domain/commands";
+import { executeCommand, type Command, type ExecuteResult } from "./domain/commands";
 import {
+  evaluateIncomingWorkspaceAdmission,
+  exportDocumentAuthorizationBundle,
   prepareLocalChangeAuthorizations,
   recordGenesisAuthority,
+  localChangeAuthorityGrantHash,
   workspaceRole,
-  workspaceWritesBlocked,
 } from "./sync/changeAuthorization";
-import { peerStore } from "./sync/peerStore";
+import { mergeAuthorizationRecords, type WorkspaceChangeAuthorization } from "./sync/workspaceChangeProofStore";
 import {
   defaultStorage,
   type WorkspaceStorage,
@@ -34,11 +37,10 @@ import { projectWorkspace } from "./stateProjection";
 import { withWorkspaceMutation } from "./workspaceMutation";
 import { stateRuntime } from "./stateContext";
 import { readLocal, writeLocal } from "./localDb";
-
-type FixtureItem = { id: string; title: string; parentId: string };
-type TincanbanWindow = Window & {
-  __TINCANBAN_INJECT_FIXTURE__?: { items?: FixtureItem[] };
-};
+import { refreshCausalReview, reviewCausalChange as applyCausalReview, type CausalReviewCallbacks } from "./stateCausalReview";
+import { assertWorkspaceWritesAllowed, reclassifyStoredWorkspace } from "./stateCausalAdmission";
+import { applyInjectedFixture } from "./stateInjectedFixture";
+import { canReuseAdmittedDocument } from "./sync/localAdmissionReuse";
 
 type ReadinessWaiter = {
   resolve: () => void;
@@ -62,6 +64,8 @@ export function resetStateForTest(): void {
   clearWorkspaceProjection();
   stateRuntime.availableWorkspaces.value = [];
   stateRuntime.archivedWorkspaces.value = [];
+  stateRuntime.causalReview.value = [];
+  stateRuntime.causalReviewError.value = "";
   Object.assign(stateRuntime.activeWorkspaceMeta, {
     id: "",
     title: "Untitled",
@@ -113,11 +117,14 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
     if (!profile) throw new Error("Local identity is unavailable");
     await migrateOwnedWorkspaces(storage, profile);
     console.info("[tincanban.startup] hydrate", "workspace")
-    const doc = await loadInitialWorkspace(storage, profile);
+    let doc = await loadInitialWorkspace(storage, profile);
+    const reclassified = await reclassifyStoredWorkspace(doc.id, storage);
+    doc = reclassified.doc ?? (await storage.loadWorkspaceDoc(doc.id))?.doc ?? doc;
     updateReactiveState(doc);
+    await refreshCausalReview(storage, doc.id);
     console.info("[tincanban.startup] hydrate", "personal-root")
     await initializePersonalRoot(storage, profile);
-    applyInjectedFixture();
+    applyInjectedFixture(updateReactiveState);
     console.info("[tincanban.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
     stateRuntime.ready.value = true;
@@ -129,6 +136,8 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
   }
 }
 
+export { refreshCausalReview };
+
 function rejectReadinessWaiters(error: unknown): void {
   for (const waiter of readinessWaiters) waiter.reject(error);
   readinessWaiters.clear();
@@ -138,7 +147,7 @@ async function migrateOwnedWorkspaces(storage: WorkspaceStorage, profile: LocalP
   const available = [...await storage.listWorkspaces(), ...await storage.listArchivedWorkspaces()];
   for (const { id } of new Map(available.map(workspace => [workspace.id, workspace])).values()) {
     const loaded = await storage.loadWorkspaceDoc(id);
-    if (!loaded || (loaded.doc as unknown as { formatVersion: number }).formatVersion !== 2) continue;
+    if (!loaded || ((loaded.doc as unknown as { formatVersion: number }).formatVersion !== 2 && !needsWorkspaceStateMigration(loaded.doc))) continue;
     if (await workspaceRole(loaded.doc, profile) !== "owner") continue;
     await persistAuthorizedCommand(loaded.doc, { kind: "migrateWorkspaceFormat" }, profile, storage);
   }
@@ -182,35 +191,75 @@ export async function persistAuthorizedCommand(
   });
 }
 
+export function reviewCausalChange(changeHash: string, storage = defaultStorage): Promise<void> {
+  const callbacks: CausalReviewCallbacks = { latestWorkspaceDocument, persistNewLocalChange, updateReactiveState, notifyLocalChanges };
+  return assertWorkspaceWritesAllowed(stateRuntime.activeDoc?.id).then(() => applyCausalReview(changeHash, storage, callbacks));
+}
+
 async function commitAuthorizedCommand(
   doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command,
   profile: LocalProfile, storage: WorkspaceStorage,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
-  if (typeof indexedDB !== "undefined" && await peerStore.getPendingOwnershipTransfer(doc.id))
-    throw new Error("Ownership transfer is awaiting confirmation. Reconnect and retry the same recipient.");
-  if (await workspaceWritesBlocked(doc.id))
-    throw new Error("Workspace writes paused: conflicting ownership records");
+  await assertWorkspaceWritesAllowed(doc.id);
   const role = await workspaceRole(doc, profile);
   ensureContentWrite(role);
   assertWorkspaceCommand(role, doc, command);
-  const result = await executeCommand(doc, command, profile);
+  const authorityGrantHash = await localChangeAuthorityGrantHash(doc.id, profile.identity.personId);
+  const result = await executeCommand(doc, command, profile, undefined, authorityGrantHash);
   if (!result.ok)
     throw new Error(
       `Command failed: [${result.error.code}] ${result.error.message}`,
     );
-  const changeBytes = Automerge.getLastLocalChange(result.value.newDoc);
+  return persistNewLocalChange(doc, result.value, profile, storage);
+}
+
+type CreatedLocalChange = Extract<ExecuteResult, { ok: true }>['value']
+
+async function persistNewLocalChange(
+  base: Automerge.Doc<WorkspaceDocumentV2>, created: CreatedLocalChange,
+  profile: LocalProfile, storage: WorkspaceStorage,
+): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  await assertWorkspaceWritesAllowed(base.id);
+  const changeBytes = Automerge.getLastLocalChange(created.newDoc);
   if (!changeBytes) throw new Error("No change produced");
-  if (command.kind === "moveEntity" || command.kind === "restoreAndMove") {
-    (await import("./sync/workspaceAccess")).inheritLocalMoveAccess(doc, result.value.newDoc);
+  const authorizations = await prepareLocalChangeAuthorizations(created.newDoc, profile, [created.receipt.changeHash]);
+  const bundle = await exportDocumentAuthorizationBundle(created.newDoc, profile)
+  bundle.records = mergeAuthorizationRecords(bundle.records as WorkspaceChangeAuthorization[], authorizations)
+  const previousEvidence = await storage.loadCausalEvidence(base.id)
+  // An all-admitted evidence snapshot is already represented by the authorized
+  // base document. Reuse it instead of synchronously loading the full raw
+  // history on every local write. Keep loading raw bytes when quarantined or
+  // pending branches must remain available for reclassification.
+  const preserveRawHistory = hasUnresolvedCausalChanges(previousEvidence)
+  const rawBase = preserveRawHistory ? Automerge.load<WorkspaceDocumentV2>(previousEvidence!.bytes) : base
+  let admission: Awaited<ReturnType<typeof evaluateIncomingWorkspaceAdmission>>
+  try {
+    admission = await evaluateIncomingWorkspaceAdmission(rawBase, created.newDoc, bundle,
+      (previousEvidence?.authorizationEvidence ?? []) as WorkspaceChangeAuthorization[])
+  } finally {
+    if (preserveRawHistory) Automerge.free(rawBase)
   }
-  const authorizations = await prepareLocalChangeAuthorizations(result.value.newDoc, profile, [
-    result.value.receipt.changeHash,
-  ]);
-  await storage.commitWorkspace(doc.id, result.value.newDoc, Automerge.save(result.value.newDoc), authorizations, {
-    receipt: result.value.receipt, changeBytes, proof: result.value.proof,
-  });
-  meshTrace("document.persisted", { workspaceId: doc.id, recordId: result.value.receipt.changeHash, phase: "local" });
-  return result.value.newDoc;
+  const decision = admission.decisions.find(item => item.hash === created.receipt.changeHash)
+  if (decision?.status.type !== "admitted")
+    throw new Error(decision?.status.type === "quarantined" || decision?.status.type === "pending"
+      ? `Local change failed causal admission: ${decision.status.reason}`
+      : "Local change missing from causal admission")
+  // A fully admitted plan leaves the locally created document unchanged. It is
+  // already an Automerge handle, so loading the worker's equivalent snapshot
+  // would decode the entire large workspace again on the UI thread.
+  const allChangesAdmitted = canReuseAdmittedDocument(admission, Automerge.getHeads(created.newDoc))
+  const authorizedDoc = allChangesAdmitted
+    ? created.newDoc
+    : Automerge.load<WorkspaceDocumentV2>(admission.authorizedDocument)
+  await storage.commitWorkspace(base.id, authorizedDoc, Automerge.save(authorizedDoc), admission.verifiedAuthorizations, {
+    receipt: created.receipt, changeBytes, proof: created.proof,
+  }, { bytes: admission.rawBytes, decisions: admission.decisions, authorizationEvidence: admission.authorizationEvidence });
+  meshTrace("document.persisted", { workspaceId: base.id, recordId: created.receipt.changeHash, phase: "local" });
+  return authorizedDoc;
+}
+
+function hasUnresolvedCausalChanges(evidence: Awaited<ReturnType<WorkspaceStorage["loadCausalEvidence"]>>): boolean {
+  return evidence?.decisions.some(decision => decision.status.type !== "admitted") ?? false;
 }
 
 export async function reconcile(storage = defaultStorage, workspaceChanged = false, changedWorkspaceId?: string): Promise<void> {
@@ -340,62 +389,6 @@ async function initializePersonalRoot(
   if (newlyAdded.length > 0 || nameChanged) await storage.savePersonalRoot(root);
 }
 
-function applyInjectedFixture(): void {
-  const fixture =
-    typeof window === "undefined"
-      ? undefined
-      : (window as TincanbanWindow).__TINCANBAN_INJECT_FIXTURE__;
-  const items = fixture?.items;
-  if (!items || !stateRuntime.activeDoc) return;
-  const updated = Automerge.change(stateRuntime.activeDoc, (draft) => {
-    const board = Object.values(draft.entities).find(
-      (entity): entity is Board => hasEntityKind(entity, "board"),
-    );
-    if (!board) return;
-    board.preset = { key: "blank", version: 1, bindings: {} };
-    ensureFixtureColumn(draft, board);
-    addFixtureItems(draft, items);
-  });
-  updateReactiveState(updated);
-}
-
-function ensureFixtureColumn(draft: WorkspaceDocumentV2, board: Board): void {
-  if (
-    Object.values(draft.entities).some(
-      (entity) => hasEntityKind(entity, "column") && entity.title === "To do",
-    )
-  )
-    return;
-  const id = crypto.randomUUID();
-  draft.entities[id] = {
-    id,
-    kind: "column",
-    title: "To do",
-    placement: { parentId: board.id, rank: "0/1" },
-    archivedAt: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function addFixtureItems(
-  draft: WorkspaceDocumentV2,
-  items: FixtureItem[],
-): void {
-  for (const item of items) {
-    draft.entities[item.id] = {
-      id: item.id,
-      title: item.title,
-      body: "",
-      placement: { parentId: item.parentId, rank: "0/1" },
-      archivedAt: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      values: {},
-    };
-  }
-}
-
 function startPendingWrite(): void {
   if (stateRuntime.pendingWrites === 0) stateRuntime.batchSaveFailed = false;
   stateRuntime.pendingWrites += 1;
@@ -422,6 +415,7 @@ async function persistCommand(
     const next = await commitAuthorizedCommand(base, command, profile, storage);
     if (stateRuntime.activeDoc?.id === workspaceId) {
       updateReactiveState(next);
+      await refreshCausalReview(storage, workspaceId);
     }
     stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId });
     notifyLocalChanges(workspaceId);
@@ -436,11 +430,15 @@ async function latestWorkspaceDocument(
     stateRuntime.activeDoc?.id === workspaceId ? stateRuntime.activeDoc : null;
   const stored = (await storage.loadWorkspaceDoc(workspaceId, local ?? undefined))?.doc ?? null;
   if (!local && !stored) throw new Error("Workspace not hydrated");
-  if (local && stored && Automerge.getHeads(local).sort().join() === Automerge.getHeads(stored).sort().join())
-    return stored;
-  return local && stored
-    ? Automerge.merge(Automerge.clone(local), Automerge.clone(stored))
-    : (local ?? (stored as Automerge.Doc<WorkspaceDocumentV2>));
+  const hasCausalEvidence = Boolean(stored && await storage.loadCausalEvidence(workspaceId));
+  return chooseLatestWorkspaceDocument(local, stored, hasCausalEvidence);
+}
+
+function chooseLatestWorkspaceDocument(local: Automerge.Doc<WorkspaceDocumentV2> | null,
+  stored: Automerge.Doc<WorkspaceDocumentV2> | null, hasCausalEvidence: boolean): Automerge.Doc<WorkspaceDocumentV2> {
+  if (!local) return stored!
+  if (!stored || hasCausalEvidence || Automerge.getHeads(local).sort().join() === Automerge.getHeads(stored).sort().join()) return stored ?? local
+  return Automerge.merge(Automerge.clone(local), Automerge.clone(stored))
 }
 
 function ensureContentWrite(role: WorkspaceRole): void {
@@ -455,7 +453,10 @@ async function reconcileWorkspace(storage: WorkspaceStorage, workspaceChanged = 
   const loaded = await storage.loadWorkspaceDoc(active.id, active);
   const activeChanged = loaded &&
     Automerge.getHeads(active).sort().join(",") !== loaded.heads.join(",");
-  if (activeChanged) updateReactiveState(loaded.doc);
+  if (activeChanged) {
+    updateReactiveState(loaded.doc);
+  }
+  await refreshCausalReview(storage, active.id);
   if (workspaceUnknown) {
     notifyLocalChanges();
     return;

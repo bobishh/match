@@ -21,6 +21,7 @@ MODELS = [
     ("TransportReconnectOnly", "DurableTransport", "Temporal properties were violated"),
     ("TransportEarlyAck", "DurableTransport", "Invariant AckDurable is violated"),
     ("TransportConnection", "DurableTransport", "Invariant ConnectionImpliesCoverage is violated"),
+    ("ItemTransitions", "ItemTransitions", None),
 ]
 
 

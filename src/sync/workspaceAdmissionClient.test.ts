@@ -13,7 +13,7 @@ class FakeWorker {
   reply(response: WorkspaceAdmissionResponse) { this.onmessage?.({ data: response } as MessageEvent<WorkspaceAdmissionResponse>) }
 }
 const result: WorkspaceAdmissionResult = { neededHashes: [], admittedHashes: [], verifiedAuthorizations: [],
-  unsignedHashes: [], unsignedError: "" }
+  authorizationEvidence: [], quarantinedHashes: [], pendingHashes: [], decisions: [], authorizedDocument: new Uint8Array(), authorizedHeads: [] }
 function input(): WorkspaceAdmissionInput {
   return { workspaceId: "test", remote: new Uint8Array([1]), knownAuthority: null,
     authorization: {} as WorkspaceAdmissionInput["authorization"], now: Date.now() }

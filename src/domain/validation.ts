@@ -1,6 +1,7 @@
 import type { z } from "zod"
 import { entitySchema, workspaceSchema } from "./entitySchemas"
 import type { CommandResult, EntityKind } from "./model"
+import type { Item, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
 
 function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
   const result = schema.safeParse(input)
@@ -13,7 +14,82 @@ function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
   } }
 }
 export const validateEntity = (input: unknown) => validate(entitySchema, input)
-export const validateWorkspaceDoc = (input: unknown) => validate(workspaceSchema, input)
+export function validateWorkspaceDoc(input: unknown): CommandResult<WorkspaceDocumentV2> {
+  const parsed = validate(workspaceSchema, input)
+  if (!parsed.ok) return parsed
+  const doc = parsed.value as WorkspaceDocumentV2
+  const archiveError = validateArchiveReferences(doc)
+  if (archiveError) return archiveError
+  const transitionError = validateItemTransitions(doc)
+  if (transitionError) return transitionError
+  return parsed as CommandResult<WorkspaceDocumentV2>
+}
+
+function validateArchiveReferences(doc: WorkspaceDocumentV2): CommandResult<never> | undefined {
+  for (const board of Object.values(doc.entities).filter(entity => "kind" in entity && entity.kind === "board")) {
+    const archive = board.archiveColumnId ? doc.entities[board.archiveColumnId] : undefined
+    if (board.archiveColumnId && (!archive || !("kind" in archive) || archive.kind !== "column" || archive.archivedAt || archive.placement.parentId !== board.id))
+      return invalid(`entities.${board.id}.archiveColumnId`, "Archive column must identify an active column on this board")
+    const legacy = Object.values(doc.entities).filter(entity => "kind" in entity && entity.kind === "column" && entity.archive === true && entity.placement.parentId === board.id && !entity.archivedAt)
+    if (legacy.length > 1) return invalid(`entities.${board.id}.archiveColumnId`, "Board has multiple legacy archive columns")
+    if (board.archiveColumnId !== undefined && legacy.some(column => column.id !== board.archiveColumnId))
+      return invalid(`entities.${board.id}.archiveColumnId`, "Legacy archive marker conflicts with board archive reference")
+  }
+}
+
+function validateItemTransitions(doc: WorkspaceDocumentV2): CommandResult<never> | undefined {
+  for (const item of Object.values(doc.entities).filter(isItemRecord)) {
+    const lifecycleError = validateLifecycle(item)
+    if (lifecycleError) return lifecycleError
+    const workflowError = validateWorkflow(doc, item)
+    if (workflowError) return workflowError
+  }
+}
+
+function validateLifecycle(item: Item): CommandResult<never> | undefined {
+  if (!item.lifecycle) return
+  const lifecycle = parseTransition(item.lifecycle) as { state?: string; changedAt?: string } | undefined
+  if (lifecycle && (lifecycle.state === "active" || lifecycle.state === "archived") && typeof lifecycle.changedAt === "string" && Number.isFinite(Date.parse(lifecycle.changedAt))) return
+  return invalid(`entities.${item.id}.lifecycle`, "Lifecycle transition is invalid")
+}
+
+function validateWorkflow(doc: WorkspaceDocumentV2, item: Item): CommandResult<never> | undefined {
+  if (!item.workflow) return
+  const workflow = parseTransition(item.workflow) as { columnId?: string; changedAt?: string } | undefined
+  if (workflow && typeof workflow.columnId === "string" && typeof workflow.changedAt === "string" && Number.isFinite(Date.parse(workflow.changedAt)) && workflowColumnId(doc, item.id) === workflow.columnId) return
+  return invalid(`entities.${item.id}.workflow`, "Workflow transition must be valid and match item placement")
+}
+
+function invalid(field: string, message: string): CommandResult<never> {
+  return { ok: false, error: { code: "invalid_input", field, message } }
+}
+
+function isItemRecord(entity: WorkspaceEntity): entity is Item {
+  return !("kind" in entity) && "body" in entity && typeof entity.body === "string" && "values" in entity && Boolean(entity.values) && typeof entity.values === "object"
+}
+
+function workflowColumnId(doc: WorkspaceDocumentV2, itemId: string): string | undefined {
+  const seen = new Set<string>()
+  let currentId: string | null = itemId
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId)
+    const current: WorkspaceEntity | undefined = doc.entities[currentId]
+    if (!current) return undefined
+    if ("kind" in current && current.kind === "column") return current.id
+    currentId = current.placement.parentId
+  }
+  return undefined
+}
+
+function parseTransition(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined
+    } catch { return undefined }
+  }
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
 
 const allowedParents: Record<EntityKind, readonly (string | null)[]> = {
   board: [null], column: ["board"], field: ["board"], item: ["column", "item"],

@@ -40,13 +40,17 @@ const boardSchema = z.strictObject({
   cardStageButtons: z.array(z.strictObject({ columnId: id, label: z.string().min(1).optional() })).optional(),
   priorityPolicy: priorityPolicySchema.nullable().optional(),
   cardAgingPolicy: cardAgingPolicySchema.optional(),
+  archiveColumnId: id.nullable().optional(),
 })
 const columnSchema = z.strictObject({
   ...common,
   kind: z.literal("column"),
   archive: z.literal(true).optional(),
+  collapsible: z.boolean().optional(),
 })
-const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional() })
+const itemLifecycleSchema = z.strictObject({ state: z.enum(["active", "archived"]), changedAt: z.string() })
+const itemWorkflowSchema = z.strictObject({ columnId: id, changedAt: z.string() })
+const itemSchema = z.strictObject({ ...common, archivedAt: z.string().nullable().optional(), body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional(), lifecycle: z.union([z.string(), itemLifecycleSchema]).optional(), workflow: z.union([z.string(), itemWorkflowSchema]).optional() })
 const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, archivedAt: z.string().nullable() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
 const fieldSchema = z.discriminatedUnion("valueType", [

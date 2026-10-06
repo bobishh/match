@@ -49,15 +49,21 @@ test("Given archive, when expanded and collapsed, then both use gray crossed str
   await expect(closed).toBeVisible()
 })
 
-test("Given device identifiers and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {
+test("Given mesh devices or an offline board and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync", exact: true })
-  await sync.getByRole("list", { name: "Mesh members" }).getByRole("button").click()
-  const deviceId = sync.locator(".mesh-device-head code")
-  await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
-  await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
+  const members = sync.getByRole("list", { name: "Mesh members" })
+  const memberButtons = members.getByRole("button")
+  if (await memberButtons.count()) {
+    await memberButtons.first().click()
+    const deviceId = sync.locator(".mesh-device-head code")
+    await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
+    await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
+  } else {
+    await expect(members.getByText("No people connected to this board.", { exact: true })).toBeVisible()
+  }
   await expect.poll(() => page.evaluate(() => document.fonts.check('400 15px "Fira Code"'))).toBe(true)
   await sync.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()

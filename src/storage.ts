@@ -9,8 +9,11 @@ import type {
 } from "./domain/model"
 import { records, mergeAuthorizationRecords, type WorkspaceChangeAuthorization } from "./sync/workspaceChangeProofStore"
 import { canonicalizeJson } from "./domain/identity"
+import { causalEvidenceChanged, cloneCausalEvidence, snapshotCausalEvidence } from "./causalEvidence"
+import { parseStoredSnapshot, type StoredSnapshot } from "./storageSnapshot"
 import type { StoredProofsV1 } from "./domain/proofs"
 import { toBase64Url, fromBase64Url } from "./domain/identity"
+import { validateRekeyAuthorizations } from "./storageRekey"
 import { getStorageRaw, removeStorageRaw, setStorageRaw } from "./storageRaw"
 import { includesWorkspaceHeads, partitionCatalog, readWorkspaceCatalogRecords, type WorkspaceMeta } from "./storageCatalog"
 import {
@@ -27,19 +30,13 @@ import {
   type StoredChange,
   type StoredProofRecord,
   type StoredReceiptRecord,
+  type StoredCausalEvidence,
 } from "./storageJournal"
 
 export type { StoredChange } from "./storageJournal"
 export * from "./storageLegacy"
 
 const workspaceMetaPrefix = "tincanban.workspace-meta."
-
-type StoredSnapshot = {
-  workspaceId: string
-  heads: Heads
-  bytes: Uint8Array
-  savedAt: string
-}
 
 function canReuseDocument(doc: Automerge.Doc<WorkspaceDocumentV2> | undefined, workspaceId: string, heads: Heads) {
   return doc?.id === workspaceId && Automerge.getHeads(doc).sort().join() === heads.slice().sort().join()
@@ -82,20 +79,6 @@ const memoryStore: InMemoryStore = {
   personalRoots: new Map(),
 }
 
-
-function parseStoredSnapshot(raw: string, workspaceId: string): StoredSnapshot | null {
-  try {
-    const parsed = JSON.parse(raw) as { bytesBase64?: string; heads?: Heads; savedAt?: string }
-    return {
-      workspaceId,
-      heads: parsed.heads ?? [],
-      bytes: parsed.bytesBase64 ? fromBase64Url(parsed.bytesBase64) : new Uint8Array(JSON.parse(raw) as number[]),
-      savedAt: parsed.savedAt ?? new Date().toISOString(),
-    }
-  } catch {
-    return null
-  }
-}
 
 async function readIndexedJournalRecord<T>(
   workspaceId: string,
@@ -166,9 +149,15 @@ export class WorkspaceStorage {
     this.inMemory.workspaces.set(id, meta)
   }
 
-  async rekeyWorkspace(oldId: string, newId: string, newTitle: string): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
+  async rekeyWorkspace(
+    oldId: string,
+    newId: string,
+    newTitle: string,
+    authorize: (document: Automerge.Doc<WorkspaceDocumentV2>) => Promise<WorkspaceChangeAuthorization[]>,
+  ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
     checkStorageFailureHook()
     if (oldId === newId) throw new Error("Workspace IDs must differ")
+    if (!authorize) throw new Error("Workspace rekey requires new workspace authorization")
     if (await this.loadWorkspaceDoc(newId)) throw new Error(`Workspace ${newId} already exists`)
     const loaded = await this.loadWorkspaceDoc(oldId)
     if (!loaded) throw new Error(`Workspace ${oldId} not found`)
@@ -177,8 +166,11 @@ export class WorkspaceStorage {
       draft.id = newId
       draft.title = newTitle
     })
-    // Save the recoverable copy first. Old keys are removed only after that succeeds.
-    await this.saveSnapshot(newId, moved, Automerge.save(moved))
+    // Document-ID changes invalidate old workspace-scoped signatures. Require
+    // verified owner authorization for every change before persisting the copy.
+    const authorizations = await authorize(moved)
+    await validateRekeyAuthorizations(moved, authorizations)
+    await this.commitWorkspace(newId, moved, Automerge.save(moved), authorizations)
 
     await removeStorageRaw(`${workspaceMetaPrefix}${oldId}`)
     this.inMemory.snapshots.delete(oldId)
@@ -293,7 +285,8 @@ export class WorkspaceStorage {
     bytes: Uint8Array,
     authorizations: WorkspaceChangeAuthorization[],
     command?: { receipt: TransactionReceipt; changeBytes: Uint8Array; proof: ChangeProof },
-  ): Promise<{ proofChanged: boolean }> {
+    causalEvidence?: StoredCausalEvidence,
+  ): Promise<{ proofChanged: boolean; causalChanged: boolean }> {
     checkStorageFailureHook()
     if (doc.id !== workspaceId) throw new Error("Workspace commit ID mismatch")
     const committed = await readWorkspaceSnapshot(workspaceId)
@@ -309,11 +302,13 @@ export class WorkspaceStorage {
     const snapshot: StoredWorkspaceSnapshot = {
       id: workspaceId, workspaceId, title: doc.title, archivedAt: doc.archivedAt ?? null,
       heads: Automerge.getHeads(doc).sort(), bytes: new Uint8Array(bytes), savedAt: new Date().toISOString(),
+      causalEvidence: snapshotCausalEvidence(causalEvidence, previous?.causalEvidence),
     }
     // Legacy proof storage is read-only during migration. The transaction also
     // rereads current proofs, so standalone proof updates cannot be overwritten.
     const previousProofs = await records(workspaceId)
     let proofChanged = false
+    const causalChanged = causalEvidenceChanged(previous?.causalEvidence, causalEvidence)
     const addCommand = (journal: ReturnType<typeof readLocalJournal>) => {
       if (!command) return
       const { receipt, changeBytes, proof } = command
@@ -347,7 +342,8 @@ export class WorkspaceStorage {
         const existing = mergeAuthorizationRecords(previousProofs, stored?.records ?? [])
         const next = mergeAuthorizationRecords(existing, authorizations)
         proofChanged = canonicalizeJson(existing) !== canonicalizeJson(next)
-        if (!existingSnapshot || existingSnapshot.heads.join() !== snapshot.heads.join()) snapshotStore.put(snapshot)
+        if (!existingSnapshot || existingSnapshot.heads.join() !== snapshot.heads.join() || causalEvidence)
+          snapshotStore.put(snapshot)
         if (!stored || proofChanged) proofStore.put({ id: workspaceId, workspaceId, records: next })
         if (command) {
           const { receipt, changeBytes, proof } = command
@@ -372,7 +368,7 @@ export class WorkspaceStorage {
     this.inMemory.snapshots.set(workspaceId, snapshot)
     this.rememberDocument(workspaceId, doc)
     await this.registerWorkspace(workspaceId, doc.title, doc.archivedAt ?? null, true)
-    return { proofChanged }
+    return { proofChanged, causalChanged }
   }
 
   async loadWorkspaceDoc(
@@ -418,6 +414,11 @@ export class WorkspaceStorage {
     }
     this.rememberDocument(workspaceId, doc)
     return { doc, heads }
+  }
+
+  async loadCausalEvidence(workspaceId: string): Promise<StoredCausalEvidence | null> {
+    const snapshot = await readWorkspaceSnapshot(workspaceId)
+    return cloneCausalEvidence(snapshot?.causalEvidence)
   }
 
   async compactWorkspace(

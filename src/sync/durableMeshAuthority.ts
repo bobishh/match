@@ -52,7 +52,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
           credential = await this.store.getWorkspaceCredential(workspaceId) ?? credential
           await this.mergeRevocations(credential!, value.revocations ?? [])
         } catch (error) {
-          if (error instanceof Error && error.message === "Workspace access revoked") await this.notify()
+          if (error instanceof Error && error.message === "Workspace access revoked") {
+            await this.reclassifyWorkspaceAuthority(workspaceId)
+            await this.notify()
+          }
           throw error
         }
       },
@@ -74,8 +77,12 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     }
     await this.traceSlowPhase("authority-snapshot.persist", workspaceId, {},
       () => persistScopeAuthoritySnapshot(this.store, workspaceId, scopeImport.snapshot))
+    await this.reclassifyWorkspaceAuthority(workspaceId)
     if (actions.includes("notify"))
       await this.traceSlowPhase("effect.notify", workspaceId, {}, effects.notify!)
+  }
+  protected async reclassifyWorkspaceAuthority(workspaceId: string): Promise<void> {
+    await this.options.workspaceStore.reclassify?.(workspaceId)
   }
   protected async mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]) {
     for (const [index, bundle] of bundles.entries()) {
@@ -253,6 +260,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (action === "notify") await this.notify()
       if (action === "publish") await this.publishAll()
     }
+    await this.reclassifyWorkspaceAuthority(workspaceId)
   }
 
   protected async mergeRevocations(credential: WorkspaceMeshCredential, raw: unknown[], disconnect = true) {
@@ -328,6 +336,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       await this.mergeDeviceRevocations(credential, deviceRevocations(credential))
     }
     await this.notify()
+    for (const workspaceId of new Set(workspaceIds)) await this.reclassifyWorkspaceAuthority(workspaceId)
   }
 
   async promotePerson(workspaceId: string, personId: string): Promise<void> {
@@ -358,10 +367,16 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (action === "notify") await this.notify()
       if (action === "publish") await this.publishAll()
     }
+    await this.reclassifyWorkspaceAuthority(workspaceId)
   }
   async revokePerson(workspaceId: string, personId: string): Promise<void> {
     const profile = await this.options.getProfile(); let current = await this.store.getWorkspaceCredential(workspaceId)
-    if (current && revocations(current).some(item => item.payload.personId === personId)) { await this.mergeRevocations(current, [], true); await this.notify(); return }
+    if (current && revocations(current).some(item => item.payload.personId === personId)) {
+      await this.mergeRevocations(current, [], true)
+      await this.reclassifyWorkspaceAuthority(workspaceId)
+      await this.notify()
+      return
+    }
     const actions = meshRustRuntime().state.planAuthorityCommand({ kind: "revoke", localPersonId: profile.identity.personId,
       ownerPersonId: current?.ownerPersonId ?? null })
     let record!: WorkspaceRevocation
@@ -378,6 +393,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (action === "disconnectRevoked") await this.mergeRevocations(current!, [record], true)
       if (action === "notify") await this.notify()
     }
+    await this.reclassifyWorkspaceAuthority(workspaceId)
   }
   async transferOwnership(workspaceId: string, personId: string): Promise<void> {
     await this.transferOwnershipWithReceipt(workspaceId, personId)
@@ -413,6 +429,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     for (const action of plan.actions) {
       await this.applyOwnershipTransferAction(action, workspaceId, state)
     }
+    await this.reclassifyWorkspaceAuthority(workspaceId)
   }
 
   private async applyOwnershipTransferAction(action: string, workspaceId: string, state: OwnershipTransferState): Promise<void> {
@@ -470,6 +487,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     await this.publishAll()
     const current = await this.store.getWorkspaceCredential(workspaceId) ?? credential
     await this.mergeDepartures(current, [departure])
+    await this.reclassifyWorkspaceAuthority(workspaceId)
     for (const action of meshRustRuntime().state.planAuthorityCommand({ kind: "leave", workspaceId })) {
       if (action === "leave") await this.leaveWorkspaceHost(workspaceId)
       if (action === "notify") await this.notify()

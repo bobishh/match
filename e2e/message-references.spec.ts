@@ -144,13 +144,20 @@ test("Given a copied link before local workspace rekeying, when its preserved sc
   await page.evaluate(async () => {
     const storagePath = "/src/storage.ts"
     const statePath = "/src/state.ts"
+    const authorizationPath = "/src/sync/changeAuthorization.ts"
     const { defaultStorage } = await import(/* @vite-ignore */ storagePath)
     const state = await import(/* @vite-ignore */ statePath)
-    const id = state.useTincanban().activeWorkspace.id
-    await defaultStorage.rekeyWorkspace(id, crypto.randomUUID(), "Rekeyed workspace")
+    const { recordGenesisAuthority } = await import(/* @vite-ignore */ authorizationPath)
+    const tincanban = state.useTincanban()
+    const id = tincanban.activeWorkspace.id
+    const profile = tincanban.getCurrentProfile()!
+    await defaultStorage.rekeyWorkspace(id, crypto.randomUUID(), "Rekeyed workspace", async document => {
+      return recordGenesisAuthority(document, profile)
+    })
   })
   await page.goto(url)
   await page.reload()
-  await expect(page.locator(".is-linked-message")).toContainText("Linked local message")
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Rekeyed workspace")
+  // The board-derived chat scope remains stable across document-ID rekeying.
+  await expect(page.locator(".is-linked-message")).toContainText("Linked local message")
 })

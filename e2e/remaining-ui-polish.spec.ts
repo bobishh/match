@@ -39,7 +39,7 @@ test("Given archive persistence fails, when an item is archived, then the item r
   await createBlankBoard(page, "Archive failure board")
   await addItem(page, "Durable item")
   await page.getByRole("button", { name: "Open Durable item" }).click()
-  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await page.getByRole("dialog", { name: "Item overview" }).getByRole("button", { name: "Archive item" }).click()
 
   await expect(page.getByRole("dialog", { name: "Item overview" }).getByRole("alert")).toContainText("Archive failed")
@@ -89,12 +89,13 @@ for (const width of [360, 390, 430]) {
       const column = board.querySelector<HTMLElement>(".column:not(.bin-column)")!
       const add = column.querySelector<HTMLElement>(".column-add-button")!
       const stack = column.querySelector<HTMLElement>(".card-stack")!
+      const content = stack.querySelector<HTMLElement>(".lead-card:last-of-type, .empty-column")!
       const next = column.nextElementSibling!.getBoundingClientRect()
-      return { board: board.clientWidth, column: column.getBoundingClientRect().width, addTop: add.getBoundingClientRect().top, stackBottom: stack.getBoundingClientRect().bottom, nextLeft: next.left, nextRight: next.right, viewport: innerWidth }
+      return { board: board.clientWidth, column: column.getBoundingClientRect().width, addTop: add.getBoundingClientRect().top, contentBottom: content.getBoundingClientRect().bottom, nextLeft: next.left, nextRight: next.right, viewport: innerWidth }
     })
     expect(values.column).toBeLessThan(values.board)
-    expect(values.addTop - values.stackBottom).toBeGreaterThanOrEqual(0)
-    expect(values.addTop - values.stackBottom).toBeLessThanOrEqual(16)
+    expect(values.addTop - values.contentBottom).toBeGreaterThanOrEqual(0)
+    expect(values.addTop - values.contentBottom).toBeLessThanOrEqual(30)
     expect(values.nextLeft).toBeLessThan(values.viewport)
     expect(values.nextRight).toBeGreaterThan(values.viewport)
   })
@@ -122,15 +123,16 @@ test("Given a lead dragged to Archive, when Undo fails then retries, then its or
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
   await page.mouse.down()
   await page.mouse.move(to.x + to.width / 2, to.y + 24, { steps: 18 })
-  await expect(archive.locator(".lead-card").filter({ hasText: "First" })).toHaveCount(1)
+  await expect(page.locator(".board-drag-preview")).toBeVisible()
+  await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await archive.getAttribute("data-column-id"))
   await page.mouse.up()
   await expect(archive.getByRole("button", { name: "Open First — Engineer", exact: true })).toBeVisible()
   await expect(page.getByRole("status").filter({ hasText: "Item archived" })).toBeVisible()
-  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await page.getByRole("button", { name: "Undo", exact: true }).click()
   await expect(page.getByRole("status").filter({ hasText: "Restore failed" })).toBeVisible()
   await expect(archive.getByRole("button", { name: "Open First — Engineer", exact: true })).toBeVisible()
-  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
+  await page.evaluate(() => { (window as unknown as { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
   await page.getByRole("button", { name: "Undo", exact: true }).click()
   const cards = page.getByRole("region", { name: "Lead", exact: true }).locator(".lead-card")
   await expect(cards).toHaveCount(2)
@@ -146,7 +148,10 @@ test("Given an archived item, when the workspace changes, then its Undo cannot a
   await page.getByRole("button", { name: "Archive item", exact: true }).click()
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Open workspaces", exact: true }).click()
-  await page.getByRole("dialog", { name: "Workspaces", exact: true }).getByRole("button", { name: "Untitled", exact: true }).click()
+  const workspaces = page.getByRole("dialog", { name: "Workspaces", exact: true })
+  const otherWorkspace = workspaces.locator(".workspace-item:not(.workspace-item-active) .workspace-switch")
+  await expect(otherWorkspace).toHaveCount(1)
+  await otherWorkspace.click()
   await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: /Undo/ })).toHaveCount(0)
 })

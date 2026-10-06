@@ -46,6 +46,7 @@ test("Given a fresh desktop board, when filtering, searching, and moving a card,
     await openCard.click()
     const overview = page.getByRole("dialog", { name: "Item overview" })
     await expect(overview).toBeVisible()
+    await expect(overview).toBeFocused()
     await page.keyboard.press("Escape")
     await expect(overview).toHaveCount(0)
     await page.getByRole("button", { name: "Clear search and filters" }).click()
@@ -152,7 +153,7 @@ test("Given filtered cards and a failed save, when dragging ends then the previe
   await createBoard(page)
   await page.getByRole("searchbox", { name: "Search cards" }).fill("Launch")
   await expect(page.locator(".board > .column")).toHaveCount(2)
-  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   const source = page.getByRole("button", { name: "Open Launch design", exact: true })
   const target = page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack")
   const from = (await source.boundingBox())!

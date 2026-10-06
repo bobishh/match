@@ -28,6 +28,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - run: npm run verify:policy
       - run: npm run quality
       - run: npm run test:coverage
       - uses: actions/upload-artifact@v6
@@ -114,6 +115,30 @@ jobs:
         if: failure()
         with:
           name: browser-${{ matrix.project }}-failure
+          path: test-results/
+          retention-days: 3
+
+  browser-policy:
+    name: Browser (production policy/transport packaging)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run verify:meta-mesh
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:policy
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: policy-packaging-failure
           path: test-results/
           retention-days: 3
 

@@ -44,12 +44,14 @@ export type PersonalRootDocumentV1 = {
 }
 
 export type TransactionMetadataV1 = {
+  kind: "workspace-change-metadata"
   version: 1
   transactionId: string
   action: string
   entityIds: EntityId[]
   personId: PersonId
   deviceId: DeviceId
+  authorityGrantHash?: string
 }
 
 type SignedEnvelope<T> = {

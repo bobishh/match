@@ -25,6 +25,8 @@ The system SHALL render item, workspace-chat, and conversation content through a
 
 The system SHALL persist window geometry locally outside replicated messages/workspace data, isolate layouts by workspace, and keep headers/actions reachable after viewport changes. Keyboard alternatives SHALL exist for movement/resizing. Closing a window SHALL preserve committed messages and restore useful focus.
 
+Window controls SHALL use fixed-size SVG graphics for switch, maximize/restore, close, and resize, with accessible labels. Window headings SHALL leave enough vertical space for the handwriting font without clipping its glyphs.
+
 #### Scenario: Restore after viewport shrink
 - **GIVEN** windows were positioned on a large viewport
 - **WHEN** the user reloads with a smaller viewport

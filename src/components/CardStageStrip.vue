@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import { isArchiveColumn } from "../domain/archive"
+import { isArchiveColumn, isItemArchived } from "../domain/archive"
 import type { Column, Item } from "../domain/model"
 import type { CardStageButton } from "../domain/cardStageButtons"
 
@@ -14,8 +14,8 @@ const props = defineProps<{
 
 const pendingColumnId = ref<string | null>(null)
 const error = ref("")
-const activeColumnId = computed(() => props.item.archivedAt
-  ? props.columns.find(isArchiveColumn)?.id
+const activeColumnId = computed(() => isItemArchived(props.item)
+  ? props.columns.find(column => isArchiveColumn(column))?.id
   : props.item.placement.parentId)
 const visibleButtons = computed(() => props.buttons.flatMap(button => {
   const column = props.columns.find(column => column.id === button.columnId)

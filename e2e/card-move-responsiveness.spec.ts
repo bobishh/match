@@ -18,7 +18,7 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
     Object.assign(window, { moveTasks: tasks, moveTaskObserver: taskObserver })
   })
   const points = await page.evaluate(() => {
-    const card = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"] .card-open-button')!
+    const card = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"]')!
     const stack = [...document.querySelectorAll<HTMLElement>(".card-stack")].find(element => {
       const title = element.closest(".column")?.querySelector(".column-title h2")?.textContent
       return title === "Doing"
@@ -26,24 +26,20 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
     const cardRect = card.getBoundingClientRect()
     const stackRect = stack.getBoundingClientRect()
     Object.assign(window, { beforeMoveBoard: document.querySelector(".board"), beforeMoveNeighbor: document.querySelector('[data-item-id="performance-card-1"]') })
-    return { sourceX: cardRect.x + cardRect.width / 2, sourceY: cardRect.y + Math.min(30, cardRect.height / 2), targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28 }
+    return { sourceX: cardRect.x + 4, sourceY: cardRect.y + 4, targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28 }
   })
   await session.send("Profiler.start")
   await page.mouse.move(points.sourceX, points.sourceY)
   await page.mouse.down()
   await page.mouse.move(points.targetX, points.targetY, { steps: 15 })
+  await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await page.getByRole("region", { name: "Doing", exact: true }).getAttribute("data-column-id"))
   await page.mouse.up()
   await page.waitForFunction(() => {
     const movedCard = document.querySelector('[data-item-id="performance-card-0"]')
     return movedCard?.closest(".card-stack")?.closest(".column")?.querySelector(".column-title h2")?.textContent === "Doing" &&
       [...document.querySelectorAll("[role=status]")].some(element => element.textContent?.includes("Item moved"))
   }, undefined, { timeout: 10000 })
-  const openPoint = await page.evaluate(() => {
-    const button = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"] .card-open-button')!
-    const rect = button.getBoundingClientRect()
-    return { x: rect.x + 20, y: rect.y + 20 }
-  })
-  await page.mouse.click(openPoint.x, openPoint.y)
+  await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click()
   await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Item overview"]'))
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const { profile } = await session.send("Profiler.stop")

@@ -45,11 +45,6 @@
       "count": 2
     }
   },
-  "src/domain/commands.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    }
-  },
   "src/domain/fields.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
@@ -92,11 +87,6 @@
   "src/domain/schema.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
-    }
-  },
-  "src/domain/workspaceMigration.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
     }
   },
   "src/domain/workspaceSettings.test.ts": {

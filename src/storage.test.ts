@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "./crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } from "./domain/identity"
+import { prepareLocalChangeAuthorizations } from "./sync/changeAuthorization"
 import { createPersonalRoot } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { executeCommand, type Command } from "./domain/commands"
@@ -90,6 +91,45 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const heads = Automerge.getHeads(doc)
     await storage.saveSnapshot(doc.id, doc, Automerge.save(doc))
     expect((await storage.loadWorkspaceDoc(doc.id))!.heads).toEqual(heads)
+  })
+
+  it("requires new owner authorization before publishing a rekeyed workspace", async () => {
+    const oldId = crypto.randomUUID()
+    const newId = crypto.randomUUID()
+    const original = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc(oldId, "Before rekey", profile.identity.personId, "blank"))
+    await storage.saveSnapshot(oldId, original, Automerge.save(original))
+    const authorize = async (document: Automerge.Doc<WorkspaceDocumentV2>) => {
+      const hashes = Automerge.getAllChanges(document).map(change => Automerge.decodeChange(change).hash)
+      return prepareLocalChangeAuthorizations(document, profile, hashes)
+    }
+
+    await expect(storage.rekeyWorkspace(oldId, newId, "After rekey", async () => []))
+      .rejects.toThrow(/requires authorization evidence/i)
+    expect(await storage.loadWorkspaceDoc(oldId)).toBeTruthy()
+    expect(await storage.loadWorkspaceDoc(newId)).toBeNull()
+
+    await expect(storage.rekeyWorkspace(oldId, newId, "After rekey", async document => {
+      const [authorization] = await authorize(document)
+      if (!authorization) return []
+      return [{ ...authorization, signed: { ...authorization.signed,
+        payload: { ...authorization.signed.payload, workspaceId: oldId } } }]
+    })).rejects.toThrow(/does not match/i)
+    expect(await storage.loadWorkspaceDoc(oldId)).toBeTruthy()
+    expect(await storage.loadWorkspaceDoc(newId)).toBeNull()
+
+    await expect(storage.rekeyWorkspace(oldId, newId, "After rekey", async document => {
+      const authorizations = await authorize(document)
+      setStorageFailureHookForTest(true)
+      return authorizations
+    })).rejects.toThrow(/Storage failure/i)
+    setStorageFailureHookForTest(false)
+    expect(await storage.loadWorkspaceDoc(oldId)).toBeTruthy()
+    expect(await storage.loadWorkspaceDoc(newId)).toBeNull()
+
+    const moved = await storage.rekeyWorkspace(oldId, newId, "After rekey", authorize)
+    expect(moved.id).toBe(newId)
+    expect(await storage.loadWorkspaceDoc(oldId)).toBeNull()
+    expect((await storage.loadWorkspaceDoc(newId))?.doc.title).toBe("After rekey")
   })
 
   it("reuses a matching snapshot without losing a later journal write or consuming the borrowed document", async () => {
@@ -181,6 +221,25 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     expect(reloaded).toBeDefined()
     const item = Object.values(reloaded!.doc.entities).find(isItem)
     expect(item?.title).toBe("Persisted Item")
+  })
+
+  it("Given raw history and classifications, when causal evidence commits, then raw bytes and decisions survive reload as one snapshot", async () => {
+    const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("ws_causal_atomic", "Causal evidence", profile.identity.personId, "blank"))
+    const raw = Automerge.save(doc)
+    await storage.saveSnapshot(doc.id, doc, raw)
+    const evidence = { bytes: raw, decisions: [{ hash: "raw-hash", status: { type: "quarantined" as const, reason: "revoked" } }],
+      authorizationEvidence: [{ signed: { signature: "verified-proof" } }] }
+
+    await storage.commitWorkspace(doc.id, doc, raw, [], undefined, evidence)
+    const reopened = new WorkspaceStorage({ changes: new Map(), proofs: new Map(), receipts: new Map(),
+      snapshots: new Map(), workspaces: new Map(), personalRoots: new Map() })
+    expect(await reopened.loadCausalEvidence(doc.id)).toEqual(evidence)
+
+    setStorageFailureHookForTest(true)
+    try {
+      await expect(storage.commitWorkspace(doc.id, doc, raw, [], undefined, { ...evidence, decisions: [] })).rejects.toThrow(/Storage failure/i)
+    } finally { setStorageFailureHookForTest(false) }
+    expect(await reopened.loadCausalEvidence(doc.id)).toEqual(evidence)
   })
 
   it("handles same-ID retry idempotently returning existing receipt without duplicating change", async () => {

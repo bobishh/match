@@ -7,6 +7,8 @@ import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } fro
 import { createWorkspaceDoc } from "./seeds"
 import {
   createCommandQueue,
+  executeCommand,
+  executeReviewedWorkspaceChange,
   type Command,
 } from "./commands"
 import { isItem, type WorkspaceDocumentV2, type Item } from "./model"
@@ -81,6 +83,36 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(patchedItem.title).toBe("Patched Title")
     expect(patchedItem.body).toBe("Initial item description") // body preserved
     expect(patchedItem.lastActivityAt).toBeTruthy()
+  })
+
+  it("binds editor grant provenance into the signed Automerge message", async () => {
+    const column = Object.values(initialDoc.entities).find((entity) => hasEntityKind(entity, "column") && entity.title === "Lead")!
+    const result = await executeCommand(initialDoc, { kind: "createItem", parentId: column.id, title: "Bound grant" }, profile,
+      undefined, "grant-envelope-hash")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const change = Automerge.decodeChange(Automerge.getLastLocalChange(result.value.newDoc)!)
+    const metadata = JSON.parse(change.message!) as Record<string, unknown>
+    expect(metadata).toMatchObject({ kind: "workspace-change-metadata", version: 1,
+      personId: profile.identity.personId, deviceId: profile.device.deviceId, authorityGrantHash: "grant-envelope-hash" })
+  })
+
+  it("rebases reviewed field deltas onto latest authorized fields and records the source hash", async () => {
+    const column = Object.values(initialDoc.entities).find(entity => hasEntityKind(entity, "column") && entity.title === "Lead")!
+    const created = await executeCommand(initialDoc, { kind: "createItem", parentId: column.id, title: "Original" }, profile)
+    if (!created.ok) throw new Error(created.error.message)
+    const itemId = created.value.receipt.changedEntityIds[0]!
+    const latest = Automerge.change(created.value.newDoc, draft => {
+      ;(draft.entities[itemId] as Item).body = "Concurrent authorized body"
+    })
+    const reviewed = await executeReviewedWorkspaceChange(latest, "quarantined-source-hash",
+      { root: {}, entities: [{ id: itemId, changes: { title: "Reviewed title" }, removedKeys: [] }] }, profile, "grant-envelope-hash")
+    if (!reviewed.ok) throw new Error(reviewed.error.message)
+    const resultItem = reviewed.value.newDoc.entities[itemId] as Item
+    expect(resultItem.title).toBe("Reviewed title")
+    expect(resultItem.body).toBe("Concurrent authorized body")
+    const metadata = JSON.parse(Automerge.decodeChange(Automerge.getLastLocalChange(reviewed.value.newDoc)!).message!)
+    expect(metadata).toMatchObject({ sourceChangeHash: "quarantined-source-hash", authorityGrantHash: "grant-envelope-hash" })
   })
 
   it("records column-status changes as activity, but does not reset activity when reordering", async () => {
@@ -181,7 +213,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(folded.ok).toBe(true)
     expect((queue.getDocument().entities[itemId] as Item).body).toContain("<b>HTML text</b>")
     expect((queue.getDocument().entities[itemId] as Item).values[notesField]).toBe("")
-    expect((queue.getDocument().entities[noteId] as any).archivedAt).toBeTruthy()
+    expect(queue.getDocument().entities[noteId]?.archivedAt).toBeTruthy()
     expect(folded.ok && folded.value.receipt.changedEntityIds).toEqual(expect.arrayContaining([itemId, noteId]))
   })
 
@@ -208,7 +240,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
       foldNarrativeSources: { expectedBody: "Description", notesFieldId: notesField.id, expectedNotes: "Preset Notes", notes: [] },
     })
     expect(patch.ok).toBe(true)
-    expect((queue.getDocument().entities[fileNoteId] as any).archivedAt).toBeNull()
+    expect(queue.getDocument().entities[fileNoteId]?.archivedAt).toBeNull()
     const invalidFold = await queue.transact({
       kind: "patchItem", entityId: itemId, body: "Again",
       foldNarrativeSources: { expectedBody: "Description edited", notesFieldId: notesField.id, expectedNotes: "", notes: [] },
@@ -383,12 +415,13 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     })
     expect(optRes2.ok).toBe(true)
 
-    let field = queue.getDocument().entities[fieldId] as any
-    expect(field.valueType).toBe("select")
-    const opts = Object.values(field.options) as any[]
+    let field = queue.getDocument().entities[fieldId]
+    if (!hasEntityKind(field, "field") || field.valueType !== "select") throw new Error("Expected select field")
+    const opts = Object.values(field.options)
     expect(opts).toHaveLength(2)
     const lowOpt = opts.find((o) => o.title === "Low")
     expect(lowOpt).toBeDefined()
+    if (!lowOpt) throw new Error("Expected Low option")
 
     // 4. Patch option "Low" -> "Minor"
     const patchOptRes = await queue.transact({
@@ -399,7 +432,8 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     })
     expect(patchOptRes.ok).toBe(true)
 
-    field = queue.getDocument().entities[fieldId] as any
+    field = queue.getDocument().entities[fieldId]
+    if (!hasEntityKind(field, "field") || field.valueType !== "select") throw new Error("Expected select field")
     expect(field.options[lowOpt.id].title).toBe("Minor")
   })
 
@@ -432,7 +466,8 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(itemRes.ok).toBe(true)
     if (!itemRes.ok) return
     const itemId = itemRes.value.receipt.changedEntityIds[0]
-    const item = queue.getDocument().entities[itemId] as any
+    const item = queue.getDocument().entities[itemId]
+    if (!isItem(item)) throw new Error("Expected item")
     expect(item.values[fieldId]).toBe("2026-09-12T03:00")
 
     // Patching with invalid datetime fails
@@ -450,7 +485,8 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
       values: { [fieldId]: "2026-09-12T03:30:00Z" },
     })
     expect(patchValid.ok).toBe(true)
-    const updatedItem = queue.getDocument().entities[itemId] as any
+    const updatedItem = queue.getDocument().entities[itemId]
+    if (!isItem(updatedItem)) throw new Error("Expected item")
     expect(updatedItem.values[fieldId]).toBe("2026-09-12T03:30:00Z")
   })
 
@@ -483,7 +519,8 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     expect(boardRes.ok).toBe(true)
     if (!boardRes.ok) return
     const boardId = boardRes.value.receipt.changedEntityIds[0]
-    const createdBoard = queue.getDocument().entities[boardId] as any
+    const createdBoard = queue.getDocument().entities[boardId]
+    if (!hasEntityKind(createdBoard, "board")) throw new Error("Expected board")
     expect(createdBoard.kind).toBe("board")
     expect(createdBoard.title).toBe("Secondary Board")
     expect(createdBoard.archivedAt).toBeNull()
@@ -501,6 +538,12 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const boardId = board.value.receipt.changedEntityIds[0]
     const created = await queue.transact({ kind: "createColumn", boardId, title: "Archive", archive: true })
     expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const createdBoard = queue.getDocument().entities[boardId]
+    const createdColumn = queue.getDocument().entities[created.value.receipt.changedEntityIds[0] ?? ""]
+    if (!hasEntityKind(createdBoard, "board") || !hasEntityKind(createdColumn, "column")) throw new Error("Expected board and column")
+    expect(createdBoard.archiveColumnId).toBe(createdColumn.id)
+    expect(createdColumn.collapsible).toBe(true)
     expect(await queue.transact({ kind: "createColumn", boardId, title: "Duplicate", archive: true }))
       .toMatchObject({ ok: false, error: { code: "invalid_input", field: "archive" } })
   })
@@ -508,8 +551,9 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
   it("keeps Archive as an item state instead of a placement target", async () => {
     const queue = createCommandQueue(initialDoc, profile)
     const columns = Object.values(initialDoc.entities).filter(entity => hasEntityKind(entity, "column"))
-    const archive = columns.find(column => column.archive)!
-    const normal = columns.find(column => !column.archive)!
+    const board = Object.values(initialDoc.entities).find(entity => hasEntityKind(entity, "board"))!
+    const archive = columns.find(column => column.id === board.archiveColumnId)!
+    const normal = columns.find(column => column.id !== board.archiveColumnId)!
     expect(await queue.transact({ kind: "createItem", parentId: archive.id, title: "Direct" }))
       .toMatchObject({ ok: false, error: { code: "invalid_parent" } })
     const created = await queue.transact({ kind: "createItem", parentId: normal.id, title: "Card" })
@@ -517,6 +561,46 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     if (!created.ok) return
     expect(await queue.transact({ kind: "moveEntity", entityId: created.value.receipt.changedEntityIds[0], parentId: archive.id }))
       .toMatchObject({ ok: false, error: { code: "invalid_parent" } })
+  })
+
+  it("prevents removing the board's designated archive column", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const board = Object.values(initialDoc.entities).find(entity => hasEntityKind(entity, "board"))!
+    const archiveColumnId = board.archiveColumnId!
+    expect(await queue.transact({ kind: "setEntityArchived", entityId: archiveColumnId, archived: true }))
+      .toMatchObject({ ok: false, error: { code: "invalid_input", field: "archiveColumnId" } })
+    const currentBoard = queue.getDocument().entities[board.id]
+    if (!hasEntityKind(currentBoard, "board")) throw new Error("Expected board")
+    expect(currentBoard.archiveColumnId).toBe(archiveColumnId)
+  })
+
+  it("keeps item lifecycle and workflow values paired with timestamps", async () => {
+    const queue = createCommandQueue(initialDoc, profile)
+    const board = Object.values(initialDoc.entities).find(entity => hasEntityKind(entity, "board"))!
+    const column = Object.values(initialDoc.entities).find(entity => hasEntityKind(entity, "column") && entity.placement.parentId === board.id && entity.id !== board.archiveColumnId)!
+    const created = await queue.transact({ kind: "createItem", parentId: column.id, title: "Transition card" })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const itemId = created.value.receipt.changedEntityIds[0]!
+    const createdItem = queue.getDocument().entities[itemId]
+    if (!isItem(createdItem)) throw new Error("Expected item")
+    const createdLifecycle = JSON.parse(createdItem.lifecycle as string)
+    const createdWorkflow = JSON.parse(createdItem.workflow as string)
+    expect(createdLifecycle).toMatchObject({ state: "active", changedAt: expect.any(String) })
+    expect(createdWorkflow).toMatchObject({ columnId: column.id, changedAt: expect.any(String) })
+    expect(createdWorkflow.changedAt).toBe(createdLifecycle.changedAt)
+    await queue.transact({ kind: "setEntityArchived", entityId: itemId, archived: true })
+    const archivedItem = queue.getDocument().entities[itemId]
+    if (!isItem(archivedItem)) throw new Error("Expected item")
+    expect(JSON.parse(archivedItem.lifecycle as string)).toMatchObject({ state: "archived", changedAt: expect.any(String) })
+    expect(archivedItem).not.toHaveProperty("archivedAt")
+    expect(archivedItem.workflow).toBe(createdItem.workflow)
+    await queue.transact({ kind: "setEntityArchived", entityId: itemId, archived: false })
+    const restoredItem = queue.getDocument().entities[itemId]
+    if (!isItem(restoredItem)) throw new Error("Expected item")
+    expect(JSON.parse(restoredItem.lifecycle as string)).toMatchObject({ state: "active", changedAt: expect.any(String) })
+    expect(restoredItem).not.toHaveProperty("archivedAt")
+    expect(restoredItem.workflow).toBe(createdItem.workflow)
   })
 
   it("rejects createWorkspace on existing workspace document", async () => {

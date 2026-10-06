@@ -35,7 +35,8 @@ it("rejects a worker result when durable authority changed while admission was p
   await vi.waitFor(() => expect(state.admit).toHaveBeenCalledOnce())
   state.authority = { version: 1, workspaceId: doc.id, ownerPersonId: owner.personId,
     ownerPublicKey: owner.publicKey, ownerCertificates: owner.certificates, epoch: 2, catalog: {} }
-  finish({ neededHashes: [], admittedHashes: [], verifiedAuthorizations: [], unsignedHashes: [], unsignedError: "" })
+  finish({ neededHashes: [], admittedHashes: [], verifiedAuthorizations: [], authorizationEvidence: [], quarantinedHashes: [],
+    pendingHashes: [], decisions: [], authorizedDocument: new Uint8Array(), authorizedHeads: [] })
   await rejected
   Automerge.free(doc)
 })

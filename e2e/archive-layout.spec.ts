@@ -45,3 +45,33 @@ test("Given a job-search board, when archive opens and closes at four widths, th
     })
   }
 })
+
+test("Given collapsible Rejected and Archive columns, when each is toggled, then their local states stay independent", async ({ page }) => {
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  const rejected = page.getByRole("region", { name: "Rejected", exact: true })
+  const archive = page.getByRole("region", { name: "Archive", exact: true })
+  await rejected.getByRole("button", { name: "Collapse Rejected" }).click()
+  await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toBeVisible()
+  await expect(archive.getByRole("button", { name: "Open Archive with 0 cards" })).toBeVisible()
+  await archive.getByRole("button", { name: "Open Archive with 0 cards" }).click()
+  await expect(archive.getByText("No leads")).toBeVisible()
+  await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toBeVisible()
+  await page.reload()
+  await expect(page.getByRole("region", { name: "Rejected", exact: true }).getByRole("button", { name: "Open Rejected with 0 cards" })).toBeVisible()
+})
+
+test("Given invalid local collapse preferences, when the board loads, then preferences recover and collapse controls remain usable", async ({ page }) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem
+    Storage.prototype.getItem = function (key: string) {
+      return key.startsWith("tincanban:collapsed-columns:") ? "{" : getItem.call(this, key)
+    }
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  const rejected = page.getByRole("region", { name: "Rejected", exact: true })
+  await expect(rejected.getByRole("button", { name: "Collapse Rejected" })).toBeVisible()
+  await rejected.getByRole("button", { name: "Collapse Rejected" }).click()
+  await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toBeVisible()
+})

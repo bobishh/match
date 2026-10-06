@@ -9,7 +9,7 @@ import { createWorkspaceDoc } from "../domain/seeds"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, createWorkspaceDeparture, createWorkspaceDeviceRevocation, createWorkspaceRevocation } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
-import { exportAuthorizations, exportAuthorizationBundle, exportDocumentAuthorizationBundle, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
+import { exportAuthorizations, exportAuthorizationBundle, exportDocumentAuthorizationBundle, evaluateIncomingWorkspaceAdmission, recordGenesisAuthority, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
@@ -35,6 +35,7 @@ beforeEach(async () => {
 })
 async function fixture(command: (board: string, column: string) => Command, role: "visitor" | "editor") {
   const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Permissions", owner.identity.personId, "blank"))
+  await recordGenesisAuthority(local, owner)
   const board = Object.values(local.entities).find(e => hasEntityKind(e, "board"))!
   const column = Object.values(local.entities).find(e => hasEntityKind(e, "column"))!
   const result = await executeCommand(local, command(board.id, column.id), member)
@@ -129,6 +130,7 @@ it("defaults an omitted optional departures list before calling Rust", async () 
 
 it("Given divergent durable branches, metadata admission retains dependency coverage and rejects missing parent proof", async () => {
   const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Divergence", owner.identity.personId, "blank"))
+  await recordGenesisAuthority(base, owner)
   const local = Automerge.change(Automerge.clone(base), draft => { draft.title = "Local branch" })
   const parent = Automerge.change(Automerge.clone(base), draft => { draft.title = "Remote parent" })
   const remote = Automerge.change(parent, draft => { draft.title = "Remote child" })
@@ -140,9 +142,11 @@ it("Given divergent durable branches, metadata admission retains dependency cove
     publicKey: owner.identity.publicKey, certificates: [owner.certificate],
   })))
   expect(await validateIncomingChangeAuthorizations(local, remote,
-    { version: 2, authority: authorizationBundle(base, []).authority, pages: [records] })).toHaveLength(2)
-  await expect(validateIncomingChangeAuthorizations(local, remote,
-    { version: 2, authority: authorizationBundle(base, []).authority, pages: [[records[1]]] })).rejects.toThrow(/Unsigned/)
+    { version: 2, authority: authorizationBundle(base, []).authority, pages: [records] })).toHaveLength(3)
+  const missingParent = await evaluateIncomingWorkspaceAdmission(local, remote,
+    { version: 2, authority: authorizationBundle(base, []).authority, pages: [[records[1]]] })
+  expect(missingParent.decisions.filter(decision => remoteMetadata.some(change => change.hash === decision.hash))
+    .every(decision => decision.status.type !== "admitted")).toBe(true)
 })
 
 it("admits a valid editor bundle when optional departures are omitted", async () => {
@@ -215,6 +219,7 @@ it("derives local owner, editor, visitor, revocation, departure, renewal, and de
 
 it("admits a revoked device's signed change at its revocation frontier and rejects a later signed change", async () => {
   const base = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Device revocation frontier", owner.identity.personId, "blank"))
+  await recordGenesisAuthority(base, owner)
   const column = Object.values(base.entities).find(entity => entity.kind === "column")!
   const grant = await createWorkspaceGrant(owner, base.id, member.identity.personId, "editor", 1)
   let frontier = base
@@ -243,7 +248,8 @@ it("admits a revoked device's signed change at its revocation frontier and rejec
 
   // The frontier change itself remains admissible on a replica that has not seen it.
   await expect(validateIncomingChanges(base, frontier, revokedBundle)).resolves.toBeUndefined()
-  await expect(validateIncomingChanges(frontier, later, revokedBundle)).rejects.toThrow(/revok|unsigned|authorization/i)
+  const laterAdmission = await evaluateIncomingWorkspaceAdmission(frontier, later, revokedBundle)
+  expect(laterAdmission.decisions.find(decision => decision.hash === changes[1])?.status.type).toBe("quarantined")
 })
 
 it("accepts transferred-owner history on a clean replica only when the supplied authority chain verifies", async () => {
@@ -329,7 +335,7 @@ it("keeps a later local owner boundary when admitting a peer's older history", a
 })
 it("does not persist a proof while validating an incoming workspace", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Pure" }), "editor")
-  await expect(validateIncomingChangeAuthorizations(local, remote, authorizationBundle(local, [record]))).resolves.toHaveLength(1)
+  await expect(validateIncomingChangeAuthorizations(local, remote, authorizationBundle(local, [record]))).resolves.toHaveLength(2)
   await expect(validateIncomingChangesWithProofStatus(local, remote, authorizationBundle(local, [record]))).resolves.toBe(true)
 })
 it("reports a proof change once when a replay enriches certificates around the same change signature", async () => {
@@ -338,8 +344,9 @@ it("reports a proof change once when a replay enriches certificates around the s
   const enriched = { ...record, ownerCertificates: [...record.ownerCertificates, member.certificate] }
   await expect(validateIncomingChangesWithProofStatus(remote, remote, authorizationBundle(remote, [enriched]))).resolves.toBe(true)
   await expect(validateIncomingChangesWithProofStatus(remote, remote, authorizationBundle(remote, [record]))).resolves.toBe(false)
-  const [stored] = await exportAuthorizations(Automerge.save(remote))
-  expect(stored.ownerCertificates).toHaveLength(2)
+  const stored = (await exportAuthorizations(Automerge.save(remote)))
+    .find(proof => proof.signed.signature === record.signed.signature)
+  expect(stored?.ownerCertificates).toHaveLength(2)
 })
 it("accepts a historical editor grant when its signed authorization carries a missing owner device certificate", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forwarded" }), "editor")
@@ -373,7 +380,9 @@ it("rejects editor board-structure changes through the same policy used for loca
 it("rejects a valid signature over a different change hash", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Original" }), "editor")
   const forged = Automerge.change(Automerge.clone(remote), draft => { draft.title = "Forged" })
-  await expect(validateIncomingChanges(local, forged, authorizationBundle(local, [record]))).rejects.toThrow(/Unsigned/)
+  const admission = await evaluateIncomingWorkspaceAdmission(local, forged, authorizationBundle(local, [record]))
+  const forgedHash = Automerge.getChangesMetaSince(forged, Automerge.getHeads(remote))[0]!.hash
+  expect(admission.decisions.find(decision => decision.hash === forgedHash)?.status.type).not.toBe("admitted")
 })
 it("rejects a forged owner-issued role", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")

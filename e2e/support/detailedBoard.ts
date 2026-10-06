@@ -23,6 +23,8 @@ export async function populatedBoard(page: Page, jobSearch = false) {
         const id = `performance-card-${index}`
         draft.entities[id] = { id, title: `Performance card ${index}`, body: "Detailed job requirements. ".repeat(320),
           placement: { parentId: parent.id, rank: `${index}/1` }, archivedAt: null,
+          lifecycle: JSON.stringify({ state: "active", changedAt: now }),
+          workflow: JSON.stringify({ columnId: parent.id, changedAt: now }),
           createdAt: now, updatedAt: now, lastActivityAt: now, values: jobSearch ? {
             [board.preset!.bindings["field.company"]!]: `Performance card ${index}`,
             [board.preset!.bindings["field.role"]!]: "Senior Software Engineer",
@@ -37,10 +39,14 @@ export async function populatedBoard(page: Page, jobSearch = false) {
 }
 
 export async function moveFirst(page: Page) {
-  const source = (await page.getByRole("button", { name: "Open Performance card 0", exact: true }).boundingBox())!
-  const target = (await page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack").boundingBox())!
-  await page.mouse.move(source.x + source.width / 2, source.y + Math.min(30, source.height / 2))
+  const source = (await page.locator('[data-item-id="performance-card-0"]').boundingBox())!
+  const destination = page.getByRole("region", { name: "Doing", exact: true })
+  const target = (await destination.locator(".card-stack").boundingBox())!
+  const sourceX = source.x + 4
+  const sourceY = source.y + 4
+  await page.mouse.move(sourceX, sourceY)
   await page.mouse.down()
   await page.mouse.move(target.x + target.width / 2, target.y + 28, { steps: 15 })
+  await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await destination.getAttribute("data-column-id"))
   await page.mouse.up()
 }

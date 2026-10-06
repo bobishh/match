@@ -5,10 +5,9 @@ export function captureSelectedSource(): SelectedSource | null {
   const selected = window.getSelection()
   if (!selected || selected.isCollapsed || !selected.rangeCount) return null
   const range = selected.getRangeAt(0)
-  const element = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement
-  const source = element?.closest<HTMLElement>("[data-discussion-text]")
+  const source = selectedSource(range)
   const owner = source?.closest<HTMLElement>("[data-discussion-item]")
-  if (!source || !owner || !source.contains(range.endContainer)) return null
+  if (!source || !owner) return null
   const exact = range.toString()
   if (!exact.trim() || exact.length > MAX_QUOTE_LENGTH || !owner.dataset.discussionItem || !source.dataset.discussionField) return null
   const before = document.createRange()
@@ -21,8 +20,14 @@ export function captureSelectedSource(): SelectedSource | null {
     selection: { exact, prefix: text.slice(Math.max(0, start - MAX_QUOTE_CONTEXT), start), suffix: text.slice(end, end + MAX_QUOTE_CONTEXT), start, end },
     x: Math.max(8, Math.min(rect.left, window.innerWidth - 150)), y: Math.max(8, Math.min(rect.bottom + 8, window.innerHeight - 52)) }
 }
+function selectedSource(range: Range) {
+  const element = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer as Element : range.startContainer.parentElement
+  let source = element?.closest<HTMLElement>("[data-discussion-text]")
+  while (source && !source.contains(range.endContainer)) source = source.parentElement?.closest<HTMLElement>("[data-discussion-text]")
+  return source
+}
 export function findSourceOwner(itemId: string) {
-  return document.querySelector<HTMLElement>(`[data-discussion-item="${CSS.escape(itemId)}"]`)
+  return document.querySelector<HTMLElement>(`[data-window-id] [data-discussion-item="${CSS.escape(itemId)}"]`)?.closest<HTMLElement>("[data-window-id]")
 }
 function sourceRange(source: HTMLElement, start: number, end: number): Range | undefined {
   const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT)

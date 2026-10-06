@@ -1,7 +1,7 @@
 import { expect, test } from "./support/coverage"
 
-test("Given the Rust runtime request fails, when tincanban opens, then it identifies the runtime rather than local data", async ({ page }) => {
-  await page.route(/\/meta_mesh_bg\.wasm(?:\?.*)?$/, route => route.abort("failed"))
+test("Given the Rust policy runtime request fails, when tincanban opens, then it identifies the runtime rather than local data", async ({ page }) => {
+  await page.route(/\/meta_mesh_policy_bg(?:-[\w-]+)?\.wasm(?:\?.*)?$/, route => route.abort("failed"))
 
   await page.goto("/")
 

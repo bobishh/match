@@ -25,6 +25,7 @@ for (const targetHasCard of [false, true]) {
     expect(addBox.y - cardBox.y - cardBox.height).toBeGreaterThanOrEqual(0)
     expect(addBox.y - cardBox.y - cardBox.height).toBeLessThan(30)
     await page.reload()
+    await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 15_000 })
     await expect(destination.getByRole("button", { name: "Open Performance card 54", exact: true })).toBeVisible()
   })
 }
