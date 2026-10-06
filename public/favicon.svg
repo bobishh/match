@@ -3,7 +3,7 @@
     <path d="M22 18v39c0 12 36 12 36 0V18" data-can-body="" fill="#c8c9cb"/>
     <path d="M25 28v28c0 4 2 5 5 6V30" data-can-highlight="" fill="#e4e5e6" stroke="none"/>
     <path d="M51 30v30c3-1 4-2 4-5V28" data-can-shade="" fill="#a8a9ac" stroke="none"/>
-    <path d="M22 35c0 11 36 11 36 0m-36 14c0 11 36 11 36 0" fill="none"/>
+    <path d="M22 25c0 5 36 5 36 0M22 49c0 11 36 11 36 0" fill="none"/>
     <ellipse cx="40" cy="18" rx="20" ry="12" fill="#e4e5e6"/>
     <ellipse cx="40" cy="18" rx="16" ry="8" data-connection-fill="" fill="#69db7c" stroke-width="2"/>
     <path d="M25 21c5-5 25-5 30 0" fill="none" opacity=".3" stroke-width="3"/>

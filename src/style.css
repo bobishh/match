@@ -494,6 +494,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
   .topbar {
     min-height: 60px;
+    gap: 12px;
     padding: max(10px, var(--safe-top)) max(16px, var(--safe-right)) 10px max(16px, var(--safe-left));
     display: flex;
     justify-content: space-between;
@@ -507,6 +508,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
   .topbar-mobile-controls {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     gap: 10px;
     margin-left: auto;
@@ -514,7 +516,8 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .brand { min-width: 0; }
   .brand-button { flex: 1; }
   .brand > div { min-width: 0; }
-  .brand h1 { font-size: 20px; }
+  .brand h1 { font-size: clamp(16px, 5.56vw, 20px); }
+  .brand-name { padding-inline-end: .25em; }
   .brand-name, .workspace-heading { display: block; white-space: nowrap; }
   .brand-separator { display: none; }
   .workspace-heading { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; font-size: .8rem; }
@@ -625,9 +628,6 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .add-column-card { flex-basis: calc(100vw - 32px); min-width: 0; scroll-snap-align: start; }
 }
 @media (max-width: 500px) {
-  .brand {
-    flex: 0 0 auto;
-  }
   .filters-panel .lead-filters {
     grid-template-columns: 1fr;
   }
