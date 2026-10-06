@@ -44,7 +44,6 @@ fieldset.form-grid { min-inline-size: 0; padding: 0; border: 0; margin-inline: 0
   align-items: center;
   padding: 16px;
   border-bottom: 2px solid var(--line, #171717);
-  background: var(--soft, #e9e5db);
 }
 .drawer-workspace-info {
   display: flex;
