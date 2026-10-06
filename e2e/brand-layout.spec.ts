@@ -13,6 +13,9 @@ for (const width of [320, 360, 390]) {
     await page.goto("/", { waitUntil: "domcontentloaded" })
     const menu = page.getByRole("button", { name: "Menu", exact: true })
     await expect(menu).toBeEnabled()
+    expect(await page.locator(".brand h1").evaluate(el => getComputedStyle(el).fontFamily)).toContain("Caveat")
+    expect(await menu.evaluate(el => getComputedStyle(el).fontFamily)).toContain("Fira Code")
+    expect(await page.locator("body").evaluate(el => getComputedStyle(el).fontFamily)).toContain("Fira Code")
     const fits = () => page.locator(".brand-name").evaluate(element => {
       const range = document.createRange()
       range.selectNodeContents(element)

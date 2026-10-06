@@ -1,0 +1,5 @@
+
+.rusty-mark { display: block; flex: 0 0 32px; width: 32px; height: 40px; object-fit: contain; }
+.rusty-mark.is-compact { flex-basis: 24px; width: 24px; height: 30px; }
+@media (max-width: 600px) { .rusty-mark:not(.is-compact) { flex-basis: 28px; width: 28px; height: 35px; } }
+
