@@ -223,7 +223,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
       <div v-if="displayedKeepers.length" class="keeper-list" role="list" aria-label="Keeper services">
         <button v-for="keeper in displayedKeepers" :key="keeper.personId" class="keeper-row" type="button" @click="openKeeper(keeper.personId)">
           <span class="keeper-dot" :data-state="keeper.online ? 'online' : keeper.reconnecting ? 'reconnecting' : 'offline'" aria-hidden="true"></span>
-          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small>{{ keeper.role }} · {{ keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
+          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small>Keeper · {{ keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
@@ -288,7 +288,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         </section>
       </template>
       <template v-else-if="selectedKeeper()">
-        <p class="keeper-summary">{{ selectedKeeper()!.role }} · {{ selectedKeeper()!.online ? 'Connected' : selectedKeeper()!.reconnecting ? 'Reconnecting' : 'Offline' }}</p>
+        <p class="keeper-summary">Keeper · {{ selectedKeeper()!.online ? 'Connected' : selectedKeeper()!.reconnecting ? 'Reconnecting' : 'Offline' }}</p>
         <p v-if="keeperDetails?.origin" class="keeper-summary">{{ keeperDetails.origin }}</p>
         <p v-if="keeperDetails?.futureBoards" class="keeper-summary">Includes future boards</p>
         <p v-if="keeperDetails" class="sync-section-copy">Boards</p>

@@ -84,7 +84,6 @@ onBeforeUnmount(() => { window.removeEventListener("resize", resizeViewport); if
         @pointerdown="start($event)" @pointermove="move" @pointerup="end" @pointercancel="end" @lostpointercapture="end" @keydown="arrow($event)">
         <div class="spatial-heading"><slot name="header"><strong>{{ title }}</strong></slot></div>
         <div class="spatial-controls">
-          <button class="icon-button" type="button" aria-label="Next window" @click="cycleSpatialWindow(workspaceId)">⇥</button>
           <button class="icon-button" type="button" :aria-label="maximized ? 'Restore window size' : 'Maximize window'" @click="maximize">{{ maximized ? '↙' : '↗' }}</button>
           <button class="icon-button" type="button" :aria-label="closeLabel" @click="emit('close')">×</button>
         </div>

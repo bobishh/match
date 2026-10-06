@@ -25,6 +25,14 @@ test("Given generic item and discussion, when pointer drag and resize then both 
   await expect(item).not.toHaveAttribute("aria-modal", "true")
   await item.getByRole("button", { name: "Discuss", exact: true }).click()
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
+  await expect(discussion).toBeVisible()
+  await expect(discussion.getByRole("button", { name: "Next window", exact: true })).toHaveCount(0)
+  await expect(discussion.getByRole("button", { name: /Minimize/i })).toHaveCount(0)
+  await expect(discussion.getByRole("button", { name: "Send message", exact: true })).toBeDisabled()
+  await discussion.getByRole("button", { name: "Maximize window", exact: true }).click()
+  await expect(discussion.locator(".spatial-resize")).toBeDisabled()
+  await discussion.getByRole("button", { name: "Restore window size", exact: true }).click()
+  await expect(discussion.getByRole("button", { name: /^Resize/ })).toBeEnabled()
   const before = (await discussion.boundingBox())!
   const titlebar = (await discussion.locator(".spatial-titlebar").boundingBox())!
   await page.mouse.move(titlebar.x + 10, titlebar.y + 18)
@@ -75,7 +83,7 @@ test("Given overlapping windows, when cycling focus and opening Settings then bo
   await expect(settingsButton).toBeFocused()
 })
 
-test("Given narrow touch screen, when switching window views then source and composer stay reachable", async ({ browser, baseURL }) => {
+test("Given narrow touch screen and unsent draft, when closing and reopening discussion then source and draft stay reachable", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   try {
     const page = await context.newPage()
@@ -84,9 +92,13 @@ test("Given narrow touch screen, when switching window views then source and com
     const discussion = page.getByRole("dialog", { name: /^Discussion/ })
     await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toBeVisible()
     expect(await discussion.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-    await discussion.getByRole("button", { name: "Next window", exact: true }).tap()
-    await expect(item.getByRole("button", { name: "Discuss", exact: true })).toBeVisible()
+    await expect(discussion.getByRole("button", { name: "Next window", exact: true })).toHaveCount(0)
+    await discussion.getByRole("textbox", { name: "Message", exact: true }).fill("Unsent mobile draft")
+    await discussion.getByRole("button", { name: "Close", exact: true }).tap()
+    await expect(discussion).toBeHidden()
+    await expect(item).toBeVisible()
     await item.getByRole("button", { name: "Discuss", exact: true }).tap()
+    await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Unsent mobile draft")
     await discussion.getByRole("button", { name: "Close", exact: true }).tap()
     await expect(item).toBeVisible()
     await item.getByRole("button", { name: "Dismiss", exact: true }).tap()

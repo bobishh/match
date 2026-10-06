@@ -1,5 +1,6 @@
 export function keeperDisplayName(name: string): string {
-  return name === "Lighthouse" || name === "mesh-lighthouse" ? "Rusty" : name
+  if (!name.trim() || name === "Lighthouse" || name === "mesh-lighthouse") return "Rusty keeper"
+  return name.replace(/^Participant(?= · |$)/, "Rusty keeper")
 }
 
 export function isLighthouse(userAgent?: string): boolean {

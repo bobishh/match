@@ -116,3 +116,23 @@ test("Given Device sync shows Keepers, when adding one, then compact form replac
   await dialog.getByRole("button", { name: "Back" }).click()
   await expect(dialog.getByRole("list", { name: "Keeper services" })).toContainText("Lighthouse service")
 })
+
+
+test("Given a keeper without a chat name, when list and details open then Rusty identity replaces participant and visitor labels", async ({ page }) => {
+  await page.goto("/")
+  await page.evaluate(async () => {
+    const { mountLighthouseDialog } = await import("/e2e/support/lighthouseDialog.ts")
+    mountLighthouseDialog("Participant · ooqFhX")
+  })
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  const keepers = dialog.getByRole("list", { name: "Keeper services" })
+  await expect(keepers).toContainText("Rusty keeper · ooqFhX")
+  await expect(keepers).toContainText("Keeper · Connected")
+  await expect(keepers).not.toContainText("visitor")
+  await keepers.getByRole("button", { name: /Rusty keeper/ }).click()
+  await expect(dialog.getByRole("heading", { name: "Rusty keeper · ooqFhX" })).toBeVisible()
+  await expect(dialog.locator(".keeper-summary").first()).toHaveText("Keeper · Connected")
+  await expect(dialog.locator(".keeper-devices")).toContainText("Offline")
+  await dialog.getByRole("button", { name: "Back", exact: true }).click()
+  await expect(keepers).toBeVisible()
+})
