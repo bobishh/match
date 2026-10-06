@@ -313,20 +313,16 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 <style scoped>
 .keeper-add { gap: 8px; }
 .keeper-list { display: grid; gap: 8px; }
-.keeper-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 10px 12px; border: 2px solid var(--line); background: white; color: var(--ink); text-align: left; cursor: pointer; }
-.keeper-row:hover { background: var(--yellow); }
+.keeper-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); text-align: left; cursor: pointer; }
 .keeper-row-copy { min-width: 0; display: grid; gap: 4px; }
 .keeper-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .keeper-row small { color: var(--muted); font: 700 .8rem/1.2 var(--site-font-sans); text-transform: uppercase; }
-.keeper-dot { width: 10px; height: 10px; border: 2px solid var(--ink); border-radius: 50%; background: var(--red); }
-.keeper-dot[data-state="online"] { background: var(--green); }
-.keeper-dot[data-state="reconnecting"] { background: var(--yellow); }
 .keeper-empty { margin: 0; padding: 12px; border: 1px dashed var(--soft); color: var(--muted); }
 .keeper-replacement { display: grid; gap: 12px; }
 .keeper-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .keeper-panel-head h3 { margin: 0; }
 .keeper-summary { margin: 0; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
-.keeper-code { display: grid; gap: 6px; margin: 0; padding: 12px; border: 2px solid var(--line); background: var(--yellow); }
+.keeper-code { display: grid; gap: 6px; margin: 0; padding: 12px; border: 2px solid var(--line); }
 .keeper-code strong { font: 600 1.2rem/1.4 var(--site-font-mono); letter-spacing: .08em; }
 .keeper-pairing { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--soft); }
 .keeper-pairing p { margin: 0; }
@@ -337,7 +333,6 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 .keeper-replacement .pairing-paste { margin-top: 0; }
 .keeper-replacement .pairing-paste input { width: 100%; min-height: 44px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); font: 400 .75rem/1.5 var(--site-font-mono); text-transform: none; letter-spacing: 0; }
 .keeper-replacement .sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 0; overflow-y: auto; }
-.keeper-replacement .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 9px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 700; }
-.keeper-replacement .sync-checkbox-item:has(input:checked) { background: var(--yellow); }
+.keeper-replacement .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 9px 12px; border: 2px solid var(--line); cursor: pointer; font-weight: 700; }
 .keeper-replacement .sync-workspace-detail { display: block; overflow-wrap: anywhere; font-size: .8rem; font-weight: 400; }
 </style>

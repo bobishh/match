@@ -4,13 +4,12 @@ button { cursor: pointer; }
 button:disabled { cursor: default; opacity: .55; }
 button:disabled:hover { transform: none; }
 .button, .icon-button, .drawer-item-btn, .column-add-button { transition: transform var(--motion-fast) var(--motion-ease), background-color var(--motion-fast) ease; }
-.button { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-size); border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; color: inherit; background: white; font-weight: var(--site-ui-weight); text-decoration: none; }
-.button-primary { color: white; background: var(--ink); }
-.button-danger { color: white; background: #9d2f21; text-decoration: underline; text-underline-offset: 3px; }
-.button-quiet { background: transparent; }
+.button { display: inline-flex; align-items: center; justify-content: center; min-height: var(--control-size); border: 2px solid var(--line); border-radius: 0; padding: 10px 16px; color: inherit; font-weight: var(--site-ui-weight); text-decoration: none; }
+.button-primary { color: white; }
+.button-danger { color: white; text-decoration: underline; text-underline-offset: 3px; }
 .button-small { min-height: var(--control-size-compact); padding: 8px 11px; font-size: .8rem; }
 .pairing-paste textarea { width: 100%; resize: vertical; padding: 10px 12px; text-transform: none; letter-spacing: 0; }
-.search-field input { width: 100%; min-height: 42px; border: 0; outline: 0; background: transparent; font-size: 1rem; }
+.search-field input { width: 100%; min-height: 42px; border: 0; outline: 0; font-size: 1rem; }
 select, input, textarea { min-width: 0; border: 2px solid var(--line); border-radius: 0; background: white; }
 select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .lead-filters select { width: 100%; }
@@ -35,8 +34,8 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .workspace-create-form > label input { width: 100%; padding: 10px 12px; }
 .workspace-preset-options input { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--ink); }
 .template-editor input, .template-editor select, .template-editor textarea { width: 100%; padding: 10px 12px; }
-.template-editor textarea { resize: vertical; color: var(--ink); font: .8rem/1.5 var(--site-font-sans); letter-spacing: 0; text-transform: none; }.icon-button { width: var(--icon-size); height: var(--icon-size); padding: 0; border: 2px solid var(--line); background: transparent; font-size: 1.5rem; line-height: 1; }.icon-button:hover { color: white; background: var(--red); }.form-grid input, .form-grid select, .form-grid textarea, .document-form input, .document-form select, .document-form textarea { width: 100%; padding: 10px 12px; font-size: 1rem; }.form-grid textarea, .document-form textarea { resize: vertical; }
-.dialog .template-editor textarea, .dialog .schema-json-textarea { font: 400 1rem/1.6 var(--site-font-sans); }.status-strip button { border: 2px solid var(--line); padding: 8px 9px; color: var(--ink); background: white; font: 700 .8rem/1 var(--site-font-sans); text-transform: uppercase; }.status-strip button.active { color: white; background: var(--ink); }.quick-note-form textarea { width: 100%; resize: vertical; padding: 10px 12px; font-size: 1rem; }.quick-note-form .button { justify-self: end; }
+.template-editor textarea { resize: vertical; color: var(--ink); font: .8rem/1.5 var(--site-font-sans); letter-spacing: 0; text-transform: none; }.icon-button { width: var(--icon-size); height: var(--icon-size); padding: 0; border: 2px solid var(--line); font-size: 1.5rem; line-height: 1; }.icon-button:hover { color: white; }.form-grid input, .form-grid select, .form-grid textarea, .document-form input, .document-form select, .document-form textarea { width: 100%; padding: 10px 12px; font-size: 1rem; }.form-grid textarea, .document-form textarea { resize: vertical; }
+.dialog .template-editor textarea, .dialog .schema-json-textarea { font: 400 1rem/1.6 var(--site-font-sans); }.status-strip button { border: 2px solid var(--line); padding: 8px 9px; color: var(--ink); font: 700 .8rem/1 var(--site-font-sans); text-transform: uppercase; }.status-strip button.active { color: white; }.quick-note-form textarea { width: 100%; resize: vertical; padding: 10px 12px; font-size: 1rem; }.quick-note-form .button { justify-self: end; }
 
 @media (max-width: 768px) {
   .filter-label select {
@@ -55,3 +54,14 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 @media (max-width: 500px) {
   .workspace-item-actions button { flex: 1; }
 }
+
+/* Presence marks share one shape and state palette across pairing surfaces. */
+.keeper-dot, .mesh-member-presence, .mesh-device-presence {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--red);
+}
+.keeper-dot[data-state="online"], .mesh-member-presence.is-online, .mesh-device-presence.is-online { background: var(--green); }
+.keeper-dot[data-state="reconnecting"], .mesh-member-presence.is-reconnecting, .mesh-device-presence.is-reconnecting { background: var(--yellow); }

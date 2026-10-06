@@ -86,7 +86,7 @@ onMounted(() => { void loadRequest() })
 .identity-review dt { color: var(--muted); font-weight: 700; }
 .identity-review dd { margin: 0; overflow-wrap: anywhere; font-weight: 700; }
 .identity-login-content { width: min(620px, calc(100% - 40px)); margin: 32px auto; }
-.identity-login-card { display: grid; gap: 12px; padding: 24px; border: 2px solid var(--line); background: white; }
+.identity-login-card { display: grid; gap: 12px; padding: 24px; border: 2px solid var(--line); }
 .identity-login-card h2, .identity-login-card p { margin: 0; }
 .identity-login-card .dialog-actions { margin-top: 4px; flex-wrap: wrap; }
 </style>

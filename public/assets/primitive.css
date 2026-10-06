@@ -91,6 +91,7 @@ input[type="radio"],
 :where(.button,
 .icon-button,
 .dialog,
+.mobile-drawer,
 .column,
 .lead-card,
 .chat-message-item,
@@ -106,6 +107,8 @@ input[type="radio"],
 .sync-checkbox-item,
 .sync-section-action,
 .approval-card,
+.keeper-card,
+.login-card,
 .keeper-row,
 .keeper-code,
 .identity-login-card,
@@ -138,13 +141,25 @@ textarea) {
 .column,
 .button-quiet,
 .mesh-member-action,
-.workspace-active-badge) {
+.workspace-active-badge,
+.mobile-drawer,
+.keeper-card,
+.login-card) {
   --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#panel");
   --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#panel");
   --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#panel");
   --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#panel");
   --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#panel");
   --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#panel");
+}
+
+:where(.drawer-header) {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#soft");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#soft");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#soft");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#soft");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#soft");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#soft");
 }
 
 :where(.button-primary,
@@ -244,6 +259,8 @@ textarea) {
 :where(.button,
 .icon-button,
 .dialog,
+.mobile-drawer,
+.drawer-header,
 .column,
 .lead-card,
 .chat-message-item,
@@ -259,6 +276,8 @@ textarea) {
 .sync-checkbox-item,
 .sync-section-action,
 .approval-card,
+.keeper-card,
+.login-card,
 .keeper-row,
 .keeper-code,
 .identity-login-card,
@@ -306,7 +325,9 @@ textarea) {
 :is(button,
 input,
 select,
-textarea):focus-visible,
+textarea,
+.button,
+.icon-button):focus-visible,
 .search-field:focus-within {
   outline: none !important;
   background: transparent !important;
@@ -326,13 +347,6 @@ input[type="radio"]:focus-visible {
   background: revert !important;
   outline: 3px solid var(--focus) !important;
   outline-offset: 3px;
-}
-
-@media (max-width: 600px) {
-  .chat-dialog {
-    border-image: none !important;
-    background: var(--panel) !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

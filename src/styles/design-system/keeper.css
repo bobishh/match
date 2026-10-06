@@ -2,6 +2,7 @@
 .keeper-admin .topbar { z-index: 2; }
 .keeper-admin .brand h1 { text-transform: uppercase; }
 :where(.keeper-admin) .admin-content { width: min(1000px, 100%); margin: 0 auto; padding: clamp(20px, 5vw, 56px) clamp(16px, 4vw, 40px) 64px; }
+:where(.keeper-admin) .admin-nav { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 32px; }
 :where(.keeper-admin) .admin-section { margin: 0 0 44px; }
 :where(.keeper-admin) .section-heading { justify-content: space-between; margin-bottom: 16px; }
 :where(.keeper-admin) .section-heading h2 { margin: 0; font-size: clamp(1.5rem, 4vw, 2rem); letter-spacing: -.04em; }
@@ -13,8 +14,6 @@
 :where(.keeper-admin) .replication-status { margin: 0; color: var(--muted); font: 700 .75rem/1.4 var(--site-font-mono); }
 :where(.keeper-admin) .replication-status[data-state="connected"] { color: var(--focus); }
 :where(.keeper-admin) .replication-status[data-state="retrying"] { color: var(--muted); }
-:where(.keeper-admin) .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 26px; padding-top: 8px; }
-:where(.keeper-admin) .overview-group h4 { margin: 12px 0; font-size: .95rem; }
 :where(.keeper-admin) .board-row { padding: 13px 0; border-top: 1px solid var(--soft); }
 :where(.keeper-admin) .board-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 :where(.keeper-admin) .board-row p, :where(.keeper-admin) .approval-card p { margin: 6px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
@@ -24,31 +23,29 @@
 :where(.keeper-admin) .login-card { display: grid; justify-items: start; gap: 12px; max-width: 480px; margin: 32px auto; }
 :where(.keeper-admin) .login-card h2, :where(.keeper-admin) .login-card p { margin: 0; }
 :where(.keeper-admin) .field-label { display: grid; gap: 7px; color: var(--muted); font-size: .82rem; font-weight: 750; }
-:where(.keeper-admin) .login-card input { width: min(360px, 80vw); min-height: var(--control-size); padding: 9px 12px; border: 2px solid var(--line); background: var(--panel); }
+:where(.keeper-admin) .login-card input, :where(.keeper-admin) .service-admin-fallback input { width: min(360px, 80vw); min-height: var(--control-size); padding: 9px 12px; border: 2px solid var(--line); background: var(--panel); }
 :where(.keeper-admin) .admin-notice { min-height: 1.5em; margin: 0 0 20px; padding: 8px 12px; border: 1px solid var(--soft); color: var(--ink); background: var(--panel); font-weight: 700; line-height: 1.4; }
 :where(.keeper-admin) .admin-notice-error { border: 2px solid var(--red); color: var(--ink); background: var(--panel); }
 @media (max-width: 600px) { .keeper-admin .topbar { padding: 12px 16px; } :where(.keeper-admin) .keeper-heading { flex-direction: column; } }
 
 
-/* Layout only. Controls, colours and typography come from tincanban. */
-:where(.keeper-admin) .admin-nav { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 32px; }
-:where(.keeper-admin) .admin-section { scroll-margin-top: 100px; }
+/* Keeper administration uses shared controls and primitive surfaces. */
+:where(.keeper-admin) .admin-section { }
 :where(.keeper-admin) .admin-section > .keeper-card + .keeper-card { margin-top: 16px; }
-:where(.keeper-admin) .count-badge { padding: 2px 6px; border: 1px solid var(--line); background: var(--yellow); }
+:where(.keeper-admin) .keeper-list { display: grid; gap: 10px; }
+:where(.keeper-admin) .breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 20px; color: var(--muted); }
+:where(.keeper-admin) .breadcrumbs a { color: inherit; }
 :where(.keeper-admin) .board-row .button { margin-top: 12px; }
 :where(.keeper-admin) .danger-zone { border-color: var(--red); }
 :where(.keeper-admin) .danger-zone > h3 { color: var(--red); }
-:where(.keeper-admin) .unsubscribe-confirm { margin-top: 14px; padding: 16px; border: 2px solid var(--line); background: var(--paper); }
 .keeper-admin .dialog-actions, :where(.keeper-admin) .cors-actions { flex-wrap: wrap; }
-@media (max-width: 600px) { :where(.keeper-admin) .section-heading { flex-wrap: wrap; } :where(.keeper-admin) .overview-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { :where(.keeper-admin) .section-heading { flex-wrap: wrap; } }
 
 
 :where(.keeper-admin) .admin-header-actions { display: flex; gap: 8px; }
 :where(.keeper-admin) .service-admin-fallback { display: grid; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--soft); }
 :where(.keeper-admin) .service-admin-fallback summary { color: var(--muted); cursor: pointer; font-weight: 750; }
-:where(.keeper-admin) .service-admin-fallback input { width: min(360px, 80vw); min-height: var(--control-size); padding: 9px 12px; border: 2px solid var(--line); background: var(--panel); }
 :where(.keeper-admin) .cors-settings { display: grid; gap: 12px; }
 :where(.keeper-admin) .cors-settings h3, :where(.keeper-admin) .cors-settings p { margin: 0; }
 :where(.keeper-admin) .cors-settings textarea { width: 100%; padding: 10px 12px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; resize: vertical; }
 :where(.keeper-admin) .cors-actions { display: flex; gap: 10px; }
-
