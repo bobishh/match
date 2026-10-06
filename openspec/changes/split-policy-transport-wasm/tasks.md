@@ -23,7 +23,7 @@ only when a network operation needs it.
 
 ## Verification
 
-- Match quality checks pass; 849 unit tests pass, one existing skip. MetaMesh
+- Match quality checks pass; 866 unit tests pass, one existing skip. MetaMesh
   type checks and 284 tests pass on its pinned dependencies.
 - Production-route packaging BDD: 3 scenarios pass, covering local saves across
   reload with no transport WASM requests, transport failure/retry, and policy
@@ -37,3 +37,9 @@ only when a network operation needs it.
   2,190,888 bytes Brotli against the unchanged 2.3 MB budget. Initial JavaScript:
   227.01 kB against the unchanged 235 kB budget.
 - Production packaging BDD runs in its own CI job and through `npm run test:e2e:policy`.
+
+The release also adds startup-stage diagnostics and policy-initialization retry
+coverage to keep the existing coverage gates green (statements 47%, branches
+41.11%, functions 45.93%, lines 51.49%). The lockfile updates only `smol-toml`
+and `source-map-js` to clear the existing audit failures; npm audit reports zero
+vulnerabilities.

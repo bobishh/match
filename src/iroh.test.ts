@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { BrowserNode, WasmBlobEngine, WasmGossipEngine, browserTransportDebugLoggingEnabled, initSync } from "@meta-uber/mesh-transport/transport-wasm"
 import { startIrohBrowserNode, WasmPairingCodec } from "./iroh"
 import { fileReferenceSchema } from "./domain/entitySchemas"
@@ -200,5 +200,48 @@ describe("Iroh gossip and blobs support in match", () => {
     // Duplicate message delivery has no application event.
     const duplicate = engine2.handleMessage(peer1, packet)
     expect(duplicate.deliveries).toEqual([])
+  })
+})
+
+
+describe("policy initialization recovery", () => {
+  it("Given unavailable WebAssembly, when initialization fails, then concurrent callers share failure and a later retry installs policy", async () => {
+    vi.resetModules()
+    const runtime = await import("./iroh")
+    vi.stubGlobal("WebAssembly", undefined)
+    try {
+      const first = runtime.initializePolicyBrowserRuntime()
+      const concurrent = runtime.initializePolicyBrowserRuntime()
+      expect(concurrent).toBe(first)
+      await expect(first).rejects.toThrow("WebAssembly unavailable in this browser")
+    } finally { vi.unstubAllGlobals() }
+
+    // Node preloads the same policy binary that the browser downloads.
+    const policy = await import("@meta-uber/mesh-transport/wasm")
+    policy.initSync({ module: readFileSync(resolve(__dirname, "../vendor/meta-mesh/packages/mesh-transport/wasm/policy/meta_mesh_policy_bg.wasm")) })
+    await expect(runtime.initializePolicyBrowserRuntime()).resolves.toBeUndefined()
+    const { meshRustRuntime } = await import("@meta-uber/mesh-replication/runtime")
+    const installed = meshRustRuntime()
+    const routes = installed.createDeviceRouteCatalog()
+    const mesh = installed.createMeshRuntimeState()
+    const lifecycle = installed.createMeshLifecycleState()
+    try {
+      expect(routes.routesFor("board", "remote")).toEqual([])
+      mesh.start()
+      const update = mesh.encodeWorkspaceUpdate("board", "nonce")
+      expect(mesh.isWorkspaceUpdate(update, "board")).toBe(true)
+      expect(mesh.isWorkspaceUpdate(update, "other-board")).toBe(false)
+      expect(lifecycle.beginStart()).toBe(true)
+      expect(lifecycle.completeStart()).toBe(true)
+      expect(lifecycle.stopped).toBe(false)
+    } finally {
+      routes.free?.()
+      mesh.free?.()
+      lifecycle.free?.()
+    }
+    const codec = new runtime.WasmPairingCodec()
+    const payload = new Uint8Array([3, 1, 4])
+    expect(codec.decode(codec.encode("mesh-handshake-request", "retry-secret", payload), "mesh-handshake-request", "retry-secret"))
+      .toEqual(payload)
   })
 })

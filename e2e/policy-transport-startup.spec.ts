@@ -27,6 +27,10 @@ test("Given persisted authorized local data, when transport assets are unavailab
   await page.route(transportAsset, route => route.abort("failed"))
   await page.goto("/")
   await createBoard(page)
+  if (process.env.TINCANBAN_EXPECT_BUILD) {
+    await expect(page.getByRole("contentinfo", { name: "tincanban build information" }))
+      .toContainText(process.env.TINCANBAN_EXPECT_BUILD.slice(0, 7))
+  }
   await createItem(page, "Before reload")
   await page.reload()
   await expect(page.getByRole("button", { name: "Open Before reload", exact: true })).toBeVisible()
