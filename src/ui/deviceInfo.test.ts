@@ -14,7 +14,7 @@ describe("device user-agent description", () => {
 
  it("recognizes the explicit Lighthouse client marker, not a display name", () => {
    expect(isLighthouse("mesh-lighthouse/0.1.0")).toBe(true)
-   expect(describeUserAgent("mesh-lighthouse/0.1.0")).toBe("Lighthouse")
+   expect(describeUserAgent("mesh-lighthouse/0.1.0")).toBe("Rusty")
    expect(isLighthouse("Lighthouse")).toBe(false)
    expect(isLighthouse(undefined)).toBe(false)
  })

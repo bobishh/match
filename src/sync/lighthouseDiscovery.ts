@@ -34,21 +34,21 @@ function normalizeOrigin(input: string, allowLoopbackHttp = false) {
 }
 
 function parseDescriptor(value: unknown, origin: string): Omit<LighthouseDiscovery, "fingerprint"> {
-  if (!value || typeof value !== "object") throw new Error("Lighthouse returned an invalid discovery descriptor.")
+  if (!value || typeof value !== "object") throw new Error("Rusty returned an invalid discovery descriptor.")
   const descriptor = value as Record<string, unknown>
   const service = descriptor.service as Record<string, unknown> | undefined
   const rawCapabilities = descriptor.capabilities as Record<string, unknown> | undefined
   if (descriptor.publicOrigin !== origin) throw new Error("The advertised public origin does not match the requested origin.")
   if (!Array.isArray(descriptor.protocolVersions) || !descriptor.protocolVersions.includes(1)) {
-    throw new Error("This Lighthouse service supports no shared protocol version. Upgrade the service and retry.")
+    throw new Error("This Rusty service supports no shared protocol version. Upgrade the service and retry.")
   }
   if (!service || typeof service.personId !== "string" || typeof service.publicKey !== "string" ||
     typeof service.deviceId !== "string" || !Array.isArray(service.certificates) ||
     typeof descriptor.displayName !== "string" || !rawCapabilities || !Array.isArray(rawCapabilities.modes)) {
-    throw new Error("Lighthouse returned an invalid discovery descriptor.")
+    throw new Error("Rusty returned an invalid discovery descriptor.")
   }
   const modes = rawCapabilities.modes.filter((mode): mode is string => typeof mode === "string")
-  if (!modes.includes("replicate")) throw new Error("This Lighthouse service does not support visitor replication.")
+  if (!modes.includes("replicate")) throw new Error("This Rusty service does not support visitor replication.")
   return {
     origin, displayName: descriptor.displayName, personId: service.personId,
     publicKey: service.publicKey, deviceId: service.deviceId, certificates: service.certificates,
@@ -77,6 +77,6 @@ export async function discoverLighthouse(input: string, options: { allowLoopback
   const value = await response.json() as Record<string, unknown>
   const parsed = parseDescriptor(value, origin)
   const service = value.service as Record<string, unknown>
-  if (typeof service.publicKey !== "string") throw new Error("Lighthouse returned an invalid public key.")
+  if (typeof service.publicKey !== "string") throw new Error("Rusty returned an invalid public key.")
   return { ...parsed, fingerprint: await publicKeyFingerprint(service.publicKey) }
 }

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue"
 import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails } from "../app/keeperApi"
-import type { MeshMemberView } from "../ui/deviceInfo"
-import LighthouseMark from "./LighthouseMark.vue"
+import { keeperDisplayName, type MeshMemberView } from "../ui/deviceInfo"
+import RustyMark from "./RustyMark.vue"
 
 const props = defineProps<{
   ownedWorkspaces: KeeperWorkspace[]
@@ -106,7 +106,7 @@ async function discover() {
     showView("detail")
   } catch (cause) {
     if (epoch !== flowEpoch.value) return
-    error.value = cause instanceof Error ? cause.message : "Could not discover this Lighthouse service."
+    error.value = cause instanceof Error ? cause.message : "Could not discover this Rusty keeper."
     status.value = "error"
   }
 }
@@ -223,19 +223,19 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
       <div v-if="displayedKeepers.length" class="keeper-list" role="list" aria-label="Keeper services">
         <button v-for="keeper in displayedKeepers" :key="keeper.personId" class="keeper-row" type="button" @click="openKeeper(keeper.personId)">
           <span class="keeper-dot" :data-state="keeper.online ? 'online' : keeper.reconnecting ? 'reconnecting' : 'offline'" aria-hidden="true"></span>
-          <span class="keeper-row-copy"><strong>{{ keeper.name }}</strong><small>{{ keeper.role }} · {{ keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
+          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small>{{ keeper.role }} · {{ keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
       <div v-if="pendingPairing()" class="keeper-list" role="list" aria-label="Pending keeper requests">
         <button class="keeper-row" type="button" @click="showView('detail')">
           <span class="keeper-dot" data-state="reconnecting" aria-hidden="true"></span>
-          <span class="keeper-row-copy"><strong>{{ discovery?.displayName ?? "Lighthouse" }}</strong><small>Approval pending · no access yet</small></span>
+          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(discovery?.displayName ?? "Rusty") }}</strong><small>Approval pending · no access yet</small></span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
       <p v-if="!displayedKeepers.length" class="keeper-empty">No keepers connected to this board.</p>
-      <button class="button button-primary" type="button" :disabled="Boolean(pendingPairing())" @click="startAddKeeper">Add keeper</button>
+      <button class="button button-primary keeper-add" type="button" :disabled="Boolean(pendingPairing())" @click="startAddKeeper"><RustyMark compact aria-hidden="true" />Add keeper</button>
     </template>
 
     <div v-else-if="view === 'form'" class="keeper-replacement" aria-label="Add keeper form">
@@ -253,7 +253,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 
     <div v-else class="keeper-replacement" aria-label="Keeper details">
       <div class="keeper-panel-head">
-        <h3>{{ discovery?.displayName ?? selectedKeeper()?.name ?? "Lighthouse" }}</h3>
+        <h3>{{ keeperDisplayName(discovery?.displayName ?? selectedKeeper()?.name ?? "Rusty") }}</h3>
         <button class="button button-quiet" type="button" @click="discovery ? backToList() : showView('list')">Back</button>
       </div>
       <p v-if="discovery" class="keeper-summary">Service identity <code>{{ discovery.personId }}</code> · <code>{{ discovery.origin }}</code></p>
@@ -276,13 +276,14 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <section v-if="pairing" class="keeper-pairing" aria-label="Keeper pairing state">
           <p class="keeper-code"><span class="detail-label">Comparison code</span><strong>{{ pairing.comparisonCode }}</strong></p>
           <p class="dialog-copy">Both the operator and owner must approve this code before access begins.</p>
-          <p class="dialog-copy" role="status">{{ status === "rejected" ? "Pairing rejected. No access granted." : status === "expired" ? "Pairing expired. No access granted." : status === "active" ? "All selected boards activated and saved by Lighthouse." : status === "provisioning" ? "Both sides approved. Lighthouse is saving boards; access remains pending." : status === "approved" ? "Both sides approved. Starting board setup…" : controllerApproved ? "Waiting for operator approval. No access granted." : "Waiting for both approvals. No access granted." }}</p>
+          <p class="dialog-copy" role="status">{{ status === "rejected" ? "Pairing rejected. No access granted." : status === "expired" ? "Pairing expired. No access granted." : status === "active" ? "All selected boards activated and saved by Rusty." : status === "provisioning" ? "Both sides approved. Rusty is saving boards; access remains pending." : status === "approved" ? "Both sides approved. Starting board setup…" : controllerApproved ? "Waiting for operator approval. No access granted." : "Waiting for both approvals. No access granted." }}</p>
           <a class="button button-quiet" :href="pairing.operatorUrl" target="_blank" rel="noopener noreferrer">Open operator approval</a>
           <div v-if="status === 'pairing' && !controllerApproved" class="dialog-actions">
             <button class="button button-primary" type="button" @click="decide(true)">Code matches · approve</button>
             <button class="button button-quiet" type="button" @click="decide(false)">Decline</button>
           </div>
           <button v-if="status === 'provisioning' && error" class="button button-primary" type="button" :disabled="provisioning" @click="provision">Retry board setup</button>
+          <button v-if="status === 'expired' || status === 'rejected'" class="button button-primary" type="button" @click="startAddKeeper">Start new request</button>
           <p v-if="error" class="sync-error" role="alert">{{ error }}</p>
         </section>
       </template>
@@ -292,7 +293,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <p v-if="keeperDetails?.futureBoards" class="keeper-summary">Includes future boards</p>
         <p v-if="keeperDetails" class="sync-section-copy">Boards</p>
         <ul v-if="keeperDetails" class="keeper-devices"><li v-for="board in ownedWorkspaces.filter(workspace => keeperDetails?.boardIds.includes(workspace.id))" :key="board.id">{{ board.title }}</li></ul>
-        <ul class="keeper-devices"><li v-for="device in selectedKeeper()!.deviceList" :key="device.deviceId"><LighthouseMark :online="device.online" :reconnecting="device.reconnecting" />{{ device.name }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
+        <ul class="keeper-devices"><li v-for="device in selectedKeeper()!.deviceList" :key="device.deviceId"><RustyMark compact :online="device.online" :reconnecting="device.reconnecting" />{{ keeperDisplayName(device.name) }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
         <div v-if="removeKeeper" class="keeper-removal">
           <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
           <template v-else>
@@ -310,6 +311,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 </template>
 
 <style scoped>
+.keeper-add { gap: 8px; }
 .keeper-list { display: grid; gap: 8px; }
 .keeper-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 10px 12px; border: 2px solid var(--line); background: white; color: var(--ink); text-align: left; cursor: pointer; }
 .keeper-row:hover { background: var(--yellow); }

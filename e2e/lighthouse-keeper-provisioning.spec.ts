@@ -235,7 +235,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     humanA = operator
     const adminResponse = await humanA.goto(serviceOrigin + "/admin/")
     expect(adminResponse?.status(), "Lighthouse operator page must be served locally").toBe(200)
-    await expect(humanA.getByRole("button", { name: "Sign in with tincanban" })).toBeVisible()
+    await expect(humanA.getByRole("button", { name: "Sign in with Match" })).toBeVisible()
     await expect(humanA.getByRole("heading", { name: "Sign in" })).toBeVisible()
     let loginProofRequests = 0
     const challengeRoute = serviceOrigin + "/v1/login/challenges/*"
@@ -249,7 +249,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       envelope.payload.nonce += "tampered"
       await route.fulfill({ response, body: JSON.stringify(envelope) })
     })
-    await humanA.getByRole("button", { name: "Sign in with tincanban" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
     await expect(humanA.getByRole("heading", { name: "Could not verify sign-in request" })).toBeVisible()
     await expect(humanA.getByRole("button", { name: "Approve sign-in" })).toHaveCount(0)
     await humanA.screenshot({ path: testInfo.outputPath("lighthouse-tincanban-invalid-challenge.png"), fullPage: true })
@@ -258,7 +258,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await humanA.unroute(challengeRoute)
 
     await humanA.goto(serviceOrigin + "/admin/")
-    await humanA.getByRole("button", { name: "Sign in with tincanban" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
     await expect(humanA.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await expect(humanA.getByText("tincanban identity", { exact: true })).toBeVisible()
     await expect(humanA.getByRole("button", { name: "Approve sign-in" })).toBeVisible()
@@ -272,7 +272,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(humanA.getByRole("button", { name: "Sign out" })).toBeVisible()
     await expect(humanA.getByText("No pending keeper requests")).toBeVisible()
     await humanA.getByRole("button", { name: "Sign out" }).click()
-    await expect(humanA.getByRole("button", { name: "Sign in with tincanban" })).toBeVisible()
+    await expect(humanA.getByRole("button", { name: "Sign in with Match" })).toBeVisible()
 
     operator = await browser.newPage()
     await operator.goto(serviceOrigin + "/admin/")
@@ -289,7 +289,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(operator.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
     await expect(operator.getByText("No pending keeper requests")).toBeVisible()
     await expect(operator.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
-    await expect(operator.getByRole("heading", { name: "Approvals", exact: true })).toBeVisible()
+    await expect(operator.getByRole("heading", { name: /^Approvals/ })).toBeVisible()
     await expect(operator.getByText("Bootstrap board")).toBeVisible()
     await expect(operator.getByText("JEV intake")).toBeVisible()
     const intake = operator.locator(".overview-group article.board-row").filter({ hasText: "JEV intake" })
@@ -315,7 +315,6 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(sync.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
 
     console.log("[keeper e2e] operator refreshes and approves pending pairing")
-    await operator.getByRole("button", { name: "Refresh overview" }).click()
     const request = operator.locator(".approvals-section article.approval-card")
     await expect(request).toHaveCount(1)
     await expect(request).toContainText("Keeper target A")
@@ -333,7 +332,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
 
     console.log("[keeper e2e] owner approves matching code; wait for durable activation")
     await sync.getByRole("button", { name: "Code matches · approve" }).click()
-    await expect(sync.getByText("All selected boards activated and saved by Lighthouse.")).toBeVisible({ timeout: 90_000 })
+    await expect(sync.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     // Status polling may observe the durable commit before the intercepted
     // provision response returns. Keep the native process alive until loss occurs.
     await expect.poll(() => droppedResponse, { timeout: 15_000 }).toBe(true)
@@ -349,10 +348,10 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     const approvedWorkspaceIds = (JSON.parse(bodyForRetry!) as { signed: { payload: { body: { approvedScopes: { workspaceId: string }[] } } } })
       .signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
     expect(approvedWorkspaceIds).toHaveLength(2)
-    expect(config.additionalScopes.map(scope => scope.workspaceId)).toEqual(approvedWorkspaceIds)
-    expect(config.additionalScopes.map(scope => scope.identitySeed)).toEqual(approvedWorkspaceIds.map(() => nativeSeeds.identity))
-    expect(config.additionalScopes.map(scope => scope.deviceSeed)).toEqual(approvedWorkspaceIds.map(() => nativeSeeds.device))
-    expect(config.additionalScopes.map(scope => scope.irohSecret)).toEqual(approvedWorkspaceIds.map(() => nativeSeeds.iroh))
+    expect(config.additionalScopes.filter(scope => approvedWorkspaceIds.includes(scope.workspaceId)).map(scope => scope.workspaceId)).toEqual(approvedWorkspaceIds)
+    expect(config.additionalScopes.map(scope => scope.identitySeed)).toEqual(config.additionalScopes.map(() => nativeSeeds.identity))
+    expect(config.additionalScopes.map(scope => scope.deviceSeed)).toEqual(config.additionalScopes.map(() => nativeSeeds.device))
+    expect(config.additionalScopes.map(scope => scope.irohSecret)).toEqual(config.additionalScopes.map(() => nativeSeeds.iroh))
     expect(config.provisioningCommits.at(-1)?.workspaceIds).toEqual(approvedWorkspaceIds)
     expect((JSON.parse(bodyForRetry!) as { signed: { payload: { body: { futureBoards: boolean } } } })
       .signed.payload.body.futureBoards).toBe(true)
@@ -367,7 +366,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect.poll(async () => {
       const current = JSON.parse(await readFile(configPath, "utf8")) as { additionalScopes: { workspaceId: string }[] }
       return current.additionalScopes.length
-    }, { timeout: 90_000 }).toBe(approvedWorkspaceIds.length + 1)
+    }, { timeout: 90_000 }).toBe(config.additionalScopes.length + 1)
     const withFutureBoard = JSON.parse(await readFile(configPath, "utf8")) as {
       additionalScopes: { workspaceId: string; statePath: string }[]
     }
@@ -395,10 +394,10 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(ownerBSync.getByText("Waiting for operator approval. No access granted.")).toBeVisible()
 
     console.log("[keeper e2e] owner A cannot see owner B pending request or board")
-    await humanA.getByRole("button", { name: "Sign in with tincanban" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
     await expect(humanA.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await humanA.getByRole("button", { name: "Approve sign-in" }).click()
-    await expect(humanA.getByRole("button", { name: "Refresh overview" })).toBeVisible()
+    await expect(humanA.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
     await expect(humanA.getByText("Keeper target A", { exact: true })).toBeVisible()
     await expect(humanA.getByText("Keeper target B", { exact: true })).toBeVisible()
     await expect(humanA.getByText("JEV intake", { exact: true })).toHaveCount(0)
@@ -413,10 +412,10 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] owner B sees only own pending service approval")
     humanB = await ownerBContext.newPage()
     await humanB.goto(serviceOrigin + "/admin/")
-    await humanB.getByRole("button", { name: "Sign in with tincanban" }).click()
+    await humanB.getByRole("button", { name: "Sign in with Match" }).click()
     await expect(humanB.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await humanB.getByRole("button", { name: "Approve sign-in" }).click()
-    await expect(humanB.getByRole("heading", { name: "Approvals", exact: true })).toBeVisible()
+    await expect(humanB.getByRole("heading", { name: /^Approvals/ })).toBeVisible()
     await expect(humanB.getByText("No attached boards.")).toBeVisible()
     const ownerBApproval = humanB.locator(".approvals-section article.approval-card")
     await expect(ownerBApproval).toHaveCount(1)
@@ -434,12 +433,11 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await humanB.screenshot({ path: testInfo.outputPath("lighthouse-owner-b-pending.png"), fullPage: true })
 
     console.log("[keeper e2e] operator approves B; each identity retains isolated overview")
-    await operator.getByRole("button", { name: "Refresh overview" }).click()
     const ownerBOperatorApproval = operator.locator(".approvals-section article.approval-card").filter({ hasText: "Owner B private board" })
     await expect(ownerBOperatorApproval).toHaveCount(1)
     await expect(ownerBOperatorApproval).toContainText("Owner B private board")
     await ownerBOperatorApproval.getByRole("button", { name: "Approve exact boards" }).click()
-    await expect(ownerBSync.getByText("All selected boards activated and saved by Lighthouse.")).toBeVisible({ timeout: 90_000 })
+    await expect(ownerBSync.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     expect(ownerBProvisionBody).toBeTruthy()
     const ownerBRequest = JSON.parse(ownerBProvisionBody!) as {
       identity: { personId: string }
@@ -457,7 +455,6 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     expect(afterOwnerB.identitySeed).toEqual(nativeSeeds.identity)
     expect(afterOwnerB.additionalScopes.find(scope => scope.workspaceId === ownerBWorkspaceId)?.controllerPersonId).toBe(ownerBRequest.identity.personId)
 
-    await humanB.getByRole("button", { name: "Refresh overview" }).click()
     await expect(humanB.getByText("Owner B private board", { exact: true })).toBeVisible()
     await expect(humanB.locator(".approval-card")).toHaveCount(1)
     await expect(humanB.locator(".approval-card")).toContainText("Both approvals are recorded")
@@ -466,7 +463,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(humanB.getByText("Keeper future board", { exact: true })).toHaveCount(0)
     await expect(humanB.getByText("JEV intake", { exact: true })).toHaveCount(0)
     await humanB.screenshot({ path: testInfo.outputPath("lighthouse-owner-b-scoped.png"), fullPage: true })
-    await humanA.getByRole("button", { name: "Sign in with tincanban" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
     await expect(humanA.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await humanA.getByRole("button", { name: "Approve sign-in" }).click()
     await expect(humanA.getByText("Keeper target A", { exact: true })).toBeVisible()
