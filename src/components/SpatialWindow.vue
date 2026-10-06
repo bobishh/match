@@ -106,5 +106,14 @@ onBeforeUnmount(() => { window.removeEventListener("resize", resizeViewport); if
 .spatial-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .spatial-resize { position: absolute; bottom: 0; right: 0; width: 44px; height: 44px; padding: 16px 2px 2px 16px; background: transparent; border: 0; color: var(--muted, #666); cursor: nwse-resize; touch-action: none; user-select: none; }
 .spatial-resize:disabled { visibility: hidden; }
-@media (max-width: 600px) { .spatial-window { left: 6px !important; top: 6px !important; width: calc(100vw - 12px) !important; height: calc(100dvh - 12px) !important; } .spatial-titlebar { cursor: default; } .spatial-resize { display: none; } }
+@media (max-width: 600px) {
+  .spatial-window {
+    left: max(6px, var(--safe-left)) !important;
+    top: max(6px, var(--safe-top)) !important;
+    width: calc(100vw - max(6px, var(--safe-left)) - max(6px, var(--safe-right))) !important;
+    height: calc(100dvh - max(6px, var(--safe-top)) - max(6px, var(--safe-bottom))) !important;
+  }
+  .spatial-titlebar { cursor: default; }
+  .spatial-resize { display: none; }
+}
 </style>

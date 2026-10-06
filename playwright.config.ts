@@ -36,6 +36,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   projects: [
     { name: "core", testIgnore: networkSpecs },
+    { name: "mobile-webkit", testMatch: "**/mobile-overlay-safe-area.spec.ts", use: { browserName: "webkit" } },
     ...groupedNetworkSpecs.map(spec => ({
       name: spec.match(/([^/]+)\.spec\.ts$/)?.[1] ?? spec,
       testMatch: spec,

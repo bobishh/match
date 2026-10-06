@@ -17,6 +17,10 @@
   --panel: #fffdf7;
   --soft: #e9e5db;
   --control-size: 46px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   --control-size-compact: 40px;
   --icon-size: 44px;
   font-family: var(--site-font-sans);
@@ -242,8 +246,11 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   .card-layout { grid-template-columns: minmax(220px, .65fr) minmax(0, 1.35fr); }
   .card-context:has(.card-notes):has(.card-fields) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; }
 }
-.overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; overscroll-behavior: none; background: rgba(23, 23, 23, .72); }
-.dialog { min-width: 0; width: min(680px, 100%); max-height: calc(100dvh - 48px); overflow: auto; overscroll-behavior: contain; padding: 28px; border: 2px solid var(--line); background: var(--panel); }
+.overlay { --modal-gutter: 24px; position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: max(var(--modal-gutter), var(--safe-top)) max(var(--modal-gutter), var(--safe-right)) max(var(--modal-gutter), var(--safe-bottom)) max(var(--modal-gutter), var(--safe-left)); overscroll-behavior: none; }
+/* Extend only the paint beneath Safari's toolbar; dialog geometry stays inside
+   the visible viewport and its safe insets. */
+.overlay::before { content: ""; position: absolute; inset: 0 0 calc(-1 * var(--safe-bottom)); z-index: -1; background: rgba(23, 23, 23, .72); pointer-events: none; }
+.dialog { min-width: 0; width: min(680px, 100%); max-height: calc(100dvh - max(var(--modal-gutter, 24px), var(--safe-top)) - max(var(--modal-gutter, 24px), var(--safe-bottom))); overflow: auto; overscroll-behavior: contain; padding: 28px; border: 2px solid var(--line); background: var(--panel); }
 .dialog-head > div { min-width: 0; }
 .dialog-head .icon-button { flex: 0 0 var(--icon-size); }
 .dialog input:not([type="checkbox"]):not([type="radio"]), .dialog select, .dialog textarea { color: var(--ink); font: 400 1rem/1.4 var(--site-font-sans); letter-spacing: 0; text-transform: none; }
@@ -361,6 +368,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .mobile-drawer-backdrop {
   position: fixed;
   inset: 0;
+  bottom: calc(-1 * var(--safe-bottom));
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
   z-index: 1001;
@@ -371,6 +379,8 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   width: min(340px, 85vw);
   height: 100vh;
   height: 100dvh;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
   background: var(--panel, #fffdf7);
   border-left: 2px solid var(--line, #171717);
   z-index: 1002;
@@ -464,10 +474,9 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 .drawer-item-arrow { color: var(--muted); font: 700 1rem/1 var(--site-font-sans); }
 
 @media (max-width: 768px) {
-  .overlay { padding: 16px; }
-  .dialog { padding: 20px; max-height: calc(100dvh - 32px); }
+  .overlay { --modal-gutter: 16px; }
+  .dialog { padding: 20px; }
   .dialog .form-grid { grid-template-columns: minmax(0, 1fr); }
-  .overlay { padding: 16px; }
   .toolbar-meta { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
   .filters-collapse { display: grid; grid-template-rows: 0fr; visibility: hidden; transition: grid-template-rows var(--motion-panel) var(--motion-ease), visibility var(--motion-panel); }
   .filters-collapse-open { grid-template-rows: 1fr; visibility: visible; }
@@ -485,7 +494,7 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
   }
   .topbar {
     min-height: 60px;
-    padding: 10px 16px;
+    padding: max(10px, var(--safe-top)) max(16px, var(--safe-right)) 10px max(16px, var(--safe-left));
     display: flex;
     justify-content: space-between;
     align-items: center;
