@@ -23,15 +23,16 @@ only when a network operation needs it.
 
 ## Verification
 
-- Match quality checks pass; 866 unit tests pass, one existing skip. MetaMesh
-  type checks and 284 tests pass on its pinned dependencies.
+- Match quality checks pass; 865 unit tests pass, one existing skip. MetaMesh
+  type checks and 283 tests pass on its pinned dependencies.
 - Production-route packaging BDD: 3 scenarios pass, covering local saves across
   reload with no transport WASM requests, transport failure/retry, and policy
   failure blocking access.
 - Real browser pairing and durable document delivery pass; repeated invitation-tab
   reload preserves editor access and resumes two-way sync without approval. Closing
   and reopening a peer tab delivers queued changes; all three histories pass.
-- Artifact dependency check finds no Iroh/WebRTC in policy; both generated artifacts
+- The dedicated `npm run verify:policy` gate checks the complete dependency graph
+  outside the unit-test timeout and finds no Iroh/WebRTC; both generated artifacts
   initialize and policy pairing frames round-trip.
 - Policy WASM: 1,098,334 bytes Brotli against a new 1.2 MB budget. Transport WASM:
   2,190,888 bytes Brotli against the unchanged 2.3 MB budget. Initial JavaScript:
@@ -43,3 +44,9 @@ coverage to keep the existing coverage gates green (statements 47%, branches
 41.11%, functions 45.93%, lines 51.49%). The lockfile updates only `smol-toml`
 and `source-map-js` to clear the existing audit failures; npm audit reports zero
 vulnerabilities.
+
+The standalone dependency verifier passes with an empty Cargo cache (6.05 seconds
+locally), using a 90-second subprocess limit outside Vitest's 5-second unit limit.
+The legacy startup failure scenario now blocks policy, and the browser/native
+fixture imports the initialized policy module. Both pass; browser/native document
+convergence and access revocation remain verified.
