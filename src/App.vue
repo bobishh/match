@@ -73,6 +73,9 @@ const { sync, chat } = app.collaboration.device
 const SyncDialog = createLazySyncDialog(sync.dismiss)
 const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
 const chatCanView = computed(() => confirmedRole.value !== null && !sync.isWorkspaceAccessRevoked(activeWorkspace.id))
+const activeOwnerLabel = computed(() => currentWorkspaceOwnerId.value === chat.personId.value
+  ? (chat.displayName.value || "You")
+  : chat.members.value.find(member => member.personId === currentWorkspaceOwnerId.value)?.name ?? `Participant · ${currentWorkspaceOwnerId.value.slice(0, 6)}`)
 const uiReady = computed(() => ready.value && workspaceRoleStatus.value !== "loading")
 const showAccessLoading = useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading")
 const { meshPresence, meshPresenceLabel,
@@ -115,6 +118,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         </span>
         <div>
           <TincanbanHeading :label="ready.value ? workspaceLabel : '…'" />
+          <small class="active-board-owner">Owner: {{ activeOwnerLabel }}</small>
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -266,6 +270,8 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       v-if="showWorkspaces"
       :workspaces="availableWorkspaces" :archived-workspaces="archivedWorkspaces"
       :active-workspace-id="activeWorkspace.id"
+      :read-owner="async id => (await app.workspace.readWorkspaceDoc(id)).ownerPersonId"
+      :current-person-id="chat.personId.value" :current-identity-name="chat.displayName.value" :known-people="chat.members.value"
       :rename-workspace="handleRenameWorkspace" :archive-workspace="handleArchiveWorkspace" :restore-workspace="handleRestoreWorkspace"
       :create-workspace="handleCreateWorkspace"
       :can-rename-workspace="canRenameWorkspace"
