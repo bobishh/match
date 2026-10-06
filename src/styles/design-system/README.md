@@ -1,10 +1,10 @@
 # tincanban shared design system
 
-Match and Rusty import `index.css` in full. tincanban owns these modules; Rusty consumes a pinned tincanban revision. Do not copy styles into consumers.
+Match and Rusty import `index.css` in full. tincanban owns these modules; Rusty consumes a pinned tincanban revision. Do not copy styles into consumers. Font overrides are the only local styling exception for Rusty.
 
 - `tokens.css`: palette, spacing and sizes.
 - `reset.css`: box sizing, viewport bounds and reduced-motion behavior.
-- `typography.css`: Fira Code for body, controls and technical text; Caveat for every heading.
+- `typography.css`: Original tincanban typography: Caveat for content, controls and headings; Fira Code for technical text. Rusty sets its font overrides in its own typography.css.
 - `controls.css`: shared buttons and fields.
 - `layout.css`: shared shell, forms and dialogs, including native dialog backdrop.
 - `chrome.css`: header and responsive chrome.

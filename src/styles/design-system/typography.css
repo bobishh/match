@@ -1,6 +1,5 @@
-/* One type system across Match and Rusty. */
+/* tincanban typography. Consumers may override font tokens. */
 :root {
-  --site-font-sans: var(--site-font-mono);
   --site-font-brand: "Caveat", cursive;
 }
 
