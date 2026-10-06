@@ -1,3 +1,4 @@
+import { itemReferenceChoices } from "../chat/referenceChoices"
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import type { useAppController } from "./useAppController"
 import { conversationMessages, type Anchor } from "../chat/context"
@@ -20,7 +21,11 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
   const navigate = createMessageNavigation(app, discussions, navigationState, linkedMessageId)
   const workspaceId = computed(() => app.workspace.activeWorkspace.id)
   const currentDiscussions = computed(() => discussions.value.filter(view => view.workspaceId === workspaceId.value))
-  const referenceChoices = computed(() => Object.values(app.workspace.getActiveDoc()?.entities ?? {}).filter((entity): entity is Item => isItem(entity) && !entity.archivedAt).map(item => ({ title: item.title, anchor: { workspaceScope: scope.value, boardId: app.workspace.activeBoard.value?.id ?? "", itemId: item.id } })))
+  const referenceChoices = computed(() => itemReferenceChoices(
+    Object.values(app.workspace.getActiveDoc()?.entities ?? {}).filter((entity): entity is Item => isItem(entity) && !entity.archivedAt),
+    app.workspace.boardFields.value, scope.value, app.workspace.activeBoard.value?.id ?? "",
+    app.workspace.activeBoard.value?.preset?.bindings["field.notes"],
+  ))
 
   async function discuss(itemId: string, fieldId?: string, selected?: Anchor["selection"]) {
     scope.value = await getChatScope(workspaceId.value)

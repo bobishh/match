@@ -2,10 +2,12 @@
 import { MarkdownContent } from "../ui/markdownContent"
 import { ref, computed, watch, nextTick, onMounted } from "vue"
 import SpatialWindow from "./SpatialWindow.vue"
+import ReferencePicker from "./ReferencePicker.vue"
+import type { ReferenceChoice } from "../chat/referenceChoices"
 import ParticipantAvatar from "./ParticipantAvatar.vue"
 import MessageLinkAction from "./MessageLinkAction.vue"
 import { chatDraft } from "../ui/chatDrafts"
-import { MAX_REFERENCES, MAX_MENTIONS, type Anchor, type MessageContext } from "../chat/context"
+import { MAX_MENTIONS, type Anchor, type MessageContext } from "../chat/context"
 
 interface ChatMessage {
   id: string
@@ -25,7 +27,7 @@ const props = withDefaults(
     windowId?: string
     title?: string
     initialContext?: MessageContext
-    referenceChoices?: readonly { title: string; anchor: Anchor }[]
+    referenceChoices?: readonly ReferenceChoice[]
     members?: readonly {personId: string; name: string}[]
     allMessages?: readonly ChatMessage[]
     targetId?: string
@@ -316,7 +318,7 @@ function formatDisplayTime(createdAt: string): string {
         </div>
         <div v-if="context.replyTo" class="reply-quote">Replying to: {{ replyQuote }} <button type="button" aria-label="Cancel reply" @click="context.replyTo = undefined; context.conversationRootId = undefined">×</button></div>
         <div v-if="context.mentions.length" class="reference-chips"><span v-for="personId in context.mentions" :key="personId">@{{ members?.find(member => member.personId === personId)?.name ?? 'Participant' }} <button class="button button-small" type="button" aria-label="Remove mention" @click="context.mentions = context.mentions.filter(id => id !== personId)">×</button></span></div>
-        <details v-if="referenceChoices?.length"><summary>Attach item reference</summary><button v-for="choice in referenceChoices" :key="choice.anchor.itemId" class="button button-small" type="button" :disabled="context.references.length >= MAX_REFERENCES || context.references.some(anchor => anchor.itemId === choice.anchor.itemId)" @click="context.references.some(anchor => anchor.itemId === choice.anchor.itemId) || context.references.push(clone(choice.anchor))">{{ choice.title }}</button></details>
+        <ReferencePicker v-if="referenceChoices?.length" :choices="referenceChoices" :selected="context.references" @select="anchor => context.references.push(clone(anchor))" />
         <details v-if="members?.length" class="mention-picker">
           <summary>Invite @participant</summary>
           <input v-model="mentionQuery" aria-label="Find participant" />

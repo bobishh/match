@@ -1,9 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 80" width="64" height="80">
   <g id="can-logo" stroke="#171717" stroke-width="3" stroke-linejoin="round">
-    <path d="M11 20v44c0 15 42 15 42 0V20" fill="var(--can-body, #c8c9cb)"/>
+    <path d="M11 20v44a21 11 0 0 0 42 0V20" fill="var(--can-body, #c8c9cb)"/>
     <path d="M14 27v36c0 5 3 7 7 8V29" fill="var(--can-highlight, #e4e5e6)" stroke="none"/>
     <path d="M45 28v40c3-1 5-3 5-6V25" fill="var(--can-shade, #a8a9ac)" stroke="none"/>
-    <path d="M11 26c0 8 42 8 42 0m-42 3c0 8 42 8 42 0M11 54c0 14 42 14 42 0m-42 5c0 14 42 14 42 0" fill="none"/>
+    <path data-can-ribs="upper" d="M11 26a21 11 0 0 0 42 0M11 31a21 11 0 0 0 42 0" fill="none" stroke-width="2"/>
+    <path data-can-ribs="lower" d="M11 54a21 11 0 0 0 42 0M11 59a21 11 0 0 0 42 0" fill="none" stroke-width="2"/>
     <ellipse cx="32" cy="20" rx="23" ry="14" fill="var(--can-highlight, #e4e5e6)"/>
     <ellipse cx="32" cy="20" rx="19" ry="10" data-connection-fill="" fill="var(--connection-color, #69db7c)" stroke-width="2"/>
     <path d="M15 25c7-7 27-7 34 0" fill="none" opacity=".25" stroke-width="3"/>

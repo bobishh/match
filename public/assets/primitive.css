@@ -76,6 +76,10 @@ input[type="radio"],
   border-image: none !important;
 }
 
+/* Hatch meets the divider; count paint hides stripes behind digits. */
+.column-header::before { content: ""; position: absolute; inset: 0 0 -1px; background: var(--column-hatch-color); mask: var(--column-hatch-mask, url("/assets/column-hatch.svg?v=1")) repeat; mask-size: 64px 64px; opacity: var(--column-hatch-opacity, .58); pointer-events: none; }
+.count { background: #fff; }
+
 .notice-dismiss,
 .notice-undo {
   --ink-frame: url("/assets/ink-frame-white.svg?v=1");

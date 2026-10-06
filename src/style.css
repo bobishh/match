@@ -72,7 +72,6 @@
 .bin-column .column-header { transition: transform .25s ease, opacity .2s ease; }
 .bin-close { width: 26px; height: 26px; padding: 0; border: 2px solid var(--line); color: var(--ink); background: white; font: 700 1rem/1 var(--site-font-sans); }.bin-close:hover { color: white; background: var(--red); }
 .column-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 14px 12px; border-bottom: 2px solid var(--line); position: relative; background: var(--panel); --column-hatch-color: var(--yellow); }
-.column-header::before { content: ""; position: absolute; inset: 0 0 2px; background: var(--column-hatch-color); mask: var(--column-hatch-mask, url("/assets/column-hatch.svg?v=1")) repeat; mask-size: 64px 64px; opacity: var(--column-hatch-opacity, .58); pointer-events: none; }
 .column-header > .column-title, .column-header > .column-actions { position: relative; }
 .column-title { display: flex; align-items: center; gap: 8px; }
 .column-title h2 { margin: 0; font-size: .8rem; line-height: 1; letter-spacing: .08em; text-transform: uppercase; }
