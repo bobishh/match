@@ -102,8 +102,7 @@
 .lead-card:hover .card-chat-action, .lead-card:focus-within .card-chat-action { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .card-chat-action { opacity: 1; pointer-events: auto; } }
 .card-layout [data-discussion-text] { pointer-events: auto; cursor: text; user-select: text; -webkit-user-select: text; }
-.lead-card.card-aging-watch::after, .lead-card.card-aging-aged::after, .lead-card.card-aging-overdue::after { content: ""; position: absolute; top: -2px; right: -2px; width: 14px; height: 14px; border-left: 2px solid var(--line); border-bottom: 2px solid var(--line); background: #737b49; clip-path: polygon(100% 0, 100% 100%, 0 0); }
-.card-activity-age { display: block; margin-top: 11px; color: #3f4729; font: 700 .8rem/1.25 var(--site-font-sans); letter-spacing: .02em; }
+.card-activity-age { display: block; margin-top: 11px; color: var(--muted); font: 700 .8rem/1.25 var(--site-font-sans); letter-spacing: .02em; }
 .lead-card:active { cursor: grabbing; opacity: .55; }
 .board-drag-source { opacity: .38; }
 .board-drag-preview { position: fixed; top: 0; left: 0; z-index: 1000; margin: 0 !important; opacity: 1; pointer-events: none; transition: none; }

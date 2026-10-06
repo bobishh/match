@@ -225,30 +225,30 @@ textarea) {
 }
 
 .lead-card.card-aging-watch {
-  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#watch");
-  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#watch");
-  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#watch");
-  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#watch");
-  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#watch");
-  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#watch");
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=2#watch");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=2#watch");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=2#watch");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=2#watch");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=2#watch");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=2#watch");
 }
 
 .lead-card.card-aging-aged {
-  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#aged");
-  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#aged");
-  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#aged");
-  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#aged");
-  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#aged");
-  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#aged");
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=2#aged");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=2#aged");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=2#aged");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=2#aged");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=2#aged");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=2#aged");
 }
 
 .lead-card.card-aging-overdue {
-  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#overdue");
-  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#overdue");
-  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#overdue");
-  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#overdue");
-  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#overdue");
-  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#overdue");
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=2#overdue");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=2#overdue");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=2#overdue");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=2#overdue");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=2#overdue");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=2#overdue");
 }
 
 .chat-message-item.is-own {
