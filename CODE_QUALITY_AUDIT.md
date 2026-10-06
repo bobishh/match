@@ -133,6 +133,22 @@ The previous bundle measurements above are historical. Do not use them as eviden
 that the current runtime is lazy-loaded or that the current build meets its budgets;
 run `npm run quality:size` for that evidence.
 
+### Policy/transport packaging (2026-10-06)
+
+Policy now builds as `meta-mesh-policy`, without Iroh/WebRTC anywhere in its
+transitive dependency tree. Match and its policy workers use that artifact before
+hydration. A separate transport artifact loads for invitations and reconnection
+of known peers. Local-only owner credentials no longer start a node.
+
+Production artifact measurements: policy WASM is 5,082,631 bytes raw and
+1,098,334 bytes Brotli; transport WASM is 10,242,847 bytes raw and 2,190,888 bytes
+Brotli. The existing transport budget remains 2.3 MB; policy has a separate 1.2 MB
+budget. These are build measurements, not field startup timings.
+
+Production-route browser scenarios verify local saves across reload without any
+transport WASM request, a blocked transport download followed by successful
+invitation retry, and explicit policy-load failure that blocks local access.
+
 ## Commands
 
 ```text

@@ -28,8 +28,8 @@ async function pairWorkspace(host: Page, guest: Page) {
   await host.getByRole("button", { name: "Approve access" }).click()
   await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
   await expect(guest.getByLabel("Workspace role: editor")).toBeVisible()
-  await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
-  await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+  if (await guestDialog.isVisible()) await guestDialog.getByRole("button", { name: "Close", exact: true }).first().click()
+  if (await hostDialog.isVisible()) await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
   return invite
 }
 

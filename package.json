@@ -22,7 +22,8 @@
     "quality:size": "npm run build && size-limit",
     "verify:meta-mesh": "node scripts/verify-meta-mesh.mjs",
     "test:coverage": "vitest run --coverage",
-    "test:e2e:coverage": "TINCANBAN_E2E_COVERAGE=1 playwright test --project=core && node scripts/e2e-coverage.mjs"
+    "test:e2e:coverage": "TINCANBAN_E2E_COVERAGE=1 playwright test --project=core && node scripts/e2e-coverage.mjs",
+    "test:e2e:policy": "npm run build && playwright test --config playwright.policy.config.ts"
   },
   "dependencies": {
     "@automerge/automerge": "^3.4.1",

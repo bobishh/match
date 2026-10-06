@@ -117,6 +117,30 @@ jobs:
           path: test-results/
           retention-days: 3
 
+  browser-policy:
+    name: Browser (production policy/transport packaging)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run verify:meta-mesh
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:policy
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: policy-packaging-failure
+          path: test-results/
+          retention-days: 3
+
   browser-native:
     name: Browser (native Rust peer)
     needs: verify

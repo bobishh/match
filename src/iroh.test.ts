@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { BrowserNode, browserTransportDebugLoggingEnabled, initSync } from "@meta-uber/mesh-transport/wasm"
-import { startIrohBrowserNode, WasmBlobEngine, WasmGossipEngine, WasmPairingCodec } from "./iroh"
+import { BrowserNode, WasmBlobEngine, WasmGossipEngine, browserTransportDebugLoggingEnabled, initSync } from "@meta-uber/mesh-transport/transport-wasm"
+import { startIrohBrowserNode, WasmPairingCodec } from "./iroh"
 import { fileReferenceSchema } from "./domain/entitySchemas"
 
 // Ensure WASM is initialized for Node environment
-const wasmPath = resolve(__dirname, "../vendor/meta-mesh/packages/mesh-transport/wasm/meta_mesh_bg.wasm")
+const wasmPath = resolve(__dirname, "../vendor/meta-mesh/packages/mesh-transport/transport-wasm/meta_mesh_bg.wasm")
 const wasmBytes = readFileSync(wasmPath)
 initSync({ module: wasmBytes })
 

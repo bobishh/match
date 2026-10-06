@@ -114,7 +114,14 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
   }
 
   protected async canStartRuntime(): Promise<boolean> {
-    if ((await this.store.listWorkspaceCredentials()).length > 0) return true
+    const credentials = await this.store.listWorkspaceCredentials()
+    if (credentials.length > 0) {
+      if (this.adoptedNode) return true
+      const profile = await this.options.getProfile()
+      const workspaceIds = new Set(credentials.map(credential => credential.workspaceId))
+      const peers = await this.store.listPeers()
+      return peers.some(peer => workspaceIds.has(peer.workspaceId) && peer.deviceId !== profile.device.deviceId)
+    }
     await this.adoptedNode?.close("No mesh credentials").catch(() => {})
     this.adoptedNode = undefined
     return false

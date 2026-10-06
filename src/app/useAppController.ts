@@ -91,8 +91,8 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
     loadingTimer = setTimeout(() => { core.showLoading.value = true }, 200)
     const startup = await runAppStartup({
       loadRuntime: async () => {
-        const { initializeIrohBrowserRuntime } = await import("../iroh")
-        await initializeIrohBrowserRuntime()
+        const { initializePolicyBrowserRuntime } = await import("../iroh")
+        await initializePolicyBrowserRuntime()
       },
       prepareLocalState,
       openPairing: () => core.sync.joinFromLocation(window.location.href),
