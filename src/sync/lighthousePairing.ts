@@ -90,7 +90,7 @@ export async function signKeeperControllerRequest(profile: LocalProfile, discove
 }
 
 async function request<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, redirect: "error", headers: { Accept: "application/json", "Content-Type": "application/json", ...init.headers } })
+  const response = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000), redirect: "error", headers: { Accept: "application/json", "Content-Type": "application/json", ...init.headers } })
   const body = await response.json().catch(() => null) as { message?: string } | null
   if (!response.ok) throw new Error(body?.message || `Keeper pairing failed (${response.status}).`)
   if (!body) throw new Error("Keeper returned an invalid pairing response.")
@@ -114,7 +114,7 @@ function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: Keep
   const provisioned = payload.provisioning as { scopes?: unknown } | undefined
   if (!provisioned || !Array.isArray(provisioned.scopes)) throw new Error("Keeper omitted durable per-board provisioning state.")
   const expected = pairing.workspaces.map(workspace => workspace.id)
-  const actual = provisioned.scopes as { workspaceId?: unknown; status?: unknown; error?: unknown }[]
+  const actual = provisioned.scopes as { workspaceId?: unknown; status?: unknown; error?: unknown; errorDetail?: unknown }[]
   if (actual.length !== expected.length || actual.some((scope, index) =>
     scope.workspaceId !== expected[index]
     || !["pending", "active"].includes(String(scope.status))
@@ -123,6 +123,14 @@ function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: Keep
   }
   if (payload.status === "active" && actual.some(scope => scope.status !== "active" || scope.error !== undefined)) {
     throw new Error("Keeper reported active before every approved board was committed.")
+  }
+  if (payload.status === "provisioning" && actual.some(scope => scope.error === "join_failed")) {
+    const failed = actual.find(scope => scope.error === "join_failed")!
+    const detail = typeof failed.errorDetail === "string" ? failed.errorDetail.slice(0, 1024) : "No error detail returned by Rusty"
+    throw new Error(`Rusty could not join the selected boards: ${detail}. Keep this tab open and retry board setup.`)
+  }
+  if (payload.status === "provisioning" && actual.some(scope => scope.error === "runtime_unavailable")) {
+    throw new Error("Rusty replication runtime is unavailable. Retry board setup after the service recovers.")
   }
 }
 

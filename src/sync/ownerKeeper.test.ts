@@ -1,18 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { writeLocal } from "../localDb"
-import { ownerKeepers, rememberActivatedKeeper, removeOwnerKeeper, saveOwnerKeeper } from "./ownerKeeper"
+import { ownerKeepers, removeOwnerKeeper, saveOwnerKeeper } from "./ownerKeeper"
 
 describe("identity-scoped owner-keeper policy", () => {
-  it("reconciles repeated activation receipts without downgrading an existing editor", async () => {
-    const owner = `owner-${crypto.randomUUID()}`
-    const details = { origin: "https://keeper.example", boardIds: ["board"], futureBoards: true }
-    await saveOwnerKeeper(owner, { personId: "keeper", role: "editor" })
-    await rememberActivatedKeeper(owner, "keeper", details)
-    await rememberActivatedKeeper(owner, "keeper", details)
-    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: "keeper", role: "editor", details }])
-    await rememberActivatedKeeper(owner, "new-keeper", details)
-    await expect(ownerKeepers(owner)).resolves.toContainEqual({ personId: "new-keeper", role: "visitor", details })
-  })
   it("reloads policy for its owner identity and updates one keeper idempotently", async () => {
     const owner = `owner-${crypto.randomUUID()}`
     const otherOwner = `owner-${crypto.randomUUID()}`

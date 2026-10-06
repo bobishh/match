@@ -1,4 +1,4 @@
-import irohInit, { WasmStateCore } from "@meta-uber/mesh-transport/wasm"
+import policyInit, { WasmStateCore } from "@meta-uber/mesh-transport/wasm"
 import { initializeAutomerge } from "../crdt"
 import { computeWorkspaceAdmission, type WorkspaceAdmissionRequest, type WorkspaceAdmissionResponse } from "./workspaceAdmissionCore"
 
@@ -6,7 +6,7 @@ const scope = globalThis as unknown as {
   onmessage: ((event: MessageEvent<WorkspaceAdmissionRequest>) => void) | null
   postMessage(response: WorkspaceAdmissionResponse): void
 }
-const ready = Promise.all([initializeAutomerge(), irohInit()])
+const ready = Promise.all([initializeAutomerge(), policyInit()])
 // Catch startup failures immediately, then report the same failure to each job.
 void ready.catch(() => undefined)
 let queue = Promise.resolve()

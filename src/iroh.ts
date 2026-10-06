@@ -1,14 +1,11 @@
 import { installPairingCodec } from "@meta-uber/mesh-pairing"
 import { installMeshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import type { GossipStateMachine } from "@meta-uber/mesh-replication"
-import irohInit, {
-  BrowserNode,
+import policyInit, {
   WasmAutomergeSyncEngine,
   WasmAutomergeDeviceSyncFlow,
   WasmMeshBatchDeliveryFlow,
-  WasmBlobEngine,
   WasmDeviceRouteCatalog,
-  WasmGossipEngine,
   WasmMeshRuntimeState,
   WasmGossipLifecycleState,
   WasmMeshLifecycleState,
@@ -21,9 +18,8 @@ import irohInit, {
   WasmWorkspaceJoinHandshake,
   WasmWorkspaceJoinHandoff,
   WasmStateCore,
-  setBrowserTransportDebugLogging,
 } from "@meta-uber/mesh-transport/wasm"
-export { WasmBlobEngine, WasmGossipEngine, WasmPairingCodec, WasmWorkspaceJoinHandshake, WasmWorkspaceJoinHandoff }
+export { WasmPairingCodec, WasmWorkspaceJoinHandshake, WasmWorkspaceJoinHandoff }
 
 let pairingCodecInstalled = false
 let rustRuntimeInstalled = false
@@ -60,9 +56,9 @@ function irohArtifactAvailable(): boolean {
   return typeof WebAssembly !== "undefined"
 }
 
-async function installIrohBrowserRuntime(): Promise<void> {
+async function installPolicyBrowserRuntime(): Promise<void> {
   if (!irohArtifactAvailable()) throw new Error("WebAssembly unavailable in this browser")
-  await irohInit()
+  await policyInit()
   if (!rustRuntimeInstalled) {
     installMeshRustRuntime({
       state: WasmStateCore,
@@ -95,8 +91,8 @@ async function installIrohBrowserRuntime(): Promise<void> {
 }
 
 /** Initializes the Rust/WASM policy runtime before application state reads it. */
-export function initializeIrohBrowserRuntime(): Promise<void> {
-  browserRuntimeInitialization ??= installIrohBrowserRuntime().catch(error => {
+export function initializePolicyBrowserRuntime(): Promise<void> {
+  browserRuntimeInitialization ??= installPolicyBrowserRuntime().catch(error => {
     browserRuntimeInitialization = undefined
     throw error
   })
@@ -112,7 +108,10 @@ export async function startIrohBrowserNode(secret?: Uint8Array, options: IrohBro
   if (secret !== undefined && secret.byteLength !== 32) {
     throw new Error("Iroh node secret must be exactly 32 bytes")
   }
-  await initializeIrohBrowserRuntime()
+  await initializePolicyBrowserRuntime()
+  const { default: transportInit, BrowserNode, WasmGossipEngine, setBrowserTransportDebugLogging } =
+    await import("@meta-uber/mesh-transport/transport-wasm")
+  await transportInit()
   setBrowserTransportDebugLogging(options.verboseTransportLogging === true)
   const node = await BrowserNode.start(secret)
   return {

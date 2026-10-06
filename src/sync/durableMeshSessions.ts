@@ -104,6 +104,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     if (this.runtime().routeAttemptActive(key)) return
     const attempt = this.runtime().beginRouteAttempt(key, Date.now())
     try {
+      this.throwIfDialCancelled(signal, signal)
       if (!this.node || this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) return
       const routeEntries = await Promise.all(peers.map(async candidate => ({
         peer: candidate,
@@ -135,6 +136,10 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           value.ownerWorkspaceIds, value.personId, value.ownerWorkspaceOfferFrame)
       }
     } catch (error) {
+      if (signal.aborted || error instanceof MeshDialCancelled) {
+        this.trace("dial.device.cancelled", { peerId: peer.deviceId.slice(0, 8), workspaceId: peer.workspaceId.slice(0, 8) })
+        return
+      }
       if (this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) {
         this.trace("dial.device.superseded", {
           peerId: peer.deviceId.slice(0, 8),

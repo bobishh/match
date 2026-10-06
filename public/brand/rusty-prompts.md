@@ -1,0 +1,11 @@
+# Rusty artwork
+
+Generated with built-in image_gen. Transparent PNG masters; trimmed and resized variants preserve alpha. No animation.
+
+## Robot
+
+Use case: precise-object-edit. Edit target: supplied Rusty robot mascot. Keep hand-drawn silver tin robot illustration style, compact body, rusty copper accents, arms, feet, three tin-can telephones, and transparent background. REDESIGN FACE as actual ROBOT HARDWARE. Remove ALL drawn eyebrows, lashes, cartoon eyeballs, pupils, whites of eyes, cheeks and smile. Two dark optical camera lenses in metal cylindrical sockets, flat dark glass with small subtle lens reflections, no anthropomorphic eye anatomy. Mouth is a small straight rectangular speaker grille with three vertical slots, NOT a curved smile. Friendly character conveyed only through slightly tilted head and attentive pose; not a cartoon child. Tin-can phones: OPEN can mouths face inward to robot ears/head; CLOSED bottoms face outward. Three strings attach ONLY to closed can bottoms and go OUTWARD away from robot: left toward left boundary, right toward right boundary, upper can toward upper-right boundary. No strings entering robot, no wires looping around body or connecting cans to robot. Short clear outward string segments, unseen distant participants beyond frame. Compact full-body icon useful at 40px tall. Charcoal outlines, silver, copper rust, green inside cans. No text, no scene, genuine transparent background.
+
+## Favicon head
+
+Use case: precise-object-edit. Input image edit target: corrected mechanical Rusty robot. Produce HEAD ONLY favicon variant of EXACT same head: tilted rounded silver rectangular metal shell, two optical camera lenses in circular metallic sockets, dark glass with subtle reflections, tiny straight rectangular three-slot speaker grille, small copper rust accents. Remove body, neck, arms, feet, all cans and strings. Preserve mechanical design, NO eyebrows, NO human/cartoon pupils or eye whites, NO smile, NO facial drawing. Simplify tiny seams and screw details for clarity at 16px. Head fills square canvas with minimal transparent padding. Same hand-drawn charcoal outline silver/copper palette. Genuine transparent background, no badge, no text.

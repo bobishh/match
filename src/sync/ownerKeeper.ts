@@ -28,9 +28,3 @@ export async function removeOwnerKeeper(ownerPersonId: string, personId: string)
   const records = await ownerKeepers(ownerPersonId)
   await writeLocal(key(ownerPersonId), JSON.stringify(records.filter(record => record.personId !== personId)))
 }
-
-/** Reconcile locally saved settings after a verified durable activation receipt. */
-export async function rememberActivatedKeeper(ownerPersonId: string, personId: string, details: KeeperDetails) {
-  const previous = (await ownerKeepers(ownerPersonId)).find(record => record.personId === personId)
-  await saveOwnerKeeper(ownerPersonId, { personId, role: previous?.role ?? "visitor", details })
-}

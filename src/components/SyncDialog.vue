@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import LighthouseMark from "./LighthouseMark.vue"
-import { isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
+import RustyMark from "./RustyMark.vue"
+import { keeperDisplayName, isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
 import KeeperDiscovery from "./KeeperDiscovery.vue"
@@ -194,7 +194,6 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
     <section class="dialog sync-dialog" role="dialog" aria-modal="true" aria-label="Device sync">
       <div class="dialog-head">
         <div>
-          <span class="eyebrow">Device sync</span>
           <h2>{{ title }}</h2>
         </div>
         <button class="icon-button" type="button" aria-label="Close" :disabled="leavingMesh" @click="emit('dismiss')">×</button>
@@ -205,7 +204,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         <code>{{ request.personId.slice(0, 12) }}</code>
         <label>Role<select v-model="request.role" aria-label="Participant role"><option value="visitor">Visitor — view only</option><option value="editor">Editor — edit items</option></select></label>
         <label v-if="request.ownerConnectionRequested" class="sync-checkbox-item"><input v-model="request.followOwner" type="checkbox" aria-label="Connect all my boards, including future boards" />Connect all my boards, including future boards</label>
-        <p v-if="request.followOwner" class="dialog-copy">The selected role applies to all boards you own now and create later. Lighthouse keeps its own identity.</p>
+        <p v-if="request.followOwner" class="dialog-copy">The selected role applies to all boards you own now and create later. Rusty keeps its own identity.</p>
         <div class="dialog-actions"><button class="button button-primary" @click="emit('decideJoin', request.id, true)">Approve access</button><button class="button" @click="emit('decideJoin', request.id, false)">Decline</button></div>
       </section>
       <template v-if="step === 'members'">
@@ -247,9 +246,9 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
             :aria-pressed="selectedMemberId === member.personId"
             @click="selectedMemberId = member.personId"
           >
-            <LighthouseMark v-if="member.deviceList.length && member.deviceList.every(device => isLighthouse(device.userAgent))" :online="member.online" :reconnecting="member.reconnecting" />
+            <RustyMark compact v-if="member.deviceList.length && member.deviceList.every(device => isLighthouse(device.userAgent))" :online="member.online" :reconnecting="member.reconnecting" />
             <span v-else class="mesh-member-presence" :class="member.online ? 'is-online' : member.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
-            <span class="mesh-member-name"><strong>{{ member.name }}</strong><small>{{ member.devices }} known {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
+            <span class="mesh-member-name"><strong>{{ member.deviceList.some(device => isLighthouse(device.userAgent)) ? keeperDisplayName(member.name) : member.name }}</strong><small>{{ member.devices }} known {{ member.devices === 1 ? 'device' : 'devices' }}{{ member.self ? ' · You' : '' }}</small></span>
             <span class="mesh-member-role">{{ member.personId === succession?.successorPersonId ? 'successor' : member.role }}</span>
           </button>
           <p v-if="!peopleMembers.length" class="mesh-member-empty">No people connected to this board.</p>
@@ -260,9 +259,9 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           <ul class="mesh-device-list" role="list" :aria-label="`Devices for ${selectedMember.name}`">
             <li v-for="device in selectedMember.deviceList" :key="device.deviceId" class="mesh-device">
               <div class="mesh-device-head">
-                <LighthouseMark v-if="isLighthouse(device.userAgent)" :online="device.online" :reconnecting="device.reconnecting" />
+                <RustyMark compact v-if="isLighthouse(device.userAgent)" :online="device.online" :reconnecting="device.reconnecting" />
                 <span v-else class="mesh-device-presence" :class="device.online ? 'is-online' : device.reconnecting ? 'is-reconnecting' : 'is-offline'" aria-hidden="true"></span>
-                <strong>{{ device.deviceId === localDeviceId ? 'This device' : device.name }}</strong>
+                <strong>{{ device.deviceId === localDeviceId ? 'This device' : isLighthouse(device.userAgent) ? keeperDisplayName(device.name) : device.name }}</strong>
                 <code>{{ device.deviceId.slice(0, 8) }}</code>
               </div>
               <small class="mesh-device-platform">{{ device.description }}</small>

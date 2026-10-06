@@ -119,9 +119,8 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
         this.node.endpointId,
         certificates,
       )
-    // A workspace can be created after the initial page-start saw no mesh
-    // credentials. Starting here makes the newly persisted owner credential
-    // immediately usable for invitations instead of leaving Sync offline.
+    // Resume existing peer connections for this workspace. A local-only owner
+    // credential does not require transport; invitations start their own node.
     await this.start()
     await this.notify()
     void Promise.allSettled([...this.sessions.values()].map(async entry => {
