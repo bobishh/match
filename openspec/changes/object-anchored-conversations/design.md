@@ -81,7 +81,7 @@ Unknown scope shows Workspace unavailable with available existing join/import co
 
 ### 6. Signed protocol and retention
 
-References, mentions, immediate reply ID, and root ID are part of the signed payload and validated before storage/rendering. Introduce a versioned payload extension with explicit legacy compatibility: existing v1 messages remain readable as plain messages; peers that cannot understand the new schema must not re-sign, strip, or downgrade metadata. Define capability negotiation or a clear upgrade-required sending boundary before enabling contextual sends across old peers.
+References, mentions, immediate reply ID, and root ID are part of the signed payload and validated before storage/rendering. Introduce a versioned payload extension with explicit legacy compatibility: existing v1 messages remain readable as plain messages; peers that cannot understand the new schema must not re-sign, strip, or downgrade metadata. Local contextual sends persist independently of peer availability or capabilities. Capability negotiation applies only to synchronization: withhold complete signed contextual records from unsupported peers until they advertise contextual-v2.
 
 Maintain existing per-record, text, profile, message-count, and byte bounds. Add explicit finite limits for references, mentions, and quote/context sizes within the existing 32 KiB record cap. Metadata participates in byte accounting and immutable duplicate/conflict comparison. Payload and projected storage metadata must agree with the verified record. Persist before publishing send/sync events. Preserve import idempotency, deterministic ordering, and monotonic pruning; missing ancestors/sources are normal renderable states.
 

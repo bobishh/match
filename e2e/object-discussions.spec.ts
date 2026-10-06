@@ -26,6 +26,34 @@ async function send(page: Page, body: string) {
   return discussion
 }
 
+test("Given an offline discussion with an incompatible known peer, when sending, then signed context saves locally and survives reload", async ({ page, context }) => {
+  const item = await createItem(page)
+  await discussObject(page, item)
+  await expect(page.getByRole("dialog", { name: /^Discussion/ }).getByRole("textbox", { name: "Message", exact: true })).toBeVisible()
+  await page.evaluate(async () => {
+    const service = await import("/src/chat/service.ts")
+    const state = (await import("/src/state.ts")).useTincanban()
+    await service.receiveChat(state.activeWorkspace.id, { version: 1, messages: [], profiles: [] }, false, "legacy-offline-peer")
+  })
+  await context.setOffline(true)
+  await send(page, "Saved without a compatible peer")
+  await context.setOffline(false)
+  const saved = await page.evaluate(async () => {
+    const service = await import("/src/chat/service.ts")
+    const state = (await import("/src/state.ts")).useTincanban()
+    const snapshot = await service.loadChat(state.activeWorkspace.id)
+    const message = snapshot.messages.find(value => value.body === "Saved without a compatible peer")!
+    const legacy = await service.exportChat(state.activeWorkspace.id, new Set(), "legacy-offline-peer")
+    return { message, legacy }
+  })
+  expect(saved.message.context?.references).toHaveLength(1)
+  expect(saved.legacy.upgradeRequired).toBe(true)
+  expect(saved.legacy.messages).not.toContainEqual(saved.message.record)
+  await page.reload()
+  await page.getByRole("button", { name: "Workspace chat", exact: true }).filter({ visible: true }).click()
+  await expect(page.getByRole("dialog", { name: "Workspace chat", exact: true }).getByText("Saved without a compatible peer", { exact: true })).toBeVisible()
+})
+
 for (const width of [1280, 1024, 390]) {
   test(`Given an item at ${width}px, when Discuss sends and replies, then one message lives in item discussion and global chat`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })

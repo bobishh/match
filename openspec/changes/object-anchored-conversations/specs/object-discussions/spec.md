@@ -37,8 +37,9 @@ The system SHALL store body, bounded references, mentions, and reply metadata in
 
 #### Scenario: Unsupported peer schema
 - **GIVEN** a peer cannot read the contextual payload schema
-- **WHEN** contextual sending would require that peer's unsupported capability
-- **THEN** the negotiated compatibility boundary exposes an upgrade-required state
+- **WHEN** a person sends a contextual message
+- **THEN** the signed message is saved locally without requiring an online or upgraded peer
+- **AND** synchronization with that peer exposes an upgrade-required state and withholds the complete signed contextual record until compatible capability is negotiated
 - **AND** context is not silently stripped or downgraded.
 
 ### Requirement: Mentions invite workspace participants

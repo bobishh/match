@@ -151,19 +151,19 @@ test("Given independent paired peers, when signed object discussions sync, then 
         const state = (await import(/* @vite-ignore */ "/src/state.ts")).useTincanban()
         const id = state.activeWorkspace.id
         await service.receiveChat(id, { version: 1, messages: [], profiles: [] }, false, "legacy-test-device")
-        let error = ""
-        try { await service.sendChatMessage(id, "Must not downgrade", { references: [], mentions: [state.getCurrentProfile().identity.personId] }) } catch (failure) { error = String(failure) }
+        const saved = await service.sendChatMessage(id, "Must not downgrade", { references: [], mentions: [state.getCurrentProfile().identity.personId] })
         const known = new Set<string>()
         const boundary = await service.exportChat(id, known, "legacy-test-device")
         await service.receiveChat(id, { version: 1, capabilities: ["contextual-v2"], messages: [], profiles: [] }, false, "legacy-test-device")
         const upgraded = await service.exportChat(id, known, "legacy-test-device")
-        return { error, boundary, upgraded }
+        return { saved, boundary, upgraded }
       })
-      expect(result.error).toContain("Peer upgrade required")
       expect(result.boundary.upgradeRequired).toBe(true)
       expect(result.boundary.messages.every((record: any) => record.signed.payload.version === 1)).toBe(true)
+      expect(result.boundary.messages).not.toContainEqual(result.saved.record)
       expect(result.upgraded.messages).toContainEqual(committed.record)
-      await expect(hostChat.getByText("Must not downgrade", { exact: true })).toHaveCount(0)
+      expect(result.upgraded.messages).toContainEqual(result.saved.record)
+      await expect(hostChat.getByText("Must not downgrade", { exact: true })).toBeVisible()
     })
   } finally { await guestContext.close() }
 })

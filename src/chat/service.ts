@@ -120,7 +120,6 @@ export async function sendChatMessage(workspaceId: string, body: string, context
   const scope = await readScope(workspaceId)
   let normalized: MessageContext | undefined
   if (context) {
-    await assertContextualCompatibility(workspaceId, scope)
     normalized = normalizeMessageContext(context, (await loadChat(workspaceId)).messages, scope)
   }
   const timestampMs = Date.now()
@@ -240,14 +239,4 @@ export async function receiveChat(workspaceId: string, value: unknown, history: 
     meshTrace("chat.persisted", { workspaceId, recordId: message.id, elapsedMs: Date.now() - timestampMs, phase: "remote" })
   }
   if (result.changed || typing.length) publish({ workspaceId, added: result.added, remote: true, history, typing })
-}
-
-async function assertContextualCompatibility(workspaceId: string, scope: string): Promise<void> {
-  const capabilities = peerCapabilities.get(scope)
-  const peers = typeof indexedDB === "undefined" ? [] : await peerStore.listPeers(workspaceId)
-  const localDeviceId = (await bootstrapIdentity()).device.deviceId
-  if (peers.some(peer => peer.deviceId !== localDeviceId && !peer.revokedAt && capabilities?.get(peer.deviceId) !== true) ||
-      [...(capabilities?.entries() ?? [])].some(([deviceId, supported]) => deviceId !== localDeviceId && !supported && !peers.some(peer => peer.deviceId === deviceId && peer.revokedAt))) {
-    throw new Error("Peer upgrade required for contextual chat; connect upgraded peers first")
-  }
 }

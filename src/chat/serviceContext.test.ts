@@ -38,15 +38,15 @@ describe("context protocol sending boundary", () => {
     mocks.peers.mockResolvedValue([{ deviceId: "device", personId: "person" }])
     await expect(sendChatMessage("local-id", "Local context", { references: [], mentions: ["person"] })).resolves.toMatchObject({ body: "Local context" })
     mocks.peers.mockResolvedValue([{ deviceId: "device", personId: "person" }, { deviceId: "another-own-device", personId: "person" }])
-    await expect(sendChatMessage("local-id", "Other device context", { references: [], mentions: ["person"] })).rejects.toThrow("Peer upgrade required")
+    await expect(sendChatMessage("local-id", "Other device context", { references: [], mentions: ["person"] })).resolves.toMatchObject({ body: "Other device context" })
   })
-  it("requires capability handshake for known peers; legacy response blocks, v2 enables", async () => {
+  it("saves locally before negotiation and with legacy peers", async () => {
     setup("scope-handshake")
     mocks.peers.mockResolvedValue([{ deviceId: "remote" }])
     const context = { references: [], mentions: ["person"] }
-    await expect(sendChatMessage("local-id", "Discuss", context)).rejects.toThrow("Peer upgrade required")
+    await expect(sendChatMessage("local-id", "Discuss", context)).resolves.toMatchObject({ context })
     await receiveChat("local-id", { version: 1, messages: [], profiles: [] }, false, "remote")
-    await expect(sendChatMessage("local-id", "Discuss", context)).rejects.toThrow("Peer upgrade required")
+    await expect(sendChatMessage("local-id", "Discuss", context)).resolves.toMatchObject({ context })
     await receiveChat("local-id", { version: 1, capabilities: ["contextual-v2"], messages: [], profiles: [] }, false, "remote")
     await expect(sendChatMessage("local-id", "Discuss", context)).resolves.toMatchObject({ context })
   })
