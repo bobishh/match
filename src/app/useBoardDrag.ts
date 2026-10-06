@@ -157,8 +157,20 @@ function canDrag(core: AppBoardContext) { return core.canEditItems.value || core
 function canStartDrag(event: PointerEvent, core: AppBoardContext) {
   if (event.button !== 0 || !canDrag(core)) return false
   const target = event.target instanceof Element ? event.target : null
+  if (target?.closest("[data-discussion-text]") && pointerHitsText(event)) return false
   const control = target?.closest("button, input, select, textarea, a, [contenteditable=true]")
   return Boolean(target && (!control || control.matches(".card-open-button") && !core.isEditingBoard.value))
+}
+function pointerHitsText(event: PointerEvent) {
+  const caret = document.caretRangeFromPoint(event.clientX, event.clientY)
+  if (!caret || caret.startContainer.nodeType !== Node.TEXT_NODE) return false
+  const text = caret.startContainer
+  const length = text.textContent?.length ?? 0
+  if (!length) return false
+  const range = document.createRange()
+  range.setStart(text, Math.max(0, caret.startOffset - 1))
+  range.setEnd(text, Math.min(length, caret.startOffset + 1))
+  return [...range.getClientRects()].some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)
 }
 function locateDragSource(event: PointerEvent, board: HTMLElement, core: AppBoardContext, presentation: DragPresentation) {
   const target = event.target instanceof Element ? event.target : null

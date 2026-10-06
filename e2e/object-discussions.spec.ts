@@ -1,3 +1,4 @@
+import { discussObject } from "./support/discussions"
 import { expect, test, type Page } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
@@ -12,11 +13,12 @@ async function createItem(page: Page) {
   await form.getByRole("button", { name: "Create item" }).click()
   await expect(form).toBeHidden()
   if (!await page.getByRole("dialog", { name: "Lead details" }).isVisible()) await page.getByRole("button", { name: /Open Anchor Labs/ }).click()
+  await expect(page.getByRole("dialog", { name: "Lead details" }).locator(".detail-copy p").first()).toBeVisible()
   return page.getByRole("dialog", { name: "Lead details" })
 }
 
 async function send(page: Page, body: string) {
-  const discussion = page.getByRole("dialog", { name: /^Discussion/ })
+  const discussion = page.getByRole("dialog", { name: /^Discussion/ }).last()
   await discussion.getByRole("textbox", { name: "Message", exact: true }).fill(body)
   await discussion.getByRole("button", { name: "Send message" }).click()
   await expect(discussion.getByText("Saving locally…", { exact: true })).toHaveCount(0)
@@ -28,19 +30,23 @@ for (const width of [1280, 1024, 390]) {
   test(`Given an item at ${width}px, when Discuss sends and replies, then one message lives in item discussion and global chat`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     const item = await createItem(page)
-    await item.getByRole("button", { name: "Discuss", exact: true }).click()
+    await discussObject(page, item)
     const discussion = await send(page, "What is the vesting?")
     await discussion.getByRole("button", { name: "Reply to message", exact: true }).click()
     await send(page, "Four years")
-    await discussion.locator(".chat-message-item").last().getByRole("button", { name: "Reply to message", exact: true }).click()
+    await page.getByRole("dialog", { name: "Discussion · replies", exact: true }).locator(".chat-message-item").last().getByRole("button", { name: "Reply to message", exact: true }).click()
     await send(page, "One year cliff?")
     await expect(discussion.locator(".chat-message-item")).toHaveCount(3)
-    await expect(discussion.locator(".reply-quote").last()).toContainText("Four years")
+    await expect(page.getByRole("dialog", { name: "Discussion · replies", exact: true }).locator(".chat-message-item .reply-quote").last()).toContainText("Four years")
+    await page.getByRole("dialog", { name: "Discussion · replies", exact: true }).getByRole("button", { name: "Close", exact: true }).click()
     await discussion.getByRole("button", { name: "Close", exact: true }).click()
     await item.getByRole("button", { name: "Close detail", exact: true }).click()
     await page.getByRole("button", { name: "Workspace chat", exact: true }).filter({ visible: true }).click()
     const chat = page.getByRole("dialog", { name: "Workspace chat", exact: true })
-    await expect(chat.locator(".chat-message-item")).toHaveCount(3)
+    await expect(chat.locator(".chat-message-item")).toHaveCount(1)
+    await expect(chat.locator(".chat-thread-preview summary")).toHaveText("2 replies · Preview")
+    await chat.locator(".chat-thread-preview summary").click()
+    await expect(chat.locator(".thread-preview-message")).toHaveCount(2)
     await expect(chat.locator(".chat-message-body").getByText("What is the vesting?", { exact: true })).toBeVisible()
     expect(await chat.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   })
@@ -66,7 +72,7 @@ test("Given selected item text, when Discuss sends then a quote returns to its e
 
 test("Given a discussion draft and storage failure, when send fails then close/reopen retains draft and retry commits once", async ({ page }) => {
   const item = await createItem(page)
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await page.evaluate(() => {
     const original = IDBObjectStore.prototype.put
@@ -80,7 +86,7 @@ test("Given a discussion draft and storage failure, when send fails then close/r
   await discussion.getByRole("button", { name: "Send message" }).click()
   await expect(discussion.getByRole("alert")).toContainText("Discussion storage failure")
   await discussion.getByRole("button", { name: "Close", exact: true }).click()
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Keep discussion draft")
   await page.evaluate(() => (window as any).__restoreDiscussionPut())
   await send(page, "Keep discussion draft")
@@ -89,7 +95,7 @@ test("Given a discussion draft and storage failure, when send fails then close/r
 
 test("Given item and discussion windows, when dragged resized and reopened then geometry and shared focus persist", async ({ page }) => {
   const item = await createItem(page)
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   const before = await discussion.boundingBox()
   const titlebar = discussion.locator(".spatial-titlebar")
@@ -103,7 +109,7 @@ test("Given item and discussion windows, when dragged resized and reopened then 
   const resized = await discussion.boundingBox()
   expect(resized!.width).toBeLessThan(moved!.width)
   await discussion.getByRole("button", { name: "Close", exact: true }).click()
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const restored = await discussion.boundingBox()
   expect(restored!.width).toBeCloseTo(resized!.width, 0)
   await page.setViewportSize({ width: 700, height: 600 })
@@ -121,7 +127,7 @@ test("Given two items and a participant, when one discussion attaches both items
   await form.getByLabel("Role *").fill("Engineer")
   await form.getByRole("button", { name: "Create item" }).click()
   await expect(form).toBeHidden()
-  await page.getByRole("dialog", { name: "Lead details" }).getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, page.getByRole("dialog", { name: "Lead details" }))
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await discussion.getByText("Attach item reference", { exact: true }).click()
   await discussion.getByRole("button", { name: "Anchor Labs — Engineer", exact: true }).click()
@@ -144,7 +150,7 @@ test("Given two items and a participant, when one discussion attaches both items
   await discussion.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("dialog", { name: "Lead details" }).getByRole("button", { name: "Close detail", exact: true }).click()
   await page.getByRole("button", { name: /Open Anchor Labs/ }).click()
-  await page.getByRole("dialog", { name: "Lead details" }).getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, page.getByRole("dialog", { name: "Lead details" }))
   await expect(page.getByRole("dialog", { name: /^Discussion/ }).locator(".chat-message-item")).toHaveCount(1)
 })
 
@@ -166,7 +172,7 @@ test("Given a quoted passage changed after discussion, when its reference opens 
   await form.getByLabel("Description", { exact: true }).fill("Replacement description")
   await form.getByRole("button", { name: "Save changes", exact: true }).click()
   await expect(form).toBeHidden()
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await discussion.locator(".chat-message-item").getByRole("button", { name: /80k plus equity/ }).click()
   await expect(item.locator(".detail-copy")).toContainText("Replacement description")
@@ -176,7 +182,7 @@ test("Given a quoted passage changed after discussion, when its reference opens 
 
 test("Given a pending discussion send, when its window closes and reopens then completion keeps one message", async ({ page }) => {
   const item = await createItem(page)
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await page.evaluate(() => {
     const original = SubtleCrypto.prototype.sign
@@ -189,7 +195,7 @@ test("Given a pending discussion send, when its window closes and reopens then c
   await discussion.getByRole("button", { name: "Send message" }).click()
   await expect(discussion.getByText("Saving locally…", { exact: true })).toBeVisible()
   await discussion.getByRole("button", { name: "Close", exact: true }).click()
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   await expect(discussion.locator(".chat-message-body")).toHaveText("Pending window message")
   await expect(discussion.getByText("Saving locally…", { exact: true })).toHaveCount(0, { timeout: 10000 })
   await expect(discussion.locator(".chat-message-item")).toHaveCount(1)

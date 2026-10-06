@@ -45,16 +45,21 @@ export function validateMessageContext(value: unknown, scope: string, messageId?
   validateReply(value, messageId)
 }
 
+type ContextMessage = Pick<StoredChatMessage, "id" | "workspaceId" | "context">
 export type ConversationRoot = { rootId: string; state: "resolved" | "unavailable" | "invalid" }
-export function conversationRoot(message: StoredChatMessage, messages: readonly StoredChatMessage[]): ConversationRoot {
+export function conversationRoot(message: ContextMessage, messages: readonly ContextMessage[]): ConversationRoot {
   if (!message.context?.replyTo) return { rootId: message.id, state: "resolved" }
   return rootFromIndex(message, new Map(messages.filter(candidate => candidate.workspaceId === message.workspaceId).map(candidate => [candidate.id, candidate])))
 }
-function scopeMessage(index: Map<string, StoredChatMessage>, id: string, scope: string): StoredChatMessage | undefined {
+export function conversationRoots(messages: readonly ContextMessage[]) {
+  const index = new Map(messages.map(message => [message.id, message]))
+  return new Map(messages.map(message => [message.id, rootFromIndex(message, index)]))
+}
+function scopeMessage(index: Map<string, ContextMessage>, id: string, scope: string): ContextMessage | undefined {
   const message = index.get(id)
   return message?.workspaceId === scope ? message : undefined
 }
-function rootFromIndex(message: StoredChatMessage, byId: Map<string, StoredChatMessage>): ConversationRoot {
+function rootFromIndex(message: ContextMessage, byId: Map<string, ContextMessage>): ConversationRoot {
   let current = message
   const seen = new Set<string>()
   const expectedRoot = message.context?.conversationRootId ?? message.id

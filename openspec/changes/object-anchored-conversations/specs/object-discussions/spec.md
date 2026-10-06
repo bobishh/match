@@ -2,7 +2,7 @@
 
 ### Requirement: Contextual Discuss composer
 
-The system SHALL expose one Discuss action for whole items, fields, and selected text. It SHALL attach the chosen anchor to the composer and accept a message with optional explicit participant mentions. Desktop, touch, and keyboard paths SHALL be available without relying on modifying the operating system selection menu.
+The system SHALL expose Discuss beside selected text and through an application context menu for items and fields. Right click on those sources SHALL suppress the browser context menu. Board cards SHALL expose a compact SVG chat action on hover or keyboard focus, and continuously on touch devices. Item detail windows SHALL NOT contain permanent Discuss buttons. The chosen anchor SHALL attach to the composer, which accepts a message with optional explicit participant mentions. Desktop, touch, and keyboard paths SHALL remain available.
 
 #### Scenario: Discuss selected text
 - **GIVEN** an item field contains selectable text
@@ -10,8 +10,8 @@ The system SHALL expose one Discuss action for whole items, fields, and selected
 - **THEN** one committed message appears in the workspace log and item conversation with a quote chip for that passage.
 
 #### Scenario: Whole-item discussion on tablet
-- **GIVEN** an item is open at a tablet viewport
-- **WHEN** the user taps its stable Discuss control
+- **GIVEN** a board card is visible at a tablet viewport
+- **WHEN** the user taps its chat icon
 - **THEN** a reachable composer opens with a whole-item reference without requiring text selection or right click.
 
 #### Scenario: Persistence failure retains context
@@ -59,6 +59,10 @@ The system SHALL resolve explicitly selected mentions to stable person IDs. A me
 ### Requirement: Replies share roots and remain globally visible
 
 The system SHALL retain the immediate reply target and normalize the conversation root. Reply-to-reply SHALL render at one reply level with an immediate-target quote. All committed replies SHALL remain in the global log. Missing ancestors SHALL render unavailable context without preventing valid out-of-order import; self references, cycles, and inconsistent root membership SHALL NOT create misleading conversation groups.
+
+Reply from the workspace log or an item discussion SHALL open or focus a separate root thread with the immediate reply target attached. Every committed message SHALL expose an Open thread action. Reply within a root thread SHALL retain that window and root.
+
+The workspace log SHALL show reply counts beside roots and a collapsed-by-default, read-only reply preview. Expanding the preview SHALL reveal replies without an editor; Open on a previewed reply SHALL focus that reply in the same chat-style thread window. Retained replies whose root is unavailable SHALL remain directly visible with unavailable context.
 
 #### Scenario: Reply to reply
 - **GIVEN** a root message has a reply
