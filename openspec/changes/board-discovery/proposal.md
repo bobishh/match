@@ -4,7 +4,7 @@ People with several personal and shared boards need a fast way to identify board
 
 ## What Changes
 
-- Show board owner beside the active board title and every selectable board.
+- Show board owner in the board picker.
 - Add searchable All boards, Mine, and Shared views.
 - Add locally pinned boards with manual order and a five-board recent list.
 - Keep card search and job-search behavior unchanged.

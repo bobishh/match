@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Identify boards by title and owner
-The application SHALL show each board's title and owner in the active board header and board picker. The board picker SHALL search board title, owner name when available, and owner identifier.
+The application SHALL show each board's title and owner in the board picker. The board picker SHALL search board title, owner name when available, and owner identifier.
 
 #### Scenario: Search boards
 - **WHEN** a person enters text in board search

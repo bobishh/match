@@ -4,14 +4,14 @@ import { ensureJobSearchWorkspace } from "./support/workspaces"
 test("Given several boards, when searching discovery, then title, owner, filters, and empty state stay clear", async ({ page }) => {
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
-  await expect(page.locator(".active-board-owner")).toContainText("Owner:")
+  await expect(page.locator(".active-board-owner")).toHaveCount(0)
   await page.getByRole("button", { name: "Open workspaces" }).click()
   const dialog = page.getByRole("dialog", { name: "Workspaces" })
   await expect(dialog.getByRole("heading", { name: "Recent" })).toHaveCount(0)
   await dialog.getByRole("searchbox", { name: "Search boards" }).fill("job")
   await expect(dialog.locator(".workspace-item")).toHaveCount(1)
   await expect(dialog.locator(".workspace-item").first()).toContainText("Owner:")
-  const ownerName = (await page.locator(".active-board-owner").textContent())?.replace("Owner:", "").trim() ?? ""
+  const ownerName = (await dialog.locator(".workspace-item small").first().textContent())?.replace("Owner:", "").trim() ?? ""
   await dialog.getByRole("searchbox", { name: "Search boards" }).fill(ownerName)
   await expect(dialog.locator(".workspace-item")).toHaveCount(2)
   await dialog.getByRole("searchbox", { name: "Search boards" }).fill("no-board-matches-this")

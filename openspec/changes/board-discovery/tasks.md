@@ -1,5 +1,5 @@
 ## 1. Board discovery
-- [x] 1.1 Show owner alongside active board and board picker entries.
+- [x] 1.1 Show owner alongside board picker entries.
 - [x] 1.2 Add title and owner search plus All, Mine, and Shared filters.
 - [x] 1.3 Add local pinned order and five recent boards.
 

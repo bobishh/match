@@ -43,7 +43,7 @@ const MoveItemDialog = defineAsyncComponent<Component>(() => import("./component
 const WorkspaceParticipants = defineAsyncComponent<Component>(() => import("./components/WorkspaceParticipants.vue"))
 
 const app = useAppController()
-const { SyncDialog, reviewCausalChange, chatCanView, activeOwnerLabel, uiReady, showAccessLoading } = useAppViewState(app)
+const { SyncDialog, reviewCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)
 const showIdentityRecovery = ref(false)
 const showSettings = ref(false)
@@ -114,7 +114,6 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         </span>
         <div>
           <TincanbanHeading :label="ready.value ? workspaceLabel : '…'" />
-          <small class="active-board-owner">Owner: {{ activeOwnerLabel }}</small>
         </div>
       </button>
       <div class="topbar-mobile-controls">

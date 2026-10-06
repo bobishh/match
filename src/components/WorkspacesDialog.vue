@@ -250,5 +250,4 @@ function displayTitle(title: string) {
 .directory-link { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; padding: 7px 8px; text-align: left; }
 .directory-link small, .workspace-switch small { color: var(--muted); font-size: .76rem; font-weight: 500; }
 .workspace-switch { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.active-board-owner { display: block; color: var(--muted); font-size: .76rem; }
 </style>
