@@ -187,7 +187,7 @@ async function checkStatus() {
     else if (current === "expired") status.value = "expired"
     else if (current === "approved") { status.value = "approved"; await provision() }
     else if (current === "provisioning") { status.value = "provisioning"; await provision() }
-    else if (current === "active") status.value = "active"
+    else if (current === "active") { error.value = ""; status.value = "active" }
     else status.value = "pairing"
   } catch (cause) {
     if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
