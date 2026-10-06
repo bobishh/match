@@ -202,7 +202,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
 
       <section v-for="request in visiblePendingJoins" :key="request.id" class="join-request" aria-label="Access request">
         <h3>{{ request.name }} wants to join</h3>
-        <small>{{ request.personId.slice(0, 12) }}</small>
+        <code>{{ request.personId.slice(0, 12) }}</code>
         <label>Role<select v-model="request.role" aria-label="Participant role"><option value="visitor">Visitor — view only</option><option value="editor">Editor — edit items</option></select></label>
         <label v-if="request.ownerConnectionRequested" class="sync-checkbox-item"><input v-model="request.followOwner" type="checkbox" aria-label="Connect all my boards, including future boards" />Connect all my boards, including future boards</label>
         <p v-if="request.followOwner" class="dialog-copy">The selected role applies to all boards you own now and create later. Lighthouse keeps its own identity.</p>

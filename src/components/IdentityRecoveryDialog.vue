@@ -58,7 +58,7 @@ async function restore() {
       </section>
       <section class="mesh-member-action">
         <h3>Restore from a backup</h3>
-        <label>Recovery words<textarea v-model="words" rows="3" autocomplete="off" /></label>
+        <label>Recovery words<textarea v-model="words" class="technical-text" rows="3" autocomplete="off" /></label>
         <label>Recovery file<input type="file" accept="application/json" @change="async event => { const file = (event.target as HTMLInputElement).files?.[0]; if (file) envelopeText = await file.text() }" /></label>
         <label><input v-model="replace" type="checkbox" /> I understand this can replace the identity on this device. My local board data stays here.</label>
         <button class="button button-danger" type="button" :disabled="busy || !replace" @click="restore">Restore identity</button>

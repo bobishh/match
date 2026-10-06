@@ -256,7 +256,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <h3>{{ discovery?.displayName ?? selectedKeeper()?.name ?? "Lighthouse" }}</h3>
         <button class="button button-quiet" type="button" @click="discovery ? backToList() : showView('list')">Back</button>
       </div>
-      <p v-if="discovery" class="keeper-summary">Service identity {{ discovery.personId }} · {{ discovery.origin }}</p>
+      <p v-if="discovery" class="keeper-summary">Service identity <code>{{ discovery.personId }}</code> · <code>{{ discovery.origin }}</code></p>
       <template v-if="discovery">
         <p v-if="error && !pairing" class="sync-error" role="alert">{{ error }}</p>
         <p v-if="eligibleWorkspaces.length" class="sync-section-copy">Boards</p>
@@ -325,7 +325,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 .keeper-panel-head h3 { margin: 0; }
 .keeper-summary { margin: 0; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
 .keeper-code { display: grid; gap: 6px; margin: 0; padding: 12px; border: 2px solid var(--line); background: var(--yellow); }
-.keeper-code strong { font: 700 1.5rem/1 var(--site-font-sans); letter-spacing: .12em; }
+.keeper-code strong { font: 600 1.2rem/1.4 var(--site-font-mono); letter-spacing: .08em; }
 .keeper-pairing { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--soft); }
 .keeper-pairing p { margin: 0; }
 .keeper-removal { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--soft); }
@@ -333,7 +333,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
 .keeper-devices { display: grid; gap: 8px; margin: 0; padding-left: 18px; color: var(--muted); }
 .keeper-devices li { display: flex; align-items: center; gap: 8px; }
 .keeper-replacement .pairing-paste { margin-top: 0; }
-.keeper-replacement .pairing-paste input { width: 100%; min-height: 44px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); font: 600 1rem/1.3 var(--site-font-sans); text-transform: none; letter-spacing: 0; }
+.keeper-replacement .pairing-paste input { width: 100%; min-height: 44px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); font: 400 .75rem/1.5 var(--site-font-mono); text-transform: none; letter-spacing: 0; }
 .keeper-replacement .sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 0; overflow-y: auto; }
 .keeper-replacement .sync-checkbox-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 9px 12px; border: 2px solid var(--line); background: white; cursor: pointer; font-weight: 700; }
 .keeper-replacement .sync-checkbox-item:has(input:checked) { background: var(--yellow); }

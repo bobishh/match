@@ -43,7 +43,7 @@
 .sync-wrap-actions { flex-wrap: wrap; }
 .sync-step-actions { margin-top: 16px; }
 .approval-card { margin-top: 16px; padding: 16px; border: 2px solid var(--line); background: white; }
-.auth-code { margin: 10px 0; font: 700 1.5rem/1 var(--site-font-sans); letter-spacing: .12em; }
+.auth-code { margin: 10px 0; font: 600 1.2rem/1.4 var(--site-font-mono); letter-spacing: .08em; }
 .sync-help { margin-bottom: 12px; font-size: 1rem; }
 .sync-result { font-size: 1rem; font-weight: 700; }
 .guest-workspace-list { margin: 8px 0 16px 20px; padding: 0; }

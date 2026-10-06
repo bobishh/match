@@ -62,7 +62,7 @@ onMounted(() => { void loadRequest() })
           <div><dt>Lighthouse</dt><dd>{{ request.keeperName }}</dd></div>
           <div><dt>Keeper address</dt><dd>{{ request.keeperOrigin }}</dd></div>
           <div><dt>tincanban identity</dt><dd>{{ request.tincanbanName }}</dd></div>
-          <div><dt>Person ID</dt><dd>{{ request.tincanbanPersonId }}</dd></div>
+          <div><dt>Person ID</dt><dd><code>{{ request.tincanbanPersonId }}</code></dd></div>
         </dl>
         <p class="section-copy">Approval signs this one-time sign-in request. It does not grant keeper access to your boards.</p>
         <div class="dialog-actions">

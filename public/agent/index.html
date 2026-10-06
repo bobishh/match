@@ -8,15 +8,16 @@
     <title>tincanban — agent guide</title>
     <link rel="icon" href="/favicon.png?v=6" type="image/png" sizes="32x32" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="stylesheet" href="/assets/site-foundation.css?v=2" />
-    <link rel="stylesheet" href="/assets/primitive.css?v=3" />
+    <link rel="stylesheet" href="/assets/site-foundation.css?v=3" />
+    <link rel="stylesheet" href="/assets/primitive.css?v=4" />
     <style>
       :root { --tower-ball-color: var(--red); --paper: #f3f0e8; --ink: #171717; --muted: #6b675f; --line: #171717; --yellow: #ffd43b; --blue: #1f6feb; --red: #ff5a36; --green: #69db7c; --panel: #fffdf7; --soft: #e9e5db; }
       * { box-sizing: border-box; }
       html { min-width: 320px; background: var(--paper); }
       body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--paper); font-family: var(--site-font-sans); font-synthesis: style; text-rendering: auto; font-variant-ligatures: none; }
       a { color: inherit; }
-      code, .eyebrow, .route, .badge, .tool-name, .pipeline span { font-family: var(--site-font-sans); }
+      .eyebrow, .route, .badge, .tool-name, .pipeline span { font-family: var(--site-font-sans); }
+      code { font-family: var(--site-font-mono); font-variant-ligatures: none; }
       .topbar { position: sticky; top: 0; z-index: 5; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; background: rgba(244, 244, 242, .96); }
       .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-size: var(--site-brand-size); font-weight: var(--site-brand-weight); letter-spacing: var(--site-brand-tracking); line-height: 1; text-decoration: none; }
       .brand-can { display: block; flex-shrink: 0; }

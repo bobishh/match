@@ -31,8 +31,8 @@ test("Given a job-search board, when archive opens and closes at four widths, th
       await expectSingleRow()
       await archive.getByRole("button", { name: "Open archive with 0 cards" }).click()
       await expect(archive.getByText("No leads")).toBeVisible()
-      await expect(archive.locator('.column-header')).toHaveCSS('background-color', 'rgb(23, 23, 23)')
-      await expect(archive.locator('.column-header')).toHaveCSS('color', 'rgb(255, 255, 255)')
+      await expect(archive.locator('.column-header')).toHaveCSS('background-color', 'rgb(255, 253, 247)')
+      await expect(archive.locator('.column-header')).toHaveCSS('color', 'rgb(23, 23, 23)')
       await expectSingleRow()
       await expect.poll(async () => {
         const archiveBox = await archive.boundingBox()

@@ -10,7 +10,7 @@ watch(() => props.conflict, () => { confirmed.value = false })
     <p>Add this device to the identity of your other device. Existing boards stay saved here. The identity changes only after approval on your other device.</p>
     <section v-if="conflict" role="alert">
       <strong>Identity conflict</strong>
-      <p>This device belongs to {{ conflict.currentName }} ({{ conflict.currentPersonId }}). The invitation belongs to {{ conflict.targetPersonId }}.</p>
+      <p>This device belongs to {{ conflict.currentName }} (<code>{{ conflict.currentPersonId }}</code>). The invitation belongs to <code>{{ conflict.targetPersonId }}</code>.</p>
       <p>These identities will not be merged. Switching identity can remove your access to existing boards. Use a workspace invitation to share boards while keeping your identity.</p>
       <label><input v-model="confirmed" type="checkbox" /> Replace this device's identity; keep a local backup of the previous identity.</label>
     </section>
