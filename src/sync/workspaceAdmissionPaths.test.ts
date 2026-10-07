@@ -15,16 +15,24 @@ describe("workspace admission operation paths", () => {
   it("attributes root Text updates and entity edits to exact paths", () => {
     let doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("path-test", "Board", "owner", "job-search"))
     const column = Object.values(doc.entities).find(entity => entity.kind === "column")!
+    const profileId = "member-profile:path-test-person"
     doc = Automerge.change(doc, draft => {
       draft.title = "Renamed board"
       draft.entities[column.id]!.title = "Renamed column"
+      draft.entities[profileId] = {
+        id: profileId, kind: "member_profile", personId: "path-test-person",
+        data: JSON.stringify({ avatarData: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4WAoAAAAAAAAAfwAAfwAA", changedAt: "2026-01-01T00:00:00.000Z" }),
+        title: "Member profile", placement: { parentId: null, rank: "0/1" }, archivedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      }
     })
     const changes = Automerge.getAllChanges(doc).map(change => Automerge.decodeChange(change))
     const latest = changes.at(-1)!
     const touched = touchedPathsForChange(latest.ops, indexOperationParents(changes))
 
     expect(touched?.rootKeys).toEqual(new Set(["title"]))
-    expect(touched?.entityIds).toEqual(new Set([column.id]))
+    expect(latest.startOp).toBeGreaterThan(1)
+    expect(touched?.entityIds).toEqual(new Set([column.id, profileId]))
   })
 
   it("uses slow-path for ambiguous root entity-map replacement and unknown object ids", () => {
