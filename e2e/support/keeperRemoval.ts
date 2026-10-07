@@ -1,7 +1,28 @@
 import { createApp, h, ref } from "vue"
 import KeeperDiscovery from "../../src/components/KeeperDiscovery.vue"
 
-export function mountKeeperRemoval() {
+export async function mountKeeperRemoval() {
+  const profile = await (await import("../../src/domain/identity")).bootstrapIdentity()
+  const { saveKeeperIntegrationReference, saveOwnerKeeper } = await import("../../src/sync/ownerKeeper")
+  const { defaultStorage } = await import("../../src/storage")
+  const { initializePersonalRootCatalog } = await import("../../src/statePersonalRoot")
+  await initializePersonalRootCatalog(defaultStorage, profile)
+  await saveKeeperIntegrationReference({
+    integrationId: "integration-old",
+    serviceOrigin: "https://rusty.example",
+    servicePersonId: "old-keeper",
+    serviceDeviceId: "old-device",
+    servicePublicKey: "verified-test-key",
+    serviceCertificates: [],
+    workspaceIds: ["board"],
+    scopeReceipts: [{ workspaceId: "board", grantEpoch: 1, activationOperationId: "activation-test" }],
+    futureBoards: false,
+    futureBoardBaselineIds: ["board"],
+    revision: 1,
+    state: "active",
+    verifiedAt: new Date().toISOString(),
+  })
+  await saveOwnerKeeper(profile.identity.personId, { personId: "old-keeper", role: "editor" })
   const root = document.createElement("div")
   document.body.appendChild(root)
   const keepers = ref([{ personId: "old-keeper", name: "Old Lighthouse", role: "visitor" as const, self: false,

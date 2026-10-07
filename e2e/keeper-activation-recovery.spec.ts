@@ -67,7 +67,21 @@ test("Given board setup loses its response, when signed status confirms durable 
   await page.route(`${origin}/v1/pairings/pairing-test/status`, async route => {
     const status = provisionRequests > 0 ? "active" : controllerApproved ? "approved" : "pending"
     const provisioning = ["provisioning", "active"].includes(status) ? { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "active" ? "active" : "pending" })) } : false
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: 1,
+      integrations: [{ integrationId: "integration-test", revision: 1,
+        policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
+        scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
+        tombstones: [], pendingOperation: null }],
+      issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.route(`${origin}/v1/pairings/pairing-test/provision`, async route => {
@@ -83,7 +97,7 @@ test("Given board setup loses its response, when signed status confirms durable 
     expect(approvedWorkspaceIds).toEqual(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id))
     provisionRequests += 1
     const status = provisionRequests === 1 ? "provisioning" : "active"
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status, provisioning: { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "provisioning" ? "pending" : "active", ...(status === "provisioning" ? { error: "join_failed", errorDetail: "Mesh snapshot rejected: stale authorization epoch" } : {}) })) }, issuedAt: Math.floor(Date.now() / 1000) })
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status, provisioning: { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "provisioning" ? "pending" : "active", ...(status === "provisioning" ? { error: "join_failed", errorDetail: "Mesh snapshot rejected: stale authorization epoch" } : {}) })) }, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.goto("/")
