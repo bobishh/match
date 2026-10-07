@@ -107,7 +107,7 @@ jobs:
     # Run after core browser shards to keep real Iroh relay traffic isolated,
     # while still collecting network results when a core shard fails.
     needs: [verify, formal-models, browser-core]
-    if: ${{ always() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
     runs-on: ubuntu-24.04
     # Twenty serial durable scenarios take seven minutes locally, before CI
     # setup and the single retry. Keep individual test deadlines unchanged.
