@@ -70,7 +70,9 @@ jobs:
     name: Browser (core ${{ matrix.shard }})
     needs: [verify, formal-models]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Chromium setup takes ~5 minutes on fresh runners; leave time for full
+    # shard execution and its configured retry without changing test limits.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

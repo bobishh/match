@@ -79,11 +79,11 @@ test("Given an archived card, when Archive opens, then it expands into a filtere
   await page.getByRole("button", { name: "Archive", exact: true }).click()
   await page.getByRole("button", { name: "Close detail" }).click()
 
-  const board = page.getByRole("region", { name: "Job search" })
   await expect(page.getByRole("button", { name: "Open archive with 1 cards" })).toBeVisible()
-  expect(await page.locator(".bin-column").evaluate((element) => getComputedStyle(element).transitionProperty)).toContain("flex-basis")
-
+  const archive = page.locator(".bin-column")
+  const foldedWidth = await archive.evaluate(element => element.getBoundingClientRect().width)
   await page.getByRole("button", { name: "Open archive with 1 cards" }).click()
+  await expect.poll(() => archive.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(foldedWidth + 100)
   await expect(page.locator(".bin-column")).toHaveClass(/bin-column-open/)
   await expect(page.locator(".bin-column").getByRole("button", { name: "Open Cleo — Ruby Engineer" })).toBeVisible()
 
@@ -93,13 +93,24 @@ test("Given an archived card, when Archive opens, then it expands into a filtere
   await page.getByRole("button", { name: "Clear search and filters" }).click()
   await page.getByRole("button", { name: "Collapse archive" }).click()
   await expect(page.getByRole("button", { name: "Open archive with 1 cards" })).toBeVisible()
+  await expect.poll(() => archive.evaluate(element => element.getBoundingClientRect().width)).toBeLessThan(foldedWidth + 24)
+
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Open archive with 1 cards" })).toBeVisible()
+  await expect.poll(() => archive.evaluate(element => element.getBoundingClientRect().width)).toBeLessThan(foldedWidth + 24)
+  await page.getByRole("button", { name: "Open archive with 1 cards" }).click()
+  await expect.poll(() => archive.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThan(foldedWidth + 100)
+  await expect(archive.getByRole("button", { name: "Open Cleo — Ruby Engineer" })).toBeVisible()
   await page.getByRole("group", { name: "Filters" }).getByRole("combobox", { name: "Status", exact: true }).selectOption({ label: "Archive" })
   await expect(page.locator(".board > .column")).toHaveCount(1)
   await expect(page.locator(".bin-column")).toHaveClass(/bin-column-open/)
   await expect(page.locator(".bin-column").getByRole("button", { name: "Open Cleo — Ruby Engineer" })).toBeVisible()
   await expect(page.locator(".bin-column").getByText("Remote", { exact: true })).toBeVisible()
   await page.getByRole("button", { name: "Clear search and filters" }).click()
+  await expect(page.getByRole("button", { name: "Collapse Archive" })).toBeVisible()
+  await page.getByRole("button", { name: "Collapse Archive" }).click()
   await expect(page.getByRole("button", { name: "Open archive with 1 cards" })).toBeVisible()
+  await expect.poll(() => archive.evaluate(element => element.getBoundingClientRect().width)).toBeLessThan(foldedWidth + 24)
 })
 
 test("Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit", async ({ page }) => {
@@ -193,4 +204,3 @@ test("Given the board, when Sync is clicked, then members open before workspace 
   await expect(dialog.getByRole("button", { name: "Add my device", exact: true })).toBeVisible()
   expect(await page.evaluate(() => performance.getEntriesByType("resource").some((entry) => entry.name.includes("match_iroh")))).toBe(false)
 })
-

@@ -137,6 +137,12 @@ function removalSource(reference: KeeperIntegrationReference | undefined, legacy
   return "legacy-current-workspaces"
 }
 
+function keeperReferenceForPerson(integrations: Record<string, KeeperIntegrationReference>, personId: string) {
+  const priority = (state: KeeperIntegrationReference["state"]) => state === "active" ? 0 : state === "removing" ? 1 : 2
+  return Object.values(integrations).filter(item => item.servicePersonId === personId)
+    .sort((left, right) => priority(left.state) - priority(right.state) || right.revision - left.revision)[0]
+}
+
 function resolveRemovalDiscovery(personId: string, reference: KeeperIntegrationReference | undefined,
   legacyKeeper: Awaited<ReturnType<typeof ownerKeepers>>[number] | undefined, options: RemovalOptions) {
   const discovery = options.discovery ?? (reference ? cachedDiscovery({
@@ -176,15 +182,14 @@ async function removalIntent(discovery: LighthouseDiscovery, profile: LocalProfi
     throw new Error("Rusty has another pending operation for this integration. Retry or resolve it first.")
   }
   if (scopes.some(scope => scope.expectedGrantEpoch < 1)) throw new Error("Rusty status omitted an owner grant epoch.")
-  return { integration, reference, localPending, servicePending, scopes,
+  return { integration, statusIntegrations: status.integrations, reference, localPending, servicePending, scopes,
     operationId: servicePending?.operationId ?? localPending?.operationId ?? crypto.randomUUID(),
     expectedRevision: servicePending?.expectedRevision ?? localPending?.expectedRevision ?? integration.revision }
 }
 
 async function localRemovalContext(personId: string, options: RemovalOptions, profile: LocalProfile) {
   const { integrations } = await keeperIntegrationReferences()
-  const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
-    .sort((left, right) => right.revision - left.revision)[0]
+  const reference = keeperReferenceForPerson(integrations, personId)
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
   const integrationId = reference?.integrationId ?? legacyKeeper?.details?.integrationId
   const discovery = resolveRemovalDiscovery(personId, reference, legacyKeeper, options)
@@ -199,6 +204,14 @@ async function localRemovalContext(personId: string, options: RemovalOptions, pr
   traceRemoval(options.trace, "local-context-ready", { peerId: personId, recordId: integrationId ?? "none",
     outcome: `locally-revoked:${locallyRevoked.size}` })
   return { reference, discovery, mesh, localOwners, locallyRevoked, integrationId }
+}
+
+async function revokeVisibleOwnedPeerScopes(mesh: DurableMesh, personId: string, localOwners: Map<string, boolean>,
+  alreadyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
+  const workspaceIds = [...new Set((await mesh.views()).filter(peer => peer.personId === personId && !peer.revokedAt
+    && localOwners.get(peer.workspaceId) === true).map(peer => peer.workspaceId))]
+  await revokeLocalScopes(mesh, personId, workspaceIds, localOwners, alreadyRevoked, trace)
+  return workspaceIds
 }
 
 async function removalIntentWithLocalError(discovery: LighthouseDiscovery, profile: LocalProfile, integrationId: string | undefined,
@@ -273,8 +286,7 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   if (personId === profile.identity.personId) throw new Error("Cannot remove this identity")
   if (!options.workspaceOwner) throw new Error("Workspace ownership is unavailable")
   const { integrations } = await keeperIntegrationReferences()
-  const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
-    .sort((left, right) => right.revision - left.revision)[0]
+  const reference = keeperReferenceForPerson(integrations, personId)
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
   if (!reference && !legacyKeeper?.details?.integrationId) {
     const { beginLegacyLocalRemoval } = await import("./legacyKeeperRemoval")
@@ -287,8 +299,14 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   const context = await localRemovalContext(personId, options, profile)
   const intent = await removalIntentWithLocalError(context.discovery, profile, context.integrationId,
     context.reference, context.localOwners, context.locallyRevoked, options.trace)
-  const { integration, localPending, scopes } = intent
+  const { integration, statusIntegrations, localPending, scopes } = intent
   if (!scopes.length) {
+    const otherActiveOwnedIntegration = statusIntegrations.some(candidate => candidate.integrationId !== integration.integrationId
+      && candidate.scopes.some(scope => context.localOwners.get(scope.workspaceId) === true))
+    if (otherActiveOwnedIntegration) {
+      throw new Error("Rusty has another active integration for this keeper. Remove that integration before retrying cleanup.")
+    }
+    await revokeVisibleOwnedPeerScopes(context.mesh, personId, context.localOwners, context.locallyRevoked, options.trace)
     if (await finishAlreadyRemoved(personId, profile, context.reference, integration, localPending)) {
       traceRemoval(options.trace, "complete", { peerId: personId, recordId: integration.integrationId, outcome: "already-removed" })
       return "removed"

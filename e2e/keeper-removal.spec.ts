@@ -109,6 +109,51 @@ test("Given Rusty confirms removal but local keeper cleanup fails, when owner re
   expect(localState.reference?.scopeReceipts).toEqual([])
 })
 
+test("Given Rusty removal is complete but a newer local grant still projects a keeper, when owner retries after a local failure, then current owner scopes are revoked", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const service = keeperSigner()
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(service.sign({
+      kind: "lighthouse-integration-status", version: 1, servicePersonId: service.personId,
+      serviceDeviceId: service.deviceId, serviceOrigin: origin, controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId, operationId: request.signed.payload.operationId,
+      revision: 2, integrations: [{ integrationId: "integration-old", revision: 2,
+        policy: { futureBoards: false, baselineWorkspaceIds: ["board"] }, scopes: [],
+        tombstones: [{ workspaceId: "board", grantEpoch: 1, state: "removed", cleanup: "complete", operationId: "prior-removal" }] }],
+      issuedAt: Math.floor(Date.now() / 1000),
+    })) })
+  })
+  const fixture = { canonicalService: { origin, personId: service.personId, deviceId: service.deviceId,
+    publicKey: service.publicKey, certificates: service.certificates }, completedRemovalZombie: true, zombieRevokeFails: true }
+  await page.goto("/")
+  await page.evaluate(async options => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval(options), fixture)
+  await page.reload()
+  await page.getByRole("button", { name: "Sync", exact: true }).waitFor()
+  await page.evaluate(async options => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval(options), fixture)
+
+  const keepers = page.getByRole("list", { name: "Keeper services" })
+  await expect(keepers.getByRole("button", { name: /Old Lighthouse/ })).toBeVisible()
+  await keepers.getByRole("button", { name: /Old Lighthouse/ }).click()
+  await page.getByRole("button", { name: "Remove keeper", exact: true }).click()
+  await page.getByRole("button", { name: "Remove keeper now", exact: true }).click()
+  await expect(page.getByRole("alert")).toContainText("Local board revocation failed")
+  await expect(page.getByRole("status", { name: "Keeper removal status" })).toContainText("Removal did not finish")
+  await page.evaluate(() => (window as typeof window & { keeperRemoval: { allowZombieRetry(): void } }).keeperRemoval.allowZombieRetry())
+  await page.getByRole("button", { name: "Retry removal" }).click()
+
+  await expect(page.getByText("No keepers connected to this board.", { exact: true })).toBeVisible()
+  const result = await page.evaluate(() => {
+    const api = (window as typeof window & { keeperRemoval: { revokedScopes(): string[]; peerProjection(): {
+      workspaceId: string; personId: string; revokedAt: string | null; grantEpoch: number; priorRevocationEpoch: number
+    }[] } }).keeperRemoval
+    return { scopes: api.revokedScopes(), peers: api.peerProjection() }
+  })
+  expect(result.scopes).toEqual(["board"])
+  expect(result.peers).toEqual([expect.objectContaining({ workspaceId: "board", personId: service.personId, revokedAt: expect.any(String),
+    grantEpoch: 3, priorRevocationEpoch: 2 })])
+})
+
 async function removeKeeperFromFixture(page: import("@playwright/test").Page) {
   const keepers = page.getByRole("list", { name: "Keeper services" })
   await keepers.getByRole("button", { name: /Old Lighthouse/ }).click()

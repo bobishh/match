@@ -7,6 +7,7 @@ import { initializeAutomerge } from "../crdt"
 import { createWorkspaceGrant } from "../domain/proofs"
 import { DurableMesh } from "./durableMesh"
 import type { WorkspaceMeshCredential, WorkspacePeerRecord } from "./peerStore"
+import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 
 beforeAll(async () => {
   await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm"))
@@ -15,6 +16,7 @@ beforeAll(async () => {
 
 describe("keeper revocation projection", () => {
   it("Given an active keeper, when owner revokes access, then persisted peer state hides it after reload", async () => {
+    clearMeshTrace()
     resetIdentityStorageForTest()
     const owner = await bootstrapIdentity("Owner")
     const keeperId = `keeper-${crypto.randomUUID()}`
@@ -57,7 +59,7 @@ describe("keeper revocation projection", () => {
       store: store as never,
       onChange,
     })
-    vi.spyOn(mesh, "nextAccessEpoch").mockResolvedValue(2)
+    vi.spyOn(mesh, "nextAccessEpoch").mockResolvedValueOnce(2).mockResolvedValueOnce(4)
     const internal = mesh as unknown as {
       refreshSuccessionPolicy: (workspaceId: string) => Promise<void>
       publishWorkspace: (workspaceId: string) => Promise<void>
@@ -71,6 +73,25 @@ describe("keeper revocation projection", () => {
       expect(credential.catalog).toMatchObject({ revocations: [{ payload: { personId: keeperId } }] })
       expect(peers[0]?.revokedAt).toBeTruthy()
       expect(onChange).toHaveBeenCalledWith([], expect.arrayContaining([
+        expect.objectContaining({ personId: keeperId, revokedAt: expect.any(String) }),
+      ]), [], [], expect.any(String))
+
+      const renewedGrant = await createWorkspaceGrant(owner, doc.id, keeperId, "editor", 3)
+      peers = [{ ...peers[0]!, advertisement: { grant: renewedGrant }, revokedAt: null,
+        lastSeen: new Date(Date.now() + 1_000).toISOString() }]
+      await mesh.revokePerson(doc.id, keeperId)
+
+      expect(credential.catalog).toMatchObject({ revocations: [
+        { payload: { personId: keeperId, epoch: 2 } },
+        { payload: { personId: keeperId, epoch: 4 } },
+      ] })
+      expect(meshTraceSnapshot().find(event => event.event === "authority.revoke.generation-check"))
+        .toMatchObject({ existingRevocationEpoch: 2, maxActiveGrantEpoch: 3, activePeerCount: 1, covered: false })
+      expect(meshTraceSnapshot().find(event => event.event === "authority.revoke.generation-created"
+        && (event as unknown as { existingRevocationEpoch?: number }).existingRevocationEpoch === 2))
+        .toMatchObject({ newRevocationEpoch: 4 })
+      expect(peers[0]?.revokedAt).toBeTruthy()
+      expect(onChange).toHaveBeenLastCalledWith([], expect.arrayContaining([
         expect.objectContaining({ personId: keeperId, revokedAt: expect.any(String) }),
       ]), [], [], expect.any(String))
 

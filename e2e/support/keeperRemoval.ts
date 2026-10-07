@@ -6,6 +6,8 @@ export async function mountKeeperRemoval(options: {
   legacyRevokeFails?: boolean
   legacyMissingBoardList?: boolean
   reopenPersistedLegacyPending?: boolean
+  completedRemovalZombie?: boolean
+  zombieRevokeFails?: boolean
   canonicalService?: { origin: string; personId: string; deviceId: string; publicKey: string; certificates: unknown[] }
 } = {}) {
   const profile = await (await import("../../src/domain/identity")).bootstrapIdentity()
@@ -22,13 +24,16 @@ export async function mountKeeperRemoval(options: {
     serviceDeviceId: keeperDeviceId,
     servicePublicKey: options.canonicalService?.publicKey ?? "verified-test-key",
     serviceCertificates: options.canonicalService?.certificates ?? [],
-    workspaceIds: ["board"],
-    scopeReceipts: [{ workspaceId: "board", grantEpoch: 1, activationOperationId: "activation-test" }],
+    workspaceIds: options.completedRemovalZombie ? [] : ["board"],
+    scopeReceipts: options.completedRemovalZombie ? [] : [{ workspaceId: "board", grantEpoch: 1, activationOperationId: "activation-test" }],
     futureBoards: false,
     futureBoardBaselineIds: ["board"],
-    revision: 1,
-    state: "active",
+    revision: options.completedRemovalZombie ? 2 : 1,
+    state: options.completedRemovalZombie ? "removed" : "active",
     verifiedAt: new Date().toISOString(),
+    ...(options.completedRemovalZombie ? { completedRemoval: {
+      operationId: "prior-removal", scopes: [{ workspaceId: "board", grantEpoch: 1 }],
+    } } : {}),
   })
   if (options.legacyWithoutServiceDescriptor && !options.reopenPersistedLegacyPending) {
     const rootDocument = await defaultStorage.loadPersonalRoot()
@@ -37,7 +42,7 @@ export async function mountKeeperRemoval(options: {
       await defaultStorage.savePersonalRoot(rootDocument)
     }
   }
-  if (!options.reopenPersistedLegacyPending) {
+  if (!options.reopenPersistedLegacyPending && !options.completedRemovalZombie) {
     await saveOwnerKeeper(profile.identity.personId, {
       personId: keeperPersonId,
       role: "editor",
@@ -58,6 +63,10 @@ export async function mountKeeperRemoval(options: {
   let attempt: { complete(): void; fail(): void } | undefined
   let removalAttempts = 0
   const revokedScopes: string[] = []
+  const zombiePeers = ref(options.completedRemovalZombie ? [{ workspaceId: "board", personId: keeperPersonId,
+    deviceId: "board-peer-device", role: "editor" as const, endpoint: "board-peer-endpoint", online: false,
+    lastSeen: new Date(0).toISOString(), revokedAt: null as string | null,
+    grantEpoch: 3, priorRevocationEpoch: 2 }] : [])
   const removeKeeper = (_personId: string, _discovery?: unknown, knownServiceDeviceIds?: string[]) => {
     removalAttempts += 1
     if (options.canonicalService) {
@@ -65,10 +74,19 @@ export async function mountKeeperRemoval(options: {
         getProfile: async () => profile,
         workspaces: [{ id: "board" }],
         workspaceOwner: async () => profile.identity.personId,
-        mesh: async () => ({ revokePerson: async () => {} }) as never,
+        mesh: async () => ({
+          views: async () => zombiePeers.value,
+          revokePerson: async (workspaceId: string, targetPersonId: string) => {
+            if (options.zombieRevokeFails) throw new Error("Local board revocation failed")
+            revokedScopes.push(workspaceId)
+            zombiePeers.value = zombiePeers.value.map(peer => peer.personId === targetPersonId && peer.workspaceId === workspaceId
+              ? { ...peer, revokedAt: new Date().toISOString() } : peer)
+          },
+        }) as never,
         knownServiceDeviceIds,
       }).then(result => {
-        if (result === "removed") keepers.value = []
+        if (result === "removed") keepers.value = options.completedRemovalZombie
+          ? zombiePeers.value.filter(peer => !peer.revokedAt).map(() => ({ ...keepers.value[0]! })) : []
         return result
       }))
     }
@@ -100,7 +118,9 @@ export async function mountKeeperRemoval(options: {
     complete: () => attempt?.complete(),
     fail: () => attempt?.fail(),
     attempts: () => removalAttempts,
+    allowZombieRetry: () => { options.zombieRevokeFails = false },
     revokedScopes: () => revokedScopes,
+    peerProjection: () => zombiePeers.value,
     legacyPending: async () => (await ownerKeepers(profile.identity.personId)).find(record => record.personId === keeperPersonId)?.details,
   } })
 }
