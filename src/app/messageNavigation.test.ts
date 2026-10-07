@@ -21,13 +21,16 @@ function setup() {
   const state = ref("")
   const linked = ref("")
   const discussions = ref<Discussion[]>([])
-  const navigate = lifecycle.run(() => createMessageNavigation(app as never, discussions, state, linked))!
-  return { app, revoked, state, linked, navigate, discussions }
+  const { navigate, dismiss } = lifecycle.run(() => createMessageNavigation(app as never, discussions, state, linked))!
+  return { app, revoked, state, linked, navigate, dismiss, discussions }
 }
 beforeEach(() => {
   mocks.scope.mockResolvedValue("scope")
   mocks.blocked.mockResolvedValue(false)
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { hash: new URL(messageReferenceUrl("https://example.com/app/", { workspaceScope: "scope", messageId: "device:target" })).hash } } })
+  Object.defineProperty(globalThis, "window", { configurable: true, value: {
+    location: { href: messageReferenceUrl("https://example.com/app/?view=board", { workspaceScope: "scope", messageId: "device:target" }), hash: new URL(messageReferenceUrl("https://example.com/app/", { workspaceScope: "scope", messageId: "device:target" })).hash },
+    history: { state: { view: "board" }, replaceState: vi.fn((_state, _title, url: URL) => { window.location.hash = url.hash; window.location.href = url.toString() }) },
+  } })
 })
 afterEach(() => { lifecycle?.stop(); vi.clearAllMocks(); Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow }) })
 describe("authorized local message navigation", () => {
@@ -38,6 +41,32 @@ describe("authorized local message navigation", () => {
     expect(linked.value).toBe("device:target")
     expect(app.collaboration.device.chat.open.value).toBe(true)
     expect(mocks.focus).toHaveBeenCalledWith("active", "chat")
+  })
+  it("dismisses only the destination and preserves path query and history state", async () => {
+    const { navigate, dismiss, linked, state } = setup()
+    await navigate()
+    dismiss("conversation:unrelated")
+    expect(window.location.hash).toContain("#message=")
+    dismiss("chat")
+    expect(window.location.href).toBe("https://example.com/app/?view=board")
+    expect(window.history.replaceState).toHaveBeenCalledWith({ view: "board" }, "", new URL("https://example.com/app/?view=board"))
+    expect(linked.value).toBe("")
+    expect(state.value).toBe("")
+  })
+  it("cancels pending navigation when its destination closes", async () => {
+    const { app, navigate, dismiss, linked, state } = setup()
+    let release!: (value: boolean) => void
+    app.collaboration.device.chat.refresh.mockImplementation(() => new Promise<boolean>(resolve => { release = resolve }))
+    const pending = navigate()
+    await vi.waitFor(() => expect(app.collaboration.device.chat.refresh).toHaveBeenCalled())
+    dismiss("chat")
+    release(true)
+    await pending
+    expect(window.location.hash).toBe("")
+    expect(app.collaboration.device.chat.open.value).toBe(false)
+    expect(linked.value).toBe("")
+    expect(state.value).toBe("")
+    expect(mocks.focus).not.toHaveBeenCalled()
   })
   it("never reveals revoked cached messages", async () => {
     const { app, revoked, state, linked, navigate } = setup()

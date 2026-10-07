@@ -51,6 +51,36 @@ test("Given a committed local message, when its copied link reloads, then chat r
   await expect(chat.getByText("Linked local message", { exact: true })).toHaveCount(1)
 })
 
+test("Given a linked message, when closing chat, then URL clears and the same link can open it again", async ({ page }) => {
+  const url = await copiedLink(page)
+  const link = new URL(url)
+  link.searchParams.set("view", "board")
+  await page.goto(link.toString())
+  const chat = page.getByRole("dialog", { name: "Workspace chat", exact: true })
+  await expect(chat.locator(".is-linked-message")).toContainText("Linked local message")
+  await chat.getByRole("button", { name: "Close", exact: true }).click()
+  link.hash = ""
+  await expect(page).toHaveURL(link.toString())
+  await expect(chat).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+  await expect(chat).toHaveCount(0)
+  await page.goto(url)
+  await expect(chat.locator(".is-linked-message")).toContainText("Linked local message")
+})
+
+test("Given an unavailable linked message, when closing its error chat, then URL and retry feedback clear", async ({ page }) => {
+  const url = await copiedLink(page)
+  await page.goto(changeReference(url, { messageId: "missing-device:missing-message" }))
+  await expect(page.getByText("Message unavailable", { exact: true }).first()).toBeVisible()
+  await page.getByRole("dialog", { name: "Workspace chat", exact: true }).getByRole("button", { name: "Close", exact: true }).click()
+  await expect(page).toHaveURL(new URL("/", url).toString())
+  await expect(page.getByRole("button", { name: "Retry message link" })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible()
+  await expect(page.getByRole("dialog", { name: "Workspace chat", exact: true })).toHaveCount(0)
+})
+
 test("Given denied clipboard access, when copying a message link, then a selectable local URL and honest feedback remain", async ({ page }) => {
   const chat = await messageLink(page)
   await page.evaluate(() => {

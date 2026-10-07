@@ -34,13 +34,14 @@ function currentAccess(app: App): "loading" | "blocked" | "verified" {
   if (!permissions.confirmedRole.value || app.collaboration.device.sync.isWorkspaceAccessRevoked(app.workspace.activeWorkspace.id)) return "blocked"
   return "verified"
 }
-async function revealMessage(app: App, discussions: Ref<Discussion[]>, linkedMessageId: Ref<string>, messageId: string) {
+async function revealMessage(app: App, discussions: Ref<Discussion[]>, linkedMessageId: Ref<string>, messageId: string, onReveal: (windowId: string) => void) {
   const messages = app.collaboration.device.chat.messages.value.filter(message => "record" in message)
   const target = messages.find(message => message.id === messageId)
   if (!target) return false
   const root = conversationRoot(target, messages)
   const hasConversation = root.state !== "invalid" && (!!target.context?.replyTo || messages.some(candidate => candidate.context?.conversationRootId === target.id))
   if (!hasConversation) {
+    onReveal("chat")
     linkedMessageId.value = target.id
     app.collaboration.device.chat.open.value = true
     await nextTick(); focusSpatialWindow(app.workspace.activeWorkspace.id, "chat")
@@ -48,6 +49,7 @@ async function revealMessage(app: App, discussions: Ref<Discussion[]>, linkedMes
   }
   const workspaceId = app.workspace.activeWorkspace.id
   const id = `conversation:${root.rootId}`
+  onReveal(id)
   const existing = discussions.value.find(view => view.workspaceId === workspaceId && view.id === id)
   if (existing) existing.targetId = target.id
   else discussions.value.push({ workspaceId, id, title: "Discussion · replies", rootId: root.rootId, targetId: target.id,
@@ -57,8 +59,19 @@ async function revealMessage(app: App, discussions: Ref<Discussion[]>, linkedMes
 }
 export function createMessageNavigation(app: App, discussions: Ref<Discussion[]>, navigationState: Ref<string>, linkedMessageId: Ref<string>) {
   let generation = 0
+  let destination: { hash: string; windowId: string } | undefined
+  function dismiss(windowId: string) {
+    if (destination?.windowId !== windowId || destination.hash !== window.location.hash) return
+    generation++
+    destination = undefined
+    linkedMessageId.value = ""
+    navigationState.value = ""
+    const url = new URL(window.location.href)
+    url.hash = ""
+    window.history.replaceState(window.history.state, "", url)
+  }
   onScopeDispose(() => { generation++ })
-  const showState = (state: string) => { navigationState.value = state; app.collaboration.device.chat.open.value = true }
+  const showState = (state: string) => { if (destination) destination.windowId = "chat"; navigationState.value = state; app.collaboration.device.chat.open.value = true }
   async function selectWorkspace(scope: string, current: number): Promise<string | undefined> {
     const matches = await matchingWorkspaces(app, scope)
     if (current !== generation) return
@@ -86,23 +99,26 @@ export function createMessageNavigation(app: App, discussions: Ref<Discussion[]>
     if (!app.workspace.ready.value) return
     const current = ++generation
     const parsed = parseMessageReference(window.location.hash)
-    if (parsed.status === "none") return
+    if (parsed.status === "none") { destination = undefined; linkedMessageId.value = ""; navigationState.value = ""; return }
+    if (destination?.hash !== window.location.hash) destination = { hash: window.location.hash, windowId: "chat" }
     linkedMessageId.value = ""
     if (parsed.status === "invalid") { showState("Invalid message link"); return }
     navigationState.value = "Loading messages…"
     const candidate = await selectWorkspace(parsed.reference.workspaceScope, current)
     if (!candidate) return
     const access = await loadAuthorizedChat(candidate, current)
-    if (access === "cancelled") return
+    if (current !== generation || access === "cancelled") return
     if (access === "loading") { showState("Loading messages…"); return }
     if (access === "failed") { showState(`Could not load chat · ${app.collaboration.device.chat.error.value}`); return }
     if (access === "blocked") { showState("Workspace access unavailable"); return }
     navigationState.value = ""
-    if (!await revealMessage(app, discussions, linkedMessageId, parsed.reference.messageId)) showState("Message unavailable")
+    if (!await revealMessage(app, discussions, linkedMessageId, parsed.reference.messageId, windowId => {
+      destination = { hash: window.location.hash, windowId }
+    })) showState("Message unavailable")
   }
 
   watch(() => [app.workspace.ready.value, app.collaboration.permissions.workspaceRoleStatus.value,
     app.workspace.availableWorkspaces.value.map(item => item.id).join("|"), app.collaboration.device.sync.ownershipRevision.value,
     app.collaboration.device.sync.isWorkspaceAccessRevoked(app.workspace.activeWorkspace.id)], () => { void navigate() })
-  return navigate
+  return { navigate, dismiss }
 }

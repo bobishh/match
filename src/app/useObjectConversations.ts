@@ -21,7 +21,7 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
   const navigationState = ref("")
   const linkedMessageId = ref("")
   const highlighter = createSourceHighlighter(state => { sourceState.value = state })
-  const navigate = createMessageNavigation(app, discussions, navigationState, linkedMessageId)
+  const { navigate, dismiss: dismissLink } = createMessageNavigation(app, discussions, navigationState, linkedMessageId)
   const workspaceId = computed(() => app.workspace.activeWorkspace.id)
   const currentDiscussions = computed(() => discussions.value.filter(view => view.workspaceId === workspaceId.value))
   const fieldTitles = computed(() => Object.fromEntries<string>([
@@ -79,7 +79,7 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
   function messages(view: Discussion) {
     return conversationMessages(app.collaboration.device.chat.messages.value as StoredChatMessage[], { anchor: view.anchor, rootId: view.rootId }) as typeof app.collaboration.device.chat.messages.value
   }
-  function close(view: Discussion) { discussions.value = discussions.value.filter(candidate => candidate !== view) }
+  function close(view: Discussion) { dismissLink(view.id); discussions.value = discussions.value.filter(candidate => candidate !== view) }
   function focusOrigin(itemId: string) {
     const owner = findSourceOwner(itemId)
     if (owner) owner.focus({ preventScroll: true })
@@ -134,7 +134,7 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
     try { const next = await getChatScope(id); if (id === workspaceId.value) scope.value = next } catch { /* workspace not available yet */ }
   }, { immediate: true })
   registerConversationListeners({ navigate: () => { void navigate() }, captureSelection, contextual, dismissContext, menuKey, clear: () => highlighter.clear() })
-  return { scope, currentDiscussions, fieldTitles, referenceChoices, selection, contextMenu, sourceState, navigationState, linkedMessageId, discuss, selectedDiscuss, contextualDiscuss, messages, close, openReference, openThread, openCard, navigate }
+  return { scope, currentDiscussions, fieldTitles, referenceChoices, selection, contextMenu, sourceState, navigationState, linkedMessageId, discuss, selectedDiscuss, contextualDiscuss, messages, close, openReference, openThread, openCard, navigate, dismissLink }
 }
 
 function registerConversationListeners(handlers: {
