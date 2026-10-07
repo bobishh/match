@@ -8,4 +8,4 @@
 - [x] Add and run bounded identity/catalog TLC scenario.
 - [x] Pass real device-enrollment BDD for pending and post-adoption catalog scope, local-data preservation, reload, and remote write propagation (focused scoped-enrollment run passed on `0ff`).
 - [x] Verify identity replacement preserves the prior workspace bytes while hiding its ID from the replacement identity's catalog/UI; focused existing-identity BDD passed.
-- [ ] Record a fresh full enrollment BDD pass on the current source after the catalog refresh and owner-offer registration changes.
+- [x] Record a fresh full enrollment BDD pass on the current source after the catalog refresh and owner-offer registration changes (Match run `37577926234`, current source `9df48e7`).

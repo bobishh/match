@@ -304,8 +304,29 @@ test.describe("Scoped Sync Outer Scenarios", () => {
   })
 
   test("Given an expired invitation link, when opened, then it reports expiration and prevents connection", async ({ page }) => {
-    // Generate an expired invitation URL (expiresAt in the past)
-    const expiredInvite = "/pair#v=1&kind=workspace-join&invitationId=expired_1&workspaceId=ws_1&expiresAt=2020-01-01T00:00:00.000Z&endpoint=peer1&secret=abc"
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    const expiredInvite = await page.evaluate(async () => {
+      const state = (await import("/src/state.ts")).useTincanban()
+      const current = state.getCurrentProfile()
+      if (!current) throw new Error("Expected current identity for expired invitation fixture")
+      const params = new URLSearchParams({
+        v: "1",
+        kind: "workspace-join",
+        invitationId: "expired_1",
+        issuerPersonId: current.identity.personId,
+        issuerDeviceId: current.device.deviceId,
+        issuerPublicKey: current.device.publicKey,
+        workspaceId: "ws_1",
+        workspaceTitle: "Expired board",
+        role: "visitor",
+        endpoint: "peer1",
+        createdAt: "2019-01-01T00:00:00.000Z",
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        secret: "abc",
+      })
+      return `/pair?view=board#${params}`
+    })
     await page.goto(expiredInvite)
 
     const dialog = page.getByRole("dialog", { name: "Device sync" })
