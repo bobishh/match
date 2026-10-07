@@ -210,3 +210,40 @@ test.describe("Folded board motion", () => {
     await expect(archive.locator(".column-paper")).toHaveCSS("opacity", "1")
   })
 })
+
+
+test("Given a board taller than the viewport, when Rejected and Archive fold, then their labels and counts remain visible near the board top", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1920, height: 900 })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.evaluate(async () => {
+    const { useTincanban } = await import("/src/state.ts")
+    const app = useTincanban()
+    await app.whenReady()
+    const columns = Object.values(app.getActiveDoc()!.entities).filter(entity => entity.kind === "column")
+    for (const [title, count] of [["Lead", 18], ["Rejected", 1], ["Archive", 1]] as const) {
+      const parentId = columns.find(column => column.title === (title === "Archive" ? "Lead" : title))!.id
+      for (let index = 0; index < count; index++) {
+        const id = crypto.randomUUID()
+        await app.executeCommandAsync({ kind: "createItem", id, parentId, title: `${title} card ${index + 1}` })
+        if (title === "Archive") await app.executeCommandAsync({ kind: "setEntityArchived", entityId: id, archived: true })
+      }
+    }
+  })
+  const rejected = page.getByRole("region", { name: "Rejected", exact: true })
+  const archive = page.getByRole("region", { name: "Archive", exact: true })
+  await rejected.getByRole("button", { name: "Collapse Rejected", exact: true }).click()
+  await expect.poll(async () => (await rejected.boundingBox())!.width).toBe(64)
+  await page.evaluate(() => scrollTo(0, 0))
+  expect((await page.getByRole("region", { name: "Lead", exact: true }).boundingBox())!.height).toBeGreaterThan(1800)
+  for (const column of [rejected, archive]) {
+    await expect(column.locator(".column-closed strong")).toBeInViewport({ ratio: 1 })
+    await expect(column.locator(".column-closed .count")).toHaveText("1")
+    await expect(column.locator(".column-closed .count")).toBeInViewport({ ratio: 1 })
+    await expect(column.locator(".column-spine-mark")).toBeInViewport({ ratio: 1 })
+  }
+  await page.screenshot({ path: info.outputPath("tall-board-folded-labels.png") })
+  await archive.getByRole("button", { name: "Open Archive with 1 cards", exact: true }).focus()
+  await page.keyboard.press("Enter")
+  await expect(archive.locator(".lead-card").filter({ hasText: "Archive card 1" })).toBeVisible()
+})
