@@ -239,6 +239,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
                 :fields="cardFields(item)"
                 :bindings="activeBoard?.preset?.bindings"
                 :has-filters="expandFilteredCards || Boolean(cardNoteSearchMatch(item))"
+                :show-fields="hasFilters"
                 :search-query="cardNoteSearchMatch(item)?.query"
                 :search-match-index="cardNoteSearchMatch(item)?.index"
                 :can-edit-items="canEditItems"

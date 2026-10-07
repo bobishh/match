@@ -16,6 +16,7 @@ const props = defineProps<{
   fields: CardField[]
   bindings?: Record<string, string>
   hasFilters: boolean
+  showFields?: boolean
   canEditItems: boolean
   moved: boolean
   ageLevel?: string
@@ -35,7 +36,7 @@ const emit = defineEmits<{
 <template>
   <article
     class="lead-card item-card"
-    :class="[{ 'card-moved': moved, 'lead-card-expanded': hasFilters }, ageLevel ? `card-aging-${ageLevel}` : '']"
+    :class="[{ 'card-moved': moved, 'lead-card-expanded': hasFilters || showFields }, ageLevel ? `card-aging-${ageLevel}` : '']"
     :data-item-id="item.id"
     :data-discussion-item="item.id"
     @click="emit('open', item, $event)"
@@ -59,9 +60,9 @@ const emit = defineEmits<{
           <MarkdownContent v-if="item.body" v-show="!hasFilters" class="item-card-body" data-discussion-text data-discussion-field="narrative" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
         </template>
       </div>
-      <div v-if="hasFilters && (notes || fields.length)" class="card-context">
-        <MarkdownContent v-if="notes" class="card-notes" data-discussion-text data-discussion-field="narrative" :source="notePreview" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
-        <dl v-if="fields.length" class="card-fields">
+      <div v-if="(hasFilters && notes) || (showFields && fields.length)" class="card-context">
+        <MarkdownContent v-if="hasFilters && notes" class="card-notes" data-discussion-text data-discussion-field="narrative" :source="notePreview" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
+        <dl v-if="showFields && fields.length" class="card-fields">
           <div v-for="field in fields" :key="field.id"><dt>{{ field.title }}</dt><dd data-discussion-text :data-discussion-field="field.id">{{ field.value }}</dd></div>
         </dl>
       </div>
