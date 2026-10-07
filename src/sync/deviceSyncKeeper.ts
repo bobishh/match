@@ -58,6 +58,11 @@ function removalAlreadyCompleted(integration: KeeperIntegrationStatus, reference
       && item.operationId === localPending.operationId).map(item => `${item.workspaceId}\0${item.grantEpoch}`))
     return localPending.scopes.every(scope => done.has(`${scope.workspaceId}\0${scope.expectedGrantEpoch}`))
   }
+  if (reference?.completedRemoval) {
+    const done = new Set(integration.tombstones.filter(item => item.state === "removed" && item.cleanup === "complete"
+      && item.operationId === reference.completedRemoval!.operationId).map(item => `${item.workspaceId}\0${item.grantEpoch}`))
+    return reference.completedRemoval.scopes.every(scope => done.has(`${scope.workspaceId}\0${scope.grantEpoch}`))
+  }
   return !!reference?.scopeReceipts?.length && reference.scopeReceipts.every(scope => integration.tombstones.some(item =>
     item.workspaceId === scope.workspaceId && item.grantEpoch === scope.grantEpoch
       && item.state === "removed" && item.cleanup === "complete"))
@@ -87,10 +92,19 @@ async function persistRemovalReceipt(profile: LocalProfile, personId: string, di
     scopeReceipts: remaining.map(scope => ({ workspaceId: scope.workspaceId,
       grantEpoch: scope.grantEpoch, activationOperationId: scope.activationOperationId })),
     state: remaining.length ? "active" : "removed", revision: receipt.revision,
-    pendingRemoval: undefined, verifiedAt: new Date().toISOString() }
+    pendingRemoval: undefined,
+    completedRemoval: remaining.length ? descriptor.completedRemoval : {
+      operationId: receipt.operationId,
+      scopes: receipt.scopes.map(scope => ({ workspaceId: scope.workspaceId, grantEpoch: scope.grantEpoch })),
+    }, verifiedAt: new Date().toISOString() }
   await saveKeeperIntegrationReference(nextDescriptor)
   if (!remaining.length) {
-    await removeOwnerKeeper(profile.identity.personId, personId)
+    try {
+      await removeOwnerKeeper(profile.identity.personId, personId)
+    } catch (error) {
+      throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
+    }
+    await saveKeeperIntegrationReference({ ...nextDescriptor, scopeReceipts: [] })
     return
   }
   await saveOwnerKeeper(profile.identity.personId, { personId, role: "editor", details: {
@@ -200,9 +214,13 @@ async function removalIntentWithLocalError(discovery: LighthouseDiscovery, profi
 async function finishAlreadyRemoved(personId: string, profile: LocalProfile, reference: KeeperIntegrationReference | undefined,
   integration: KeeperIntegrationStatus, localPending: KeeperIntegrationReference["pendingRemoval"]): Promise<boolean> {
   if (!removalAlreadyCompleted(integration, reference, localPending)) return false
-  if (reference) await saveKeeperIntegrationReference({ ...reference, state: "removed", workspaceIds: [], revision: integration.revision,
-    pendingRemoval: undefined, verifiedAt: new Date().toISOString() })
-  await removeOwnerKeeper(profile.identity.personId, personId)
+  try {
+    await removeOwnerKeeper(profile.identity.personId, personId)
+  } catch (error) {
+    throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
+  }
+  if (reference) await saveKeeperIntegrationReference({ ...reference, state: "removed", workspaceIds: [], scopeReceipts: [],
+    revision: integration.revision, pendingRemoval: undefined, verifiedAt: new Date().toISOString() })
   return true
 }
 
@@ -229,17 +247,23 @@ async function submitRemoval(personId: string, profile: LocalProfile, discovery:
   }
   await saveKeeperIntegrationReference(descriptor)
   traceRemoval(trace, "intent-saved", { peerId: personId, recordId: integration.integrationId, outcome: "pending-rusty-confirmation" })
+  let receipt: KeeperDisconnectReceipt
   try {
     const { disconnectKeeperIntegration } = await import("./lighthousePairing")
-    const receipt = await disconnectKeeperIntegration(discovery, integration.integrationId, expectedRevision, operationId, scopes,
+    receipt = await disconnectKeeperIntegration(discovery, integration.integrationId, expectedRevision, operationId, scopes,
       servicePending?.requestHash)
-    traceRemoval(trace, "receipt", { peerId: personId, recordId: integration.integrationId, outcome: receipt.status })
-    if (receipt.status === "pending") return "pending" as const
+  } catch (error) {
+    throw new Error(`Removal pending Rusty confirmation: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  traceRemoval(trace, "receipt", { peerId: personId, recordId: integration.integrationId, outcome: receipt.status })
+  if (receipt.status === "pending") return "pending" as const
+  try {
     await persistRemovalReceipt(profile, personId, discovery, integration, receipt, descriptor)
     traceRemoval(trace, "receipt-persisted", { peerId: personId, recordId: integration.integrationId, outcome: receipt.status })
     return "removed" as const
   } catch (error) {
-    throw new Error(`Removal pending Rusty confirmation: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    if (error instanceof Error && error.message.startsWith("Rusty confirmed removal;")) throw error
+    throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
   }
 }
 

@@ -5,6 +5,8 @@ import { defaultStorage } from "../storage"
 import type { DurableMesh } from "./durableMesh"
 import { removeKeeperAccess } from "./deviceSyncKeeper"
 import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
+import * as ownerKeeperStorage from "./ownerKeeper"
+import * as lighthousePairing from "./lighthousePairing"
 
 describe("keeper removal", () => {
   beforeEach(() => resetIdentityStorageForTest())
@@ -134,6 +136,42 @@ describe("keeper removal", () => {
     expect(revokePerson.mock.calls).toEqual([["owned", keeper]])
     expect(fetchMock).not.toHaveBeenCalled()
     await expect(ownerKeepers(owner)).resolves.toEqual([])
+  })
+
+  it("retries local keeper cleanup after a verified removal receipt survives restart", async () => {
+    const { profile, owner, keeper } = await setupOwnerKeeper(["board"])
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor" })
+    const mesh = { revokePerson: vi.fn(async () => {}) } as unknown as DurableMesh
+    const active = { integrationId: "integration", revision: 1, futureBoards: false, scopes: [
+      { workspaceId: "board", grantEpoch: 1, state: "active" as const, activationOperationId: "activation" },
+    ], tombstones: [] }
+    const removed = { ...active, revision: 2, scopes: [], tombstones: [
+      { workspaceId: "board", grantEpoch: 1, operationId: "remove-op", state: "removed" as const, cleanup: "complete" as const },
+    ] }
+    const status = vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus")
+      .mockResolvedValueOnce({ integrations: [active], signerKeyId: "rusty-device", signature: "signed", revision: 1 })
+      .mockResolvedValue({ integrations: [removed], signerKeyId: "rusty-device", signature: "signed", revision: 2 })
+    vi.spyOn(lighthousePairing, "disconnectKeeperIntegration").mockResolvedValue({
+      integrationId: "integration", operationId: "remove-op", requestHash: "request-hash", revision: 2,
+      status: "removed", scopes: [{ workspaceId: "board", grantEpoch: 1, state: "removed", cleanup: "complete" }],
+    })
+    vi.spyOn(ownerKeeperStorage, "removeOwnerKeeper").mockRejectedValueOnce(new Error("storage unavailable"))
+    const options = {
+      getProfile: async () => profile,
+      workspaces: [{ id: "board" }], workspaceOwner: async () => owner, mesh: async () => mesh,
+    }
+
+    await expect(removeKeeperAccess(keeper, options)).rejects.toThrow("Rusty confirmed removal; local keeper cleanup is pending")
+    const afterReceipt = (await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration
+    expect(afterReceipt).toMatchObject({ state: "removed", workspaceIds: [], completedRemoval: {
+      operationId: "remove-op", scopes: [{ workspaceId: "board", grantEpoch: 1 }],
+    } })
+
+    await expect(removeKeeperAccess(keeper, options)).resolves.toBe("removed")
+    expect(status).toHaveBeenCalledTimes(2)
+    expect(mesh.revokePerson).toHaveBeenCalledOnce()
+    await expect(ownerKeepers(owner)).resolves.toEqual([])
+    expect((await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration?.scopeReceipts).toEqual([])
   })
 
 })

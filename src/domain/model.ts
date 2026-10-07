@@ -65,6 +65,10 @@ export type KeeperIntegrationReference = {
     expectedRevision: number
     scopes: Array<{ workspaceId: WorkspaceId; expectedGrantEpoch: number }>
   }
+  completedRemoval?: {
+    operationId: string
+    scopes: Array<{ workspaceId: WorkspaceId; grantEpoch: number }>
+  }
 }
 
 export type TransactionMetadataV1 = {
