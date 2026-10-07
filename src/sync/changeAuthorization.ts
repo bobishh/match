@@ -126,15 +126,34 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
     traceWorkspaceAccess(doc, profile, authority, role, "valid")
     return role
   } catch (error) {
-    traceWorkspaceAccess(doc, profile, authority, "unavailable", "error")
+    traceWorkspaceAccess(doc, profile, authority, "unavailable", "error", workspaceAccessErrorClass(error))
     throw error
   }
+}
+
+function workspaceAccessErrorClass(error: unknown): string {
+  if (!(error instanceof Error)) return "non-error"
+  const known: Array<[string, string]> = [
+    ["Workspace authority changed during access validation. Retry.", "authority-changed-during-validation"],
+    ["Invalid workspace access decision input", "invalid-access-input"],
+    ["Invalid workspace write authority context", "invalid-authority-context"],
+    ["Workspace ownership chain does not match the expected owner", "owner-chain-mismatch"],
+    ["Workspace revocation has an unknown owner", "unknown-revocation-owner"],
+    ["Invalid workspace revocation signature", "invalid-person-revocation-signature"],
+    ["Workspace ownership boundary is missing from the document", "authority-boundary-head-missing"],
+    ["Invalid workspace revocation", "invalid-person-revocation"],
+    ["Invalid workspace device revocation", "invalid-device-revocation"],
+    ["Invalid workspace departure", "invalid-departure"],
+    ["Invalid workspace authority", "invalid-authority"],
+    ["Invalid workspace grant", "invalid-grant"],
+  ]
+  return known.find(([message]) => error.message.includes(message))?.[1] ?? "other"
 }
 
 /** Opt-in, bounded access diagnostics. Extra identity fields stay in the local
  * trace snapshot; telemetry's allowlist intentionally drops them. */
 function traceWorkspaceAccess(doc: WorkspaceDocumentV2, profile: LocalProfile, authority: StoredWorkspaceAuthority | null,
-  role: WorkspaceRole | "unavailable", validation: "valid" | "invalid" | "missing" | "error") {
+  role: WorkspaceRole | "unavailable", validation: "valid" | "invalid" | "missing" | "error", errorClass = "") {
   if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("syncTrace") !== "1") return
   const catalog = authority?.catalog as {
     deviceRevocations?: Array<{ record?: { payload?: { personId?: string; deviceId?: string } } }>
@@ -147,21 +166,18 @@ function traceWorkspaceAccess(doc: WorkspaceDocumentV2, profile: LocalProfile, a
   const matchingDeviceRevocations = deviceRevocations.filter(item =>
     item.record?.payload?.personId === profilePersonId && item.record?.payload?.deviceId === currentDeviceId)
   const matchingPersonRevocations = personRevocations.filter(item => item.payload?.personId === profilePersonId)
-  const grant = authority?.localGrant as WorkspaceGrant | undefined
   void import("./meshTrace").then(({ meshTrace }) => meshTrace("workspace.access.resolution", {
     workspaceId: doc.id.slice(0, 8),
     profilePersonPrefix: profilePersonId.slice(0, 8),
     documentOwnerPrefix: doc.ownerPersonId.slice(0, 8),
     authorityOwnerPrefix: authority?.ownerPersonId.slice(0, 8) ?? "",
     currentDevicePrefix: currentDeviceId.slice(0, 8),
-    localGrantPersonPrefix: grant?.payload.personId.slice(0, 8) ?? "",
-    localGrantEpoch: grant?.payload.accessEpoch ?? null,
     role,
     authorityValidation: validation,
+    accessErrorClass: errorClass,
     profileIsAuthorityOwner: profilePersonId === authority?.ownerPersonId,
     profileIsDocumentOwner: profilePersonId === doc.ownerPersonId,
     deviceRevocationCount: deviceRevocations.length,
-    personRevocationCount: personRevocations.length,
     localDeviceRevoked: matchingDeviceRevocations.length > 0,
     localPersonRevocationCount: matchingPersonRevocations.length,
     localPersonRevocationEpoch: Math.max(0, ...matchingPersonRevocations.map(item => item.payload?.epoch ?? 0)),
