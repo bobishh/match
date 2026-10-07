@@ -74,19 +74,3 @@ export async function saveKeeperIntegrationReference(reference: KeeperIntegratio
   root.keeperIntegrations = { ...integrations, [reference.integrationId]: serializable }
   await defaultStorage.savePersonalRoot(root)
 }
-
-export async function updateKeeperRemovalPending(integrationId: string, pendingRemoval: KeeperIntegrationReference["pendingRemoval"]) {
-  const { root, integrations } = await keeperIntegrationReferences()
-  const current = integrations[integrationId]
-  if (!current) throw new Error("Keeper integration descriptor is unavailable.")
-  root.keeperIntegrations = { ...integrations, [integrationId]: { ...current, pendingRemoval } }
-  await defaultStorage.savePersonalRoot(root)
-}
-
-export async function removeKeeperIntegrationReference(integrationId: string) {
-  const { root, integrations } = await keeperIntegrationReferences()
-  const next = { ...integrations }
-  delete next[integrationId]
-  root.keeperIntegrations = next
-  await defaultStorage.savePersonalRoot(root)
-}

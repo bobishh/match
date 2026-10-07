@@ -9,7 +9,7 @@ import type { KeeperWorkspace, LighthouseDiscovery } from "./lighthouseDiscovery
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { rememberActivatedKeeper, saveKeeperIntegrationReference } from "./ownerKeeper"
 import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope } from "./keeperIntegrationStatus"
-export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
+export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
 const CONTROL_DOMAIN = "MESH-LIGHTHOUSE/1"
 

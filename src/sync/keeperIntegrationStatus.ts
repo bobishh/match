@@ -1,7 +1,7 @@
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 
 export type KeeperDisconnectScope = { workspaceId: string; expectedGrantEpoch: number }
-export type KeeperIntegrationScope = {
+type KeeperIntegrationScope = {
   workspaceId: string
   grantEpoch: number
   state: "active"
