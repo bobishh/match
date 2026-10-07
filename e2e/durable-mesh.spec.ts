@@ -998,7 +998,21 @@ test("Given an editor has an unsigned raw branch, when it is reloaded, then it s
         authorizationEvidence: existing?.authorizationEvidence ?? [],
       })
     })
+    let failReviewModule!: () => void
+    const reviewModuleGate = new Promise<void>(resolve => { failReviewModule = resolve })
+    let firstReviewRequest = true
+    await guest.route(/CausalChangeReview\.vue/, async route => {
+      if (firstReviewRequest) {
+        firstReviewRequest = false
+        await reviewModuleGate
+        await route.abort()
+      } else await route.continue()
+    })
     await guest.reload()
+    await expect(guest.getByRole("status").filter({ hasText: "Loading workspace change review" })).toBeVisible()
+    failReviewModule()
+    await expect(guest.getByRole("alert").filter({ hasText: "Workspace change review could not load" })).toBeVisible()
+    await guest.getByRole("button", { name: "Reload review" }).click()
     const review = guest.getByRole("region", {name:"Workspace change review"})
     await expect(review).toBeVisible()
     await expect(review.getByText("1 workspace changes need review")).toBeVisible()

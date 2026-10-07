@@ -1,6 +1,6 @@
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import { computeWorkspaceAdmission, type WorkspaceAdmissionInput, type WorkspaceAdmissionResult,
-  type WorkspaceAdmissionRequest, type WorkspaceAdmissionResponse } from "./workspaceAdmissionCore"
+import type { WorkspaceAdmissionInput, WorkspaceAdmissionResult,
+  WorkspaceAdmissionRequest, WorkspaceAdmissionResponse } from "./workspaceAdmissionCore"
 
 type PendingJob = { resolve(result: WorkspaceAdmissionResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 let worker: Worker | undefined
@@ -89,7 +89,10 @@ function installOnlineWarmup() {
 
 export async function runWorkspaceAdmission(input: WorkspaceAdmissionInput): Promise<WorkspaceAdmissionResult> {
   // Non-browser callers (CLI/unit fixtures) use the identical pure algorithm.
-  if (typeof window === "undefined") return computeWorkspaceAdmission(input, meshRustRuntime().state)
+  if (typeof window === "undefined") {
+    const { computeWorkspaceAdmission } = await import("./workspaceAdmissionCore")
+    return computeWorkspaceAdmission(input, meshRustRuntime().state)
+  }
   await warmWorkspaceAdmissionWorker()
   return new Promise<WorkspaceAdmissionResult>((resolve, reject) => {
     const id = ++nextId

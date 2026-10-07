@@ -6,6 +6,18 @@ const pendingStatus = (message: string): Component => ({
 
 export const IdentityRecoveryDialog = defineAsyncComponent<Component>(() => import("../components/IdentityRecoveryDialog.vue"))
 export const IdentitySettingsPanel = defineAsyncComponent<Component>(() => import("../components/IdentitySettingsPanel.vue"))
+export const CausalChangeReview = defineAsyncComponent<Component>({
+  loader: () => import("../components/CausalChangeReview.vue"),
+  delay: 0,
+  loadingComponent: pendingStatus("Loading workspace change review…"),
+  errorComponent: {
+    setup: () => () => h("div", { role: "alert" }, [
+      "Workspace change review could not load. Reload to retry. ",
+      h("button", { class: "button button-small", type: "button", onClick: () => window.location.reload() }, "Reload review"),
+    ]),
+  },
+  onError: (_error, _retry, fail) => fail(),
+})
 export const ItemDetailDialog = defineAsyncComponent<Component>({
   loader: () => import("../components/ItemDetailDialog.vue"),
   delay: 0,
