@@ -13,7 +13,24 @@ const discovery: LighthouseDiscovery = {
   capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: true, pairing: true },
 }
 
-function status(pendingOperation: unknown) {
+type IntegrationPayload = {
+  integrationId: string
+  revision: number
+  policy: { futureBoards: boolean; baselineWorkspaceIds?: string[] }
+  scopes: Array<{ workspaceId: string; grantEpoch: number; state: string; activationOperationId: string }>
+  tombstones: Array<{ workspaceId: string; grantEpoch: number; operationId: string; state: string; cleanup: string }>
+  pendingOperation?: unknown
+}
+
+type StatusPayload = {
+  servicePersonId: string
+  serviceDeviceId: string
+  serviceOrigin: string
+  revision: number
+  integrations: IntegrationPayload[]
+}
+
+function status(pendingOperation: unknown): StatusPayload {
   return {
     servicePersonId: discovery.personId,
     serviceDeviceId: discovery.deviceId,
