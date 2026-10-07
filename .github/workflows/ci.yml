@@ -28,6 +28,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Verify Ubuntu mirror rewrite fixtures
+        run: bash scripts/use-primary-ubuntu-mirror.test.sh
       - name: Verify Match receive mutation contract
         run: MATCH_ROOT="$GITHUB_WORKSPACE" python3 vendor/meta-mesh/formal/check_match_mutations.py
       - run: npm run verify:policy
@@ -88,11 +90,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
-        run: |
-          sources=/etc/apt/sources.list.d/ubuntu.sources
-          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$sources"
-          ! grep -Fq 'azure.archive.ubuntu.com' "$sources"
-          grep -Fq 'archive.ubuntu.com' "$sources"
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=core --shard=${{ matrix.shard }}
       - uses: actions/upload-artifact@v6
@@ -144,11 +142,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
-        run: |
-          sources=/etc/apt/sources.list.d/ubuntu.sources
-          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$sources"
-          ! grep -Fq 'azure.archive.ubuntu.com' "$sources"
-          grep -Fq 'archive.ubuntu.com' "$sources"
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v6
@@ -192,11 +186,7 @@ jobs:
           echo "TINCANBAN_LIGHTHOUSE_BINARY=$RUNNER_TEMP/rusty-lifecycle/target/debug/mesh-lighthouse" >> "$GITHUB_ENV"
           echo "TINCANBAN_LIGHTHOUSE_MANIFEST=$RUNNER_TEMP/rusty-lifecycle/Cargo.toml" >> "$GITHUB_ENV"
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
-        run: |
-          sources=/etc/apt/sources.list.d/ubuntu.sources
-          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$sources"
-          ! grep -Fq 'azure.archive.ubuntu.com' "$sources"
-          grep -Fq 'archive.ubuntu.com' "$sources"
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=lighthouse-keeper-provisioning
       - uses: actions/upload-artifact@v6
@@ -222,11 +212,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
-        run: |
-          sources=/etc/apt/sources.list.d/ubuntu.sources
-          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$sources"
-          ! grep -Fq 'azure.archive.ubuntu.com' "$sources"
-          grep -Fq 'archive.ubuntu.com' "$sources"
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:policy
       - uses: actions/upload-artifact@v6
@@ -252,11 +238,7 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
-        run: |
-          sources=/etc/apt/sources.list.d/ubuntu.sources
-          sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' "$sources"
-          ! grep -Fq 'azure.archive.ubuntu.com' "$sources"
-          grep -Fq 'archive.ubuntu.com' "$sources"
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: cargo build --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-native/Cargo.toml --example browser_document_probe
       - run: npx playwright test --reporter=list --project=browser-native
