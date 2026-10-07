@@ -1,4 +1,4 @@
-import { defineAsyncComponent, h, watch, type Component } from "vue"
+import { defineAsyncComponent, h, ref, watch, type Component } from "vue"
 
 const pendingStatus = (message: string): Component => ({
   setup: () => () => h("div", { role: "status", "aria-live": "polite" }, message),
@@ -11,10 +11,14 @@ export const CausalChangeReview = defineAsyncComponent<Component>({
   delay: 0,
   loadingComponent: pendingStatus("Loading workspace change review…"),
   errorComponent: {
-    setup: () => () => h("div", { role: "alert" }, [
-      "Workspace change review could not load. Reload to retry. ",
-      h("button", { class: "button button-small", type: "button", onClick: () => window.location.reload() }, "Reload review"),
-    ]),
+    setup: () => {
+      const showError = ref(true)
+      return () => h("section", { "aria-label": "Workspace change review unavailable" }, [
+        showError.value && h("p", { role: "alert" }, "Workspace change review could not load. Reload to retry."),
+        showError.value && h("button", { class: "button button-small", type: "button", onClick: () => { showError.value = false } }, "Dismiss review error"),
+        h("button", { class: "button button-small", type: "button", onClick: () => window.location.reload() }, "Reload review"),
+      ])
+    },
   },
   onError: (_error, _retry, fail) => fail(),
 })

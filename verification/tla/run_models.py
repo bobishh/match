@@ -33,6 +33,9 @@ MODELS = [
     ("OwnerAuthorityRecovery", "OwnerAuthorityRecovery", None),
     ("OwnerAuthorityRecoveryUnauthorized", "OwnerAuthorityRecovery", "Invariant OnlyCurrentOwnerRepairs is violated"),
     ("OwnerAuthorityRecoveryRevokedDevice", "OwnerAuthorityRecovery", "Invariant OnlyAuthorizedOwnerDeviceRepairs is violated"),
+    ("ReviewLifecycle", "ReviewLifecycle", None),
+    ("ReviewLifecycleDuplicateApply", "ReviewLifecycle", "Invariant AtMostOneAuthorizedCommand is violated"),
+    ("ReviewLifecycleDismissErasesHistory", "ReviewLifecycle", "Invariant DismissalPreservesProof is violated"),
 ]
 
 

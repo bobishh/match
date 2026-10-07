@@ -33,7 +33,8 @@ import { projectWorkspace } from "./stateProjection";
 import { withWorkspaceMutation } from "./workspaceMutation";
 import { stateRuntime } from "./stateContext";
 import { readLocal, writeLocal } from "./localDb";
-import { refreshCausalReview, reviewCausalChange as applyCausalReview, type CausalReviewCallbacks } from "./stateCausalReview";
+import { loadReviewAction, refreshCausalReview } from "./stateCausalReviewLoader";
+import type { CausalReviewCallbacks } from "./stateCausalReviewLoader";
 import { assertWorkspaceWritesAllowed, reclassifyStoredWorkspace } from "./stateCausalAdmission";
 import { applyInjectedFixture } from "./stateInjectedFixture";
 import { canReuseAdmittedDocument } from "./sync/localAdmissionReuse";
@@ -187,9 +188,24 @@ export async function persistAuthorizedCommand(
   });
 }
 
-export function reviewCausalChange(changeHash: string, storage = defaultStorage): Promise<void> {
+export async function reviewCausalChange(changeHash: string, storage = defaultStorage): Promise<void> {
   const callbacks: CausalReviewCallbacks = { latestWorkspaceDocument, persistNewLocalChange, updateReactiveState, notifyLocalChanges };
-  return assertWorkspaceWritesAllowed(stateRuntime.activeDoc?.id).then(() => applyCausalReview(changeHash, storage, callbacks));
+  await assertWorkspaceWritesAllowed(stateRuntime.activeDoc?.id)
+  await (await requireReviewAction()).reviewCausalChange(changeHash, storage, callbacks)
+}
+
+export async function dismissCausalChange(changeHash: string, storage = defaultStorage): Promise<void> {
+  await (await requireReviewAction()).setCausalChangeDismissed(changeHash, true, storage)
+}
+
+export async function restoreCausalChange(changeHash: string, storage = defaultStorage): Promise<void> {
+  await (await requireReviewAction()).setCausalChangeDismissed(changeHash, false, storage)
+}
+
+async function requireReviewAction() {
+  const module = await loadReviewAction()
+  if (!module) throw new Error("Workspace change review could not load. Reload to retry.")
+  return module
 }
 
 async function commitAuthorizedCommand(
@@ -213,7 +229,7 @@ type CreatedLocalChange = Extract<ExecuteResult, { ok: true }>['value']
 
 async function persistNewLocalChange(
   base: Automerge.Doc<WorkspaceDocumentV2>, created: CreatedLocalChange,
-  profile: LocalProfile, storage: WorkspaceStorage,
+  profile: LocalProfile, storage: WorkspaceStorage, reviewedChangeHash?: string,
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
   await assertWorkspaceWritesAllowed(base.id);
   const changeBytes = Automerge.getLastLocalChange(created.newDoc);
@@ -247,11 +263,29 @@ async function persistNewLocalChange(
   const authorizedDoc = allChangesAdmitted
     ? created.newDoc
     : Automerge.load<WorkspaceDocumentV2>(admission.authorizedDocument)
+  const reviewMetadata = causalReviewMetadata(previousEvidence, reviewedChangeHash, created.receipt.changeHash)
   await storage.commitWorkspace(base.id, authorizedDoc, Automerge.save(authorizedDoc), admission.verifiedAuthorizations, {
     receipt: created.receipt, changeBytes, proof: created.proof,
-  }, { bytes: admission.rawBytes, decisions: admission.decisions, authorizationEvidence: admission.authorizationEvidence });
+  }, { bytes: admission.rawBytes, decisions: admission.decisions, authorizationEvidence: admission.authorizationEvidence,
+    ...reviewMetadata });
   meshTrace("document.persisted", { workspaceId: base.id, recordId: created.receipt.changeHash, phase: "local" });
   return authorizedDoc;
+}
+
+function causalReviewMetadata(
+  previous: Awaited<ReturnType<WorkspaceStorage["loadCausalEvidence"]>>,
+  sourceHash: string | undefined,
+  authorizedChangeHash: string,
+) {
+  const resolved = new Map((previous?.resolvedReviews ?? []).map(review => [review.sourceHash, review.authorizedChangeHash]))
+  const dismissed = new Set(previous?.dismissedHashes ?? [])
+  if (sourceHash) { resolved.set(sourceHash, authorizedChangeHash); dismissed.add(sourceHash) }
+  return {
+    dismissedHashes: [...dismissed].sort(),
+    resolvedReviews: [...resolved].map(([reviewSourceHash, authorizedHash]) => ({
+      sourceHash: reviewSourceHash, authorizedChangeHash: authorizedHash,
+    })),
+  }
 }
 
 function hasUnresolvedCausalChanges(evidence: Awaited<ReturnType<WorkspaceStorage["loadCausalEvidence"]>>): boolean {

@@ -54,6 +54,23 @@ allows a foreign actor to repair and expects `OnlyCurrentOwnerRepairs` to fail.
 `OnlyAuthorizedOwnerDeviceRepairs` to fail. The finite model does not represent
 signature bytes or real store transactions.
 
+`ReviewLifecycle` keeps the original causal source quarantined and separates it
+from the source-hash-to-authorized-clone resolution receipt, active review row,
+persisted dismissal, and action error. Dismissal hides a pending row but retains
+source history; reopening it does not approve it. A failed local commit leaves the source quarantined and
+retryable. A failed dismissal save keeps the row hidden in the current view,
+surfaces a dismissible error, and can retry persistence; reload uses the last
+durable dismissal value. Successful review atomically records the trusted clone,
+receipt, and source-hash resolution while the original branch remains
+unadmitted. Projection refresh may happen later; duplicate clicks check the
+resolution map under the serialized lock. `ReviewLifecycleDuplicateApply.cfg` removes that guard and
+expects a second command; `ReviewLifecycleDismissErasesHistory.cfg` models
+deleting source history on dismissal and expects the retention invariant to fail.
+Proof and raw source bytes remain retained across all modeled transitions.
+This bounds review to one source change and two click attempts. It abstracts
+IndexedDB atomicity, command signatures, concurrent browser tabs, and the exact
+presentation store; implementation tests must cover those details.
+
 ## Run
 
 Requirements: Java, Python 3, official
@@ -117,6 +134,9 @@ workspace, ownership, and entitlement abstraction.
 | OwnerAuthorityRecovery | Safety holds | 18 / 8 |
 | OwnerAuthorityRecoveryUnauthorized | OnlyCurrentOwnerRepairs violated | 3 / 3 |
 | OwnerAuthorityRecoveryRevokedDevice | OnlyAuthorizedOwnerDeviceRepairs violated | 3 / 3 |
+| ReviewLifecycle | Safety holds | 115 / 32 |
+| ReviewLifecycleDuplicateApply | AtMostOneAuthorizedCommand violated | 143 / 42 |
+| ReviewLifecycleDismissErasesHistory | DismissalPreservesProof violated | 2 / 2 |
 
 ## Interpretation and code mapping
 

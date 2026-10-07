@@ -17,7 +17,7 @@ type CreatedLocalChange = Extract<ExecuteResult, { ok: true }>['value']
 export type CausalReviewCallbacks = {
   latestWorkspaceDocument: (workspaceId: string, storage: WorkspaceStorage) => Promise<Automerge.Doc<WorkspaceDocumentV2>>
   persistNewLocalChange: (base: Automerge.Doc<WorkspaceDocumentV2>, created: CreatedLocalChange,
-    profile: LocalProfile, storage: WorkspaceStorage) => Promise<Automerge.Doc<WorkspaceDocumentV2>>
+    profile: LocalProfile, storage: WorkspaceStorage, reviewedChangeHash?: string) => Promise<Automerge.Doc<WorkspaceDocumentV2>>
   updateReactiveState: (doc: Automerge.Doc<WorkspaceDocumentV2>) => void
   notifyLocalChanges: (workspaceId?: string) => void
 }
@@ -40,10 +40,34 @@ export async function refreshCausalReview(storage = defaultStorage, workspaceId 
     const raw = Automerge.load<WorkspaceDocumentV2>(evidence.bytes)
     try {
       const changes = new Map(Automerge.getChangesMetaSince(raw, []).map(change => [change.hash, change]))
-      stateRuntime.causalReview.value = reviewable.map(decision => reviewEntry(raw, decision, changes.get(decision.hash)))
+      const dismissed = new Set(evidence.dismissedHashes ?? [])
+      const resolved = resolvedReviewLinks(evidence, raw)
+      stateRuntime.causalReview.value = reviewable.map(decision => ({
+        ...reviewEntry(raw, decision, changes.get(decision.hash)), dismissed: dismissed.has(decision.hash) || resolved.has(decision.hash),
+        resolved: resolved.has(decision.hash),
+      }))
     } finally { Automerge.free(raw) }
   }
   stateRuntime.causalReviewError.value = ""
+}
+
+export async function setCausalChangeDismissed(changeHash: string, dismissed: boolean, storage = defaultStorage): Promise<void> {
+  const workspaceId = stateRuntime.activeDoc?.id
+  if (!workspaceId) throw new Error("Workspace not hydrated")
+  await withWorkspaceMutation(workspaceId, async () => {
+    const evidence = await storage.loadCausalEvidence(workspaceId)
+    const decision = evidence?.decisions.find(item => item.hash === changeHash)
+    if (!evidence || !decision || decision.status.type === "admitted") throw new Error("Workspace change history is unavailable")
+    const dismissedHashes = new Set(evidence.dismissedHashes ?? [])
+    if (dismissed) dismissedHashes.add(changeHash)
+    else dismissedHashes.delete(changeHash)
+    const loaded = await storage.loadWorkspaceDoc(workspaceId)
+    if (!loaded) throw new Error("Workspace content is unavailable")
+    await storage.commitWorkspace(workspaceId, loaded.doc, Automerge.save(loaded.doc), [], undefined, {
+      ...evidence, dismissedHashes: [...dismissedHashes].sort(),
+    })
+    if (stateRuntime.activeDoc?.id === workspaceId) await refreshCausalReview(storage, workspaceId)
+  })
 }
 
 function reviewEntry(raw: Automerge.Doc<WorkspaceDocumentV2>, decision: WorkspaceStorageDecision,
@@ -67,6 +91,22 @@ function reviewEntry(raw: Automerge.Doc<WorkspaceDocumentV2>, decision: Workspac
 
 type WorkspaceStorageDecision = NonNullable<Awaited<ReturnType<WorkspaceStorage["loadCausalEvidence"]>>>["decisions"][number]
 
+export function resolvedReviewLinks(evidence: NonNullable<Awaited<ReturnType<WorkspaceStorage["loadCausalEvidence"]>>>,
+  raw: Automerge.Doc<WorkspaceDocumentV2>): Map<string, string> {
+  const decisions = new Map(evidence.decisions.map(decision => [decision.hash, decision.status.type]))
+  const resolved = new Map((evidence.resolvedReviews ?? []).filter(review =>
+    decisions.get(review.sourceHash) === "quarantined" && decisions.get(review.authorizedChangeHash) === "admitted"
+  ).map(review => [review.sourceHash, review.authorizedChangeHash]))
+  for (const change of Automerge.getChangesMetaSince(raw, [])) {
+    const sourceHash = parseTransaction(change.message).sourceChangeHash
+    if (parseTransaction(change.message).action === "reviewQuarantinedChange" && typeof sourceHash === "string" &&
+      decisions.get(sourceHash) === "quarantined" && decisions.get(change.hash) === "admitted") {
+      resolved.set(sourceHash, change.hash)
+    }
+  }
+  return resolved
+}
+
 function parseTransaction(message?: string | null) {
   try { return message ? JSON.parse(message) as Record<string, unknown> : {} }
   catch { return {} }
@@ -83,6 +123,7 @@ export async function reviewCausalChange(changeHash: string, storage: WorkspaceS
     if (decision?.status.type !== "quarantined") throw new Error("Only quarantined changes can be reviewed")
     const raw = Automerge.load<WorkspaceDocumentV2>(evidence.bytes)
     try {
+      if (resolvedReviewLinks(evidence, raw).has(changeHash)) throw new Error("This review already has an authorized change")
       const change = Automerge.getChangesMetaSince(raw, []).find(item => item.hash === changeHash)
       if (!change) throw new Error("Quarantined change bytes are unavailable")
       const before = Automerge.view(raw, change.deps)
@@ -95,7 +136,7 @@ export async function reviewCausalChange(changeHash: string, storage: WorkspaceS
       const result = await executeReviewedWorkspaceChange(base, changeHash, patch, profile, authorityGrantHash)
       if (!result.ok) throw new Error(`Review failed: [${result.error.code}] ${result.error.message}`)
       assertWorkspaceTransition(role, base, result.value.newDoc)
-      const next = await callbacks.persistNewLocalChange(base, result.value, profile, storage)
+      const next = await callbacks.persistNewLocalChange(base, result.value, profile, storage, changeHash)
       if (stateRuntime.activeDoc?.id === workspaceId) callbacks.updateReactiveState(next)
       await refreshCausalReview(storage, workspaceId)
       stateRuntime.storageChannel?.postMessage({ type: "workspace-persisted", workspaceId })

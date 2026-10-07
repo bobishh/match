@@ -10,6 +10,8 @@ export function useAppViewState(app: ReturnType<typeof useAppController>) {
   return {
     SyncDialog: createLazySyncDialog(sync.dismiss),
     reviewCausalChange: (hash: string) => app.workspace.reviewCausalChange(hash),
+    dismissCausalChange: (hash: string) => app.workspace.dismissCausalChange(hash),
+    restoreCausalChange: (hash: string) => app.workspace.restoreCausalChange(hash),
     chatCanView: computed(() => confirmedRole.value !== null && !sync.isWorkspaceAccessRevoked(activeWorkspace.id)),
     uiReady: computed(() => ready.value && workspaceRoleStatus.value !== "loading"),
     showAccessLoading: useDelayedFlag(() => ready.value && workspaceRoleStatus.value === "loading"),

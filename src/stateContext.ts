@@ -19,7 +19,7 @@ export type StateRuntime = {
   availableWorkspaces: Ref<WorkspaceSummary[]>;
   archivedWorkspaces: Ref<WorkspaceSummary[]>;
   causalReview: Ref<Array<{ hash: string; status: { type: "quarantined" | "pending"; reason: string };
-    actor: string; time: number; action: string; preview: string[]; personId?: string; deviceId?: string }>>;
+    actor: string; time: number; action: string; preview: string[]; dismissed?: boolean; resolved?: boolean; personId?: string; deviceId?: string }>>;
   causalReviewError: Ref<string>;
   activeWorkspaceMeta: ActiveWorkspaceMeta;
   activeDoc: Automerge.Doc<WorkspaceDocumentV2> | null;

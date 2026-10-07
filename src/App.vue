@@ -35,7 +35,7 @@ import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySetti
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 
 const app = useAppController()
-const { SyncDialog, reviewCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
+const { SyncDialog, reviewCausalChange, dismissCausalChange, restoreCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)
 const [showIdentityRecovery, showSettings] = [ref(false), ref(false)]
 const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
@@ -140,7 +140,8 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
     </template>
 
     <CausalChangeReview :changes="causalReview" :error="causalReviewError"
-      :can-review="uiReady && canEditItems" :review-change="reviewCausalChange" />
+      :can-review="uiReady && canEditItems" :review-change="reviewCausalChange"
+      :dismiss-change="dismissCausalChange" :restore-change="restoreCausalChange" />
 
     <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
       <div class="boot-toolbar">

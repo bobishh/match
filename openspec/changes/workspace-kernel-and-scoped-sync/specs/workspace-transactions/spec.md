@@ -87,3 +87,46 @@ The system SHALL project native changes into a history view with action, entity 
 - **WHEN** it is migrated by A
 - **THEN** old entries are labeled Legacy/imported
 - **AND** only the migration and subsequent signed edits are attributed to A.
+
+### Requirement: Causal review preserves source history and resolves after durable apply
+
+The system SHALL keep review dismissal separate from causal admission. Dismissing a pending or quarantined row SHALL hide it from the active review count while retaining its source change, proof, and review history. The user SHALL be able to reopen dismissed history and retry the same source change. A dismissal persistence failure SHALL hide the row immediately, show an independent dismissible error, and permit retry; reload SHALL reconstruct dismissal from the last durable value. Applying a review SHALL create a trusted authorized change from selected fields and atomically persist that derived change, proof, receipt, and source-hash resolution record before resolving the review row or counting it as complete. The original source decision SHALL remain quarantined; only the derived change SHALL be admitted. Repeated clicks or retries for a source hash with a durable resolution record SHALL NOT create another derived command.
+
+#### Scenario: Dismissed source remains recoverable
+
+- **GIVEN** a quarantined source change with retained causal history and proof
+- **WHEN** the user dismisses its active review row
+- **THEN** the row is hidden from the active review count
+- **AND** its source change and proof remain in review history
+- **AND** its causal decision remains quarantined
+- **WHEN** the user reopens that history entry
+- **THEN** the same source hash can be reviewed without admitting the source change.
+
+#### Scenario: Dismissal save fails and retries
+
+- **GIVEN** a quarantined review row and a storage failure during dismissal
+- **WHEN** the user dismisses the row
+- **THEN** the row is hidden immediately and a separate dismissal error is shown
+- **AND** dismissing that error does not erase the retained source history or proof
+- **WHEN** storage recovers and dismissal persistence is retried
+- **THEN** reload restores the dismissed state from durable metadata
+- **AND** the source remains quarantined and available in review history.
+
+#### Scenario: Failed authorized apply remains retryable
+
+- **GIVEN** a quarantined source change and a storage failure while persisting its authorized derived change
+- **WHEN** the user applies the review
+- **THEN** the source remains quarantined, its history and proof remain available, and no completion is counted or published
+- **AND** the UI shows a dismissible retry error
+- **WHEN** storage recovers and the same source hash is reviewed again
+- **THEN** exactly one trusted derived change, proof, receipt, and source-hash resolution record are committed atomically
+- **AND** only the derived change is admitted; the original untrusted branch remains quarantined
+- **AND** reload shows the review resolved.
+
+#### Scenario: Retry after durable apply does not duplicate the command
+
+- **GIVEN** a trusted derived change and admitted decision are durably committed but the review projection has not refreshed
+- **WHEN** the user repeats the action or reloads the workspace
+- **THEN** the same source hash resolves from its durable derived-change receipt
+- **AND** the original source decision remains quarantined
+- **AND** no second derived command or completion count is created.
