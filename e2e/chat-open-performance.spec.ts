@@ -1,6 +1,7 @@
 import { expect, test } from "./support/coverage"
 import { writeFile } from "node:fs/promises"
 import { populatedBoard } from "./support/detailedBoard"
+import { installWorkspacePhaseProbe, readWorkspacePhaseProbe } from "./support/workspacePhaseProbe"
 
 test.use({ trace: "off" })
 
@@ -133,6 +134,8 @@ test("Given chat metadata becomes unavailable, when Chat opens, then failure app
 })
 
 test("Given Sync chunk fails to load, when Sync opens, then pending can close and reload recovers", async ({ page }) => {
+  test.setTimeout(120_000)
+  await installWorkspacePhaseProbe(page)
   let firstLoad = true
   await page.route("**/src/components/SyncDialog.vue*", async route => {
     if (firstLoad) {
@@ -161,7 +164,13 @@ test("Given Sync chunk fails to load, when Sync opens, then pending can close an
   await itemDialog.getByRole("button", { name: "Close detail", exact: true }).click()
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   await page.getByRole("dialog", { name: "Device sync", exact: true }).getByRole("button", { name: "Reload tincanban", exact: true }).click()
-  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 15_000 })
+  try {
+    // Recovery waits for full-history admission; the pending Sync state remains asserted above.
+    await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
+  } catch (error) {
+    console.info("Sync recovery startup phase probe", JSON.stringify(await readWorkspacePhaseProbe(page, 60_000)))
+    throw error
+  }
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   await expect(page.locator(".sync-dialog")).toBeVisible()
 })

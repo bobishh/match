@@ -37,4 +37,19 @@ describe("shared Markdown rendering", () => {
     expect(html).not.toContain('disabled="disabled"')
     expect(toggleMarkdownTask(source, 1, false)).toBe("- [ ] First\n  - [ ] Nested\n1. [ ] Numbered")
   })
+
+  it("keeps cached output separate for preview and interactive-task modes", () => {
+    const source = "- [ ] First\n- [x] Done\n\n[site](https://example.com)"
+    const full = renderMarkdown(source)
+    const preview = renderMarkdown(source, true)
+    const editablePreview = renderMarkdown(source, true, true)
+
+    expect(full).toContain('type="checkbox"')
+    expect(full).toContain('disabled="disabled"')
+    expect(preview).toContain("☐ ")
+    expect(preview).not.toContain('type="checkbox"')
+    expect(editablePreview).toContain('data-task-index="0"')
+    expect(editablePreview).not.toContain('disabled="disabled"')
+    expect(renderMarkdown(source, true)).toBe(preview)
+  })
 })

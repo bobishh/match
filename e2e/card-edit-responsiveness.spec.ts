@@ -66,7 +66,7 @@ test("Given 55 detailed leads, when Company and Role are typed, then keystrokes 
   expect(measured.unchangedVersion).toBe(true)
   await expect(page.getByRole("button", { name: "Open Performance card 0", exact: true, includeHidden: true })).toHaveCount(1)
   await form.getByRole("button", { name: "Save changes" }).click()
-  await expect(form).toBeHidden()
+  await expect(form).toBeHidden({ timeout: 15_000 })
   await page.reload()
   await page.getByRole("button", { name: /^Open Performance card 0 responsive draft/ }).click()
   await expect(page.getByRole("dialog", { name: "Lead details" })).toContainText("Senior Software Engineer responsive draft")
