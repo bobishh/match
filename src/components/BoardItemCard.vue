@@ -50,7 +50,7 @@ const emit = defineEmits<{
         </template>
         <template v-else>
           <strong data-discussion-text data-discussion-field="title">{{ item.title }}</strong>
-          <MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" data-discussion-text data-discussion-field="narrative" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
+          <MarkdownContent v-if="item.body" v-show="!hasFilters" class="item-card-body" data-discussion-text data-discussion-field="narrative" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
         </template>
       </div>
       <div v-if="hasFilters && (notes || fields.length)" class="card-context">
