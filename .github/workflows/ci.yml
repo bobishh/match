@@ -28,6 +28,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Verify Match receive mutation contract
+        run: MATCH_ROOT="$GITHUB_WORKSPACE" python3 vendor/meta-mesh/formal/check_match_mutations.py
       - run: npm run verify:policy
       - run: npm run quality
       - run: npm run test:coverage

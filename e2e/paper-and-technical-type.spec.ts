@@ -67,7 +67,6 @@ test("Given mesh devices or an offline board and recovery words, when viewed or 
   } else {
     await expect(members.getByText("No people connected to this board.", { exact: true })).toBeVisible()
   }
-  await expect.poll(() => page.evaluate(() => document.fonts.check('400 15px "Fira Code"'))).toBe(true)
   await sync.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()
   const settings = page.getByRole("dialog", { name: "Settings", exact: true })
@@ -77,6 +76,12 @@ test("Given mesh devices or an offline board and recovery words, when viewed or 
   const words = recovery.getByRole("textbox", { name: "Recovery words", exact: true })
   await words.fill("IIl10 O0 abcdef0123456789")
   await expect(words).toHaveCSS("font-family", /Fira Code/)
+  const loadedFonts = await page.evaluate(async () => (await document.fonts.load(
+    '400 15px "Fira Code"', "IIl10 O0 abcdef0123456789",
+  )).map(font => font.status))
+  expect(loadedFonts.length).toBeGreaterThan(0)
+  expect(loadedFonts.every(status => status === "loaded")).toBe(true)
+  expect(await page.evaluate(() => document.fonts.check('400 15px "Fira Code"'))).toBe(true)
   const restore = recovery.getByRole("button", { name: "Restore identity", exact: true })
   await restore.hover({ force: true })
   expect(await angle(restore)).toBe(0)

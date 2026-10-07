@@ -14,6 +14,14 @@ export async function populatedBoard(page: Page, jobSearch = false) {
     const A = await import("/@id/@automerge/automerge/slim")
     const tincanban = useTincanban()
     await tincanban.whenReady()
+    const waitForPendingWorkspaceWrite = async () => {
+      const deadline = performance.now() + 15_000
+      while (tincanban.saveState.value === "saving" && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      if (tincanban.saveState.value === "saving") throw new Error("Workspace fixture setup waited 15 seconds for pending save")
+    }
+    await waitForPendingWorkspaceWrite()
     const base = tincanban.getActiveDoc()!
     const board = Object.values(base.entities).find(entity => entity.kind === "board")!
     const parent = Object.values(base.entities).find(entity => entity.kind === "column" && entity.title === (jobSearch ? "Lead" : "To do"))!
@@ -34,6 +42,7 @@ export async function populatedBoard(page: Page, jobSearch = false) {
     const proofs = await prepareLocalChangeAuthorizations(doc, tincanban.getCurrentProfile()!, [A.getHeads(doc)[0]!])
     await defaultStorage.commitWorkspace(doc.id, doc, A.save(doc), proofs)
     updateReactiveState(doc)
+    await waitForPendingWorkspaceWrite()
   }, jobSearch)
   await expect(page.getByRole("button", { name: "Open Performance card 0", exact: true })).toBeVisible()
 }
