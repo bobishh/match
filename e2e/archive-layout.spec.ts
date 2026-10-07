@@ -41,7 +41,7 @@ test("Given a job-search board, when archive opens and closes at four widths, th
       }).toBeLessThan(1)
       await archive.getByRole("button", { name: "Collapse archive" }).click()
       await expectSingleRow()
-      await expect.poll(async () => (await archive.boundingBox())!.width).toBe(76)
+      await expect.poll(async () => (await archive.boundingBox())!.width).toBe(64)
     })
   }
 })
@@ -53,10 +53,10 @@ test("Given collapsible Rejected and Archive columns, when each is toggled, then
   const archive = page.getByRole("region", { name: "Archive", exact: true })
   await rejected.getByRole("button", { name: "Collapse Rejected" }).click()
   await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toBeVisible()
-  await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await expect.poll(() => rejected.evaluate(element => getComputedStyle(element, "::before").content)).toBe("none")
   await expect(archive.getByRole("button", { name: "Open Archive with 0 cards" })).toBeVisible()
-  await expect(archive.getByRole("button", { name: "Open Archive with 0 cards" })).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  await expect(archive.getByRole("button", { name: "Open Archive with 0 cards" })).toHaveCSS("background-color", "rgba(0, 0, 0, 0)")
   await expect.poll(() => archive.evaluate(element => getComputedStyle(element, "::before").content)).toBe("none")
   await archive.getByRole("button", { name: "Open Archive with 0 cards" }).click()
   await expect(archive.getByText("No leads")).toBeVisible()
@@ -82,7 +82,7 @@ test("Given a collapsible column on desktop or mobile, when it closes and reopen
     const closingWidth = await width()
     expect(closingWidth).toBeGreaterThan(80)
     expect(closingWidth).toBeLessThan(expandedWidth - 8)
-    await expect.poll(width).toBe(76)
+    await expect.poll(width).toBe(64)
 
     const open = rejected.getByRole("button", { name: /Open Rejected with/ })
     await open.click()
@@ -136,4 +136,77 @@ test("Given invalid local collapse preferences, when the board loads, then prefe
   await expect(rejected.getByRole("button", { name: "Collapse Rejected" })).toBeVisible()
   await rejected.getByRole("button", { name: "Collapse Rejected" }).click()
   await expect(rejected.getByRole("button", { name: "Open Rejected with 0 cards" })).toBeVisible()
+})
+
+
+test.describe("Folded board motion", () => {
+
+  test("Given a folded board, when opened, then paper appears before contents and reduced motion opens immediately", async ({ page }, info) => {
+    await page.setViewportSize({ width: 1920, height: 900 })
+    await page.emulateMedia({ reducedMotion: "no-preference" })
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    const archive = page.getByRole("region", { name: "Archive", exact: true })
+    await archive.getByRole("button", { name: /Open Archive with/ }).scrollIntoViewIfNeeded()
+    await page.waitForTimeout(600)
+    const ink = await archive.locator(".column-spine-mark").evaluate(element => getComputedStyle(element).backgroundColor)
+    const frames = await archive.evaluate(async element => {
+      const open = element.querySelector<HTMLButtonElement>(".column-closed")!
+      const samples: { time: number; width: number; paper: number; contents: number; spineInk?: string; headerInk?: string }[] = []
+      open.click()
+      const start = performance.now()
+      await new Promise<void>(resolve => {
+        function sample() {
+          const time = performance.now() - start
+          const contents = element.querySelector(".card-stack")
+          const mark = element.querySelector(".column-spine-mark")
+          const header = element.querySelector(".column-header")
+          samples.push({ time, width: element.getBoundingClientRect().width,
+            paper: Number(getComputedStyle(element.querySelector(".column-paper")!).opacity),
+            contents: contents ? Number(getComputedStyle(contents).opacity) : 0,
+            spineInk: mark ? getComputedStyle(mark).backgroundColor : undefined,
+            headerInk: header ? getComputedStyle(header, "::before").backgroundColor : undefined })
+          if (time < 480) requestAnimationFrame(sample)
+          else resolve()
+        }
+        requestAnimationFrame(sample)
+      })
+      return samples
+    })
+    expect(frames.filter(frame => frame.spineInk).every(frame => frame.spineInk === ink)).toBe(true)
+    expect(frames.filter(frame => frame.headerInk).every(frame => frame.headerInk === ink)).toBe(true)
+    const early = frames.find(frame => frame.time >= 60)!
+    const paper = frames.find(frame => frame.time >= 180)!
+    expect(early.width).toBeGreaterThan(64)
+    expect(early.contents).toBe(0)
+    expect(paper.paper).toBeGreaterThan(0)
+    expect(paper.contents).toBe(0)
+    expect(frames.at(-1)!.contents).toBe(1)
+    await expect(archive.getByText("No leads", { exact: true })).toBeVisible()
+    await page.waitForTimeout(700)
+    await archive.getByRole("button", { name: "Collapse Archive", exact: true }).click()
+    await expect.poll(async () => (await archive.boundingBox())!.width).toBe(64)
+    await page.waitForTimeout(600)
+    await expect(archive.locator(".column-spine-mark")).toHaveCSS("background-color", ink)
+    await expect(archive.locator(".column-spine-mark")).toHaveCSS("opacity", "0.34")
+    const edges = archive.locator(".column-spine-edges")
+    const bounds = await edges.evaluate(element => {
+      const box = element.getBoundingClientRect()
+      return ["::before", "::after"].map(pseudo => {
+        const style = getComputedStyle(element, pseudo)
+        const height = parseFloat(style.height)
+        const width = parseFloat(style.width)
+        const matrix = new DOMMatrix(style.transform)
+        const rotatedHeight = Math.abs(matrix.b * width) + Math.abs(matrix.d * height)
+        const inset = parseFloat(pseudo === "::before" ? style.top : style.bottom)
+        return inset > Math.abs(matrix.b * width) + 1 && inset + rotatedHeight < box.height
+      })
+    })
+    expect(bounds).toEqual([true, true])
+    await page.screenshot({ path: info.outputPath("folded-board.png") })
+    await page.emulateMedia({ reducedMotion: "reduce" })
+    await archive.getByRole("button", { name: /Open Archive with/ }).click()
+    await expect(archive.locator(".card-stack")).toHaveCSS("opacity", "1")
+    await expect(archive.locator(".column-paper")).toHaveCSS("opacity", "1")
+  })
 })

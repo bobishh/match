@@ -221,11 +221,13 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
         :data-column-id="column.id"
         role="region"
         :aria-label="column.title"
-        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
+        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-foldable': column.collapsible, 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
       >
-        <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span v-if="isArchiveColumn(column)" class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ itemsForColumn(column).length }}</small></button>
-        <template v-else>
-          <div class="card-stack" :data-column-id="column.id">
+        <span v-if="column.collapsible" class="column-paper" aria-hidden="true"></span>
+        <span v-if="column.collapsible" class="column-spine-edges" aria-hidden="true"></span>
+        <Transition name="column-fold">
+          <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span class="count">{{ itemsForColumn(column).length }}</span><strong>{{ column.title }}</strong><span class="column-spine-mark" aria-hidden="true"></span></button>
+          <div v-else class="card-stack" :data-column-id="column.id">
             <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
               <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
               <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="column.collapsible && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="toggleColumnCollapse(column)">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
@@ -255,7 +257,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
             <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
           </div>
-        </template>
+        </Transition>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
       <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(column => isArchiveColumn(column)) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><label><input v-model="newBoardColumnCollapsible" type="checkbox" :disabled="addingBoardColumn" /> Allow this column to collapse</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
