@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises"
 import { expect, test } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
@@ -12,13 +13,19 @@ test("Given a wide board, when a column folds and opens, then its width and visi
   const column = page.getByRole("region", { name: "Rejected", exact: true })
   await expect(column.locator(".column-fold-title")).toHaveText("Rejected")
   await expect(column.locator(".column-fold-count")).toHaveText("0")
+  const directions: { time: number; width: number; angle: number }[][] = []
   for (const collapsed of [true, false]) {
     const frames = await column.evaluate(async (element, collapse) => {
+      let motionStarted = false
       const read = () => {
         const title = element.querySelector<HTMLElement>(".column-fold-title")!
         const count = element.querySelector<HTMLElement>(".column-fold-count")!
         const surface = element.querySelector<HTMLElement>(".column-fold-cover")!
-        return { time: performance.now(), width: element.getBoundingClientRect().width,
+        const motion = surface.getAnimations()[0]
+        if (motion) motionStarted = true
+        const motionTime = typeof motion?.currentTime === "number" ? motion.currentTime : motionStarted ? 520 : 0
+        const matrix = new DOMMatrix(getComputedStyle(surface).transform)
+        return { motionTime, angle: Math.atan2(matrix.b, matrix.a) * 180 / Math.PI, time: performance.now(), width: element.getBoundingClientRect().width,
           titleY: title.getBoundingClientRect().top - element.getBoundingClientRect().top,
           countY: count.getBoundingClientRect().top - element.getBoundingClientRect().top,
           titleOpacity: Number(getComputedStyle(title).opacity), countOpacity: Number(getComputedStyle(count).opacity),
@@ -38,6 +45,7 @@ test("Given a wide board, when a column folds and opens, then its width and visi
       })
       return frames
     }, collapsed)
+    directions.push(frames.map(frame => ({ time: frame.motionTime, width: frame.width, angle: frame.angle })))
     expect(frames.every(frame => frame.titleOpacity === 1 && frame.countOpacity === 1)).toBe(true)
     expect(Math.max(...frames.map(frame => frame.titleY))).toBeLessThan(85)
     expect(Math.max(...frames.map(frame => frame.countY))).toBeLessThan(40)
@@ -55,6 +63,25 @@ test("Given a wide board, when a column folds and opens, then its width and visi
       return Math.max(Math.abs(actual.x - target.x), Math.abs(actual.y - target.y))
     })).toBeLessThan(1)
     await page.screenshot({ path: info.outputPath(collapsed ? "folded.png" : "open.png") })
+  }
+  const motionPath = info.outputPath("motion-frames.json")
+  await writeFile(motionPath, JSON.stringify(directions))
+  await info.attach("motion-frames", { path: motionPath, contentType: "application/json" })
+  const [closing, opening] = directions
+  const atTime = (frames: NonNullable<typeof closing>, time: number) => {
+    const index = frames.findIndex(frame => frame.time >= time)
+    const after = frames[index]!
+    const before = frames[Math.max(0, index - 1)]!
+    const progress = (time - before.time) / Math.max(1, after.time - before.time)
+    return { angle: before.angle + (after.angle - before.angle) * progress,
+      width: before.width + (after.width - before.width) * progress }
+  }
+  const travel = Math.abs(closing![0]!.width - closing!.at(-1)!.width)
+  for (const time of [100, 180, 260, 340, 420]) {
+    const folded = atTime(closing!, time)
+    const unfolded = atTime(opening!, 520 - time)
+    expect(Math.abs(folded.angle - unfolded.angle)).toBeLessThan(5)
+    expect(Math.abs(folded.width - unfolded.width)).toBeLessThan(travel * .05)
   }
   await expect(column.getByText("No leads", { exact: true })).toBeVisible()
 })

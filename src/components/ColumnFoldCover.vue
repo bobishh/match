@@ -7,7 +7,7 @@ const cover = ref<HTMLElement>()
 const titleElement = ref<HTMLElement>()
 const countElement = ref<HTMLElement>()
 const duration = 520
-const easing = "cubic-bezier(.4, 0, .2, 1)"
+const easing = "cubic-bezier(.4, 0, .6, 1)"
 let observer: ResizeObserver | undefined
 let animations: Animation[] = []
 let generation = 0
@@ -88,7 +88,7 @@ watch(() => props.collapsed, async collapsed => {
   Object.assign(titleElement.value!.style, before.title)
   Object.assign(countElement.value!.style, before.count)
   const horizontalWidth = collapsed ? before.width - 4 : after.width - 4
-  const turned = { ...after.paint, width: `${horizontalWidth}px`, height: "60px", transform: "translateX(60px) rotate(90deg)" }
+  const turned = { ...after.paint, backgroundColor: collapsed ? after.paint.backgroundColor : before.paint.backgroundColor, width: `${horizontalWidth}px`, height: "60px", transform: "translateX(60px) rotate(90deg)" }
   const paintFrames = interrupted ? [before.paint, after.paint] : collapsed
     ? [{ ...before.paint, offset: 0 }, { ...turned, offset: .55 }, { ...after.paint, offset: 1 }]
     : [{ ...before.paint, offset: 0 }, { ...turned, offset: .45 }, { ...after.paint, offset: 1 }]
@@ -97,8 +97,13 @@ watch(() => props.collapsed, async collapsed => {
     : [{ ...from, offset: 0 }, { ...from, offset: .45 }, { ...to, offset: 1 }]
   const travel = Math.abs(after.width - before.width) / Math.max(1, horizontalWidth - 60)
   const options = { duration: interrupted ? Math.max(180, duration * Math.min(1, travel)) : duration, easing, fill: "both" as const }
+  const widthFrames = interrupted
+    ? [{ flexBasis: `${before.width}px` }, { flexBasis: `${after.width}px` }]
+    : collapsed
+      ? [{ flexBasis: `${before.width}px`, offset: 0 }, { flexBasis: `${before.width}px`, offset: .12 }, { flexBasis: `${after.width}px`, offset: 1 }]
+      : [{ flexBasis: `${before.width}px`, offset: 0 }, { flexBasis: `${after.width}px`, offset: .88 }, { flexBasis: `${after.width}px`, offset: 1 }]
   animations = [
-    parent.animate([{ flexBasis: `${before.width}px`, offset: 0 }, { flexBasis: `${before.width}px`, offset: interrupted ? 0 : .12 }, { flexBasis: `${after.width}px`, offset: 1 }], options),
+    parent.animate(widthFrames, options),
     cover.value!.animate(paintFrames, options),
     titleElement.value!.animate(inkFrames(before.title, after.title), options),
     countElement.value!.animate(inkFrames(before.count, after.count), options),

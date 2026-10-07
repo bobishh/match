@@ -72,10 +72,10 @@
 .column-foldable .column-header { background: transparent !important; }
 .column-foldable .column-header::before { display: none; }
 
-.column-fold-enter-active { transition: opacity 160ms ease 340ms; }
-.column-foldable > .column-fold-leave-active { position: absolute; inset: 0; pointer-events: none; transition: opacity 100ms ease; }
+.column-fold-enter-active { transition: opacity 160ms cubic-bezier(.4, 0, .6, 1) 360ms; }
+.column-foldable > .column-fold-leave-active { position: absolute; inset: 0; pointer-events: none; transition: opacity 160ms cubic-bezier(.4, 0, .6, 1); }
 .column-fold-enter-from, .column-fold-leave-to { opacity: 0; }
-.column-closed.column-fold-enter-active { transition-delay: 340ms; }
+.column-closed.column-fold-enter-active { transition-delay: 360ms; }
 
 .bin-column-open { background: var(--panel); }
 .bin-column .column-header { transition: transform .25s ease, opacity .2s ease; }
