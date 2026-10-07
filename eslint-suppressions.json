@@ -138,11 +138,6 @@
       "count": 1
     }
   },
-  "src/sync/changeAuthorization.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    }
-  },
   "src/sync/deviceSyncController.policyRefresh.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
