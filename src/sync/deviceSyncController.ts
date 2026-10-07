@@ -11,13 +11,14 @@ import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView 
 import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
 import { generateWorkspaceInvite as generateHostInvite, WorkspaceAdmissionFailure, type WorkspaceHostContext } from "./deviceSyncHost"
-import { createKeeperProvisioner, removeKeeperAccess } from "./deviceSyncKeeper"
+import { createKeeperProvisioner } from "./deviceSyncKeeper"
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
 import { recoverLiveSession } from "./deviceSyncLiveRecovery"
 import { meshTrace } from "./meshTrace"
+import { removeKeeperWithTrace } from "./keeperRemovalTrace"
 import { createDeviceSyncJoinApproval } from "./deviceSyncJoinApproval"
 import { AuthorityFingerprintTracker } from "./authorityFingerprint"
 export type DeviceSyncOptions = {
@@ -211,10 +212,9 @@ export class DeviceSyncController {
   }
 
   private async removeKeeper(personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]): Promise<"removed" | "pending"> {
-    const result = await removeKeeperAccess(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
+    return removeKeeperWithTrace(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
       workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.(),
-      discovery, knownServiceDeviceIds })
-    this.state.ownershipRevision.value += 1; return result
+      discovery, knownServiceDeviceIds, peers: () => this.state.meshPeers.value, changed: () => { this.state.ownershipRevision.value++ } })
   }
 
   private async withActiveWorkspace(action: (workspaceId: string, mesh: DurableMesh) => Promise<void>, changeOwnership = false) {

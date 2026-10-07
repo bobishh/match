@@ -96,6 +96,7 @@ describe("keeper removal", () => {
     const revokePerson = vi.fn(async () => {
       intentPersistedBeforeRevoke = (await ownerKeepers(owner))[0]?.details?.removalPending === true
     })
+    const trace = vi.fn()
     const fetchMock = vi.spyOn(globalThis, "fetch")
 
     await expect(removeKeeperAccess(keeper, {
@@ -104,9 +105,13 @@ describe("keeper removal", () => {
       workspaceOwner: async id => id === "owned" ? owner : "another-owner",
       mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
       knownServiceDeviceIds: ["rusty-device"],
+      trace,
     })).resolves.toBe("removed")
 
     expect(revokePerson.mock.calls).toEqual([["owned", keeper]])
+    expect(trace).toHaveBeenCalledWith("scope-owner", { peerId: keeper, workspaceId: "owned", outcome: "owner" })
+    expect(trace).toHaveBeenCalledWith("scope-owner", { peerId: keeper, workspaceId: "foreign", outcome: "other" })
+    expect(trace).toHaveBeenCalledWith("revoke-complete", { peerId: keeper, workspaceId: "owned", outcome: "success" })
     expect(intentPersistedBeforeRevoke).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()
     await expect(ownerKeepers(owner)).resolves.toEqual([])
