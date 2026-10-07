@@ -83,4 +83,37 @@ describe("keeper removal", () => {
     })).rejects.toThrow("offline board")
     await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "editor" }])
   })
+
+  it("revokes only locally owned legacy boards and persists pending without a Rusty address", async () => {
+    const { profile, owner, keeper } = await setupOwnerKeeper(["owned", "foreign"])
+    const root = await defaultStorage.loadPersonalRoot()
+    root!.keeperIntegrations = {}
+    await defaultStorage.savePersonalRoot(root!)
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: {
+      boardIds: ["owned", "foreign"], futureBoards: false,
+    } })
+    let intentPersistedBeforeRevoke = false
+    const revokePerson = vi.fn(async () => {
+      intentPersistedBeforeRevoke = (await ownerKeepers(owner))[0]?.details?.removalPending === true
+    })
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile,
+      workspaces: [{ id: "owned" }, { id: "foreign" }],
+      workspaceOwner: async id => id === "owned" ? owner : "another-owner",
+      mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
+      knownServiceDeviceIds: ["rusty-device"],
+    })).resolves.toBe("pending")
+
+    expect(revokePerson.mock.calls).toEqual([["owned", keeper]])
+    expect(intentPersistedBeforeRevoke).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+    await expect(ownerKeepers(owner)).resolves.toEqual([{
+      personId: keeper,
+      role: "editor",
+      details: { boardIds: ["owned", "foreign"], futureBoards: false, removalPending: true,
+        localRevocationComplete: true, serviceDeviceIds: ["rusty-device"] },
+    }])
+  })
 })

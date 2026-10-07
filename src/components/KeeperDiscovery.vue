@@ -92,6 +92,8 @@ async function removeSelectedKeeper() {
       selectedKeeper()?.deviceList.map(device => device.deviceId) ?? [])
     if (result === "pending") {
       removalPending.value = true
+      if (keeperDetails.value) keeperDetails.value = { ...keeperDetails.value, removalPending: true, localRevocationComplete: true }
+      await loadPendingIntegrationKeepers()
       return
     }
     const removedPersonId = selectedKeeperId.value
@@ -105,6 +107,8 @@ async function removeSelectedKeeper() {
   } catch (cause) {
     removalError.value = cause instanceof Error ? cause.message : "Could not remove keeper"
     removalPending.value = true
+    if (keeperDetails.value) keeperDetails.value = { ...keeperDetails.value, removalPending: true }
+    await loadPendingIntegrationKeepers()
   } finally {
     removingKeeper.value = false
   }
@@ -287,28 +291,26 @@ async function loadPendingIntegrationKeepers() {
   pendingIntegrationLoadError.value = ""
   try {
     const references = await keeperApi.pendingRemovalReferences()
-    pendingIntegrationKeepers.value = references
-      .map((reference): MeshMemberView => ({
+    pendingIntegrationKeepers.value = references.map((reference): MeshMemberView => {
+        const deviceIds = "serviceDeviceIds" in reference
+          ? reference.serviceDeviceIds
+          : [reference.serviceDeviceId]
+        const knownDeviceIds = (deviceIds?.length ? deviceIds : [reference.serviceDeviceId])
+          .filter((deviceId): deviceId is string => typeof deviceId === "string" && deviceId.length > 0)
+        return {
         personId: reference.servicePersonId,
         name: "Rusty keeper",
         role: "editor",
         online: false,
         reconnecting: false,
         onlineDevices: 0,
-        devices: 1,
+        devices: knownDeviceIds.length || 1,
         self: false,
         pendingRemoval: true,
-        deviceList: [{
-          deviceId: reference.serviceDeviceId,
-          name: "Rusty",
-          online: false,
-          reconnecting: false,
-          lastSeen: reference.verifiedAt,
-          userAgent: "mesh-lighthouse/1.0.0",
-          description: "Rusty",
-          tabs: 1,
-        }],
-      }))
+        deviceList: knownDeviceIds.map(deviceId => ({ deviceId, name: "Rusty", online: false, reconnecting: false,
+          lastSeen: reference.verifiedAt, userAgent: "mesh-lighthouse/1.0.0", description: "Rusty", tabs: 1 })),
+      }
+    })
   } catch (cause) {
     pendingIntegrationKeepers.value = []
     pendingIntegrationLoadError.value = cause instanceof Error ? cause.message : "Could not load saved keeper status."
@@ -404,21 +406,34 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <ul v-if="keeperDetails" class="keeper-devices"><li v-for="board in ownedWorkspaces.filter(workspace => keeperDetails?.boardIds.includes(workspace.id))" :key="board.id">{{ board.title }}</li></ul>
         <ul class="keeper-devices"><li v-for="device in selectedKeeper()!.deviceList" :key="device.deviceId"><RustyMark compact :online="device.online" :reconnecting="device.reconnecting" />{{ keeperDisplayName(device.name) }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
         <div v-if="removeKeeper" class="keeper-removal">
-          <template v-if="!keeperDetails?.integrationId && !removalDiscovery">
-            <label class="pairing-paste">
+          <template v-if="!keeperDetails?.integrationId && !removalDiscovery && !removalPending">
+            <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
+            <template v-else>
+              <p class="dialog-copy">Revoke this keeper’s local access now. Rusty removal stays pending until its identity is verified and it confirms.</p>
+              <div class="dialog-actions">
+                <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : 'Revoke local access' }}</button>
+                <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
+              </div>
+            </template>
+          </template>
+          <template v-else>
+            <label v-if="!keeperDetails?.integrationId && !removalDiscovery" class="pairing-paste">
               <span>Rusty address</span>
               <input v-model="removalAddress" type="url" autocomplete="url" placeholder="https://rusty.example" aria-label="Rusty address" />
             </label>
-            <button class="button button-primary" type="button" :disabled="verifyingRemoval || !removalAddress.trim()" @click="verifyRemovalService">{{ verifyingRemoval ? 'Verifying Rusty…' : 'Verify Rusty' }}</button>
-          </template>
-          <template v-else>
+            <button v-if="!keeperDetails?.integrationId && !removalDiscovery" class="button button-primary" type="button" :disabled="verifyingRemoval || !removalAddress.trim()" @click="verifyRemovalService">{{ verifyingRemoval ? 'Verifying Rusty…' : 'Verify Rusty' }}</button>
             <p v-if="removalDiscovery" class="keeper-summary">Verified Rusty identity <code>{{ removalDiscovery.personId }}</code></p>
-            <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
-            <template v-else>
+            <button v-if="!confirmRemoval && !removalPending" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
+            <template v-if="confirmRemoval || removalPending">
               <p class="dialog-copy">{{ removalPending ? "Removal is still pending Rusty confirmation." : "Remove access from all boards still owned by this identity?" }}</p>
-              <p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">Removal is not confirmed. Retry checks local access and Rusty status.</p>
+              <p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">{{ !keeperDetails?.integrationId && !removalDiscovery
+                ? keeperDetails?.localRevocationComplete
+                  ? "Local access is revoked. Verify Rusty to finish remote removal."
+                  : "Local access may still remain on some boards. Retry local revocation before verifying Rusty."
+                : "Remote removal is not confirmed. Verify Rusty status and retry." }}</p>
               <div class="dialog-actions">
-                <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove access from all boards' }}</button>
+                <button v-if="!keeperDetails?.integrationId && !removalDiscovery && removalPending && !keeperDetails?.localRevocationComplete" class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : 'Retry local revocation' }}</button>
+                <button v-if="keeperDetails?.integrationId || removalDiscovery || !removalPending" class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove access from all boards' }}</button>
                 <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
               </div>
             </template>

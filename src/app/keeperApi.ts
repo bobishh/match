@@ -43,7 +43,18 @@ export const keeperApi = {
   },
   async pendingRemovalReferences() {
     const { integrations } = await keeperIntegrationReferences()
-    return Object.values(integrations).filter(reference =>
+    const descriptors = Object.values(integrations).filter(reference =>
       reference.state === "removing" || Boolean(reference.pendingRemoval))
+    const descriptorPeople = new Set(descriptors.map(reference => reference.servicePersonId))
+    const profile = await bootstrapIdentity()
+    const legacy = (await ownerKeepers(profile.identity.personId))
+      .filter(record => record.details?.removalPending && !descriptorPeople.has(record.personId))
+      .map(record => ({
+        servicePersonId: record.personId,
+        serviceDeviceId: record.details?.serviceDeviceId,
+        serviceDeviceIds: record.details?.serviceDeviceIds ?? (record.details?.serviceDeviceId ? [record.details.serviceDeviceId] : []),
+        verifiedAt: new Date().toISOString(),
+      }))
+    return [...descriptors, ...legacy]
   },
 }

@@ -222,6 +222,14 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   const profile = await options.getProfile()
   if (personId === profile.identity.personId) throw new Error("Cannot remove this identity")
   if (!options.workspaceOwner) throw new Error("Workspace ownership is unavailable")
+  const { integrations } = await keeperIntegrationReferences()
+  const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
+    .sort((left, right) => right.revision - left.revision)[0]
+  const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
+  if (!options.discovery && !reference && !cachedDiscovery(legacyKeeper?.details ?? { boardIds: [], futureBoards: false })) {
+    const { beginLegacyLocalRemoval } = await import("./legacyKeeperRemoval")
+    return beginLegacyLocalRemoval(personId, profile, options, legacyKeeper)
+  }
   const context = await localRemovalContext(personId, options, profile)
   const intent = await removalIntentWithLocalError(context.discovery, profile, context.integrationId,
     context.reference, context.localOwners, context.locallyRevoked)

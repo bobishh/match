@@ -11,10 +11,12 @@ export type KeeperDetails = {
   integrationId?: string
   servicePersonId?: string
   serviceDeviceId?: string
+  serviceDeviceIds?: string[]
   servicePublicKey?: string
   serviceCertificates?: unknown[]
   revision?: number
   removalPending?: boolean
+  localRevocationComplete?: boolean
 }
 export type OwnerKeeper = { personId: string; role: "visitor" | "editor"; details?: KeeperDetails }
 const key = (ownerPersonId: string) => `tincanban.owner-keepers.v1:${ownerPersonId}`
