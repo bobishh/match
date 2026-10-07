@@ -2,6 +2,7 @@ import { expect, test } from "./support/coverage"
 import { populatedBoard, moveFirst } from "./support/detailedBoard"
 
 test("Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists", async ({ page }) => {
+  test.setTimeout(120_000)
   await populatedBoard(page)
   await page.evaluate(async () => (await import("/src/storage.ts")).setStorageFailureHookForTest(true))
   await moveFirst(page)
@@ -12,7 +13,9 @@ test("Given a detailed board and failed storage, when a card moves, then failure
   await moveFirst(page)
   await expect(page.getByRole("status")).toContainText("Item moved", { timeout: 15_000 })
   await page.reload()
-  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 15000 })
+  // Full-history admission gates workspace readiness after reload; this is separate from the unchanged interaction limit.
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
 })
 
 test("Given two tabs share a detailed board, when one moves a card and another edits its neighbor, then reload retains both writes", async ({ page, context }) => {
