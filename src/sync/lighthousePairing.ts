@@ -104,7 +104,12 @@ export async function signKeeperControllerRequest(profile: LocalProfile, discove
 async function request<T>(url: string, init: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000), redirect: "error", headers: { Accept: "application/json", "Content-Type": "application/json", ...init.headers } })
   const body = await response.json().catch(() => null) as { message?: string } | null
-  if (!response.ok) throw new Error(body?.message || `Keeper pairing failed (${response.status}).`)
+  if (!response.ok) {
+    if (response.status === 503 && new URL(url).pathname === "/v1/integrations/status") {
+      throw new Error("Rusty could not verify its saved board access (HTTP 503). Local access can still be revoked; Rusty confirmation remains pending.")
+    }
+    throw new Error(body?.message || `Keeper pairing failed (${response.status}).`)
+  }
   if (!body) throw new Error("Keeper returned an invalid pairing response.")
   return body as T
 }

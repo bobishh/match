@@ -4,6 +4,7 @@ import KeeperDiscovery from "../../src/components/KeeperDiscovery.vue"
 export async function mountKeeperRemoval(options: {
   legacyWithoutServiceDescriptor?: boolean
   legacyRevokeFails?: boolean
+  legacyMissingBoardList?: boolean
   reopenPersistedLegacyPending?: boolean
 } = {}) {
   const profile = await (await import("../../src/domain/identity")).bootstrapIdentity()
@@ -37,7 +38,7 @@ export async function mountKeeperRemoval(options: {
     await saveOwnerKeeper(profile.identity.personId, {
       personId: "old-keeper",
       role: "editor",
-      ...(options.legacyWithoutServiceDescriptor ? { details: { boardIds: ["board"], futureBoards: false } } : {}),
+      ...(options.legacyWithoutServiceDescriptor && !options.legacyMissingBoardList ? { details: { boardIds: ["board"], futureBoards: false } } : {}),
     })
   }
   const root = document.createElement("div")

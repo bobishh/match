@@ -109,3 +109,22 @@ test("Given keeper removal fails, when owner retries, then error stays visible a
   await expect(keepers.getByRole("button", { name: /Old Lighthouse/ })).toHaveCount(0)
   expect(await page.evaluate(() => (window as typeof window & { keeperRemoval: { attempts(): number } }).keeperRemoval.attempts())).toBe(2)
 })
+
+
+test("Given a legacy offline keeper without saved boards, when owner removes it, then owned boards are recovered and access is revoked without contacting Rusty", async ({ page }) => {
+  await page.goto("/")
+  await page.evaluate(async () => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval({
+    legacyWithoutServiceDescriptor: true, legacyMissingBoardList: true,
+  }))
+  await page.getByRole("list", { name: "Keeper services" }).getByRole("button", { name: /Old Lighthouse/ }).click()
+  await page.getByRole("button", { name: "Remove keeper" }).click()
+  await page.getByRole("button", { name: "Revoke local access" }).click()
+  await expect(page.getByRole("status", { name: "Keeper removal status" })).toContainText("Local access is revoked")
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  const saved = await page.evaluate(async () => {
+    const api = (window as typeof window & { keeperRemoval: { revokedScopes(): string[]; legacyPending(): Promise<unknown> } }).keeperRemoval
+    return { scopes: api.revokedScopes(), pending: await api.legacyPending() }
+  })
+  expect(saved.scopes).toEqual(["board"])
+  expect(saved.pending).toMatchObject({ boardIds: ["board"], futureBoards: false, localRevocationComplete: true, removalPending: true })
+})

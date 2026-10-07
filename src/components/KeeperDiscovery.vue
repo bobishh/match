@@ -92,7 +92,8 @@ async function removeSelectedKeeper() {
       selectedKeeper()?.deviceList.map(device => device.deviceId) ?? [])
     if (result === "pending") {
       removalPending.value = true
-      if (keeperDetails.value) keeperDetails.value = { ...keeperDetails.value, removalPending: true, localRevocationComplete: true }
+      keeperDetails.value = { ...(await keeperApi.keeperDetails(selectedKeeperId.value) ?? { boardIds: [], futureBoards: false }),
+        removalPending: true, localRevocationComplete: true }
       await loadPendingIntegrationKeepers()
       return
     }

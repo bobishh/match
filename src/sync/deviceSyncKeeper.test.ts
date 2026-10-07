@@ -116,4 +116,25 @@ describe("keeper removal", () => {
         localRevocationComplete: true, serviceDeviceIds: ["rusty-device"] },
     }])
   })
+  it("recovers missing legacy board lists from available owned boards and disables future access", async () => {
+    const { profile, owner, keeper } = await setupOwnerKeeper(["owned", "foreign"])
+    const root = await defaultStorage.loadPersonalRoot()
+    root!.keeperIntegrations = {}
+    await defaultStorage.savePersonalRoot(root!)
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor" })
+    const revokePerson = vi.fn(async () => {})
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile,
+      workspaces: [{ id: "owned" }, { id: "foreign" }],
+      workspaceOwner: async id => id === "owned" ? owner : "another-owner",
+      mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
+      knownServiceDeviceIds: ["rusty-device"],
+    })).resolves.toBe("pending")
+    expect(revokePerson.mock.calls).toEqual([["owned", keeper]])
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect((await ownerKeepers(owner))[0]?.details).toMatchObject({ boardIds: ["owned", "foreign"],
+      futureBoards: false, removalPending: true, localRevocationComplete: true })
+  })
+
 })
