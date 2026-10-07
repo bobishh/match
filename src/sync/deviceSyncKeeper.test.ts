@@ -141,7 +141,7 @@ describe("keeper removal", () => {
   it("retries local keeper cleanup after a verified removal receipt survives restart", async () => {
     const { profile, owner, keeper } = await setupOwnerKeeper(["board"])
     await saveOwnerKeeper(owner, { personId: keeper, role: "editor" })
-    const mesh = { revokePerson: vi.fn(async () => {}) } as unknown as DurableMesh
+    const mesh = { revokePerson: vi.fn(async () => {}), views: vi.fn(async () => []) } as unknown as DurableMesh
     const active = { integrationId: "integration", revision: 1, futureBoards: false, scopes: [
       { workspaceId: "board", grantEpoch: 1, state: "active" as const, activationOperationId: "activation" },
     ], tombstones: [] }
