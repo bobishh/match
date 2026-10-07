@@ -115,9 +115,9 @@ async function restore(hash: string) {
     <p role="alert" class="causal-review-error">{{ actionError }}</p>
     <button class="button button-small" type="button" aria-label="Dismiss review error" @click="actionErrorDismissed = true">Dismiss error</button>
   </div>
-  <section v-if="historyChanges.length" class="causal-review-history" aria-label="Dismissed workspace change history">
+  <section v-if="historyChanges.length" class="causal-review-history" aria-label="Workspace review history">
     <details>
-      <summary>{{ historyChanges.length }} dismissed change{{ historyChanges.length === 1 ? '' : 's' }}</summary>
+      <summary>{{ historyChanges.length }} change{{ historyChanges.length === 1 ? '' : 's' }} in review history</summary>
       <ul class="causal-review-list">
         <li v-for="change in historyChanges" :key="change.hash">
           <div><strong>{{ change.action }}</strong><span>{{ change.resolved ? 'Authorized change saved' : change.status.type === 'pending' ? 'Waiting for dependency' : 'Quarantined' }}</span></div>
