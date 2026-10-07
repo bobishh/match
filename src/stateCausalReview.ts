@@ -6,6 +6,7 @@ import { assertWorkspaceCapability, assertWorkspaceTransition, type WorkspaceRol
 import { executeReviewedWorkspaceChange, type ExecuteResult } from "./domain/commands"
 import {
   localChangeAuthorityGrantHash,
+  workspaceAuthorityIsInvalid,
   workspaceRole,
 } from "./sync/changeAuthorization"
 import { defaultStorage, type WorkspaceStorage } from "./storage"
@@ -25,6 +26,11 @@ export async function refreshCausalReview(storage = defaultStorage, workspaceId 
   if (stateRuntime.activeDoc && workspaceId !== stateRuntime.activeDoc.id) return
   if (!workspaceId) {
     stateRuntime.causalReview.value = []
+    return
+  }
+  if (await workspaceAuthorityIsInvalid(workspaceId)) {
+    stateRuntime.causalReview.value = []
+    stateRuntime.causalReviewError.value = "Workspace authority is unavailable. Showing the last admitted content read-only."
     return
   }
   const evidence = await storage.loadCausalEvidence(workspaceId)

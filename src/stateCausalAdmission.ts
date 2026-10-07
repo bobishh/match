@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type { WorkspaceDocumentV2 } from "./domain/model"
 import { validateWorkspaceDoc } from "./domain/model"
-import { exportAuthorizationBundle, evaluateIncomingWorkspaceAdmission, workspaceWritesBlocked } from "./sync/changeAuthorization"
+import { exportAuthorizationBundle, evaluateIncomingWorkspaceAdmission, workspaceAuthorityIsInvalid, workspaceWritesBlocked } from "./sync/changeAuthorization"
 import type { WorkspaceChangeAuthorization } from "./sync/workspaceChangeProofStore"
 import { peerStore } from "./sync/peerStore"
 import { defaultStorage } from "./storage"
@@ -22,6 +22,10 @@ export async function reclassifyStoredWorkspace(workspaceId: string, storage = d
   return withWorkspaceMutation(workspaceId, async () => {
     const loaded = await storage.loadWorkspaceDoc(workspaceId)
     if (!loaded) return { doc: undefined, changed: false }
+    // Keep the last admitted projection available if its local authority record
+    // is malformed. Raw causal bytes may contain unreviewed changes, so this
+    // branch must neither replay them nor persist a new classification.
+    if (await workspaceAuthorityIsInvalid(workspaceId)) return { doc: loaded.doc, changed: false }
     const evidence = await storage.loadCausalEvidence(workspaceId)
     const rawBytes = evidence ? new Uint8Array(evidence.bytes) : Automerge.save(loaded.doc)
     const raw = Automerge.load<WorkspaceDocumentV2>(rawBytes)

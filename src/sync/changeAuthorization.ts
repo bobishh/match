@@ -31,6 +31,11 @@ async function storedWorkspaceAuthority(workspaceId: string): Promise<{ authorit
   }
 }
 
+/** Invalid durable authority is a read-only state, not permission to replay raw history. */
+export async function workspaceAuthorityIsInvalid(workspaceId: string): Promise<boolean> {
+  return (await storedWorkspaceAuthority(workspaceId)).invalid
+}
+
 async function validateStoredAuthority(authority: StoredWorkspaceAuthority | null): Promise<{ authority: StoredWorkspaceAuthority | null; invalid: boolean }> {
   if (!authority) return { authority: null, invalid: false }
   // Never treat historical keys as a repair path for a malformed current

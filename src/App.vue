@@ -25,13 +25,13 @@ import CausalChangeReview from "./components/CausalChangeReview.vue"
 import { LazyItemDocuments as ItemDocuments } from "./app/lazyItemDocuments"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
-import { ref } from "vue"
+import { onBeforeUnmount, ref } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
 import { useColumnCollapse } from "./app/useColumnCollapse"
 import { useAppViewState } from "./app/useAppViewState"
 import { useMemberAvatars } from "./app/useMemberAvatars"
-import { ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, WorkspaceFileActions, WorkspaceParticipants, WorkspacesDialog } from "./app/lazyUiComponents"
+import { ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, startOfflineDetailPreload, WorkspaceFileActions, WorkspaceParticipants, WorkspacesDialog } from "./app/lazyUiComponents"
 
 const app = useAppController()
 const { SyncDialog, reviewCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
@@ -41,6 +41,7 @@ const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
 const stopSyncForIdentityRestore = () => app.collaboration.device.sync.shutdown()
 const restoredIdentity = () => window.location.reload()
 const { workspace, ready, saveState, availableWorkspaces, archivedWorkspaces, causalReview, causalReviewError, activeWorkspace, activeBoard, isBlankBoard, genericColumns, boardFields, getActiveDoc, documentsFor } = app.workspace
+onBeforeUnmount(startOfflineDetailPreload(() => ready.value))
 const { state: ui, controls: uiControls } = app.ui
 const { isCollapsed: isColumnCollapsed, toggle: toggleColumnCollapse } = useColumnCollapse(() => activeWorkspace.id, () => hasFilters.value)
 const {

@@ -124,6 +124,29 @@ it("rejects visitor writes even with a valid device signature and owner-issued v
   expect(() => assertWorkspaceTransition("visitor", local, remote)).toThrow(/Visitors/)
 })
 
+it("quarantines an unsigned received branch without materializing it in the authorized projection", async () => {
+  const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Unsigned source", owner.identity.personId, "blank"))
+  await recordGenesisAuthority(local, owner)
+  const remote = Automerge.change(Automerge.clone(local), { message: "Unsigned edit" }, draft => {
+    draft.title = "Untrusted title"
+  })
+  const hash = Automerge.decodeChange(Automerge.getLastLocalChange(remote)!).hash
+
+  const admission = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, []))
+  const decision = admission.decisions.find(item => item.hash === hash)
+  const authorized = Automerge.load<WorkspaceDocumentV2>(admission.authorizedDocument)
+  try {
+    expect(decision?.status.type).toBe("quarantined")
+    expect(admission.admittedHashes).not.toContain(hash)
+    expect(authorized.title).toBe("Unsigned source")
+    expect(Automerge.getHeads(authorized).sort()).toEqual(Automerge.getHeads(local).sort())
+  } finally {
+    Automerge.free(authorized)
+    Automerge.free(remote)
+    Automerge.free(local)
+  }
+})
+
 it("admits a visitor's signed change only for their own avatar profile", async () => {
   const { local, remote, record } = await fixture(() => ({ kind: "setMemberAvatar", avatarData: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4WAoAAAAAAAAAfwAAfwAA" }), "visitor")
   await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).resolves.toBeUndefined()

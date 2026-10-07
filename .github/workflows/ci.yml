@@ -80,9 +80,8 @@ jobs:
     # setup and the single retry. Keep individual test deadlines unchanged.
     timeout-minutes: ${{ matrix.project == 'durable-mesh' && 20 || 10 }}
     strategy:
-      # Projects run serially. Stop scheduling the remaining matrix after the
-      # first failure; the next push supersedes this run through concurrency.
-      fail-fast: true
+      # Run every serial project after failures so CI reports full matrix status.
+      fail-fast: false
       # Iroh relay sessions can linger after Chromium exits. Serial projects keep
       # remote relay traffic isolated; each project still gets a fresh runner.
       max-parallel: 1
