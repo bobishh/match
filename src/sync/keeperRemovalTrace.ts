@@ -6,12 +6,7 @@ import { meshTrace } from "./meshTrace"
 
 let activeRemovalPersonId = ""
 
-export function beginKeeperRemovalTrace(personId: string, peers: MeshPeerView[]) {
-  activeRemovalPersonId = personId
-  recordKeeperRemovalProjection(peers, "before")
-}
-
-export function keeperRemovalTrace(event: string, detail: Record<string, unknown>, peers: MeshPeerView[]) {
+function keeperRemovalTrace(event: string, detail: Record<string, unknown>, peers: MeshPeerView[]) {
   meshTrace(`keeper.remove.${event}`, detail)
   if (event === "complete" || event === "failed") {
     recordKeeperRemovalProjection(peers, "after")
