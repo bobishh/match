@@ -1,16 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
-import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails } from "../app/keeperApi"
+import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails, type KeeperServiceDiscovery } from "../app/keeperApi"
 import { keeperDisplayName, type MeshMemberView } from "../ui/deviceInfo"
-import type { LighthouseDiscovery } from "../sync/lighthouseDiscovery"
 import RustyMark from "./RustyMark.vue"
-import { keeperIntegrationReferences } from "../sync/ownerKeeper"
 
 const props = defineProps<{
   ownedWorkspaces: KeeperWorkspace[]
   keepers: MeshMemberView[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
-  removeKeeper?: (personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
+  removeKeeper?: (personId: string, discovery?: KeeperServiceDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
 }>()
 const emit = defineEmits<{ (event: "viewChange", view: "list" | "form" | "detail"): void }>()
 const view = ref<"list" | "form" | "detail">("list")
@@ -33,7 +31,7 @@ const confirmRemoval = ref(false)
 const removingKeeper = ref(false)
 const removalError = ref("")
 const removalAddress = ref("")
-const removalDiscovery = ref<LighthouseDiscovery | null>(null)
+const removalDiscovery = ref<KeeperServiceDiscovery | null>(null)
 const removalPending = ref(false)
 const verifyingRemoval = ref(false)
 const originInput = ref("")
@@ -288,9 +286,8 @@ function startAddKeeper() {
 async function loadPendingIntegrationKeepers() {
   pendingIntegrationLoadError.value = ""
   try {
-    const { integrations } = await keeperIntegrationReferences()
-    pendingIntegrationKeepers.value = Object.values(integrations)
-      .filter(reference => reference.state === "removing" || Boolean(reference.pendingRemoval))
+    const references = await keeperApi.pendingRemovalReferences()
+    pendingIntegrationKeepers.value = references
       .map((reference): MeshMemberView => ({
         personId: reference.servicePersonId,
         name: "Rusty keeper",

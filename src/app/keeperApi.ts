@@ -1,4 +1,4 @@
-import { discoverLighthouse } from "../sync/lighthouseDiscovery"
+import { discoverLighthouse, type LighthouseDiscovery } from "../sync/lighthouseDiscovery"
 import { beginKeeperPairing, decideKeeperPairing, getEligibleKeeperWorkspaces, getKeeperIntegrationStatus, getKeeperPairingStatus, rememberActiveKeeperIntegration, type KeeperPairing } from "../sync/lighthousePairing"
 import { bootstrapIdentity } from "../domain/identity"
 import { keeperIntegrationReferences, ownerKeepers, type KeeperDetails } from "../sync/ownerKeeper"
@@ -6,6 +6,7 @@ import { keeperIntegrationReferences, ownerKeepers, type KeeperDetails } from ".
 export type { KeeperWorkspace } from "../sync/lighthouseDiscovery"
 export type { KeeperPairing, KeeperPairingStatus } from "../sync/lighthousePairing"
 export type { KeeperDetails } from "../sync/ownerKeeper"
+export type KeeperServiceDiscovery = LighthouseDiscovery
 
 /** Application boundary used by keeper discovery and approval controls. */
 export const keeperApi = {
@@ -39,5 +40,10 @@ export const keeperApi = {
       removalPending: reference.state === "removing" || Boolean(reference.pendingRemoval),
     }
     return { ...details, ...fromRoot }
+  },
+  async pendingRemovalReferences() {
+    const { integrations } = await keeperIntegrationReferences()
+    return Object.values(integrations).filter(reference =>
+      reference.state === "removing" || Boolean(reference.pendingRemoval))
   },
 }
