@@ -1,7 +1,6 @@
 import { expect, test } from "./support/coverage"
 import { writeFile } from "node:fs/promises"
 import { populatedBoard } from "./support/detailedBoard"
-import { installWorkspacePhaseProbe, readWorkspacePhaseProbe } from "./support/workspacePhaseProbe"
 
 // Trace snapshots walk this detailed board on the measured main thread.
 // Keep the CPU profile, but measure application work without that recorder.
@@ -9,7 +8,6 @@ test.use({ trace: "off", reducedMotion: "no-preference" })
 
 test("Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction", async ({ page }, testInfo) => {
   test.setTimeout(120_000)
-  await installWorkspacePhaseProbe(page)
   await populatedBoard(page)
   const session = await page.context().newCDPSession(page)
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
@@ -67,11 +65,6 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
   expect(Math.max(0, ...measured.tasks)).toBeLessThan(200)
   // Cold startup is a durability check, separate from the throttled interaction.
   await page.reload()
-  try {
-    // Reload readiness waits for full-history admission; the 200ms interaction gate stays unchanged.
-    await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 60_000 })
-  } catch (error) {
-    console.info("Reload startup phase probe", JSON.stringify(await readWorkspacePhaseProbe(page, 60_000)))
-    throw error
-  }
+  // Reload readiness waits for full-history admission; the 200ms interaction gate stays unchanged.
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 60_000 })
 })

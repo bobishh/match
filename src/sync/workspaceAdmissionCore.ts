@@ -55,19 +55,13 @@ type AdmissionPlan = {
 }
 
 /** Pure admission. No storage, notifications, transport acknowledgement or profile access. */
-export function computeWorkspaceAdmission(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
-  onTiming?: (phase: string, elapsedMs: number) => void): WorkspaceAdmissionResult {
-  let phaseStarted = performance.now()
+export function computeWorkspaceAdmission(input: WorkspaceAdmissionInput, policy: AdmissionPolicy): WorkspaceAdmissionResult {
   const remote = Automerge.load<WorkspaceDocumentV2>(input.remote)
   let local: Automerge.Doc<WorkspaceDocumentV2> | undefined
   try {
     local = input.local ? Automerge.load<WorkspaceDocumentV2>(input.local) : undefined
     if (remote.id !== input.workspaceId || (local && local.id !== input.workspaceId)) throw new Error("Admission workspace mismatch")
-    onTiming?.("load", performance.now() - phaseStarted)
-    phaseStarted = performance.now()
-    const result = admitDocuments(input, policy, local, remote, onTiming)
-    onTiming?.("total", performance.now() - phaseStarted)
-    return result
+    return admitDocuments(input, policy, local, remote)
   } finally {
     if (local) Automerge.free(local)
     Automerge.free(remote)
@@ -75,9 +69,7 @@ export function computeWorkspaceAdmission(input: WorkspaceAdmissionInput, policy
 }
 
 function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
-  local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>,
-  onTiming?: (phase: string, elapsedMs: number) => void): WorkspaceAdmissionResult {
-  let phaseStarted = performance.now()
+  local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>): WorkspaceAdmissionResult {
   const bundle = input.authorization
   const recordPages = policy.authorizationRecordPages(bundle)
   const incomingRecords = recordPages.flat()
@@ -88,8 +80,6 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   // already known locally so late authority evidence can reclassify them.
   const merged = local ? Automerge.merge(local, remote) : remote
   const rawBytes = Automerge.save(merged)
-  onTiming?.("prepare-plan", performance.now() - phaseStarted)
-  phaseStarted = performance.now()
   const plan = policy.evaluateCausalAdmission({
     records: incomingRecords,
     snapshot: {
@@ -101,8 +91,6 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
     },
     nowMs: input.now,
   }) as AdmissionPlan
-  onTiming?.("rust-evaluate", performance.now() - phaseStarted)
-  phaseStarted = performance.now()
   const changesByHash = new Map(Automerge.getChangesMetaSince(merged, []).map(change => [change.hash, change]))
   const decodedChanges = Automerge.getAllChanges(merged).map(bytes => Automerge.decodeChange(bytes))
   const operationsByHash = new Map(decodedChanges.map(decoded => [decoded.hash, decoded.ops]))
@@ -119,8 +107,6 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
       assertAdmittedTransition(merged, change, decision.status.role, actorByHash.get(change.hash), operations, objectParents)
     }
   }
-  onTiming?.("typescript-transition-validation", performance.now() - phaseStarted)
-  phaseStarted = performance.now()
   const quarantinedHashes = plan.decisions.filter(decision => decision.status.type === "quarantined").map(decision => decision.hash)
   const pendingHashes = plan.decisions.filter(decision => decision.status.type === "pending").map(decision => decision.hash)
   const verifiedInputs = incomingRecords as WorkspaceChangeAuthorization[]
@@ -139,7 +125,6 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   let authorizedHeads: string[]
   try { authorizedHeads = Automerge.getHeads(authorized) }
   finally { Automerge.free(authorized) }
-  onTiming?.("finalize", performance.now() - phaseStarted)
   return { neededHashes: [...changesByHash.keys()],
     admittedHashes: plan.decisions.filter(decision => decision.status.type === "admitted").map(decision => decision.hash),
     // Only proofs the Rust verifier matched to a real raw change may enter the
@@ -246,7 +231,7 @@ function assertFullTransition(
   assertWorkspaceTransition(role, before, after, actorPersonId)
 }
 
-export type WorkspaceAdmissionRequest = { id: number; input: WorkspaceAdmissionInput; diagnostics?: boolean }
+export type WorkspaceAdmissionRequest = { id: number; input: WorkspaceAdmissionInput }
 export type WorkspaceAdmissionResponse =
-  | { id: number; result: WorkspaceAdmissionResult; diagnostics?: Record<string, number> }
+  | { id: number; result: WorkspaceAdmissionResult }
   | { id: number; error: string; fatal?: boolean }

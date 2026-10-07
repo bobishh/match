@@ -1,22 +1,12 @@
 import { expect, test } from "./support/coverage"
 import { populatedBoard, moveFirst } from "./support/detailedBoard"
-import { installWorkspacePhaseProbe, readWorkspacePhaseProbe, startWorkspacePhaseProbe } from "./support/workspacePhaseProbe"
 
 test("Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists", async ({ page }) => {
-  test.setTimeout(120_000)
-  await installWorkspacePhaseProbe(page)
   await populatedBoard(page)
-  await startWorkspacePhaseProbe(page)
   await page.evaluate(async () => (await import("/src/storage.ts")).setStorageFailureHookForTest(true))
   await moveFirst(page)
-  try {
-    // Persistence status follows full-history admission; keep this separate from the 200ms interaction gate.
-    await expect(page.getByRole("status")).toContainText("Move failed", { timeout: 15_000 })
-  } catch (error) {
-    console.info("Workspace command phase probe", JSON.stringify(await readWorkspacePhaseProbe(page, 60_000)))
-    throw error
-  }
-  console.info("Workspace command phase probe", JSON.stringify(await readWorkspacePhaseProbe(page)))
+  // Persistence status follows full-history admission; keep this separate from the 200ms interaction gate.
+  await expect(page.getByRole("status")).toContainText("Move failed", { timeout: 15_000 })
   await expect(page.getByRole("region", { name: "To do", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
   await page.evaluate(async () => (await import("/src/storage.ts")).setStorageFailureHookForTest(false))
   await moveFirst(page)
@@ -29,15 +19,9 @@ test("Given two tabs share a detailed board, when one moves a card and another e
   test.setTimeout(120_000)
   await populatedBoard(page)
   const other = await context.newPage()
-  await installWorkspacePhaseProbe(other)
   await other.goto("/")
-  try {
-    // Full-history admission gates workspace readiness; interaction limits remain separate.
-    await expect(other.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
-  } catch (error) {
-    console.info("Second-tab startup phase probe", JSON.stringify(await readWorkspacePhaseProbe(other, 60_000)))
-    throw error
-  }
+  // Full-history admission gates workspace readiness; interaction limits remain separate.
+  await expect(other.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
   await expect(other.getByRole("button", { name: "Open Performance card 1", exact: true })).toBeVisible()
   await Promise.all([
     moveFirst(page),
