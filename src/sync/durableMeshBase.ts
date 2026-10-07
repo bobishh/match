@@ -139,8 +139,11 @@ export function isEnvelope(value: unknown): value is MeshWorkspaceEnvelope {
 
 export type MeshCatalog = { departures?: WorkspaceDeparture[]; deviceRevocations?: WorkspaceDeviceRevocation[]; revocations?: WorkspaceRevocation[]; ownershipTransfers?: WorkspaceOwnershipTransfer[]
   successionPolicy?: WorkspaceSuccessionPolicy; successionVotes?: WorkspaceSuccessionVote[]; successionClaims?: WorkspaceSuccessionClaim[] }
+export const CAUSAL_WRITE_ADMISSION_CAPABILITY = "causal-write-admission-v1"
 export function assertRequiredMeshCapabilities(capabilities: unknown): asserts capabilities is string[] {
   meshRustRuntime().state.validateMeshCapabilities(capabilities)
+  if (!Array.isArray(capabilities) || !capabilities.includes(CAUSAL_WRITE_ADMISSION_CAPABILITY))
+    throw new Error("Peer needs causal write admission support. Upgrade the peer and reconnect.")
 }
 
 export function meshCatalog(credential: Pick<WorkspaceMeshCredential, "catalog">): MeshCatalog {

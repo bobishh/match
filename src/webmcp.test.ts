@@ -8,6 +8,7 @@ import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identit
 import { useTincanban, hydrate, resetStateForTest } from "./state"
 import { isItem } from "./domain/model"
 import { clearMeshTrace, meshTrace } from "./sync/meshTrace"
+import { itemLifecycle } from "./domain/archive"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -224,7 +225,8 @@ describe("generic WebMCP tools", () => {
     const itemId = res.id
 
     await setArchived.execute({ itemId, archived: true })
-    expect(tincanban.getActiveDoc()!.entities[itemId].archivedAt).toEqual(expect.any(String))
+    const archivedItem = tincanban.getActiveDoc()!.entities[itemId]
+    expect(isItem(archivedItem) && itemLifecycle(archivedItem)).toEqual(expect.objectContaining({ state: "archived", changedAt: expect.any(String) }))
 
     const archived = await listArchived.execute({})
     expect(archived.some((item: any) => item.id === itemId)).toBe(true)

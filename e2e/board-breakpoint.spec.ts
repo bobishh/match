@@ -24,5 +24,5 @@ test("Given a 640px board, when resizing to a phone, then compact columns become
   await expect(page.locator(".mobile-column-switcher")).toContainText("Applied")
   await page.setViewportSize({ width: 561, height: 900 })
   await expect(page.locator(".mobile-column-switcher")).toBeHidden()
-  expect((await columns.nth(0).boundingBox())!.width).toBeLessThan(300)
+  await expect.poll(async () => (await columns.nth(0).boundingBox())?.width).toBeLessThan(300)
 })

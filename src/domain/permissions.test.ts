@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { hasEntityKind } from "./model"
 import { createWorkspaceDoc } from "./seeds"
-import { assertWorkspaceCommand, assertWorkspaceTransition, canWorkspace, type WorkspaceCapability, type WorkspaceRole } from "./permissions"
+import { assertWorkspaceCommand, assertWorkspaceEntityTransitions, assertWorkspaceRootTransition, assertWorkspaceTransition, canWorkspace, type WorkspaceCapability, type WorkspaceRole } from "./permissions"
 import type { Command } from "./commandTypes"
 
 const capabilities: WorkspaceCapability[] = [
@@ -45,7 +45,7 @@ describe("workspace policy", () => {
     const structure = structuredClone(before)
     structure.entities[board.id]!.title = "Changed board"
     expect(() => assertWorkspaceTransition("editor", before, structure)).toThrow("Only the owner can edit board structure")
-    expect(() => assertWorkspaceTransition("visitor", before, renamed)).toThrow("Visitors can only view this workspace")
+    expect(() => assertWorkspaceTransition("visitor", before, renamed)).toThrow("Only owners and editors can rename this workspace")
   })
 
   it("checks typed content commands without diffing workspace entities", () => {
@@ -75,5 +75,74 @@ describe("workspace policy", () => {
     expect(() => assertWorkspaceCommand("owner", doc, { kind: "setWorkspaceArchived", archived: true })).not.toThrow()
     expect(() => assertWorkspaceCommand("visitor", doc, { kind: "patchItem", entityId: "item", body: "No" }))
       .toThrow("Visitors can only view this workspace")
+  })
+
+  it("lets visitor update only their own CRDT avatar profile", () => {
+    const before = createWorkspaceDoc("ws", "Board", "owner", "blank")
+    const column = Object.values(before.entities).find(entity => hasEntityKind(entity, "column"))!
+    before.entities["avatar-test-item"] = {
+      id: "avatar-test-item", title: "Card", body: "", values: {}, placement: { parentId: column.id, rank: "0/1" },
+      archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    }
+    const after = structuredClone(before)
+    const personId = "visitor-person"
+    const data = JSON.stringify({ avatarData: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4WAoAAAAAAAAAfwAAfwAA", changedAt: "2026-01-01T00:00:00.000Z" })
+    after.entities[`member-profile:${personId}`] = {
+      id: `member-profile:${personId}`, kind: "member_profile", personId, data, title: "Member profile",
+      placement: { parentId: null, rank: "0/1" }, archivedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    }
+    expect(() => assertWorkspaceTransition("visitor", before, after, personId)).not.toThrow()
+    expect(() => assertWorkspaceTransition("visitor", before, after, "another-person")).toThrow("A participant may change only their own profile")
+
+    const mixed = structuredClone(after)
+    mixed.entities["avatar-test-item"]!.title = "Spoofed content edit"
+    expect(() => assertWorkspaceTransition("visitor", before, mixed, personId)).toThrow("Visitors can only view this workspace")
+  })
+
+  it("keeps touched-profile admission equivalent for actor, type-smuggling, and mixed edits", () => {
+    const before = createWorkspaceDoc("ws", "Board", "owner", "blank")
+    const personId = "visitor-person"
+    const profileId = `member-profile:${personId}`
+    const profile = {
+      id: profileId, kind: "member_profile" as const, personId,
+      data: JSON.stringify({ avatarData: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4WAoAAAAAAAAAfwAAfwAA", changedAt: "2026-01-01T00:00:00.000Z" }),
+      title: "Member profile", placement: { parentId: null, rank: "0/1" }, archivedAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+    }
+    const after = structuredClone(before)
+    after.entities[profileId] = profile
+    const profileOnly = new Set([profileId])
+    expect(() => assertWorkspaceTransition("visitor", before, after, personId)).not.toThrow()
+    expect(() => assertWorkspaceEntityTransitions("visitor", before.entities, after.entities, profileOnly, personId)).not.toThrow()
+    expect(() => assertWorkspaceTransition("visitor", before, after, "another-person")).toThrow("A participant may change only their own profile")
+    expect(() => assertWorkspaceEntityTransitions("visitor", before.entities, after.entities, profileOnly, "another-person"))
+      .toThrow("A participant may change only their own profile")
+
+    const smuggled = structuredClone(after)
+    const column = Object.values(before.entities).find(entity => hasEntityKind(entity, "column"))!
+    smuggled.entities[profileId] = {
+      id: profileId, title: "Spoofed profile item", body: "", placement: { parentId: column.id, rank: "0/1" },
+      archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", values: {},
+    }
+    expect(() => assertWorkspaceTransition("visitor", before, smuggled, personId)).toThrow("A participant may change only their own profile")
+    expect(() => assertWorkspaceEntityTransitions("visitor", before.entities, smuggled.entities, profileOnly, personId))
+      .toThrow("A participant may change only their own profile")
+
+    const mixed = structuredClone(after)
+    mixed.entities.item = {
+      id: "item", title: "Spoofed content edit", body: "", placement: { parentId: column.id, rank: "0/1" },
+      archivedAt: null, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", values: {},
+    }
+    expect(() => assertWorkspaceTransition("visitor", before, mixed, personId)).toThrow("Visitors can only view this workspace")
+    expect(() => assertWorkspaceEntityTransitions("visitor", before.entities, mixed.entities, new Set([profileId, "item"]), personId))
+      .toThrow("Visitors can only view this workspace")
+  })
+
+  it("checks touched root paths with the same capability rules", () => {
+    expect(() => assertWorkspaceRootTransition("editor", new Set(["title"]))).not.toThrow()
+    expect(() => assertWorkspaceRootTransition("visitor", new Set(["title"]))).toThrow("Only owners and editors can rename this workspace")
+    expect(() => assertWorkspaceRootTransition("editor", new Set(["settings"]))).toThrow("Only the owner can edit board structure")
+    expect(() => assertWorkspaceRootTransition("visitor", new Set())).not.toThrow()
   })
 })

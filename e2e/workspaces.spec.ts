@@ -82,7 +82,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("Client board")
     await workspaces.getByRole("button", { name: "Save name" }).click()
     await expect(workspaces.locator(".workspace-switch", { hasText: "Client board" })).toBeVisible()
-    await workspaces.getByRole("button", { name: /Untitled/ }).click()
+    await workspaces.locator(".workspace-switch").filter({ hasText: "Untitled" }).click()
     await page.getByRole("button", { name: "Open workspaces" }).click()
     await workspaces.locator(".workspace-item", { hasText: "Client board" }).getByRole("button", { name: "Rename", exact: true }).click()
     await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("")
@@ -90,7 +90,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(workspaces.getByRole("alert")).toHaveText("Workspace name is required")
     await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("Client board renamed")
     await workspaces.getByRole("button", { name: "Save name" }).click()
-    await workspaces.getByRole("button", { name: /Client board renamed/ }).click()
+    await workspaces.locator(".workspace-switch").filter({ hasText: "Client board renamed" }).click()
     await expect(page.getByRole("button", { name: "Open Kept card" })).toBeVisible()
     await page.reload()
     await expect(page.getByRole("heading", { name: "TINCANBAN // Client board renamed" })).toBeVisible()
@@ -103,12 +103,12 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     const workspaces = page.getByRole("dialog", { name: "Workspaces" })
     await workspaces.locator(".workspace-item", { hasText: "Untitled" }).getByRole("button", { name: "Rename", exact: true }).click()
     await workspaces.getByRole("textbox", { name: "Workspace name" }).fill("Still editable")
-    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+    await page.evaluate(() => { (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
     await workspaces.getByRole("button", { name: "Save name" }).click()
     await expect(workspaces.getByRole("alert")).toContainText("Storage failure injected")
     await expect(workspaces.getByRole("textbox", { name: "Workspace name" })).toHaveValue("Still editable")
     await expect(workspaces.getByRole("button", { name: "Save name" })).toBeEnabled()
-    await page.evaluate(() => { delete (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ })
+    await page.evaluate(() => { delete (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ })
   })
 
   test("Given workspace archive save is pending and fails, when Archive is retried, then controls recover and fallback persists", async ({ page }) => {
@@ -126,7 +126,8 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await page.evaluate(async () => {
       type ArchiveGateWindow = Window & { __TINCANBAN_ARCHIVE_GATE__?: { started: boolean; reject: () => void; restore: () => void } }
       const storage = (await import("/src/storage.ts")).defaultStorage
-      const original = storage.commitWorkspace.bind(storage)
+      const prototype = Object.getPrototypeOf(storage) as { commitWorkspace: typeof storage.commitWorkspace }
+      const original = prototype.commitWorkspace
       let pending = true
       let rejectCommit: ((reason: Error) => void) | undefined
       const gateWindow = window as ArchiveGateWindow
@@ -136,14 +137,14 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
           pending = false
           rejectCommit?.(new Error("Storage failure injected"))
         },
-        restore: () => { storage.commitWorkspace = original },
+        restore: () => { prototype.commitWorkspace = original },
       }
-      storage.commitWorkspace = (...args) => {
-        if (!pending) return original(...args)
+      prototype.commitWorkspace = function (this: typeof storage, ...args: Parameters<typeof original>) {
+        if (!pending) return original.apply(this, args)
         return new Promise((resolve, reject) => {
           rejectCommit = reject
           gateWindow.__TINCANBAN_ARCHIVE_GATE__!.started = true
-        })
+        }) as ReturnType<typeof original>
       }
     })
     await workspace.getByRole("button", { name: "Archive workspace" }).click()
@@ -156,11 +157,11 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(workspace.getByRole("button", { name: "Archive workspace" })).toBeEnabled()
     await expect(workspace.getByRole("button", { name: "Archive", exact: true })).toBeEnabled()
     await expect(workspace.getByRole("button", { name: "Cancel" })).toBeEnabled()
-    await expect(workspace.getByRole("button", { name: /Archive pending board Active/ })).toBeVisible()
+    await expect(workspace.locator(".workspace-switch").filter({ hasText: "Archive pending board" })).toBeVisible()
     await page.evaluate(() => (window as Window & { __TINCANBAN_ARCHIVE_GATE__?: { restore: () => void } }).__TINCANBAN_ARCHIVE_GATE__?.restore())
     await workspace.getByRole("button", { name: "Archive workspace" }).click()
-    await expect(dialog.getByRole("button", { name: /Archive pending board/ })).toHaveCount(0)
-    await expect(dialog.getByRole("button", { name: /Untitled Active/ })).toBeVisible()
+    await expect(dialog.locator(".workspace-switch").filter({ hasText: "Archive pending board" })).toHaveCount(0)
+    await expect(dialog.locator(".workspace-switch").filter({ hasText: "Untitled" })).toBeVisible()
     await dialog.getByRole("button", { name: "Close" }).last().click()
     await expect(page.getByRole("heading", { name: "TINCANBAN // Untitled" })).toBeVisible()
     await page.reload()
@@ -190,11 +191,11 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     const confirmation = temporary.getByRole("group", { name: "Archive Temporary board" })
     await expect(confirmation).toContainText("cards and documents remain saved")
     await confirmation.getByRole("button", { name: "Cancel" }).click()
-    await expect(dialog.getByRole("button", { name: /Temporary board/ })).toBeVisible()
+    await expect(dialog.locator(".workspace-switch").filter({ hasText: "Temporary board" })).toBeVisible()
     await temporary.getByRole("button", { name: "Archive", exact: true }).click()
     await confirmation.getByRole("button", { name: "Archive workspace" }).click()
-    await expect(dialog.getByRole("button", { name: /Temporary board/ })).toHaveCount(0)
-    await expect(dialog.getByRole("button", { name: /Untitled Active/ })).toBeVisible()
+    await expect(dialog.locator(".workspace-switch").filter({ hasText: "Temporary board" })).toHaveCount(0)
+    await expect(dialog.locator(".workspace-switch").filter({ hasText: "Untitled" })).toBeVisible()
     await dialog.getByRole("button", { name: "Close" }).last().click()
     await expect(page.getByRole("heading", { name: "TINCANBAN // Untitled" })).toBeVisible()
     await page.reload()
@@ -207,15 +208,15 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
     await expect(restore).toHaveCSS("text-transform", "uppercase")
     await expect(restore).toHaveCSS("border-radius", "0px")
     await expect(restoredDialog.locator(".workspace-item strong", { hasText: "Temporary board" })).toHaveCSS("font-size", "20px")
-    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+    await page.evaluate(() => { (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
     await restore.click()
     await expect(restoredDialog.getByRole("alert")).toBeVisible()
     await expect(restore).toBeEnabled()
     await page.screenshot({ animations: "disabled", path: testInfo.outputPath("workspace-restore-error.png") })
-    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
+    await page.evaluate(() => { (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
     await restore.click()
-    await expect(restoredDialog.getByRole("button", { name: /Temporary board/ })).toBeVisible()
-    await restoredDialog.getByRole("button", { name: /Temporary board/ }).click()
+    await expect(restoredDialog.locator(".workspace-switch").filter({ hasText: "Temporary board" })).toBeVisible()
+    await restoredDialog.locator(".workspace-switch").filter({ hasText: "Temporary board" }).click()
     await expect(page.getByRole("button", { name: "Open Temporary data" })).toBeVisible()
   })
 
@@ -430,7 +431,7 @@ test.describe("Workspaces and Generic Board UI (Outer Scenarios)", () => {
 
     // 8. Switch back to Reading board and export
     await page.getByRole("button", { name: "Workspaces" }).click()
-    await wsDialog.getByRole("button", { name: "Reading board" }).click()
+    await wsDialog.locator(".workspace-switch").filter({ hasText: "Reading board" }).click()
     await expect(page.getByRole("heading", { name: "Reading board" })).toBeVisible()
 
     const downloadPromise = page.waitForEvent("download")

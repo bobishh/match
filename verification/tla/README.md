@@ -4,7 +4,21 @@ Finite executable specifications; **no formal proof of production code**.
 Baseline storage ordering maps to commit `b082f9e`; fixed storage design maps
 to `8740708`. Paging remains a proposed protocol, not an implemented fix.
 Transport models state required ACK/retry behavior; no claim that connection
-flapping, stalls, or history/export growth is fixed.
+flapping, stalls, or history/export growth is fixed. `ItemTransitions` checks item
+placement/workflow pairing, independent column collapse, archive/restore workflow
+preservation, failed publish silence, and idempotent single archive-column
+reference under finite interleavings.
+`IdentityCatalog` models identity replacement as switching to the new identity's
+explicit personal-root entitlement set: old local document bytes remain, old-only
+catalog entries disappear, and invited/shared refs remain visible. Ownership is
+fixed and never inferred from peer count or offline status. This finite model does
+not verify signatures, IndexedDB, or enrollment transport implementation.
+`WorkerLifecycle` checks admission requests wait for a ready worker and stale
+fatal and queued-timeout callbacks from an earlier worker generation cannot fail
+the retry. Negative configurations deliberately remove each generation guard
+and expect a counterexample. The abstraction models at most two worker generations
+and two queued jobs; it does not model browser event-loop scheduling or worker
+internals.
 
 ## Run
 
@@ -16,8 +30,8 @@ No jar committed. Download outside repository:
 mkdir -p "$HOME/.cache/tla-tools"
 curl -fL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar \
   -o "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
-shasum -a 1 "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
-# Expected official SHA-1: bee4a54f3ee3d4afc347c3240ec2d9e93b075104
+printf '%s  %s\n' '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88' \
+  "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar" | sha256sum --check
 python3 verification/tla/run_models.py \
   --jar "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
 ```
@@ -39,6 +53,8 @@ TLC 2.19, official release 1.7.4, Java 26.0.1, 2026-09-28.
 Expected counterexamples are successful regression checks, not passing
 invariants. Their state counts stop at a counterexample; passing checks explore
 the entire reachable finite graph. No symmetry or state constraints used.
+IdentityCatalog explores 6 generated / 2 distinct states for its finite identity,
+workspace, ownership, and entitlement abstraction.
 
 | Configuration | Result | Generated / distinct states |
 | --- | --- | ---: |
@@ -55,6 +71,11 @@ the entire reachable finite graph. No symmetry or state constraints used.
 | TransportReconnectOnly | Reconnect fairness alone defeats liveness | 37 / 18 |
 | TransportEarlyAck | AckDurable violated | 9 / 6 |
 | TransportConnection | ConnectionImpliesCoverage violated | 2 / 2 |
+| ItemTransitions | Safety holds | 2257 / 360 |
+| IdentityCatalog | Safety holds | 6 / 2 |
+| WorkerLifecycle | Safety holds | 518 / 174 |
+| WorkerLifecycleStaleFatal | StaleFatalIsolated violated | 37 / 29 |
+| WorkerLifecycleQueuedTimeout | QueuedTimeoutIsolated violated | 37 / 29 |
 
 ## Interpretation and code mapping
 
@@ -123,4 +144,11 @@ record identity/order, authority evidence on each page or bound session,
 validation of complete dependency coverage, restart protocol, and API design.
 Actual signatures, CRDT dependencies, command replay, legacy migration, browser
 crash recovery, and multi-store database semantics remain implementation-test
-obligations. Model validity does not establish production refinement.
+obligations. `ItemTransitions` bounds logical clock to three changes so TLC explores
+a finite graph; lifecycle writes and placement writes are atomic actions, collapse
+is an independent Boolean map, failed publish is only modeled before success, and
+archive concurrency is represented by idempotent writes of one configured ID. It
+does not model competing archive-role assignments, Automerge register conflict
+resolution, JSON parsing, rank-only reorder, or database scheduling. The finite
+model checks abstract invariants and interleavings; it does not prove production
+refinement. Model validity does not establish production refinement.

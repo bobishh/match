@@ -92,7 +92,7 @@ async function handleCreate() {
 .workspace-create-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
 .workspace-create-actions { flex: 0 0 auto; margin-top: 0; padding-top: 16px; border-top: 2px solid var(--line); }
 .workspace-customize { display: grid; gap: 14px; }
-.workspace-customize-toggle { display: flex; width: 100%; min-width: 0; min-height: 54px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); background: var(--soft); text-align: left; }
+.workspace-customize-toggle { display: flex; width: 100%; min-width: 0; min-height: 54px; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); text-align: left; }
 .workspace-customize-toggle > span:first-child { display: grid; gap: 4px; min-width: 0; }
 .workspace-customize-toggle small { color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
 .workspace-create-content :deep(.creation-config) { padding-bottom: 4px; }

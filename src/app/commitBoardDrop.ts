@@ -1,4 +1,4 @@
-import { isArchiveColumn } from "../domain/archive"
+import { isArchiveColumn, isItemArchived } from "../domain/archive"
 import { isItem, type Item } from "../domain/model"
 import type { AppBoardContext } from "./useAppBoard"
 import type { DropMarker } from "./boardDragTarget"
@@ -32,8 +32,8 @@ async function commitItemDrop(drag: Drag, core: AppBoardContext, presentation: P
   const sourceColumn = core.tincanban.genericColumns.value.find(column => column.id === drag.sourceParentId)
   const targetColumn = core.tincanban.genericColumns.value.find(column => column.id === parentId)
   const archiveTarget = Boolean(targetColumn && isArchiveColumn(targetColumn))
-  if (!isItem(sourceItem) || archiveTarget && sourceItem.archivedAt) return
-  if (!archiveTarget && !sourceItem.archivedAt && sourceItem.placement.parentId === parentId && unchangedVisiblePosition(drag)) return
+  if (!isItem(sourceItem) || archiveTarget && isItemArchived(sourceItem)) return
+  if (!archiveTarget && !isItemArchived(sourceItem) && sourceItem.placement.parentId === parentId && unchangedVisiblePosition(drag)) return
   const command = itemMoveCommand(drag, sourceItem, parentId, archiveTarget)
   try {
     await core.tincanban.executeCommandAsync(command)
@@ -55,7 +55,7 @@ function unchangedVisiblePosition(drag: Drag): boolean {
 
 function itemMoveCommand(drag: Drag, item: Item, parentId: string, archive: boolean) {
   if (archive) return { kind: "setEntityArchived" as const, entityId: drag.id, archived: true }
-  if (item.archivedAt) return { kind: "restoreAndMove" as const, entityId: drag.id, parentId, beforeId: drag.target?.beforeId }
+  if (isItemArchived(item)) return { kind: "restoreAndMove" as const, entityId: drag.id, parentId, beforeId: drag.target?.beforeId }
   return { kind: "moveEntity" as const, entityId: drag.id, parentId, beforeId: drag.target?.beforeId }
 }
 

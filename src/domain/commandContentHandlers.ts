@@ -12,16 +12,22 @@ export const createColumn: CommandHandler<"createColumn"> = (doc, command, conte
   if (!command.title.trim()) return err("invalid_input", "Column title cannot be empty", "title")
   const board = doc.entities[command.boardId]
   if (!board || !hasEntityKind(board, "board")) return err("not_found", `Board ${command.boardId} not found`)
-  if (command.archive && Object.values(doc.entities).some(entity => hasEntityKind(entity, "column") && !entity.archivedAt && entity.placement.parentId === command.boardId && isArchiveColumn(entity))) return err("invalid_input", "Only one archive column is allowed", "archive")
+  const hasArchiveColumn = board.archiveColumnId !== undefined
+    ? board.archiveColumnId !== null
+    : Object.values(doc.entities).some(entity => hasEntityKind(entity, "column") && !entity.archivedAt && entity.placement.parentId === command.boardId && isArchiveColumn(entity))
+  if (command.archive && hasArchiveColumn) return err("invalid_input", "Only one archive column is allowed", "archive")
   const id = crypto.randomUUID()
   const insertion = computeInsertionRank(doc.entities, command.boardId, command.beforeId)
   const existingColumns = Object.values(doc.entities).filter((entity): entity is Column => hasEntityKind(entity, "column") && entity.placement.parentId === command.boardId && !entity.archivedAt).sort((a, b) => compareRanks(a.placement.rank, b.placement.rank))
   const buttons = cardStageButtons(board, existingColumns)
   return { ok: true, value: { changedEntityIds: [id, command.boardId], apply: draft => {
     applyRenumbering(draft, insertion.renumbered)
-    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, ...(command.archive ? { archive: true as const } : {}), archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
+    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, archivedAt: null, ...(command.collapsible !== undefined ? { collapsible: command.collapsible } : {}), createdAt: context.nowIso, updatedAt: context.nowIso }
     const targetBoard = draft.entities[command.boardId]
-    if (hasEntityKind(targetBoard, "board")) targetBoard.cardStageButtons = [...buttons, { columnId: id }]
+    if (hasEntityKind(targetBoard, "board")) {
+      targetBoard.cardStageButtons = [...buttons, { columnId: id }]
+      if (command.archive) targetBoard.archiveColumnId = id
+    }
   } } }
 }
 

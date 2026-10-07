@@ -76,6 +76,10 @@ input[type="radio"],
   border-image: none !important;
 }
 
+/* Hatch meets the divider; count paint hides stripes behind digits. */
+.column-header::before { content: ""; position: absolute; inset: 0 0 -1px; background: var(--column-hatch-color); mask: var(--column-hatch-mask, url("/assets/column-hatch.svg?v=1")) repeat; mask-size: 64px 64px; opacity: var(--column-hatch-opacity, .58); pointer-events: none; }
+.count { background: #fff; }
+
 .notice-dismiss,
 .notice-undo {
   --ink-frame: url("/assets/ink-frame-white.svg?v=1");
@@ -91,6 +95,7 @@ input[type="radio"],
 :where(.button,
 .icon-button,
 .dialog,
+.mobile-drawer,
 .column,
 .lead-card,
 .chat-message-item,
@@ -106,6 +111,8 @@ input[type="radio"],
 .sync-checkbox-item,
 .sync-section-action,
 .approval-card,
+.keeper-card,
+.login-card,
 .keeper-row,
 .keeper-code,
 .identity-login-card,
@@ -138,13 +145,25 @@ textarea) {
 .column,
 .button-quiet,
 .mesh-member-action,
-.workspace-active-badge) {
+.workspace-active-badge,
+.mobile-drawer,
+.keeper-card,
+.login-card) {
   --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#panel");
   --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#panel");
   --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#panel");
   --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#panel");
   --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#panel");
   --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#panel");
+}
+
+:where(.drawer-header) {
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#soft");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#soft");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#soft");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#soft");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#soft");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#soft");
 }
 
 :where(.button-primary,
@@ -206,30 +225,30 @@ textarea) {
 }
 
 .lead-card.card-aging-watch {
-  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#watch");
-  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#watch");
-  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#watch");
-  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#watch");
-  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#watch");
-  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#watch");
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=2#watch");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=2#watch");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=2#watch");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=2#watch");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=2#watch");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=2#watch");
 }
 
 .lead-card.card-aging-aged {
-  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#aged");
-  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#aged");
-  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#aged");
-  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#aged");
-  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#aged");
-  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#aged");
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=2#aged");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=2#aged");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=2#aged");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=2#aged");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=2#aged");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=2#aged");
 }
 
 .lead-card.card-aging-overdue {
-  --ink-surface-0: url("/assets/ink-surface-0.svg?v=1#overdue");
-  --ink-focus-0: url("/assets/ink-focus-0.svg?v=1#overdue");
-  --ink-surface-1: url("/assets/ink-surface-1.svg?v=1#overdue");
-  --ink-focus-1: url("/assets/ink-focus-1.svg?v=1#overdue");
-  --ink-surface-2: url("/assets/ink-surface-2.svg?v=1#overdue");
-  --ink-focus-2: url("/assets/ink-focus-2.svg?v=1#overdue");
+  --ink-surface-0: url("/assets/ink-surface-0.svg?v=2#overdue");
+  --ink-focus-0: url("/assets/ink-focus-0.svg?v=2#overdue");
+  --ink-surface-1: url("/assets/ink-surface-1.svg?v=2#overdue");
+  --ink-focus-1: url("/assets/ink-focus-1.svg?v=2#overdue");
+  --ink-surface-2: url("/assets/ink-surface-2.svg?v=2#overdue");
+  --ink-focus-2: url("/assets/ink-focus-2.svg?v=2#overdue");
 }
 
 .chat-message-item.is-own {
@@ -244,6 +263,8 @@ textarea) {
 :where(.button,
 .icon-button,
 .dialog,
+.mobile-drawer,
+.drawer-header,
 .column,
 .lead-card,
 .chat-message-item,
@@ -259,6 +280,8 @@ textarea) {
 .sync-checkbox-item,
 .sync-section-action,
 .approval-card,
+.keeper-card,
+.login-card,
 .keeper-row,
 .keeper-code,
 .identity-login-card,
@@ -306,7 +329,9 @@ textarea) {
 :is(button,
 input,
 select,
-textarea):focus-visible,
+textarea,
+.button,
+.icon-button):focus-visible,
 .search-field:focus-within {
   outline: none !important;
   background: transparent !important;
@@ -326,13 +351,6 @@ input[type="radio"]:focus-visible {
   background: revert !important;
   outline: 3px solid var(--focus) !important;
   outline-offset: 3px;
-}
-
-@media (max-width: 600px) {
-  .chat-dialog {
-    border-image: none !important;
-    background: var(--panel) !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

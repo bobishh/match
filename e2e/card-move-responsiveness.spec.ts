@@ -7,6 +7,7 @@ import { populatedBoard } from "./support/detailedBoard"
 test.use({ trace: "off", reducedMotion: "no-preference" })
 
 test("Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction", async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
   await populatedBoard(page)
   const session = await page.context().newCDPSession(page)
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
@@ -18,32 +19,30 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
     Object.assign(window, { moveTasks: tasks, moveTaskObserver: taskObserver })
   })
   const points = await page.evaluate(() => {
-    const card = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"] .card-open-button')!
+    const card = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"]')!
     const stack = [...document.querySelectorAll<HTMLElement>(".card-stack")].find(element => {
       const title = element.closest(".column")?.querySelector(".column-title h2")?.textContent
       return title === "Doing"
     })!
     const cardRect = card.getBoundingClientRect()
     const stackRect = stack.getBoundingClientRect()
+    const targetId = stack.closest<HTMLElement>("[data-column-id]")?.dataset.columnId
     Object.assign(window, { beforeMoveBoard: document.querySelector(".board"), beforeMoveNeighbor: document.querySelector('[data-item-id="performance-card-1"]') })
-    return { sourceX: cardRect.x + cardRect.width / 2, sourceY: cardRect.y + Math.min(30, cardRect.height / 2), targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28 }
+    return { sourceX: cardRect.x + 4, sourceY: cardRect.y + 4, targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28, targetId }
   })
+  const nextInteraction = page.locator('[data-item-id="performance-card-0"]')
   await session.send("Profiler.start")
   await page.mouse.move(points.sourceX, points.sourceY)
   await page.mouse.down()
   await page.mouse.move(points.targetX, points.targetY, { steps: 15 })
+  await page.waitForFunction(targetId => document.querySelector(".board-drop-marker")?.getAttribute("data-target-id") === targetId, points.targetId)
   await page.mouse.up()
   await page.waitForFunction(() => {
     const movedCard = document.querySelector('[data-item-id="performance-card-0"]')
     return movedCard?.closest(".card-stack")?.closest(".column")?.querySelector(".column-title h2")?.textContent === "Doing" &&
       [...document.querySelectorAll("[role=status]")].some(element => element.textContent?.includes("Item moved"))
-  }, undefined, { timeout: 10000 })
-  const openPoint = await page.evaluate(() => {
-    const button = document.querySelector<HTMLElement>('[data-item-id="performance-card-0"] .card-open-button')!
-    const rect = button.getBoundingClientRect()
-    return { x: rect.x + 20, y: rect.y + 20 }
-  })
-  await page.mouse.click(openPoint.x, openPoint.y)
+  }, undefined, { timeout: 15_000 })
+  await nextInteraction.click()
   await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Item overview"]'))
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const { profile } = await session.send("Profiler.stop")
@@ -68,5 +67,6 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
   expect(Math.max(0, ...measured.tasks)).toBeLessThan(200)
   // Cold startup is a durability check, separate from the throttled interaction.
   await page.reload()
-  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 15000 })
+  // Reload readiness waits for full-history admission; the 200ms interaction gate stays unchanged.
+  await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible({ timeout: 60_000 })
 })

@@ -6,6 +6,7 @@ import type {
   TransactionMetadataV1,
   TransactionReceipt,
   WorkspaceDocumentV2,
+  WorkspaceEntity,
 } from "./model"
 import { canonicalizeJson, createActorBinding, createChangeProof, sha256Base64Url, type LocalProfile } from "./identity"
 import { prepareCommand } from "./commandHandlers"
@@ -14,21 +15,55 @@ import { err, type Command, type ExecuteResult } from "./commandTypes"
 export { type Command, type ExecuteResult } from "./commandTypes"
 
 export async function executeCommand(
-  doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command, profile: LocalProfile, actorId?: string
+  doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command, profile: LocalProfile, actorId?: string,
+  authorityGrantHash?: string
 ): Promise<ExecuteResult> {
   const transactionId = crypto.randomUUID()
   const beforeHeads = Automerge.getHeads(doc).sort()
-  const prepared = prepareCommand(doc, command, new Date().toISOString(), beforeHeads)
+  const prepared = prepareCommand(doc, command, new Date().toISOString(), beforeHeads, profile.identity.personId)
   if (!prepared.ok) return prepared
-  const metadata = commandMetadata(transactionId, command.kind, prepared.value.changedEntityIds, profile)
+  const metadata = commandMetadata(transactionId, command.kind, prepared.value.changedEntityIds, profile, authorityGrantHash)
   const newDoc = Automerge.change(Automerge.clone(doc), { message: JSON.stringify(metadata) }, draft => prepared.value.apply(draft))
   const changeBytes = Automerge.getLastLocalChange(newDoc)
   if (!changeBytes) return err("storage_failed", "Automerge produced no change")
   return completeCommand(newDoc, changeBytes, transactionId, beforeHeads, prepared.value.changedEntityIds, profile, actorId)
 }
 
-function commandMetadata(transactionId: string, action: Command["kind"], entityIds: string[], profile: LocalProfile): TransactionMetadataV1 {
-  return { version: 1, transactionId, action, entityIds, personId: profile.identity.personId, deviceId: profile.device.deviceId }
+export async function executeReviewedWorkspaceChange(
+  doc: Automerge.Doc<WorkspaceDocumentV2>, changeHash: string,
+  patch: { root: Partial<Pick<WorkspaceDocumentV2, "title" | "archivedAt" | "migration" | "leads" | "documents" | "templates" | "artifacts">>;
+    entities: Array<{ id: string; value?: WorkspaceEntity | null; changes?: Record<string, unknown>; removedKeys?: string[] }> },
+  profile: LocalProfile, authorityGrantHash?: string,
+): Promise<ExecuteResult> {
+  const transactionId = crypto.randomUUID()
+  const beforeHeads = Automerge.getHeads(doc).sort()
+  const changedEntityIds = patch.entities.map(change => change.id).sort()
+  const metadata = { ...commandMetadata(transactionId, "reviewQuarantinedChange", changedEntityIds, profile, authorityGrantHash),
+    sourceChangeHash: changeHash }
+  const newDoc = Automerge.change(Automerge.clone(doc), { message: JSON.stringify(metadata) }, draft => {
+    for (const [key, value] of Object.entries(patch.root)) {
+      if (value === undefined) delete (draft as unknown as Record<string, unknown>)[key]
+      else (draft as unknown as Record<string, unknown>)[key] = value
+    }
+    for (const change of patch.entities) {
+      if (change.value === null) { delete draft.entities[change.id]; continue }
+      if (change.value !== undefined) { draft.entities[change.id] = JSON.parse(JSON.stringify(change.value)) as WorkspaceEntity; continue }
+      const entity = draft.entities[change.id] as unknown as Record<string, unknown> | undefined
+      if (!entity) throw new Error(`Reviewed entity ${change.id} is no longer present`)
+      for (const key of change.removedKeys ?? []) delete entity[key]
+      for (const [key, value] of Object.entries(change.changes ?? {})) entity[key] = JSON.parse(JSON.stringify(value))
+    }
+  })
+  const changeBytes = Automerge.getLastLocalChange(newDoc)
+  if (!changeBytes) return err("storage_failed", "Automerge produced no reviewed change")
+  return completeCommand(newDoc, changeBytes, transactionId, beforeHeads, changedEntityIds, profile)
+}
+
+function commandMetadata(transactionId: string, action: string, entityIds: string[], profile: LocalProfile,
+  authorityGrantHash?: string): TransactionMetadataV1 {
+  return { kind: "workspace-change-metadata", version: 1, transactionId, action, entityIds,
+    personId: profile.identity.personId, deviceId: profile.device.deviceId,
+    ...(authorityGrantHash ? { authorityGrantHash } : {}) }
 }
 
 async function completeCommand(

@@ -30,6 +30,25 @@ function rustReplacesSession(
 }
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given mesh stops during a dial, when route selection aborts, then cancellation does not become a reconnect error", async () => {
+    const onDiagnostic = vi.fn()
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
+      getProfile: async () => ({} as never), store: { listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [], listPeers: async () => [] } as never, onDiagnostic })
+    const internal = mesh as unknown as {
+      node?: unknown
+      dialDevice: (devices: { workspaceId: string; deviceId: string; instanceId: string; advertisement: unknown }[], signal: AbortSignal) => Promise<void>
+      runtime: () => { routeAttemptActive: (peerKey: string) => boolean }
+      peerKey: (workspaceId: string, deviceId: string, instanceId: string) => string
+    }
+    const controller = new AbortController()
+    controller.abort()
+    internal.node = {}
+    await internal.dialDevice([{ workspaceId: "workspace", deviceId: "remote", instanceId: "tab", advertisement: null }], controller.signal)
+    expect(onDiagnostic).not.toHaveBeenCalled()
+    expect(internal.runtime().routeAttemptActive(internal.peerKey("workspace", "remote", "tab"))).toBe(false)
+    internal.node = undefined
+    await mesh.dispose()
+  })
   it("clears a rejected workspace diagnostic only when its peer session is removed", async () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
@@ -156,6 +175,9 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(() => assertRequiredMeshCapabilities(["heartbeat-v1", "iroh-gossip-v1"]))
       .toThrow("Peer does not support required Automerge sync")
     expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1", "device-revocation-v1"]))
+      .toThrow("Peer needs causal write admission support")
+    expect(() => assertRequiredMeshCapabilities(["automerge-sync-v1", "iroh-gossip-v1", "device-revocation-v1",
+      "causal-write-admission-v1"]))
       .not.toThrow()
   })
 

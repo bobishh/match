@@ -104,9 +104,9 @@ async function createHostInvite(context: WorkspaceHostContext, node: SyncNode, p
   return invite
 }
 
-async function issueWorkspaceInvite(context: WorkspaceHostContext, node: SyncNode, profile: LocalProfile, workspaces: WorkspaceOption[]) {
+async function issueWorkspaceInvite(context: WorkspaceHostContext, node: SyncNode, profile: LocalProfile, workspaces: WorkspaceOption[], role: "editor" | "visitor" = "visitor") {
   const secret = createPairingSecret()
-  const invite = createWorkspaceJoinInvite(node.endpointId, secret, profile, workspaces)
+  const invite = createWorkspaceJoinInvite(node.endpointId, secret, profile, workspaces, { role })
   await defaultInvitationService.saveIssuedInvitation(invite)
   return invite
 }
@@ -122,6 +122,9 @@ type HostInput = {
   replica: ReturnType<typeof workspaceSet>
   keeperAdmission?: KeeperAdmission
 }
+
+type WorkspaceGuest = { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }
+type OwnerConnection = { controllerPersonId: string }
 type HostRuntime = HostInput & {
   acceptor: SyncAcceptor
   peers: Map<string, LiveWorkspaceSync>
@@ -209,7 +212,7 @@ export async function createKeeperWorkspaceHost(
   }
   context.setNode(node)
   await context.durableMesh?.ensureOwnerWorkspaces(workspaces.map(item => item.id), node.endpointId, profile)
-  const invite = await issueWorkspaceInvite(context, node, profile, workspaces)
+  const invite = await issueWorkspaceInvite(context, node, profile, workspaces, "editor")
   if (!context.workspaceStore) throw new Error("Workspace sync is unavailable.")
   const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore, workspaces)
   context.state.liveWorkspaceIds.value = workspaces.map(item => item.id)
@@ -323,7 +326,7 @@ function readWorkspaceRequest(runtime: HostRuntime, payload: Uint8Array) {
   return guest as { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }
 }
 
-async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: string; displayName?: unknown; meshPeers?: unknown; followOwner?: unknown }) {
+async function approveWorkspaceAccess(runtime: HostRuntime, guest: WorkspaceGuest) {
   if (guest.personId === runtime.profile.identity.personId) {
     return { ok: false as const, error: "This invite is for another person, but this browser uses the owner's identity. Use a separate identity to join as an editor." }
   }
@@ -338,26 +341,49 @@ async function approveWorkspaceAccess(runtime: HostRuntime, guest: { personId: s
   if (runtime.keeperAdmission && !matchesKeeperAdmission(runtime, guest.personId)) {
     return { ok: false as const, error: "Keeper join does not match the approved identity and scope set." }
   }
-  const name = typeof guest.displayName === "string" ? guest.displayName.slice(0, 80) : `Participant ${guest.personId.slice(0, 6)}`
-  const decision = runtime.keeperAdmission
-    ? { role: "visitor" as const, followOwner: runtime.keeperAdmission.followOwner }
-    : await runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
+  const decision = await decideWorkspaceJoin(runtime, guest)
   if (!decision) {
     return { ok: false as const, error: "The owner declined this request." }
   }
   const ownerConnection = decision.followOwner
-    ? { controllerPersonId: runtime.profile.identity.personId } : undefined
-  const accessEpochs = new Map(await Promise.all(runtime.workspaces.map(async item => [item.id,
-    await runtime.context.durableMesh?.nextAccessEpoch(item.id) ?? 1] as const)))
-  const result = await defaultInvitationService.approveWorkspaceJoinSet(runtime.invite.invitationId, guest.personId,
-    runtime.workspaces.map(item => item.id), runtime.profile, runtime.owners, decision.role, accessEpochs)
+    ? { controllerPersonId: runtime.profile.identity.personId } satisfies OwnerConnection : undefined
+  const grants = await issueWorkspaceGrants(runtime, guest.personId, decision.role)
+  return acceptApprovedGuest(runtime, guest, grants, decision.role, ownerConnection)
+}
+
+async function decideWorkspaceJoin(runtime: HostRuntime, guest: WorkspaceGuest): Promise<JoinDecision | null> {
+  if (runtime.keeperAdmission) {
+    return { role: "editor", followOwner: runtime.keeperAdmission.followOwner }
+  }
+  const name = typeof guest.displayName === "string"
+    ? guest.displayName.slice(0, 80)
+    : `Participant ${guest.personId.slice(0, 6)}`
+  return runtime.context.waitForJoinDecision(guest.personId, name, guest.followOwner === true)
+}
+
+async function issueWorkspaceGrants(runtime: HostRuntime, personId: string, role: JoinDecision["role"]) {
+  const accessEpochs = new Map(await Promise.all(runtime.workspaces.map(async item => [
+    item.id,
+    await runtime.context.durableMesh?.nextAccessEpoch(item.id) ?? 1,
+  ] as const)))
+  const result = await defaultInvitationService.approveWorkspaceJoinSet(
+    runtime.invite.invitationId,
+    personId,
+    runtime.workspaces.map(item => item.id),
+    runtime.profile,
+    runtime.owners,
+    role,
+    accessEpochs,
+  )
   if (!result.ok) throw new Error(result.error)
-  for (const grant of result.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
-  return acceptApprovedGuest(runtime, guest, result.grants, decision.role, ownerConnection)
+  for (const grant of result.grants) {
+    await defaultProofStore.putGrant(grant.payload.grantId, grant)
+  }
+  return result.grants
 }
 
 async function acceptApprovedGuest(runtime: HostRuntime, guest: { personId: string; meshPeers?: unknown },
-  grants: WorkspaceGrant[], role: "visitor" | "editor", ownerConnection?: { controllerPersonId: string }) {
+  grants: WorkspaceGrant[], role: JoinDecision["role"], ownerConnection?: OwnerConnection) {
   try { await runtime.context.durableMesh?.acceptGuest(runtime.workspaces.map(item => item.id), guest.meshPeers, grants) }
   catch (error) {
     if (error instanceof Error && /Device access revoked/i.test(error.message)) return { ok: false as const, error: error.message }

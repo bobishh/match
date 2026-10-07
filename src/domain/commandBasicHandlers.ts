@@ -2,7 +2,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import type { Board, CommandErrorCode, FieldDefinition, FieldValue, Item, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
 import { entityKind, hasEntityKind, isItem, validatePlacementParent } from "./model"
 import { getAncestryPath } from "./ancestry"
-import { isArchiveColumn } from "./archive"
+import { isArchiveColumnInWorkspace, isItemArchived, itemWorkflow, setItemLifecycle, setItemWorkflow, workflowColumnId } from "./archive"
 import { validateItemValues } from "./fields"
 import { isInlineNarrativeNote } from "./narrative"
 import { seedBoard } from "./seeds"
@@ -30,7 +30,7 @@ export const createItem: CommandHandler<"createItem"> = (doc, command, context) 
   if (!command.title.trim()) return err("invalid_input", "Item title is required", "title")
   const parent = doc.entities[command.parentId]
   if (!parent) return err("not_found", `Parent ${command.parentId} not found`)
-  if (hasEntityKind(parent, "column") && isArchiveColumn(parent)) return err("invalid_parent", "Items cannot be created in Archive")
+  if (hasEntityKind(parent, "column") && isArchiveColumnInWorkspace(parent, doc.entities)) return err("invalid_parent", "Items cannot be created in Archive")
   const parentResult = validatePlacementParent("item", entityKind(parent))
   if (!parentResult.ok) return err("invalid_parent", parentResult.error.message)
   const values = itemValuesForCreate(doc, command)
@@ -83,7 +83,10 @@ function validateValues(doc: Automerge.Doc<WorkspaceDocumentV2>, boardId: string
 
 function createItemInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"createItem">, id: string, values: Record<string, FieldValue>, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string) {
   applyRenumbering(draft, insertion.renumbered)
-  draft.entities[id] = { id, title: command.title.trim(), body: command.body ?? "", placement: { parentId: command.parentId, rank: insertion.rank }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso, values }
+  const item: Item = { id, title: command.title.trim(), body: command.body ?? "", placement: { parentId: command.parentId, rank: insertion.rank }, createdAt: nowIso, updatedAt: nowIso, lastActivityAt: nowIso, values, lifecycle: JSON.stringify({ state: "active", changedAt: nowIso }) }
+  const columnId = workflowColumnId(draft.entities, command.parentId)
+  if (columnId) setItemWorkflow(item, columnId, nowIso)
+  draft.entities[id] = item
 }
 
 export const patchItem: CommandHandler<"patchItem"> = (doc, command, context) => {
@@ -143,12 +146,22 @@ export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, co
   const parent = historical.placement.parentId ? doc.entities[historical.placement.parentId] : undefined
   if (!parent || !validatePlacementParent("item", entityKind(parent)).ok) return err("invalid_parent", "Recorded item parent is unavailable")
   const restored = JSON.parse(JSON.stringify(historical)) as Item
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => restoreItemInDraft(draft, command.entityId, restored, context.nowIso) } }
+  const changedEntityIds = [command.entityId, ...Object.values(doc.entities).filter(candidate => isItem(candidate) && candidate.id !== command.entityId && getAncestryPath(doc.entities, candidate.id).path.includes(command.entityId)).map(candidate => candidate.id)]
+  return { ok: true, value: { changedEntityIds, apply: draft => restoreItemInDraft(draft, command.entityId, restored, context.nowIso) } }
 }
 
 function restoreItemInDraft(draft: WorkspaceDocumentV2, id: string, restored: Item, nowIso: string) {
   const item = draft.entities[id] as Item
-  item.title = restored.title; item.body = restored.body; item.values = restored.values; item.placement = restored.placement; item.archivedAt = restored.archivedAt; item.updatedAt = nowIso; item.lastActivityAt = nowIso
+  const descendants = Object.values(draft.entities).filter((candidate): candidate is Item => isItem(candidate) && getAncestryPath(draft.entities, candidate.id).path.includes(id))
+  item.title = restored.title; item.body = restored.body; item.values = restored.values
+  if (item.placement.parentId === restored.placement.parentId) item.placement.rank = restored.placement.rank
+  else item.placement = restored.placement
+  setItemLifecycle(item, isItemArchived(restored), nowIso)
+  for (const descendant of descendants) {
+    const columnId = workflowColumnId(draft.entities, descendant.id)
+    if (columnId && (descendant === item || itemWorkflow(descendant)?.columnId !== columnId)) setItemWorkflow(descendant, columnId, nowIso)
+  }
+  item.updatedAt = nowIso; item.lastActivityAt = nowIso
 }
 
 export const moveEntity: CommandHandler<"moveEntity"> = (doc, command, context) => moveEntityResult(doc, command, context, false)
@@ -160,7 +173,8 @@ function moveEntityResult(doc: Automerge.Doc<WorkspaceDocumentV2>, command: Comm
   const valid = validateMove(doc, entity, command)
   if (!valid.ok) return valid
   const insertion = computeInsertionRank(doc.entities, command.parentId, command.beforeId)
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => moveEntityInDraft(draft, command, insertion, context.nowIso, restore) } }
+  const descendants = isItem(entity) ? Object.values(doc.entities).filter(candidate => isItem(candidate) && getAncestryPath(doc.entities, candidate.id).path.includes(entity.id)).map(candidate => candidate.id) : []
+  return { ok: true, value: { changedEntityIds: [command.entityId, ...descendants.filter(id => id !== command.entityId)], apply: draft => moveEntityInDraft(draft, command, insertion, context.nowIso, restore) } }
 }
 
 function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: WorkspaceEntity, command: CommandByKind<"moveEntity"> | CommandByKind<"restoreAndMove">): PreparedCommand | { ok: true } {
@@ -168,7 +182,7 @@ function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: Workspace
   if (getAncestryPath(doc.entities, command.parentId).path.includes(command.entityId)) return err("cycle", "Cannot place an entity under its descendant")
   const parent = doc.entities[command.parentId]
   if (!parent) return err("not_found", `Target parent ${command.parentId} not found`)
-  if (hasEntityKind(parent, "column") && isArchiveColumn(parent)) return err("invalid_parent", "Archive items with setEntityArchived")
+  if (hasEntityKind(parent, "column") && isArchiveColumnInWorkspace(parent, doc.entities)) return err("invalid_parent", "Archive items with setEntityArchived")
   const result = validatePlacementParent(entityKind(entity), entityKind(parent))
   if (!result.ok) return err("invalid_parent", result.error.message)
   if (findRootBoardId(doc.entities, entity.id) !== findRootBoardId(doc.entities, command.parentId)) return err("cross_board_move", "Cross-board moves are not supported")
@@ -178,20 +192,48 @@ function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: Workspace
 function moveEntityInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"moveEntity"> | CommandByKind<"restoreAndMove">, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string, restore: boolean) {
   applyRenumbering(draft, insertion.renumbered)
   const entity = draft.entities[command.entityId]
+  const descendantItems = isItem(entity)
+    ? Object.values(draft.entities).filter((candidate): candidate is Item => isItem(candidate) && getAncestryPath(draft.entities, candidate.id).path.includes(entity.id))
+    : []
   const movedToNewParent = entity.placement.parentId !== command.parentId
-  if (restore) entity.archivedAt = null
-  entity.placement = { parentId: command.parentId, rank: insertion.rank }
+  if (restore && isItem(entity)) setItemLifecycle(entity, false, nowIso)
+  else if (restore) entity.archivedAt = null
+  if (entity.placement.parentId === command.parentId) entity.placement.rank = insertion.rank
+  else entity.placement = { parentId: command.parentId, rank: insertion.rank }
   entity.updatedAt = nowIso
-  if (isItem(entity) && movedToNewParent) entity.lastActivityAt = nowIso
+  if (isItem(entity)) {
+    for (const descendant of descendantItems) {
+      const columnId = workflowColumnId(draft.entities, descendant.id)
+      if (columnId && itemWorkflow(descendant)?.columnId !== columnId) setItemWorkflow(descendant, columnId, nowIso)
+    }
+    if (movedToNewParent) entity.lastActivityAt = nowIso
+  }
 }
 
 export const renameEntity: CommandHandler<"renameEntity"> = (doc, command, context) => {
   if (!doc.entities[command.entityId]) return err("not_found", `Entity ${command.entityId} not found`)
   if (!command.title.trim()) return err("invalid_input", "Title cannot be empty", "title")
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => { draft.entities[command.entityId].title = command.title.trim(); draft.entities[command.entityId].updatedAt = context.nowIso } } }
+  if (command.collapsible !== undefined && !hasEntityKind(doc.entities[command.entityId], "column")) return err("invalid_input", "Only columns can be collapsible", "collapsible")
+  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => {
+    const entity = draft.entities[command.entityId]
+    entity.title = command.title.trim()
+    if (command.collapsible !== undefined && hasEntityKind(entity, "column")) entity.collapsible = command.collapsible
+    entity.updatedAt = context.nowIso
+  } } }
 }
 
 export const setEntityArchived: CommandHandler<"setEntityArchived"> = (doc, command, context) => {
-  if (!doc.entities[command.entityId]) return err("not_found", `Entity ${command.entityId} not found`)
-  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => { draft.entities[command.entityId].archivedAt = command.archived ? context.nowIso : null; draft.entities[command.entityId].updatedAt = context.nowIso } } }
+  const source = doc.entities[command.entityId]
+  if (!source) return err("not_found", `Entity ${command.entityId} not found`)
+  if (command.archived && hasEntityKind(source, "column")) {
+    const board = source.placement.parentId ? doc.entities[source.placement.parentId] : undefined
+    if (hasEntityKind(board, "board") && board.archiveColumnId === source.id)
+      return err("invalid_input", "Change or clear the board archive column before removing it", "archiveColumnId")
+  }
+  return { ok: true, value: { changedEntityIds: [command.entityId], apply: draft => {
+    const entity = draft.entities[command.entityId]
+    if (isItem(entity)) setItemLifecycle(entity, command.archived, context.nowIso)
+    else entity.archivedAt = command.archived ? context.nowIso : null
+    entity.updatedAt = context.nowIso
+  } } }
 }

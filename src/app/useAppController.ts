@@ -7,6 +7,7 @@ import { useAppBoard, type AppBoardContext } from "./useAppBoard"
 import { useAppCore } from "./useAppCore"
 import { useMeshFavicon } from "../ui/useMeshFavicon"
 import { useWorkspaceWindowSelection } from "./useWorkspaceWindowSelection"
+import { warmWorkspaceAdmissionWorker } from "../sync/workspaceAdmissionClient"
 
 export function useAppController() {
   const core = useAppCore()
@@ -93,6 +94,7 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
       loadRuntime: async () => {
         const { initializePolicyBrowserRuntime } = await import("../iroh")
         await initializePolicyBrowserRuntime()
+        if (navigator.onLine) await warmWorkspaceAdmissionWorker().catch(() => {})
       },
       prepareLocalState,
       openPairing: () => core.sync.joinFromLocation(window.location.href),

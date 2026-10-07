@@ -39,7 +39,7 @@ for (const width of [1440, 390]) {
     await expect(dialog.getByRole("button", { name: "Customize board" })).toHaveAttribute("aria-expanded", "false")
     await dialog.getByRole("button", { name: "Create", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "TINCANBAN // Reading List", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: width < 768 ? "TINCANBAN Reading List" : "TINCANBAN // Reading List", exact: true })).toBeVisible()
     for (const column of ["Queue", "Reading", "Finished"]) {
       await expect(page.getByRole("region", { name: column, exact: true })).toBeVisible()
     }

@@ -1,3 +1,4 @@
+import { discussObject } from "./support/discussions"
 import { expect, test, type Page } from "./support/coverage"
 
 async function openChat(page: Page) {
@@ -83,16 +84,20 @@ test("Given independent paired peers, when signed object discussions sync, then 
       await hostChat.getByRole("button", { name: "Close", exact: true }).click()
       await page.getByRole("button", { name: "Open Shared context source", exact: true }).click()
       const item = page.getByRole("dialog", { name: "Item overview", exact: true })
-      await item.getByRole("button", { name: "Discuss", exact: true }).click()
+      await discussObject(page, item)
       const discussion = page.getByRole("dialog", { name: "Discussion · Shared context source", exact: true })
       await expect(discussion.getByText("Context crosses independent peers", { exact: true })).toBeVisible()
       await discussion.locator(`[data-message-id="${committed.id}"]`).getByRole("button", { name: "Reply to message" }).click()
-      await discussion.getByRole("textbox", { name: "Message", exact: true }).fill("Owner reply stays in same root")
-      await discussion.getByRole("button", { name: "Send message", exact: true }).click()
-      await expect(guestChat.getByText("Owner reply stays in same root", { exact: true })).toBeVisible({ timeout: 15_000 })
+      const thread = page.getByRole("dialog", { name: "Discussion · replies", exact: true })
+      await thread.getByRole("textbox", { name: "Message", exact: true }).fill("Owner reply stays in same root")
+      await thread.getByRole("button", { name: "Send message", exact: true }).click()
+      await expect(guestChat.locator(".chat-thread-preview summary")).toContainText("1 reply", { timeout: 15_000 })
+      await guestChat.locator(".chat-thread-preview summary").click()
+      await expect(guestChat.getByText("Owner reply stays in same root", { exact: true })).toBeVisible()
       const reply = (await snapshot(guest)).messages.find((value: any) => value.body === "Owner reply stays in same root")
       expect(reply?.context?.replyTo).toBe(committed.id)
       expect(reply?.context?.conversationRootId).toBe(committed.id)
+      await thread.getByRole("button", { name: "Close", exact: true }).click()
       await discussion.getByRole("button", { name: "Close", exact: true }).click()
       await item.getByRole("button", { name: "Dismiss", exact: true }).click()
       await openChat(page)
@@ -131,10 +136,13 @@ test("Given independent paired peers, when signed object discussions sync, then 
           await service.receiveChat(state.activeWorkspace.id, { version: 1, capabilities: ["contextual-v2"], messages: [signedRecord], profiles: [] }, false)
         }, record)
         const reply = hostChat.locator(`[data-message-id="${records.reply.signed.payload.id}"]`)
+        if (record === records.root) await hostChat.locator(`[data-message-id="${records.root.signed.payload.id}"] .chat-thread-preview summary`).click()
         await expect(reply).toBeVisible()
         await expect(reply.locator(".reply-quote")).toHaveText(record === records.reply ? "Message unavailable" : "Later retained root")
       }
-      await expect(guestChat.getByText("Reply arrives first", { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(guestChat.locator(`[data-message-id="${records.root.signed.payload.id}"] .chat-thread-preview summary`)).toBeVisible({ timeout: 15_000 })
+      await guestChat.locator(`[data-message-id="${records.root.signed.payload.id}"] .chat-thread-preview summary`).click()
+      await expect(guestChat.getByText("Reply arrives first", { exact: true })).toBeVisible()
     })
 
     await test.step("Then legacy boundary requests upgrade without changing contextual signatures", async () => {
@@ -143,19 +151,19 @@ test("Given independent paired peers, when signed object discussions sync, then 
         const state = (await import(/* @vite-ignore */ "/src/state.ts")).useTincanban()
         const id = state.activeWorkspace.id
         await service.receiveChat(id, { version: 1, messages: [], profiles: [] }, false, "legacy-test-device")
-        let error = ""
-        try { await service.sendChatMessage(id, "Must not downgrade", { references: [], mentions: [state.getCurrentProfile().identity.personId] }) } catch (failure) { error = String(failure) }
+        const saved = await service.sendChatMessage(id, "Must not downgrade", { references: [], mentions: [state.getCurrentProfile().identity.personId] })
         const known = new Set<string>()
         const boundary = await service.exportChat(id, known, "legacy-test-device")
         await service.receiveChat(id, { version: 1, capabilities: ["contextual-v2"], messages: [], profiles: [] }, false, "legacy-test-device")
         const upgraded = await service.exportChat(id, known, "legacy-test-device")
-        return { error, boundary, upgraded }
+        return { saved, boundary, upgraded }
       })
-      expect(result.error).toContain("Peer upgrade required")
       expect(result.boundary.upgradeRequired).toBe(true)
       expect(result.boundary.messages.every((record: any) => record.signed.payload.version === 1)).toBe(true)
+      expect(result.boundary.messages).not.toContainEqual(result.saved.record)
       expect(result.upgraded.messages).toContainEqual(committed.record)
-      await expect(hostChat.getByText("Must not downgrade", { exact: true })).toHaveCount(0)
+      expect(result.upgraded.messages).toContainEqual(result.saved.record)
+      await expect(hostChat.getByText("Must not downgrade", { exact: true })).toBeVisible()
     })
   } finally { await guestContext.close() }
 })

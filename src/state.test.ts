@@ -1,4 +1,3 @@
-import { isArchiveColumn } from "./domain/archive"
 import { hasEntityKind } from "./domain/model"
 import { defaultStorage } from "./storage"
 import { readFile } from "node:fs/promises"
@@ -7,12 +6,12 @@ import { initializeAutomerge } from "./crdt"
 import { setStorageFailureHookForTest, WorkspaceStorage } from "./storage"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
 import { useTincanban, hydrate, reconcile, resetStateForTest } from "./state"
-import { persistAuthorizedCommand, refreshAvailableWorkspaces } from "./statePersistence"
+import { persistAuthorizedCommand, refreshAvailableWorkspaces, reviewCausalChange } from "./statePersistence"
 import * as Automerge from "@automerge/automerge/slim"
 import { createWorkspaceDoc } from "./domain/seeds"
 import { projectBoardSchema } from "./domain/schema"
 import { isItem } from "./domain/model"
-import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations, recordGenesisAuthority } from "./sync/changeAuthorization"
+import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations, prepareLocalChangeAuthorizations, recordGenesisAuthority } from "./sync/changeAuthorization"
 import { executeCommand } from "./domain/commands"
 import { peerStore } from "./sync/peerStore"
 
@@ -127,7 +126,8 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     const tincanban = useTincanban()
     const base = tincanban.getActiveDoc()!
     const profile = tincanban.getCurrentProfile()!
-    const column = Object.values(base.entities).find(entity => entity.kind === "column" && !entity.archivedAt && !isArchiveColumn(entity))!
+    const board = Object.values(base.entities).find(entity => entity.kind === "board")!
+    const column = Object.values(base.entities).find(entity => entity.kind === "column" && entity.placement.parentId === board.id && entity.id !== board.archiveColumnId && !entity.archivedAt)!
     const branches = await Promise.all(["Peer A", "Peer B"].map(async title => {
       const result = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title }, profile)
       if (!result.ok) throw new Error(result.error.message)
@@ -138,6 +138,30 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     await Promise.all(branches.map(branch => tincanban.mergeAuthorizedWorkspace(base.id, branch.bytes, branch.authorization)))
     const reopened = await new WorkspaceStorage().loadWorkspaceDoc(base.id)
     expect(Object.values(reopened!.doc.entities).filter(isItem).map(item => item.title)).toEqual(expect.arrayContaining(["Peer A", "Peer B"]))
+  })
+
+  it("Given a signed proof for a hash absent from raw history, when its change later arrives with genuine proof, then unverified proof never persists or poisons replay", async () => {
+    const tincanban = useTincanban()
+    const base = tincanban.getActiveDoc()!
+    const profile = tincanban.getCurrentProfile()!
+    const board = Object.values(base.entities).find(entity => entity.kind === "board")!
+    const column = Object.values(base.entities).find(entity => entity.kind === "column" && entity.placement.parentId === board.id && entity.id !== board.archiveColumnId && !entity.archivedAt)!
+    const candidate = await executeCommand(Automerge.clone(base), { kind: "createItem", parentId: column.id, title: "Genuine later change" }, profile)
+    if (!candidate.ok) throw new Error(candidate.error.message)
+    const hash = candidate.value.receipt.changeHash
+    const genuine = (await prepareLocalChangeAuthorizations(candidate.value.newDoc, profile, [hash]))[0]!
+    const malformed = { ...genuine, signed: { ...genuine.signed, signature: `${genuine.signed.signature}forged` } }
+    const absentBundle = await exportAuthorizationBundle(Automerge.save(base), profile)
+    absentBundle.records = [...absentBundle.records, malformed]
+
+    await tincanban.mergeAuthorizedWorkspace(base.id, Automerge.save(base), absentBundle)
+    const afterAbsentProof = (await defaultStorage.loadCausalEvidence(base.id))!
+    expect(afterAbsentProof.authorizationEvidence).not.toContainEqual(expect.objectContaining({ signed: expect.objectContaining({ signature: malformed.signed.signature }) }))
+
+    const laterBundle = await exportAuthorizationBundle(Automerge.save(candidate.value.newDoc), profile)
+    laterBundle.records = [...laterBundle.records, genuine]
+    await tincanban.mergeAuthorizedWorkspace(base.id, Automerge.save(candidate.value.newDoc), laterBundle)
+    expect(Object.values(tincanban.getActiveDoc()!.entities).filter(isItem).map(item => item.title)).toContain("Genuine later change")
   })
 
   it("Given local commit fails, when command is rejected, then no authorization or change leaks", async () => {
@@ -208,6 +232,50 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     } finally {
       pending.mockRestore()
       load.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("rejects review of a quarantined edit while ownership transfer awaits confirmation", async () => {
+    const tincanban = useTincanban()
+    const base = tincanban.getActiveDoc()!
+    const workspaceId = base.id
+    const profile = tincanban.getCurrentProfile()!
+    const board = Object.values(base.entities).find(entity => entity.kind === "board")!
+    const column = Object.values(base.entities).find(entity => entity.kind === "column" && entity.placement.parentId === board.id && entity.id !== board.archiveColumnId && !entity.archivedAt)!
+    const candidate = await executeCommand(Automerge.clone(base), {
+      kind: "createItem", parentId: column.id, title: "Quarantined review draft",
+    }, profile)
+    if (!candidate.ok) throw new Error(candidate.error.message)
+    const hash = candidate.value.receipt.changeHash
+    const bytes = Automerge.save(candidate.value.newDoc)
+    await defaultStorage.commitWorkspace(workspaceId, base, Automerge.save(base), [], undefined, {
+      bytes,
+      decisions: [{ hash, status: { type: "quarantined", reason: "test draft" } }],
+      authorizationEvidence: [],
+    })
+    const stored = await defaultStorage.loadWorkspaceDoc(workspaceId)
+    const evidence = await defaultStorage.loadCausalEvidence(workspaceId)
+    vi.stubGlobal("indexedDB", {})
+    vi.stubGlobal("navigator", { locks: { request: async (_name: string, operation: () => Promise<unknown>) => operation() } })
+    const loadWorkspace = vi.spyOn(defaultStorage, "loadWorkspaceDoc").mockResolvedValue(stored)
+    const loadEvidence = vi.spyOn(defaultStorage, "loadCausalEvidence").mockResolvedValue(evidence)
+    const pending = vi.spyOn(peerStore, "getPendingOwnershipTransfer").mockResolvedValue({
+      version: 1,
+      workspaceId,
+      transfer: {},
+    })
+
+    try {
+      await expect(reviewCausalChange(hash, defaultStorage)).rejects.toThrow(
+        "Ownership transfer is awaiting confirmation. Reconnect and retry the same recipient.",
+      )
+      expect(Object.values(tincanban.getActiveDoc()!.entities).filter(isItem)
+        .some(entity => entity.title === "Quarantined review draft")).toBe(false)
+    } finally {
+      pending.mockRestore()
+      loadWorkspace.mockRestore()
+      loadEvidence.mockRestore()
       vi.unstubAllGlobals()
     }
   })

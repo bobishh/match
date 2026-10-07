@@ -58,3 +58,34 @@ The system SHALL retain correct author attribution when presentation groups cons
 - **GIVEN** an avatar component receives an empty or invalid person ID
 - **WHEN** it renders
 - **THEN** a neutral placeholder appears without executing markup or impersonating another participant.
+
+### Requirement: Bounded custom avatar profiles
+
+The system SHALL let a participant crop a local photo to a metadata-free 128 × 128 WebP or JPEG no larger than 16 KiB and save it inline in the workspace Automerge document. Avatar bytes and changed timestamp SHALL be one profile scalar under a deterministic per-person entity key so independent profile creation cannot replace another participant's profile. A verified change proof SHALL authorize mutations and removal only for its own person ID; visitors SHALL NOT gain authority over workspace content or another profile. A missing custom photo SHALL use the deterministic default avatar. The browser SHALL not upload photos to a separate blob service.
+
+#### Scenario: Crop and save profile photo
+- **GIVEN** a participant opens identity settings and chooses a supported local image
+- **WHEN** they select a circular crop area and save it
+- **THEN** a 128 × 128 WebP or JPEG no larger than 16 KiB is stored in their workspace CRDT profile
+- **AND** the photo remains visible after reload and on a peer that receives the CRDT change.
+
+#### Scenario: Invalid or oversized photo
+- **GIVEN** a participant chooses an undecodable, unsupported, or over-limit source image
+- **WHEN** the cropper validates or encodes it
+- **THEN** it shows an error without changing the saved avatar.
+
+#### Scenario: Storage failure preserves draft
+- **GIVEN** a valid cropped photo is ready to save
+- **WHEN** local persistence fails
+- **THEN** the old profile photo remains authoritative and the crop draft remains available for retry.
+
+#### Scenario: Visitor changes own profile
+- **GIVEN** a verified visitor has a `chat.profile` grant
+- **WHEN** they add or remove their own profile avatar
+- **THEN** the change is admitted for their person ID
+- **AND** edits to workspace content or another participant's profile remain rejected.
+
+#### Scenario: Concurrent first profiles
+- **GIVEN** two participants create their first photo profiles from the same legacy workspace heads
+- **WHEN** their CRDT changes merge
+- **THEN** both per-person profile records remain present.

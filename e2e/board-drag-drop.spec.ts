@@ -19,6 +19,18 @@ async function createItem(page: Page, title: string, column: string) {
   await expect(dialog).toBeHidden()
 }
 
+async function setItemBody(page: Page, title: string, body: string) {
+  const id = await page.locator(".lead-card").filter({ has: page.getByText(title, { exact: true }) }).getAttribute("data-item-id")
+  await page.evaluate(async ({ id, body }) => {
+    const { useTincanban } = await import("/src/state.ts")
+    await useTincanban().executeCommandAsync({ kind: "patchItem", entityId: id!, body })
+  }, { id, body })
+}
+
+async function textSelection(page: Page) {
+  return page.evaluate(() => window.getSelection()?.toString() ?? "")
+}
+
 async function settleBoard(page: Page) {
   await page.locator(".board").evaluate(element => Promise.all(element.getAnimations({ subtree: true })
     .filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity)
@@ -32,7 +44,7 @@ async function drag(page: Page, sourceSelector: string, targetSelector: string) 
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
   if (!sourceBox || !targetBox) throw new Error("Drag target missing")
-  await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2)
+  await page.mouse.move(sourceBox.x + 4, sourceBox.y + 4)
   await page.mouse.down()
   await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + Math.min(28, targetBox.height / 2), { steps: 12 })
   await page.mouse.up()
@@ -43,7 +55,7 @@ async function touchDrag(context: BrowserContext, page: Page, sourceSelector: st
   const target = await page.locator(targetSelector).boundingBox()
   if (!source || !target) throw new Error("Touch drag target missing")
   const session = await context.newCDPSession(page)
-  const start = { x: source.x + source.width / 2, y: source.y + Math.min(40, source.height / 2) }
+  const start = { x: source.x + 4, y: source.y + 4 }
   const end = { x: target.x + target.width / 2, y: target.y + Math.min(40, target.height / 2) }
   await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [start] })
   await page.waitForTimeout(220)
@@ -59,6 +71,96 @@ async function touchDrag(context: BrowserContext, page: Page, sourceSelector: st
 }
 
 test.describe("Trello-like board dragging", () => {
+  test("Given detailed card text across columns, when dragging from card border, then selection stays empty and card moves", async ({ page }) => {
+    await createBlankWorkspace(page, "Drag selection arbitration")
+    await createItem(page, "Border dragged card", "To do")
+    await createItem(page, "Target card", "Doing")
+    await setItemBody(page, "Border dragged card", "A long detail line to cross while moving. ".repeat(8))
+    await setItemBody(page, "Target card", "Existing target detail.")
+    const source = await page.locator('.lead-card:has-text("Border dragged card")').boundingBox()
+    const target = await page.locator('.lead-card:has-text("Target card")').boundingBox()
+    if (!source || !target) throw new Error("Card drag points missing")
+    await page.mouse.move(source.x + 4, source.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(source.x + 5, source.y + 4)
+    await expect(page.locator(".board")).toHaveClass(/board-drag-pending/)
+    expect(await page.locator(".board-drag-pending [data-discussion-text]").first().evaluate(element => getComputedStyle(element).userSelect)).toBe("none")
+    expect(await textSelection(page)).toBe("")
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 18 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await page.getByRole("region", { name: "Doing", exact: true }).getAttribute("data-column-id"))
+    expect(await page.locator(".board-dragging [data-discussion-text]").first().evaluate(element => getComputedStyle(element).userSelect)).toBe("none")
+    expect(await textSelection(page)).toBe("")
+    await page.mouse.up()
+    await expect(page.getByRole("region", { name: "Doing", exact: true }).getByText("Border dragged card", { exact: true })).toBeVisible()
+    expect(await textSelection(page)).toBe("")
+  })
+
+  test("Given selectable card text, when dragging across its title, then text selects and card does not move", async ({ page }) => {
+    await createBlankWorkspace(page, "Text selection arbitration")
+    await createItem(page, "Selectable card title", "To do")
+    const title = page.getByText("Selectable card title", { exact: true })
+    const bounds = (await title.boundingBox())!
+    await page.mouse.move(bounds.x + 2, bounds.y + bounds.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(bounds.x + bounds.width - 2, bounds.y + bounds.height / 2, { steps: 8 })
+    await page.mouse.up()
+    expect(await textSelection(page)).toContain("Selectable")
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    await expect(page.getByRole("region", { name: "To do", exact: true }).getByText("Selectable card title", { exact: true })).toBeVisible()
+    await expect(page.getByText("Item moved", { exact: true })).toHaveCount(0)
+  })
+
+  test("Given an active border drag, when Escape cancels, then selection clears and later text selection still works", async ({ page }) => {
+    await createBlankWorkspace(page, "Escape drag selection")
+    await createItem(page, "Escape source", "To do")
+    const source = await page.locator('.lead-card:has-text("Escape source")').boundingBox()
+    const target = await page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack").boundingBox()
+    if (!source || !target) throw new Error("Card drag points missing")
+    await page.mouse.move(source.x + 4, source.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(target.x + target.width / 2, target.y + 100, { steps: 12 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await page.mouse.up()
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    await expect(page.locator(".board")).not.toHaveClass(/board-drag/)
+    await expect(page.getByRole("region", { name: "To do", exact: true }).getByText("Escape source", { exact: true })).toBeVisible()
+    expect(await textSelection(page)).toBe("")
+    const title = page.getByText("Escape source", { exact: true })
+    const bounds = (await title.boundingBox())!
+    await page.mouse.move(bounds.x + 2, bounds.y + bounds.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(bounds.x + bounds.width - 2, bounds.y + bounds.height / 2, { steps: 8 })
+    await page.mouse.up()
+    expect(await textSelection(page)).toContain("Escape")
+  })
+
+  test("Given an active border drag, when pointercancel fires, then no move commits and selection works afterward", async ({ page }) => {
+    await createBlankWorkspace(page, "Pointer cancel drag selection")
+    await createItem(page, "Pointer cancel source", "To do")
+    const source = await page.locator('.lead-card:has-text("Pointer cancel source")').boundingBox()
+    const target = await page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack").boundingBox()
+    if (!source || !target) throw new Error("Card drag points missing")
+    await page.mouse.move(source.x + 4, source.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(target.x + target.width / 2, target.y + 100, { steps: 12 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await page.evaluate(() => document.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true })))
+    await page.mouse.up()
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    await expect(page.locator(".board")).not.toHaveClass(/board-drag/)
+    await expect(page.getByRole("region", { name: "To do", exact: true }).getByText("Pointer cancel source", { exact: true })).toBeVisible()
+    expect(await textSelection(page)).toBe("")
+    const title = page.getByText("Pointer cancel source", { exact: true })
+    const bounds = (await title.boundingBox())!
+    await page.mouse.move(bounds.x + 2, bounds.y + bounds.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(bounds.x + bounds.width - 2, bounds.y + bounds.height / 2, { steps: 8 })
+    await page.mouse.up()
+    expect(await textSelection(page)).toContain("Pointer cancel")
+  })
+
   test("Given filtered cards with a hidden neighbor, when dropping at the unchanged visible position, then hidden order and document revision stay unchanged", async ({ page }) => {
     await createBlankWorkspace(page, "Filtered no-op board")
     for (const title of ["Shown First", "Hidden", "Shown Second"]) await createItem(page, title, "To do")
@@ -139,6 +241,28 @@ test.describe("Trello-like board dragging", () => {
       const { stateRuntime } = await import("/src/stateContext.ts")
       return stateRuntime.docVersion.value - (window as any).__dragVersionBefore
     })).toBe(1)
+  })
+
+  test("Given an independent text selection, when a card border drag completes, then that selection remains intact", async ({ page }) => {
+    await createBlankWorkspace(page, "Preserved independent selection")
+    await createItem(page, "Preserve this selection", "To do")
+    await createItem(page, "Selection drop target", "Doing")
+    const title = page.getByText("Preserve this selection", { exact: true })
+    await title.evaluate(element => {
+      const text = element.firstChild
+      if (!text) throw new Error("Card title text missing")
+      const selection = document.getSelection()!
+      selection.setBaseAndExtent(text, 0, text, "Preserve this".length)
+    })
+    const selected = await textSelection(page)
+    const source = (await page.locator('.lead-card:has-text("Preserve this selection")').boundingBox())!
+    const target = (await page.locator('.lead-card:has-text("Selection drop target")').boundingBox())!
+    await page.mouse.move(source.x + 4, source.y + 4)
+    await page.mouse.down()
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 18 })
+    await expect(page.locator(".board-drag-preview")).toBeVisible()
+    await page.mouse.up()
+    expect(await textSelection(page)).toBe(selected)
   })
 
   test("Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards", async ({ browser }) => {
@@ -298,5 +422,23 @@ test.describe("Trello-like board dragging", () => {
     await page.reload()
     await expect(source).toHaveText(["Neighbor"])
     await expect(page.getByRole("region", { name: "Doing", exact: true }).locator(".card-main > strong")).toHaveText(["Keep here"])
+  })
+
+  test("Given storage rejects a card move, when rollback finishes, then card text remains selectable", async ({ page }) => {
+    await createBlankWorkspace(page, "Failed drag selection recovery")
+    await createItem(page, "Selectable after rollback", "To do")
+    await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+    await drag(page, '.lead-card[data-item-id]:has-text("Selectable after rollback")', '[role="region"][aria-label="Doing"] .card-stack')
+    await expect(page.getByRole("status")).toContainText("Move failed")
+    await expect(page.locator(".board-drag-preview, .board-drop-marker")).toHaveCount(0)
+    await expect(page.getByRole("region", { name: "To do", exact: true }).getByText("Selectable after rollback", { exact: true })).toBeVisible()
+    expect(await textSelection(page)).toBe("")
+    const title = page.getByText("Selectable after rollback", { exact: true })
+    const bounds = (await title.boundingBox())!
+    await page.mouse.move(bounds.x + 2, bounds.y + bounds.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(bounds.x + bounds.width - 2, bounds.y + bounds.height / 2, { steps: 8 })
+    await page.mouse.up()
+    expect(await textSelection(page)).toContain("Selectable after")
   })
 })

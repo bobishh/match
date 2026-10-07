@@ -57,6 +57,41 @@ for (const width of [1280, 375]) {
   })
 }
 
+test("Given two messages across midnight, when chat renders them on mobile, then each date and time stays distinct", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 820 })
+  await page.goto("/")
+  const chat = await openChat(page)
+  async function sendAt(body: string, timestamp: string) {
+    await page.evaluate(value => {
+      const original = Date.prototype.toISOString
+      ;(window as Window & { __restoreDateFormatting?: () => void }).__restoreDateFormatting = () => { Date.prototype.toISOString = original }
+      Date.prototype.toISOString = () => value
+    }, timestamp)
+    await chat.getByRole("textbox", { name: "Message", exact: true }).fill(body)
+    await chat.getByRole("button", { name: "Send message" }).click()
+    await expect(chat.getByText(body, { exact: true })).toBeVisible()
+    await expect(chat.locator(".chat-message-pending")).toHaveCount(0)
+    await page.evaluate(() => (window as Window & { __restoreDateFormatting?: () => void }).__restoreDateFormatting?.())
+  }
+  const [beforeMidnight, afterMidnight] = await page.evaluate(() => [
+    new Date(2026, 9, 6, 23, 52).toISOString(), new Date(2026, 9, 7, 0, 9).toISOString(),
+  ])
+  await sendAt("Late message", beforeMidnight!)
+  await sendAt("After midnight", afterMidnight!)
+  const times = chat.locator(".chat-message-item time")
+  await expect(times).toHaveCount(2)
+  const timestamps = await times.evaluateAll(elements => elements.map(element => element.getAttribute("datetime") ?? ""))
+  expect([...timestamps].sort()).toEqual([beforeMidnight!, afterMidnight!].sort())
+  const renderedDates = await page.evaluate(values => values.map(value =>
+    new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" })), timestamps)
+  const labels = await times.allTextContents()
+  expect(labels[0]).toContain(renderedDates[0]!)
+  expect(labels[1]).toContain(renderedDates[1]!)
+  expect(renderedDates[0]).not.toBe(renderedDates[1])
+  const geometry = await chat.evaluate(element => ({ width: element.clientWidth, scroll: element.scrollWidth }))
+  expect(geometry.scroll).toBeLessThanOrEqual(geometry.width)
+})
+
 test("Given a chosen profile name, when a new workspace is created, then it reuses the personal name preset", async ({ page }) => {
   await page.goto("/")
   let settings = await profileSettings(page)

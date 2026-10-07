@@ -139,7 +139,6 @@
   max-width: min(85%, 520px);
   padding: 10px 14px;
   border: 2px solid var(--line);
-  background: white;
   align-self: flex-start;
   box-sizing: border-box;
   overflow-wrap: anywhere;
@@ -148,7 +147,6 @@
 
 .chat-message-item.is-own {
   align-self: flex-end;
-  background: #fef9db;
 }
 
 .chat-message-meta {
@@ -175,6 +173,7 @@
   margin-left: auto;
   font: 700 .8rem/1 var(--site-font-sans);
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .chat-message-pending {

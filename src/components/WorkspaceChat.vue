@@ -2,10 +2,12 @@
 import { MarkdownContent } from "../ui/markdownContent"
 import { ref, computed, watch, nextTick, onMounted } from "vue"
 import SpatialWindow from "./SpatialWindow.vue"
+import ReferencePicker from "./ReferencePicker.vue"
+import type { ReferenceChoice } from "../chat/referenceChoices"
 import ParticipantAvatar from "./ParticipantAvatar.vue"
 import MessageLinkAction from "./MessageLinkAction.vue"
 import { chatDraft } from "../ui/chatDrafts"
-import { MAX_REFERENCES, MAX_MENTIONS, type Anchor, type MessageContext } from "../chat/context"
+import { conversationRoots, MAX_REFERENCES, MAX_MENTIONS, type Anchor, type MessageContext } from "../chat/context"
 
 interface ChatMessage {
   id: string
@@ -25,8 +27,10 @@ const props = withDefaults(
     windowId?: string
     title?: string
     initialContext?: MessageContext
-    referenceChoices?: readonly { title: string; anchor: Anchor }[]
-    members?: readonly {personId: string; name: string}[]
+    fieldTitles?: Record<string, string>
+    referenceChoices?: readonly ReferenceChoice[]
+  members?: readonly {personId: string; name: string}[]
+  memberAvatars?: Record<string, string>
     allMessages?: readonly ChatMessage[]
     targetId?: string
     navigationState?: string
@@ -58,12 +62,22 @@ const emit = defineEmits<{
   typing: [active: boolean]
   reference: [anchor: Anchor]
   read: [ids: string[]]
+  thread: [messageId: string, replying?: boolean]
 }>()
 
 function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
 const cached = chatDraft(props.workspaceId ?? "", props.windowId ?? "chat", props.initialContext)
 const draft = computed({ get: () => cached.body, set: value => { cached.body = value } })
 const context = computed({ get: () => cached.context, set: value => { cached.context = value } })
+function attachInitialContext(value?: MessageContext) {
+  if (!value) return
+  if (value.replyTo) context.value = clone(value)
+  else if (!draft.value && !context.value.replyTo) context.value.references = clone(value.references)
+  else for (const anchor of value.references) {
+    if (context.value.references.length < MAX_REFERENCES && !context.value.references.some(existing => JSON.stringify(existing) === JSON.stringify(anchor))) context.value.references.push(clone(anchor))
+  }
+}
+attachInitialContext(props.initialContext)
 const mentionQuery = ref("")
 const mentionChoices = computed(() => (props.members ?? []).filter(member => member.name.toLowerCase().includes(mentionQuery.value.toLowerCase())))
 function mention(member: {personId: string; name: string}) {
@@ -73,14 +87,45 @@ function mention(member: {personId: string; name: string}) {
   mentionQuery.value = ""
 }
 function reply(message: ChatMessage) {
+  if (!props.windowId?.startsWith("conversation:")) { emit("thread", message.id, true); return }
   context.value.replyTo = message.id
   context.value.conversationRootId = message.context?.conversationRootId ?? message.id
   if (!context.value.references.length) context.value.references = clone(message.context?.references ?? [])
 }
+function resetComposerContext() {
+  const initial = props.initialContext
+  context.value = { references: clone(initial?.references ?? []), mentions: [],
+    ...(props.windowId?.startsWith("conversation:") && initial?.conversationRootId
+      ? { replyTo: initial.conversationRootId, conversationRootId: initial.conversationRootId } : {}) }
+}
 const replyQuote = computed(() => props.messages.find(message => message.id === context.value.replyTo)?.body ?? "Message unavailable")
 function quote(message: ChatMessage) { return (props.allMessages ?? props.messages).find(candidate => candidate.id === message.context?.replyTo)?.body ?? "Message unavailable" }
-function anchorLabel(anchor: Anchor) { return anchor.selection?.exact ?? (anchor.fieldId ? `Field · ${anchor.fieldId}` : props.referenceChoices?.find(choice => choice.anchor.itemId === anchor.itemId)?.title ?? "Open item") }
-watch(() => props.initialContext, value => { if (value && !context.value.replyTo) { context.value.references = clone(value.references) } })
+const threadRoots = computed(() => {
+  const all = (props.allMessages ?? props.messages).map(message => ({ id: message.id, workspaceId: props.workspaceScope ?? "", context: message.context }))
+  return new Map([...conversationRoots(all)].flatMap(([id, root]) => {
+    return root.state === "invalid" ? [] : [[id, root.rootId] as const]
+  }))
+})
+const replyCounts = computed(() => {
+  const counts = new Map<string, number>()
+  for (const message of props.allMessages ?? props.messages) {
+    const root = message.context?.replyTo ? threadRoots.value.get(message.id) : undefined
+    if (root && !message.status) counts.set(root, (counts.get(root) ?? 0) + 1)
+  }
+  return counts
+})
+function threadReplies(message: ChatMessage) {
+  return (props.allMessages ?? props.messages).filter(reply => reply.context?.replyTo && threadRoots.value.get(reply.id) === message.id)
+}
+function threadLabel(message: ChatMessage) {
+  const count = replyCounts.value.get(message.context?.conversationRootId ?? message.id) ?? 0
+  return count ? `Thread · ${count} ${count === 1 ? "reply" : "replies"}` : "Thread"
+}
+function anchorLabel(anchor: Anchor) {
+  const item = props.referenceChoices?.find(choice => choice.anchor.itemId === anchor.itemId)?.title ?? "Open item"
+  return anchor.selection?.exact ?? (anchor.fieldId ? `${item} · ${props.fieldTitles?.[anchor.fieldId] ?? "Field"}` : item)
+}
+watch(() => props.initialContext, attachInitialContext)
 const isSubmitting = ref(false)
 const isComposing = ref(false)
 const userJustSent = ref(false)
@@ -102,10 +147,10 @@ const hasEarlier = computed(() => {
 
 const displayedMessages = computed(() => {
   const all = availableMessages.value
-  if (all.length <= visibleCount.value) {
-    return all
-  }
-  return all.slice(-visibleCount.value)
+  const visible = all.length <= visibleCount.value ? all : all.slice(-visibleCount.value)
+  if (props.windowId) return visible
+  const roots = new Set(visible.filter(message => !message.context?.replyTo).map(message => message.id))
+  return visible.filter(message => !message.context?.replyTo || !roots.has(threadRoots.value.get(message.id) ?? ""))
 })
 const typingLabel = computed(() => props.typingPeople.length === 1
   ? `${props.typingPeople[0]} is typing…`
@@ -175,12 +220,14 @@ async function handleSubmit() {
     const sentContext = clone(context.value)
     const success = await props.sendMessage(text, sentContext.references.length || sentContext.mentions.length || sentContext.replyTo ? sentContext : undefined)
     if (success) {
-      context.value = { references: clone(props.initialContext?.references ?? []), mentions: [] }
+      resetComposerContext()
       cached.context = clone(context.value)
-    } else if (!draft.value) { draft.value = text; cached.body = text }
+    } else if (!draft.value) { draft.value = text; context.value = sentContext }
     isSubmitting.value = false
   } else emit("send", text)
   void scrollToBottom(true)
+  await nextTick()
+  document.getElementById(`message-${props.windowId ?? 'chat'}`)?.focus({ preventScroll: true })
 }
 
 function closeChat() {
@@ -189,11 +236,15 @@ function closeChat() {
 }
 
 watch(draft, value => emit("typing", Boolean(value.trim())))
+let revealedTarget = ""
 async function revealTarget() {
-  if (!props.targetId) return
+  if (!props.targetId) { revealedTarget = ""; return }
+  if (revealedTarget === props.targetId) return
   visibleCount.value = 2000
   await nextTick()
+  if (revealedTarget === props.targetId) return
   const element = messageListRef.value?.querySelector(`[data-message-id="${CSS.escape(props.targetId)}"]`) as HTMLElement | null
+  if (element) revealedTarget = props.targetId
   element?.scrollIntoView({ block: "center" })
   element?.focus({ preventScroll: true })
   reportVisible()
@@ -265,6 +316,7 @@ onMounted(async () => {
   if (props.targetId) await revealTarget()
   else await scrollToBottom(false)
   reportVisible()
+  if (!props.readOnly) document.getElementById(`message-${props.windowId ?? 'chat'}`)?.focus({ preventScroll: true })
 })
 
 function formatDisplayTime(createdAt: string): string {
@@ -272,7 +324,9 @@ function formatDisplayTime(createdAt: string): string {
   try {
     const d = new Date(createdAt)
     if (isNaN(d.getTime())) return createdAt
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    return `${date} · ${time}`
   } catch {
     return createdAt
   }
@@ -290,7 +344,7 @@ function formatDisplayTime(createdAt: string): string {
         <p v-else-if="!displayedMessages.length">No messages yet. Send a message to start chatting.</p>
         <article v-for="msg in displayedMessages" :key="msg.id" class="chat-message-item" :data-message-id="msg.id" tabindex="-1" :class="{ 'is-own': msg.personId === currentPersonId, 'is-reply': Boolean(msg.context?.replyTo), 'is-linked-message': msg.id === targetId }">
           <div class="chat-message-meta">
-            <ParticipantAvatar :person-id="msg.personId" />
+            <ParticipantAvatar :person-id="msg.personId" :avatar-data="memberAvatars?.[msg.personId]" />
             <strong class="chat-message-author">{{ msg.name || 'Anonymous' }}</strong>
             <span v-if="msg.personId === currentPersonId" class="chat-author-tag">(You)</span>
             <time class="chat-message-time" :datetime="msg.createdAt">{{ formatDisplayTime(msg.createdAt) }}</time>
@@ -303,8 +357,17 @@ function formatDisplayTime(createdAt: string): string {
           <MarkdownContent class="chat-message-body" :source="msg.body" />
           <div class="message-actions">
             <button v-if="!readOnly && !msg.status" class="button button-small button-quiet" type="button" aria-label="Reply to message" @click="reply(msg)">Reply</button>
+            <button v-if="!msg.status" class="button button-small button-quiet" type="button" aria-label="Open thread" @click="emit('thread', msg.id)">{{ threadLabel(msg) }}</button>
             <MessageLinkAction v-if="workspaceScope" :workspace-scope="workspaceScope" :message-id="msg.id" :disabled="Boolean(msg.status)" />
           </div>
+          <details v-if="!windowId && !msg.context?.replyTo && threadReplies(msg).length" class="chat-thread-preview" @toggle="reportVisible">
+            <summary>{{ threadReplies(msg).length }} {{ threadReplies(msg).length === 1 ? 'reply' : 'replies' }} · Preview</summary>
+            <article v-for="answer in threadReplies(msg)" :key="answer.id" class="thread-preview-message" :data-message-id="answer.id">
+              <div class="thread-preview-heading"><strong>{{ answer.name || 'Anonymous' }}</strong><button v-if="!answer.status" class="button button-small button-quiet" type="button" aria-label="Open reply" @click="emit('thread', answer.id)">Open</button><span v-else>Saving locally…</span></div>
+              <blockquote v-if="answer.context?.replyTo" class="reply-quote">{{ quote(answer) }}</blockquote>
+              <MarkdownContent class="thread-preview-body" :source="answer.body" />
+            </article>
+          </details>
         </article>
         <div v-if="typingLabel" class="chat-typing" role="status" aria-label="Typing presence">{{ typingLabel }}</div>
       </div>
@@ -314,13 +377,13 @@ function formatDisplayTime(createdAt: string): string {
         <div class="reference-chips">
           <span v-for="(anchor, index) in context.references" :key="index" class="draft-reference"><button class="button button-small" type="button" @click="emit('reference', anchor)">{{ anchorLabel(anchor) }}</button><button class="button button-small" type="button" aria-label="Remove reference" @click="context.references.splice(index, 1)">×</button></span>
         </div>
-        <div v-if="context.replyTo" class="reply-quote">Replying to: {{ replyQuote }} <button type="button" aria-label="Cancel reply" @click="context.replyTo = undefined; context.conversationRootId = undefined">×</button></div>
+        <div v-if="context.replyTo" class="reply-quote">Replying to: {{ replyQuote }} <button v-if="!windowId?.startsWith('conversation:')" type="button" aria-label="Cancel reply" @click="context.replyTo = undefined; context.conversationRootId = undefined">×</button></div>
         <div v-if="context.mentions.length" class="reference-chips"><span v-for="personId in context.mentions" :key="personId">@{{ members?.find(member => member.personId === personId)?.name ?? 'Participant' }} <button class="button button-small" type="button" aria-label="Remove mention" @click="context.mentions = context.mentions.filter(id => id !== personId)">×</button></span></div>
-        <details v-if="referenceChoices?.length"><summary>Attach item reference</summary><button v-for="choice in referenceChoices" :key="choice.anchor.itemId" class="button button-small" type="button" :disabled="context.references.length >= MAX_REFERENCES || context.references.some(anchor => anchor.itemId === choice.anchor.itemId)" @click="context.references.some(anchor => anchor.itemId === choice.anchor.itemId) || context.references.push(clone(choice.anchor))">{{ choice.title }}</button></details>
+        <ReferencePicker v-if="referenceChoices?.length" :choices="referenceChoices" :selected="context.references" @select="anchor => context.references.push(clone(anchor))" />
         <details v-if="members?.length" class="mention-picker">
           <summary>Invite @participant</summary>
           <input v-model="mentionQuery" aria-label="Find participant" />
-          <button v-for="member in mentionChoices" :key="member.personId" class="button button-small" type="button" :disabled="context.mentions.length >= MAX_MENTIONS" @click="mention(member)"><ParticipantAvatar :person-id="member.personId" />{{ member.name }}</button>
+          <button v-for="member in mentionChoices" :key="member.personId" class="button button-small" type="button" :disabled="context.mentions.length >= MAX_MENTIONS" @click="mention(member)"><ParticipantAvatar :person-id="member.personId" :avatar-data="memberAvatars?.[member.personId]" />{{ member.name }}</button>
         </details>
         <form class="chat-composer-form" @submit.prevent="handleSubmit">
           <label :for="`message-${windowId ?? 'chat'}`" class="chat-composer-label">Message</label>
@@ -334,7 +397,7 @@ function formatDisplayTime(createdAt: string): string {
 
 <style src="./WorkspaceChat.css" scoped></style>
 <style scoped>
-.conversation-content { width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; border: 0; box-shadow: none; padding: 12px 16px 44px; }
+.conversation-content { width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; max-height: none; border: 0; box-shadow: none; padding: 12px 16px; }
 .chat-message-meta { align-items: center; }
 .reference-chips, .message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 6px; }
 .draft-reference { display: inline-flex; align-items: center; }
@@ -342,6 +405,11 @@ function formatDisplayTime(createdAt: string): string {
 .reply-quote { margin: 6px 0; padding: 4px 8px; border-left: 2px solid var(--muted); color: var(--muted); overflow-wrap: anywhere; }
 .is-reply { margin-left: 12px; }
 .is-linked-message { outline: 3px solid var(--blue); outline-offset: -3px; }
+.chat-thread-preview { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
+.chat-thread-preview summary { cursor: pointer; color: var(--blue); }
+.thread-preview-message { padding: 8px 0; border-bottom: 1px solid var(--soft); }
+.thread-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.thread-preview-body { overflow-wrap: anywhere; }
 .mention-picker { margin-block: 6px; }
 .mention-picker button { display: inline-flex; align-items: center; gap: 4px; }
 .chat-composer-form { display: grid; gap: 6px; }

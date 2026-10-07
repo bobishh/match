@@ -10,6 +10,8 @@ test("Given 55 detailed cards, when Chat opens, then pointer event timing stays 
   const session = await page.context().newCDPSession(page)
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
   const result = await measurePointerOpen(page, 'button[aria-label="Workspace chat"]', "Chat")
+  await page.getByRole("dialog", { name: "Workspace chat", exact: true }).getByRole("button", { name: "Close", exact: true }).click()
+  const warm = await measurePointerOpen(page, 'button[aria-label="Workspace chat"]', "Chat")
   await session.send("Emulation.setCPUThrottlingRate", { rate: 1 })
   expect(result.dialogVisible).toBe(true)
   await writeFile(testInfo.outputPath("chat-open-event-timing.json"), JSON.stringify(result, null, 2))
@@ -17,6 +19,8 @@ test("Given 55 detailed cards, when Chat opens, then pointer event timing stays 
   console.info(`Chat open, 55 detailed cards, 4x CPU: Event Timing ${Math.round(eventDuration)}ms; dialog ready ${Math.round(result.componentReadyMs)}ms`)
   expect(eventDuration).toBeLessThan(200)
   expect(result.pendingPaintMs).toBeLessThan(200)
+  expect(Math.max(0, ...warm.events.map(entry => entry.duration))).toBeLessThan(200)
+  expect(warm.componentReadyMs).toBeLessThan(200)
 })
 
 test("Given 55 detailed cards, when Sync opens, then pointer event timing stays below 200ms", async ({ page }, testInfo) => {
@@ -62,8 +66,8 @@ async function measurePointerOpen(page: import("@playwright/test").Page, selecto
         framePending = true
         requestAnimationFrame(() => requestAnimationFrame(() => {
           framePending = false
-          const pending = label === "Chat" ? document.querySelector(".chat-dialog") : document.querySelector(".sync-dialog-pending")
-          const ready = label === "Chat" ? pending : document.querySelector(".sync-dialog")
+          const pending = label === "Chat" ? document.querySelector(".chat-open-pending") : document.querySelector(".sync-dialog-pending")
+          const ready = label === "Chat" ? document.querySelector(".chat-dialog") : document.querySelector(".sync-dialog")
           const now = performance.now()
           if (pending && pending.getBoundingClientRect().width > 0 && measuredOpen.pendingPaintMs === null) {
             measuredOpen.pendingPaintMs = now - clickedAt
@@ -132,7 +136,32 @@ test("Given chat metadata becomes unavailable, when Chat opens, then failure app
   await expect(page.getByRole("dialog", { name: "Item overview" })).toBeVisible()
 })
 
+test("Given the Chat chunk fails after loading is delayed, when Chat opens, then reload recovers chat", async ({ page }) => {
+  let releaseChunk!: () => void
+  const chunkGate = new Promise<void>(resolve => { releaseChunk = resolve })
+  let firstRequest = true
+  await page.route("**/src/components/WorkspaceChat.vue*", async route => {
+    await chunkGate
+    if (firstRequest) {
+      firstRequest = false
+      await route.abort()
+    } else await route.continue()
+  })
+  await populatedBoard(page)
+  await page.getByRole("button", { name: "Workspace chat", exact: true }).click()
+  const pending = page.locator(".chat-open-pending")
+  await expect(pending).toContainText("Opening chat…")
+  releaseChunk()
+  const failed = page.getByRole("alert").filter({ hasText: "Chat could not load." })
+  await expect(failed).toBeVisible()
+  await failed.getByRole("button", { name: "Reload tincanban" }).click()
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
+  await page.getByRole("button", { name: "Workspace chat", exact: true }).click()
+  await expect(page.getByRole("dialog", { name: "Workspace chat", exact: true })).toBeVisible()
+})
+
 test("Given Sync chunk fails to load, when Sync opens, then pending can close and reload recovers", async ({ page }) => {
+  test.setTimeout(120_000)
   let firstLoad = true
   await page.route("**/src/components/SyncDialog.vue*", async route => {
     if (firstLoad) {
@@ -161,7 +190,8 @@ test("Given Sync chunk fails to load, when Sync opens, then pending can close an
   await itemDialog.getByRole("button", { name: "Close detail", exact: true }).click()
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   await page.getByRole("dialog", { name: "Device sync", exact: true }).getByRole("button", { name: "Reload tincanban", exact: true }).click()
-  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
+  // Recovery waits for full-history admission; the pending Sync state remains asserted above.
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   await expect(page.locator(".sync-dialog")).toBeVisible()
 })

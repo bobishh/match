@@ -20,12 +20,12 @@ export type Command =
   | { kind: "renameWorkspace"; title: string }
   | { kind: "setWorkspaceArchived"; archived: boolean }
   | { kind: "createBoard"; title: string; preset: "job-search" | "blank" }
-  | { kind: "createColumn"; boardId: string; title: string; archive?: true; beforeId?: string | null }
+  | { kind: "createColumn"; boardId: string; title: string; archive?: true; collapsible?: boolean; beforeId?: string | null }
   | { kind: "createItem"; id?: string; parentId: string; title: string; body?: string; values?: Record<string, FieldValue>; beforeId?: string | null }
   | { kind: "patchItem"; entityId: string; title?: string; body?: string; values?: Record<string, FieldValue>; foldNarrativeSources?: NarrativeFoldSources }
   | { kind: "restoreItemVersion"; entityId: string; changeHash: string }
   | { kind: "moveEntity"; entityId: string; parentId: string; beforeId?: string | null }
-  | { kind: "renameEntity"; entityId: string; title: string }
+  | { kind: "renameEntity"; entityId: string; title: string; collapsible?: boolean }
   | { kind: "setEntityArchived"; entityId: string; archived: boolean }
   | { kind: "restoreAndMove"; entityId: string; parentId: string; beforeId?: string | null }
   | {
@@ -66,7 +66,8 @@ export type Command =
       sourceMarkdown?: FileReference | null;
     }
   | { kind: "updateBoardSchema"; boardId: string; schema: BoardSchemaDraft; expectedHeads?: Heads }
-  | { kind: "updateWorkspaceSettings"; settings: WorkspaceSettingsDraft; expectedHeads?: Heads };
+  | { kind: "updateWorkspaceSettings"; settings: WorkspaceSettingsDraft; expectedHeads?: Heads }
+  | { kind: "setMemberAvatar"; avatarData: string | null };
 
 export type ExecuteResult = CommandResult<{
   newDoc: Automerge.Doc<WorkspaceDocumentV2>;

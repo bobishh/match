@@ -213,7 +213,7 @@ export function isEntityVisible(
 ): boolean {
   if (workspaceArchived) return false
   const entity = entities[entityId]
-  if (!entity || entity.archivedAt) return false
+  if (!entity || entityLifecycleArchived(entity)) return false
 
   const { issue } = getAncestryPath(entities, entityId)
   if (issue) return false
@@ -222,10 +222,22 @@ export function isEntityVisible(
   let curr: WorkspaceEntity | undefined = entity
   while (curr && curr.placement.parentId !== null) {
     curr = entities[curr.placement.parentId]
-    if (!curr || curr.archivedAt) return false
+    if (!curr || entityLifecycleArchived(curr)) return false
   }
 
   return true
+}
+
+function entityLifecycleArchived(entity: WorkspaceEntity): boolean {
+  if ("lifecycle" in entity && entity.lifecycle) {
+    try {
+      const lifecycle = typeof entity.lifecycle === "string"
+        ? JSON.parse(entity.lifecycle) as { state?: string }
+        : entity.lifecycle
+      return lifecycle.state === "archived"
+    } catch { return Boolean(entity.archivedAt) }
+  }
+  return Boolean(entity.archivedAt)
 }
 
 export function getVisibleChildren(

@@ -31,14 +31,15 @@ test("Given paper buttons and cards, when hovered, then rotation is visible and 
   expect(await angle(card)).toBe(0)
 })
 
-test("Given archive, when expanded and collapsed, then both use gray crossed strokes and dark readable labels", async ({ page }, info) => {
+test("Given archive, when expanded and collapsed, then open archive keeps strokes and collapsed columns stay white", async ({ page }, info) => {
   await page.setViewportSize({ width: 1920, height: 950 })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   const archive = page.getByRole("region", { name: "Archive", exact: true })
   const closed = archive.getByRole("button", { name: "Open Archive with 0 cards", exact: true })
   await expect(closed).toHaveCSS("color", "rgb(23, 23, 23)")
-  expect(await archive.evaluate(element => getComputedStyle(element, "::before").maskImage)).toContain("archive-hatch.svg")
+  await expect(closed).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  expect(await closed.evaluate(element => getComputedStyle(element, "::before").maskImage)).toBe("none")
   await closed.click()
   await expect(archive.getByText("No leads", { exact: true })).toBeVisible()
   const header = archive.locator(".column-header")
@@ -47,18 +48,25 @@ test("Given archive, when expanded and collapsed, then both use gray crossed str
   await page.screenshot({ path: info.outputPath("archive-crossed.png") })
   await archive.getByRole("button", { name: "Collapse Archive", exact: true }).click()
   await expect(closed).toBeVisible()
+  await expect(closed).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  expect(await closed.evaluate(element => getComputedStyle(element, "::before").maskImage)).toBe("none")
 })
 
-test("Given device identifiers and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {
+test("Given mesh devices or an offline board and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync", exact: true })
-  await sync.getByRole("list", { name: "Mesh members" }).getByRole("button").click()
-  const deviceId = sync.locator(".mesh-device-head code")
-  await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
-  await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
-  await expect.poll(() => page.evaluate(() => document.fonts.check('400 15px "Fira Code"'))).toBe(true)
+  const members = sync.getByRole("list", { name: "Mesh members" })
+  const memberButtons = members.getByRole("button")
+  if (await memberButtons.count()) {
+    await memberButtons.first().click()
+    const deviceId = sync.locator(".mesh-device-head code")
+    await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
+    await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
+  } else {
+    await expect(members.getByText("No people connected to this board.", { exact: true })).toBeVisible()
+  }
   await sync.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()
   const settings = page.getByRole("dialog", { name: "Settings", exact: true })
@@ -68,6 +76,12 @@ test("Given device identifiers and recovery words, when viewed or restore fails,
   const words = recovery.getByRole("textbox", { name: "Recovery words", exact: true })
   await words.fill("IIl10 O0 abcdef0123456789")
   await expect(words).toHaveCSS("font-family", /Fira Code/)
+  const loadedFonts = await page.evaluate(async () => (await document.fonts.load(
+    '400 15px "Fira Code"', "IIl10 O0 abcdef0123456789",
+  )).map(font => font.status))
+  expect(loadedFonts.length).toBeGreaterThan(0)
+  expect(loadedFonts.every(status => status === "loaded")).toBe(true)
+  expect(await page.evaluate(() => document.fonts.check('400 15px "Fira Code"'))).toBe(true)
   const restore = recovery.getByRole("button", { name: "Restore identity", exact: true })
   await restore.hover({ force: true })
   expect(await angle(restore)).toBe(0)

@@ -5,19 +5,23 @@ import { ref } from "vue"
 const props = defineProps<{
   columnId: string
   initialTitle: string
+  initialCollapsible?: boolean
+  initialArchive?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: "close"): void
-  (e: "save", title: string): void
+  (e: "save", title: string, collapsible: boolean, archive: boolean): void
   (e: "archive"): void
 }>()
 
 const title = ref(props.initialTitle)
+const collapsible = ref(props.initialCollapsible ?? false)
+const archive = ref(props.initialArchive ?? false)
 
 function handleSave() {
   if (!title.value.trim()) return
-  emit("save", title.value.trim())
+  emit("save", title.value.trim(), collapsible.value, archive.value)
 }
 </script>
 
@@ -38,11 +42,13 @@ function handleSave() {
             <span>Column title</span>
             <input v-model="title" autofocus required />
           </label>
+          <label class="check-row"><input v-model="archive" type="checkbox" /> Designate as Archive column</label>
+          <label class="check-row"><input v-model="collapsible" type="checkbox" /> Allow this column to collapse</label>
 
         </div>
 
         <div class="dialog-actions dialog-actions-split">
-          <button class="button button-danger" type="button" @click="emit('archive')">Archive column</button>
+          <button class="button button-danger" type="button" @click="emit('archive')">Remove column</button>
           <div class="dialog-action-group">
             <button class="button button-quiet" type="button" @click="emit('close')">Cancel</button>
             <button class="button button-primary" type="submit">Save</button>

@@ -21,6 +21,11 @@ MODELS = [
     ("TransportReconnectOnly", "DurableTransport", "Temporal properties were violated"),
     ("TransportEarlyAck", "DurableTransport", "Invariant AckDurable is violated"),
     ("TransportConnection", "DurableTransport", "Invariant ConnectionImpliesCoverage is violated"),
+    ("ItemTransitions", "ItemTransitions", None),
+    ("IdentityCatalog", "IdentityCatalog", None),
+    ("WorkerLifecycle", "WorkerLifecycle", None),
+    ("WorkerLifecycleStaleFatal", "WorkerLifecycle", "Invariant StaleFatalIsolated is violated"),
+    ("WorkerLifecycleQueuedTimeout", "WorkerLifecycle", "Invariant QueuedTimeoutIsolated is violated"),
 ]
 
 

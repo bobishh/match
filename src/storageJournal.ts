@@ -23,6 +23,18 @@ export type LocalJournal = {
   authorizations?: unknown[]
 }
 
+type CausalChangeDecision = {
+  hash: string
+  status: { type: "admitted"; role: "owner" | "editor" | "visitor" }
+    | { type: "quarantined" | "pending"; reason: string }
+}
+
+export type StoredCausalEvidence = {
+  bytes: Uint8Array
+  decisions: CausalChangeDecision[]
+  authorizationEvidence?: unknown[]
+}
+
 export type StoredWorkspaceSnapshot = {
   id: string
   workspaceId: string
@@ -30,6 +42,7 @@ export type StoredWorkspaceSnapshot = {
   archivedAt?: string | null
   heads: string[]
   bytes: Uint8Array
+  causalEvidence?: StoredCausalEvidence
   savedAt: string
 }
 

@@ -50,7 +50,7 @@ export async function captureSavedAcknowledgements(page: Page) {
       `const attempt = { document: Array.from(${value}.document), shouldPersist: Boolean(${value}.shouldPersist), persisted: false, responseSent: false, failed: false };\n;(window.__TINCANBAN_E2E_DOCUMENT_RECEIVES__ ??= []).push(attempt);`
     const instrumented = source
       .replace(preparedPersist, match => `${captureAttempt("prepared")}\ntry { ${match}; attempt.persisted = persisted } catch (error) { attempt.failed = true; throw error }`)
-      .replace(directPersist, match => `${captureAttempt("effect")}\nlet persisted = false; try { ${tincanban.replace("const persisted =", "persisted =")}; attempt.persisted = persisted } catch (error) { attempt.failed = true; throw error }`)
+      .replace(directPersist, match => `${captureAttempt("effect")}\nlet persisted = false; try { ${match.replace("const persisted =", "persisted =")}; attempt.persisted = persisted } catch (error) { attempt.failed = true; throw error }`)
       .replace(acknowledgement, "$1if (completion.response) { await stream.send(toBytes(completion.response)); attempt.responseSent = true }")
     await route.fulfill({
       response,

@@ -6,9 +6,9 @@ test("Given a held legacy journal with committed board and receipts, when tincan
   await holder.route("**/journal-fixture.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Journal fixture</title>" }))
   await holder.goto((baseURL ?? "http://127.0.0.1:4244") + "/journal-fixture.html")
   const seeded = await holder.evaluate(async () => {
-    const { initializeIrohBrowserRuntime } = await import("/src/iroh.ts")
+    const { initializePolicyBrowserRuntime } = await import("/src/iroh.ts")
     const { initializeAutomerge } = await import("/src/crdt.ts")
-    await initializeIrohBrowserRuntime()
+    await initializePolicyBrowserRuntime()
     await initializeAutomerge()
     const A = await import("/@id/@automerge/automerge/slim")
     const { default: wasmUrl } = await import("/@id/@automerge/automerge/automerge.wasm?url")

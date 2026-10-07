@@ -1,6 +1,35 @@
 import { expect, test } from "./support/coverage"
 
-test("Given an already admitted board, when its exact signed evidence repeats, then it does not queue another admission job", async ({ page }) => {
+async function traceAdmissionWorkers(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    const trace = { created: [] as string[], requests: [] as Array<{ url: string; id: number }>, instances: [] as Worker[] }
+    Object.defineProperty(window, "__admissionWorkerTrace", { value: trace })
+    const NativeWorker = window.Worker
+    window.Worker = new Proxy(NativeWorker, {
+      construct(target, args, newTarget) {
+        const instance = Reflect.construct(target, args, newTarget) as Worker
+        const url = String(args[0])
+        trace.created.push(url)
+        if (url.includes("workspaceAdmissionWorker")) {
+          trace.instances.push(instance)
+          const post = instance.postMessage.bind(instance)
+          Object.defineProperty(instance, "postMessage", {
+            value: (message: { id?: number }, ...rest: unknown[]) => {
+              if (typeof message.id === "number") trace.requests.push({ url, id: message.id })
+              return Reflect.apply(post, instance, [message, ...rest])
+            },
+          })
+        }
+        return instance
+      },
+    })
+  })
+}
+
+type AdmissionWorkerTrace = { created: string[]; requests: Array<{ url: string; id: number }>; instances: Worker[] }
+
+test("Given an already admitted board, when its exact signed evidence repeats, then it needs no new Worker", async ({ page }) => {
+  await traceAdmissionWorkers(page)
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
   const result = await page.evaluate(async () => {
@@ -9,20 +38,24 @@ test("Given an already admitted board, when its exact signed evidence repeats, t
     const bytes = await tincanban.readWorkspaceBytes(tincanban.activeWorkspace.id)
     const { exportAuthorizationBundle } = await import("/src/sync/changeAuthorization.ts")
     const proof = await exportAuthorizationBundle(bytes, tincanban.getCurrentProfile()!)
+    const trace = (window as unknown as { __admissionWorkerTrace: AdmissionWorkerTrace }).__admissionWorkerTrace
+    const createdBefore = trace.created.length
     const original = window.Worker
     window.Worker = class { constructor() { throw new Error("Unexpected repeated admission") } } as unknown as typeof Worker
     try {
       const start = performance.now()
       await tincanban.mergeAuthorizedWorkspace(tincanban.activeWorkspace.id, bytes, proof)
-      return performance.now() - start
+      return { duration: performance.now() - start, createdBefore, createdAfter: trace.created.length }
     } finally { window.Worker = original }
   })
-  expect(result).toBeLessThan(1000)
-  console.info(`Exact evidence replay: ${Math.round(result)}ms; no admission worker`)
+  expect(result.duration).toBeLessThan(1000)
+  expect(result.createdAfter).toBe(result.createdBefore)
+  console.info(`Exact evidence replay: ${Math.round(result.duration)}ms; no new Worker constructed`)
 })
 
 test("Given a large signed peer history, when admission runs, then board controls stay responsive until durable commit", async ({ page }) => {
   test.setTimeout(120_000)
+  await traceAdmissionWorkers(page)
   await page.goto("/")
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
   await page.evaluate(async () => {
@@ -46,7 +79,9 @@ test("Given a large signed peer history, when admission runs, then board control
     const fixture = { id: base.id, bytes: A.save(remote), authorization: { ...bundle, records: proofs }, before: A.getHeads(base) }
     Object.assign(window, { admissionFixture: fixture, admissionState: "ready" })
   })
-  const workerStarted = page.waitForEvent("worker", { predicate: worker => worker.url().includes("workspaceAdmissionWorker") })
+  const requestsBefore = await page.evaluate(() =>
+    (window as unknown as { __admissionWorkerTrace: AdmissionWorkerTrace }).__admissionWorkerTrace.requests.length,
+  )
   await page.evaluate(() => {
     const state = window as unknown as { admissionFixture: { id: string; bytes: Uint8Array; authorization: unknown }; admissionState: string; admissionPromise: Promise<void> }
     state.admissionState = "pending"
@@ -54,7 +89,10 @@ test("Given a large signed peer history, when admission runs, then board control
       state.admissionFixture.id, state.admissionFixture.bytes, state.admissionFixture.authorization,
     )).then(() => { state.admissionState = "committed" }, error => { state.admissionState = `failed: ${String(error)}` })
   })
-  await workerStarted
+  await expect.poll(() => page.evaluate(() => {
+    const trace = (window as unknown as { __admissionWorkerTrace: AdmissionWorkerTrace }).__admissionWorkerTrace
+    return trace.requests.length
+  })).toBeGreaterThan(requestsBefore)
   const clickStarted = Date.now()
   await page.getByRole("button", { name: "Open workspaces" }).click({ timeout: 1500 })
   await expect(page.getByRole("dialog", { name: "Workspaces", exact: true })).toBeVisible({ timeout: 1500 })
@@ -84,6 +122,7 @@ test("Given a large signed peer history, when admission runs, then board control
 
 for (const failure of ["worker startup", "forged signature"] as const) {
   test(`Given ${failure} fails admission, when a candidate arrives, then document and notifications remain unchanged`, async ({ page }) => {
+    await traceAdmissionWorkers(page)
     await page.goto("/")
     await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
     const result = await page.evaluate(async failure => {
@@ -101,7 +140,14 @@ for (const failure of ["worker startup", "forged signature"] as const) {
       let notifications = 0
       const stop = tincanban.subscribeLocalChanges(() => { notifications++ })
       const originalWorker = window.Worker
-      if (failure === "worker startup") window.Worker = class { constructor() { throw new Error("Worker blocked") } } as unknown as typeof Worker
+      if (failure === "worker startup") {
+        const trace = (window as unknown as { __admissionWorkerTrace: AdmissionWorkerTrace }).__admissionWorkerTrace
+        const existing = trace.instances.at(-1)
+        if (!existing?.onerror) throw new Error("Admission worker error handler missing after hydrate")
+        // Invoke handler installed by workspaceAdmissionClient, which terminates the singleton.
+        existing.onerror(new ErrorEvent("error", { message: "simulated worker failure" }))
+        window.Worker = class { constructor() { throw new Error("Worker blocked") } } as unknown as typeof Worker
+      }
       else proofs[0]!.signed.signature += "forged"
       let error = ""
       try { await tincanban.mergeAuthorizedWorkspace(base.id, A.save(remote), { ...bundle, records: [...bundle.records, ...proofs] }) }

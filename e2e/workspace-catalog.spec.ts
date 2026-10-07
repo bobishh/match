@@ -20,7 +20,7 @@ test("a legacy orphaned workspace reappears and survives another tab saving", as
   }, id)
   await page.reload()
   await page.getByRole("button", { name: "Open workspaces" }).click()
-  await expect(page.getByRole("button", { name: /Twang recovery/ })).toBeVisible()
+  await expect(page.locator(".workspace-switch").filter({ hasText: "Twang recovery" })).toBeVisible()
 
   await older.getByRole("button", { name: "Add item to To do" }).click()
   const item = older.getByRole("dialog", { name: "Item details" })
@@ -29,6 +29,6 @@ test("a legacy orphaned workspace reappears and survives another tab saving", as
   await expect(older.getByRole("button", { name: "Open Saved from old tab" })).toBeVisible()
   await page.reload()
   await page.getByRole("button", { name: "Open workspaces" }).click()
-  await expect(page.getByRole("button", { name: /Twang recovery/ })).toBeVisible()
+  await expect(page.locator(".workspace-switch").filter({ hasText: "Twang recovery" })).toBeVisible()
   await older.close()
 })

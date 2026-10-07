@@ -76,7 +76,7 @@ function stampRole(svg: Document, role: WorkspaceRole) {
   svg.querySelector("[data-can-shade]")?.setAttribute("fill", appearance.shade)
   const stamp = svg.createElementNS("http://www.w3.org/2000/svg", "g")
   stamp.setAttribute("data-role-stamp", role)
-  stamp.setAttribute("transform", "translate(28 31)")
+  stamp.setAttribute("transform", "translate(31.6 40) scale(.7)")
   stamp.setAttribute("stroke", "none")
   const glyph = svg.createElementNS(stamp.namespaceURI, "path")
   glyph.setAttribute("d", appearance.stamp)

@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { isMemberProfileData, MAX_AVATAR_DATA_URL_LENGTH } from "./avatarData"
 import { isValidRank } from "./rank"
 
 const id = z.string().min(1)
@@ -40,13 +41,17 @@ const boardSchema = z.strictObject({
   cardStageButtons: z.array(z.strictObject({ columnId: id, label: z.string().min(1).optional() })).optional(),
   priorityPolicy: priorityPolicySchema.nullable().optional(),
   cardAgingPolicy: cardAgingPolicySchema.optional(),
+  archiveColumnId: id.nullable().optional(),
 })
 const columnSchema = z.strictObject({
   ...common,
   kind: z.literal("column"),
   archive: z.literal(true).optional(),
+  collapsible: z.boolean().optional(),
 })
-const itemSchema = z.strictObject({ ...common, body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional() })
+const itemLifecycleSchema = z.strictObject({ state: z.enum(["active", "archived"]), changedAt: z.string() })
+const itemWorkflowSchema = z.strictObject({ columnId: id, changedAt: z.string() })
+const itemSchema = z.strictObject({ ...common, archivedAt: z.string().nullable().optional(), body: z.string(), values: z.record(z.string(), fieldValueSchema), lastActivityAt: z.string().optional(), lifecycle: z.union([z.string(), itemLifecycleSchema]).optional(), workflow: z.union([z.string(), itemWorkflowSchema]).optional() })
 const fieldOptionSchema = z.strictObject({ id: z.string(), title: z.string(), rank, archivedAt: z.string().nullable() })
 const fieldBase = { ...common, kind: z.literal("field"), required: z.boolean() }
 const fieldSchema = z.discriminatedUnion("valueType", [
@@ -76,8 +81,12 @@ const artifactSchema = z.strictObject({
   ...common, kind: z.literal("artifact"), artifactKind: z.enum(["cv", "cover_letter"]), templateId: z.string(),
   pdf: fileReferenceSchema, sourceMarkdown: fileReferenceSchema.nullable(),
 })
+const memberProfileSchema = z.strictObject({
+  ...common, kind: z.literal("member_profile"), personId: id,
+  data: z.string().max(MAX_AVATAR_DATA_URL_LENGTH + 100).refine(isMemberProfileData),
+})
 export const entitySchema = z.union([
-  boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema,
+  boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema, memberProfileSchema,
 ])
 export const workspaceSchema = z.strictObject({
   kind: z.literal("workspace"), formatVersion: z.literal(3), id, title: z.string(), archivedAt: z.string().nullable(), ownerPersonId: z.string(),
@@ -99,7 +108,8 @@ export type AttachedDocument = z.infer<typeof documentSchema>
 export type DocumentTemplate = z.infer<typeof templateSchema>
 export type LegacyWritingTemplate = z.infer<typeof legacyTemplateSchema>
 export type PdfArtifact = z.infer<typeof artifactSchema>
-export type WorkspaceEntity = Board | Column | Item | FieldDefinition | AttachedDocument | DocumentTemplate | LegacyWritingTemplate | PdfArtifact
+type MemberProfile = z.infer<typeof memberProfileSchema>
+export type WorkspaceEntity = Board | Column | Item | FieldDefinition | AttachedDocument | DocumentTemplate | LegacyWritingTemplate | PdfArtifact | MemberProfile
 export type WorkspaceDocumentV2 = Omit<z.infer<typeof workspaceSchema>, "entities"> & { entities: Record<string, WorkspaceEntity> }
 
 export type EntityKind = Exclude<WorkspaceEntity, Item>["kind"] | "item"

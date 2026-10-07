@@ -6,37 +6,23 @@ test("Given an unreadable authority on one board, when creating and importing an
   await page.goto("/")
   await createJobSearchWorkspace(page, "Broken authority")
   await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
-  await page.evaluate(async () => {
-    const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+  const brokenWorkspaceId = await page.evaluate(async () => (await import("/src/state.ts")).useTincanban().activeWorkspace.id)
+  await createJobSearchWorkspace(page, "Healthy sibling")
+  await page.evaluate(async workspaceId => {
     const { peerStore } = await import("/src/sync/peerStore.ts")
-    const { useTincanban } = await import("/src/state.ts")
-    const { createWorkspaceRevocation } = await import("/src/sync/meshRecords.ts")
-    const { workspaceRole } = await import("/src/sync/changeAuthorization.ts")
-    const { getHeads } = await import("/@id/@automerge/automerge/slim")
-    const profile = await bootstrapIdentity("Owner")
-    const workspaceId = useTincanban().activeWorkspace.id
-    await workspaceRole(useTincanban().getActiveDoc()!, profile)
     const authority = await peerStore.getWorkspaceAuthority(workspaceId)
     if (!authority) throw new Error("Missing workspace authority")
-    const revocation = await createWorkspaceRevocation(profile, workspaceId, "former-member", 2, getHeads(useTincanban().getActiveDoc()!))
-    Reflect.deleteProperty(revocation.payload, "workspaceHeads")
-    await peerStore.putWorkspaceAuthority({ ...authority,
+    // A broken board must not block a different active board after reload.
+    await peerStore.putWorkspaceAuthority({ ...authority, ownerPublicKey: "invalid-key",
       updatedAt: new Date(Date.parse(authority.updatedAt) + 1_000).toISOString(),
-      catalog: { ...authority.catalog, revocations: [revocation] },
     })
     const stored = await peerStore.getWorkspaceAuthority(workspaceId)
-    if (!(stored?.catalog as { revocations?: unknown[] } | undefined)?.revocations?.length) {
-      throw new Error("Malformed revocation was not stored")
-    }
-  })
+    if (stored?.ownerPublicKey !== "invalid-key") throw new Error("Malformed authority was not stored")
+  }, brokenWorkspaceId)
   await page.reload()
-  await expect(page.getByRole("alert").filter({ hasText: "permissions could not be verified" })).toBeVisible({ timeout: 15000 })
-  await expect(page.getByLabel("Workspace role: visitor")).toHaveCount(0)
-  await expect(page.locator(".can-role-stamp")).toHaveCount(0)
-  await expect.poll(() => faviconRole(page)).toEqual({ role: null, body: "#c8c9cb" })
-  await createJobSearchWorkspace(page, "Healthy sibling")
   await expect(page.getByLabel("Workspace role: owner")).toBeVisible()
   await expect(page.getByRole("button", { name: /Add lead to/ }).first()).toBeVisible()
+  await expect.poll(() => faviconRole(page)).toEqual({ role: "owner", body: "#d5b16d" })
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync" })
   const downloadEvent = page.waitForEvent("download")

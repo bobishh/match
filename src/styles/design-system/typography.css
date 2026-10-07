@@ -1,0 +1,25 @@
+/* tincanban typography. Consumers may override font tokens. */
+:root {
+  --site-font-brand: "Caveat", cursive;
+}
+
+:where(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--site-font-brand);
+  font-weight: var(--site-heading-weight, 700);
+  font-variant-ligatures: none;
+}
+
+.brand h1 {
+  font-size: var(--site-brand-size);
+  font-weight: var(--site-brand-weight);
+  line-height: 1;
+  letter-spacing: var(--site-brand-tracking);
+}
+
+code, kbd, samp, .technical-text {
+  font: 400 .75rem/1.5 var(--site-font-mono);
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow-wrap: anywhere;
+}

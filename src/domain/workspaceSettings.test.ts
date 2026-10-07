@@ -89,6 +89,7 @@ describe("workspace settings transaction", () => {
     settings.board.columns[0].archive = true
 
     const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings }, profile)
+    if (!result.ok) throw new Error(JSON.stringify(result.error))
     expect(result.ok).toBe(true)
     if (!result.ok) return
     const projected = projectWorkspaceSettings(result.value.newDoc)
@@ -101,6 +102,23 @@ describe("workspace settings transaction", () => {
     })
   })
 
+  it("stores board archive reference for a newly added schema column without an ID", async () => {
+    const settings = projectWorkspaceSettings(doc)
+    settings.board.columns.push({ title: "Archive", archive: true })
+    const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings }, profile)
+    if (!result.ok) throw new Error(JSON.stringify(result.error))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const board = result.value.newDoc.entities[settings.board.boardId]
+    if (!hasEntityKind(board, "board")) throw new Error("Expected updated board")
+    const archive = board.archiveColumnId ? result.value.newDoc.entities[board.archiveColumnId] : undefined
+    if (!archive || !hasEntityKind(archive, "column")) throw new Error("Expected designated archive column")
+    expect(board.archiveColumnId).toBeTruthy()
+    expect(archive.title).toBe("Archive")
+    expect(archive).not.toHaveProperty("archive")
+    expect(archive.collapsible).toBeUndefined()
+  })
+
   it("stores declarative priority rules in the board CRDT and rejects dangling criteria", async () => {
     doc = Automerge.from(createWorkspaceDoc("jobs", "Jobs", profile.identity.personId, "job-search"))
     const settings = projectWorkspaceSettings(doc)
@@ -110,6 +128,7 @@ describe("workspace settings transaction", () => {
     settings.board.priorityPolicy = createDefaultPriorityPolicy(board, fields)
 
     const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings }, profile)
+    if (!result.ok) throw new Error(JSON.stringify(result.error))
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(projectWorkspaceSettings(result.value.newDoc).board.priorityPolicy).toMatchObject({

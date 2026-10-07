@@ -1,0 +1,32 @@
+:root {
+  --presence-green: #69db7c;
+  --presence-yellow: #ffd43b;
+  --presence-red: #ff5a36;
+  --motion-fast: 140ms;
+  --motion-panel: 220ms;
+  --motion-ease: cubic-bezier(.2, .8, .2, 1);
+  --paper: #f3f0e8;
+  --ink: #171717;
+  --muted: #6b675f;
+  --line: #171717;
+  --yellow: #ffd43b;
+  --blue: #1f6feb;
+  --focus: #176b4d;
+  --red: #ff5a36;
+  --green: #69db7c;
+  --panel: #fffdf7;
+  --soft: #e9e5db;
+  --control-size: 46px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --control-size-compact: 40px;
+  --icon-size: 44px;
+  font-family: var(--site-font-sans);
+  font-size: 20px;
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: style;
+  text-rendering: auto; font-variant-ligatures: none;
+}

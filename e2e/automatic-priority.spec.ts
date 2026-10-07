@@ -42,12 +42,12 @@ test.describe("Automatic priority from workspace preferences", () => {
     await expect(onsite).toContainText("P3")
     await expect(onsite).toContainText("0/10 fit")
     const cards = page.getByRole("region", { name: "Lead" }).locator(".lead-card")
-    await expect(cards.first().getByRole("button")).toHaveAccessibleName("Open Remote first — Backend Engineer")
+    await expect(cards.first().getByRole("button", { name: "Open Remote first — Backend Engineer", exact: true })).toBeVisible()
 
     const reopened = await openPriorityRules(page)
     await reopened.getByLabel("Card order").selectOption("fit_asc")
     await reopened.getByRole("button", { name: "Save priority rules" }).click()
-    await expect(cards.first().getByRole("button")).toHaveAccessibleName("Open Office only — Backend Engineer")
+    await expect(cards.first().getByRole("button", { name: "Open Office only — Backend Engineer", exact: true })).toBeVisible()
   })
 
   test("Given automatic priority with no criteria, when saving, then settings stay open with an actionable error", async ({ page }) => {

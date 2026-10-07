@@ -91,6 +91,63 @@ async function discardTransportState(page: Page) {
   })
 }
 
+async function storeUnadmittedRawTitle(page: Page, workspaceId: string, title: string) {
+  const snapshot = await page.evaluate(async id => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("tincanban-workspace-state")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = db.transaction("snapshots", "readonly")
+    const request = transaction.objectStore("snapshots").get(id)
+    const value = await new Promise<{ bytes: number[] }>((resolve, reject) => {
+      request.onsuccess = () => resolve({ bytes: Array.from(request.result.bytes as Uint8Array) })
+      request.onerror = () => reject(request.error)
+    })
+    db.close()
+    return value
+  }, workspaceId)
+  const base = Automerge.load<{ title: string }>(new Uint8Array(snapshot.bytes))
+  const candidate = Automerge.change(base, draft => { draft.title = title })
+  const changeBytes = Automerge.getLastLocalChange(candidate)
+  if (!changeBytes) throw new Error("Expected an unadmitted raw change")
+  const changeHash = Automerge.decodeChange(changeBytes).hash
+  const rawBytes = Array.from(Automerge.save(candidate))
+  Automerge.free(candidate)
+  await page.evaluate(async ({ id, bytes, hash }) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("tincanban-workspace-state")
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    const transaction = db.transaction("snapshots", "readwrite")
+    const store = transaction.objectStore("snapshots")
+    const snapshot = await new Promise<{ [key: string]: unknown; causalEvidence?: {
+      decisions?: Array<{ hash: string; status: { type: string; reason: string } }>
+      authorizationEvidence?: unknown[]
+      bytes?: Uint8Array
+    } }>((resolve, reject) => {
+      const request = store.get(id)
+      request.onsuccess = () => resolve(request.result as {
+        [key: string]: unknown
+        causalEvidence?: { decisions?: Array<{ hash: string; status: { type: string; reason: string } }>; authorizationEvidence?: unknown[]; bytes?: Uint8Array }
+      })
+      request.onerror = () => reject(request.error)
+    })
+    const evidence = snapshot.causalEvidence ?? { decisions: [], authorizationEvidence: [] }
+    snapshot.causalEvidence = { ...evidence, bytes: new Uint8Array(bytes), decisions: [...(evidence.decisions ?? []),
+      { hash, status: { type: "pending", reason: "Untrusted raw candidate" } }]
+    }
+    store.put(snapshot)
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+      transaction.onabort = () => reject(transaction.error)
+    })
+    db.close()
+  }, { id: workspaceId, bytes: rawBytes, hash: changeHash })
+}
+
 test("Given paired browsers, when a lead changes, then the peer receives the durable board update", async ({ browser, page }) => {
   test.setTimeout(90_000)
   const context = await isolatedContext(browser)
@@ -188,6 +245,7 @@ test("Given signed workspace authority, when transport state disappears, then ow
   try {
     await Promise.all([page.goto("/"), guest.goto("/")])
     await pairWorkspace(page, guest)
+    await addLead(guest, "Admitted before authority corruption")
 
     await Promise.all([discardTransportState(page), discardTransportState(guest)])
     await Promise.all([page.reload(), guest.reload()])
@@ -197,9 +255,13 @@ test("Given signed workspace authority, when transport state disappears, then ow
     await expect(page.getByLabel("Mesh empty")).toBeVisible()
     await expect(guest.getByLabel("Mesh empty")).toBeVisible()
 
+    const workspaceId = await guest.evaluate(async () => (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id"))
+    if (!workspaceId) throw new Error("Active workspace missing")
+    const unadmittedTitle = "Unadmitted raw title must stay hidden"
+    await storeUnadmittedRawTitle(guest, workspaceId, unadmittedTitle)
     await guest.evaluate(async () => {
-      const workspaceId = await (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id")
-      if (!workspaceId) throw new Error("Active workspace missing")
+      const activeWorkspaceId = await (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id")
+      if (!activeWorkspaceId) throw new Error("Active workspace missing")
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open("tincanban-peer-catalog-v1")
         request.onsuccess = () => resolve(request.result)
@@ -208,7 +270,7 @@ test("Given signed workspace authority, when transport state disappears, then ow
       const transaction = db.transaction("authority", "readwrite")
       const store = transaction.objectStore("authority")
       const authority = await new Promise<any>((resolve, reject) => {
-        const request = store.get(workspaceId)
+        const request = store.get(activeWorkspaceId)
         request.onsuccess = () => resolve(request.result)
         request.onerror = () => reject(request.error)
       })
@@ -221,8 +283,24 @@ test("Given signed workspace authority, when transport state disappears, then ow
       db.close()
     })
     await guest.reload()
-    await expect(guest.getByLabel("Workspace role: visitor")).toBeVisible()
+    await expect(guest.getByLabel("Workspace permissions: unavailable")).toBeVisible()
+    await expect(guest.getByRole("alert").filter({ hasText: "Workspace authority could not be verified" })).toBeVisible()
+    await expect(guest.getByRole("button", { name: "Open Admitted before authority corruption — Engineer" })).toBeVisible()
     await expect(guest.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
+    await expect(guest.getByRole("button", { name: "Edit board" })).toHaveCount(0)
+    await expect(guest.getByText(unadmittedTitle, { exact: true })).toHaveCount(0)
+    const profileWriteError = await guest.evaluate(async () => {
+      const { stateRuntime } = await import("/src/stateContext.ts")
+      const { persistAuthorizedCommand } = await import("/src/statePersistence.ts")
+      const { WorkspaceStorage } = await import("/src/storage.ts")
+      try {
+        await persistAuthorizedCommand(stateRuntime.activeDoc!, { kind: "setMemberAvatar", avatarData: null }, stateRuntime.currentProfile!, new WorkspaceStorage())
+        return ""
+      } catch (error) { return error instanceof Error ? error.message : String(error) }
+    })
+    expect(profileWriteError).toContain("Workspace authority could not be verified")
+    const rawReviewCount = await guest.evaluate(async () => (await import("/src/state.ts")).useTincanban().causalReview.value.length)
+    expect(rawReviewCount).toBe(0)
   } finally { await context.close() }
 })
 
@@ -248,6 +326,7 @@ test("Given a paired editor, when the invitation tab reloads repeatedly, then tr
     // An older client could leave the consumed invitation in its address bar.
     const stale = new URL(invite)
     const params = new URLSearchParams(stale.hash.slice(1))
+    params.set("createdAt", "2019-12-31T00:00:00.000Z")
     params.set("expiresAt", "2020-01-01T00:00:00.000Z")
     stale.hash = params.toString()
     await guest.goto(stale.href)
@@ -898,7 +977,7 @@ test("Given sibling tabs on both devices, when mesh reconnects concurrently, the
   } finally { await context.close() }
 })
 
-test("Given an editor has an unsigned change, when sync rejects it, then the channel stays connected and reports the blocked document", async ({ browser, page }) => {
+test("Given an editor has an unsigned raw branch, when it is reloaded, then it stays quarantined and valid sync continues", async ({ browser, page }) => {
   test.setTimeout(90_000)
   const context = await isolatedContext(browser)
   const guest = await context.newPage()
@@ -911,36 +990,52 @@ test("Given an editor has an unsigned change, when sync rejects it, then the cha
       const A = await import("/@id/@automerge/automerge/slim")
       const doc = state.useTincanban().getActiveDoc()!
       const unsigned = A.change(A.clone(doc), {message:"Regression unsigned edit"}, (draft: any) => { draft.title = "Untrusted title" })
-      await storage.defaultStorage.saveSnapshot(doc.id, unsigned, A.save(unsigned))
+      const change = A.getLastLocalChange(unsigned)
+      if (!change) throw new Error("Expected unsigned local change")
+      const existing = await storage.defaultStorage.loadCausalEvidence(doc.id)
+      await storage.defaultStorage.commitWorkspace(doc.id, doc, A.save(doc), [], undefined, {
+        bytes: A.save(unsigned), decisions: existing?.decisions ?? [],
+        authorizationEvidence: existing?.authorizationEvidence ?? [],
+      })
+    })
+    let failReviewModule!: () => void
+    const reviewModuleGate = new Promise<void>(resolve => { failReviewModule = resolve })
+    let firstReviewRequest = true
+    await guest.route(/CausalChangeReview\.vue/, async route => {
+      if (firstReviewRequest) {
+        firstReviewRequest = false
+        await reviewModuleGate
+        await route.abort()
+      } else await route.continue()
     })
     await guest.reload()
-    await page.getByRole("button", {name:"Sync",exact:true}).click()
-    const dialog = page.getByRole("dialog",{name:"Device sync"})
-    const rejected = dialog.getByRole("status").filter({hasText:"Changes rejected"})
-    await expect(rejected).toContainText("Changes rejected",{timeout:30_000})
-    await expect(rejected).toContainText("Review source device")
-    await expect(rejected).toContainText("Removing its access stops attempts for this workspace")
-    await expect(rejected.getByRole("button", {name:"Review source device"})).toBeEnabled()
-    await expect(rejected.locator("details")).toHaveCount(1)
-    await expect(rejected.locator("details")).not.toHaveAttribute("open", "")
-    await rejected.getByRole("button", {name:"Review source device"}).click()
-    await expect(dialog.getByRole("region", {name:"Selected mesh member"})).toBeVisible()
-    await expect(dialog.getByRole("button", {name:"Remove device", exact:true})).toBeVisible()
-    await dialog.getByRole("button", {name:"Remove device", exact:true}).click()
-    const removal = page.getByRole("dialog", {name:"Confirm device removal"})
-    await expect(removal).toBeVisible()
-    await removal.getByRole("button", {name:"Cancel"}).click()
-    await expect(rejected).toContainText("Changes rejected")
-    await page.waitForTimeout(18_000)
+    await expect(guest.getByRole("status").filter({ hasText: "Loading workspace change review" })).toBeVisible()
+    failReviewModule()
+    await expect(guest.getByRole("alert").filter({ hasText: "Workspace change review could not load" })).toBeVisible()
+    await guest.getByRole("button", { name: "Reload review" }).click()
+    const review = guest.getByRole("region", {name:"Workspace change review"})
+    await expect(review).toBeVisible()
+    await expect(review.getByText("1 workspace changes need review")).toBeVisible()
+    await review.getByText("1 workspace changes need review").click()
+    await expect(review.getByText("Quarantined", {exact:true})).toBeVisible()
+    await expect(review.getByText(/Untrusted title/)).toBeVisible()
+    const persistedTitles = async (peer: Page) => peer.evaluate(async () => {
+      const state = (await import("/src/state.ts")).useTincanban()
+      const doc = (await new (await import("/src/storage.ts")).WorkspaceStorage().loadWorkspaceDoc(state.getActiveDoc()!.id))?.doc
+      return { title: doc?.title, untrustedItem: Object.values(doc?.entities ?? {}).some((entity: any) => entity.title === "Untrusted title") }
+    })
+    expect(await persistedTitles(guest)).toEqual({title:"Job search", untrustedItem:false})
+    expect(await persistedTitles(page)).toEqual({title:"Job search", untrustedItem:false})
     await expect(page.getByLabel("Mesh connected")).toBeVisible()
-    await expect(guest.getByLabel("Mesh connected")).toBeVisible()
-    await expect(rejected.locator("details")).toContainText("Regression unsigned edit")
-    await expect(page.getByRole("heading", {name:/Untrusted title/})).toHaveCount(0)
-    await dialog.getByRole("region", {name:"Selected mesh member"}).getByRole("button", {name:"Remove device", exact:true}).click()
-    const confirmRemoval = page.getByRole("dialog", {name:"Confirm device removal"})
-    await confirmRemoval.getByRole("button", {name:"Confirm removal"}).click()
-    await expect(rejected).toHaveCount(0, {timeout:20_000})
-    await expect(page.getByRole("heading", {name:/Untrusted title/})).toHaveCount(0)
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
+    await addLead(guest, "Authorized after quarantine")
+    await expect(page.getByRole("button", {name:"Open Authorized after quarantine — Engineer"})).toBeVisible({timeout:20_000})
+    await guest.reload()
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({timeout:30_000})
+    await expect(guest.getByRole("region", {name:"Workspace change review"})).toBeVisible()
+    expect(await persistedTitles(guest)).toEqual({title:"Job search", untrustedItem:false})
+    expect(await persistedTitles(page)).toEqual({title:"Job search", untrustedItem:false})
+    await expect(page.getByRole("button", {name:"Open Authorized after quarantine — Engineer"})).toBeVisible()
   } finally { await context.close() }
 })
 

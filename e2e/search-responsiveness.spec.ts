@@ -8,6 +8,10 @@ test("Given 55 detailed leads, when search narrows then has no matches, then key
   await populatedBoard(page, true)
   const search = page.getByRole("searchbox", { name: "Search cards" })
   await search.click()
+  await page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  })
   const session = await page.context().newCDPSession(page)
   await session.send("Emulation.setCPUThrottlingRate", { rate: 4 })
   await session.send("Profiler.enable")
@@ -52,6 +56,11 @@ test("Given 55 detailed leads, when search narrows then has no matches, then key
   expect(Math.max(0, ...measured.events.map(event => event.duration))).toBeLessThan(200)
   expect(Math.max(...measured.paints)).toBeLessThan(200)
   expect(measured.unchangedVersion).toBe(true)
+  await search.fill("performance")
+  await expect(page.locator(".board .lead-card")).toHaveCount(55)
+  const lastCard = page.locator('[data-item-id="performance-card-54"]')
+  await lastCard.scrollIntoViewIfNeeded()
+  await expect(lastCard.locator(".card-notes")).toContainText("Detailed job requirements")
   await search.fill("")
   await expect(page.locator(".board .lead-card")).toHaveCount(55)
 })

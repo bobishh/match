@@ -66,7 +66,7 @@ async function fixture(corruption?: "missing" | "forged") {
   const validate = vi.fn(async (id: string, bytes: Uint8Array, proof: unknown) => {
     const result = computeWorkspaceAdmission({ workspaceId: id, remote: bytes,
       authorization: proof as IncomingAuthorizationBundle, knownAuthority: null, now: Date.now() }, meshRustRuntime().state)
-    if (result.unsignedHashes.length) throw new Error(result.unsignedError)
+    if (result.quarantinedHashes.length || result.pendingHashes.length) throw new Error("Owner offer contains changes outside authorized projection")
     expect(result.admittedHashes).toHaveLength(100)
   })
   const target = workspaceSet({ read: async () => { throw new Error("Not enrolled") }, merge, validate, activate: vi.fn() }, [doc.id])

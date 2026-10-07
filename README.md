@@ -17,6 +17,11 @@ second device and keep working across both.
 - Work locally, then synchronize with another online device.
 - Share selected boards with an editor or a read-only visitor.
 - Inspect item history and restore an earlier version without erasing history.
+- Discuss a card from its chat icon on hover/focus, select text for a quoted
+  discussion, or right-click a card/field for the app's context menu. References
+  return to their source. Reply opens a thread; workspace chat shows reply counts
+  and collapsed read-only previews with Open controls. Item, discussion, and chat
+  windows can move and resize together.
 - Export a `.tincanban` workspace bundle. Identity secrets are not included.
 
 tincanban is an experimental application. Keep an independent backup of important

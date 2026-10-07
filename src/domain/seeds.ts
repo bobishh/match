@@ -3,7 +3,7 @@ import type { BoardSchemaDraft } from "./schema"
 
 type Preset = "job-search" | "blank"
 type SeedContext = { boardId: string; nowIso: string; entities: Record<string, WorkspaceEntity>; bindings: Record<string, string> }
-type ColumnSeed = { key: string; title: string; archive?: true }
+type ColumnSeed = { key: string; title: string; archive?: true; collapsible?: boolean }
 type FieldSeed = { key: string; title: string; valueType: FieldDefinition["valueType"]; required?: boolean; min?: number; max?: number; options?: Array<[string, string]> }
 
 export type WorkspaceCreationDraft = BoardSchemaDraft & { presetBindings: Record<string, string> }
@@ -29,7 +29,8 @@ export function seedBoard(entities: Record<string, WorkspaceEntity>, title: stri
 
 function createBoard(id: string, title: string, preset: Preset, nowIso: string, bindings: Record<string, string>): Board {
   const columns = preset === "job-search" ? jobColumns : blankColumns
-  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings }, cardStageButtons: columns.map(column => ({ columnId: bindings[column.key] })) }
+  const archiveColumnId = bindings["status.archived"]
+  return { id, kind: "board", title, entityName: preset === "job-search" ? "lead" : "item", placement: { parentId: null, rank: "0/1" }, archivedAt: null, createdAt: nowIso, updatedAt: nowIso, preset: { key: preset, version: 1, bindings }, cardStageButtons: columns.map(column => ({ columnId: bindings[column.key] })), archiveColumnId: archiveColumnId ?? null }
 }
 
 function seedColumns(context: SeedContext, columns: ColumnSeed[]): void {
@@ -37,7 +38,7 @@ function seedColumns(context: SeedContext, columns: ColumnSeed[]): void {
     const id = crypto.randomUUID()
     context.bindings[seed.key] = id
     const column: Column = { id, kind: "column", title: seed.title, placement: { parentId: context.boardId, rank: `${index}/1` }, archivedAt: null, createdAt: context.nowIso, updatedAt: context.nowIso }
-    if (seed.archive) column.archive = true
+    if (seed.collapsible !== undefined) column.collapsible = seed.collapsible
     context.entities[id] = column
   })
 }
@@ -63,7 +64,7 @@ function seedOptions(context: SeedContext, options: Array<[string, string]>): Re
 }
 
 const blankColumns: ColumnSeed[] = [["column.todo", "To do"], ["column.doing", "Doing"], ["column.done", "Done"]].map(([key, title]) => ({ key, title }))
-const jobColumns: ColumnSeed[] = [["status.lead", "Lead"], ["status.applied", "Applied"], ["status.interview", "Interview"], ["status.rejected", "Rejected"], ["status.offer", "Offer"], ["status.archived", "Archive"]].map(([key, title], index) => ({ key, title, ...(index === 5 ? { archive: true as const } : {}) }))
+const jobColumns: ColumnSeed[] = [["status.lead", "Lead"], ["status.applied", "Applied"], ["status.interview", "Interview"], ["status.rejected", "Rejected"], ["status.offer", "Offer"], ["status.archived", "Archive"]].map(([key, title], index) => ({ key, title, ...(index === 3 ? { collapsible: true } : {}), ...(index === 5 ? { archive: true as const, collapsible: true } : {}) }))
 const jobFields: FieldSeed[] = [
   { key: "field.company", title: "Company", valueType: "text", required: true }, { key: "field.role", title: "Role", valueType: "text", required: true }, { key: "field.url", title: "URL", valueType: "url" }, { key: "field.location", title: "Location", valueType: "text" },
   { key: "field.workMode", title: "Work mode", valueType: "select", options: [["option.workMode.remote", "Remote"], ["option.workMode.hybrid", "Hybrid"], ["option.workMode.onsite", "Onsite"], ["option.workMode.unknown", "Unknown"]] },

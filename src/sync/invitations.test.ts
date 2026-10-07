@@ -90,7 +90,7 @@ describe("InvitationService (Requirements 3.2 - 3.4)", () => {
     const editor = await bootstrapIdentity("Editor Bob")
     const service = new InvitationService()
 
-    const invite = createWorkspaceJoinInvite("ep1", "sec1", editor, "ws_1", "Secret Board")
+    const invite = createWorkspaceJoinInvite("ep1", "sec1", editor, [{ id: "ws_1", title: "Secret Board" }])
     await service.saveIssuedInvitation(invite)
     await service.claimInvitation(invite.invitationId, "charlie_device")
 

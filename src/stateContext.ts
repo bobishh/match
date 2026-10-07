@@ -18,6 +18,9 @@ export type StateRuntime = {
   docVersion: Ref<number>;
   availableWorkspaces: Ref<WorkspaceSummary[]>;
   archivedWorkspaces: Ref<WorkspaceSummary[]>;
+  causalReview: Ref<Array<{ hash: string; status: { type: "quarantined" | "pending"; reason: string };
+    actor: string; time: number; action: string; preview: string[]; personId?: string; deviceId?: string }>>;
+  causalReviewError: Ref<string>;
   activeWorkspaceMeta: ActiveWorkspaceMeta;
   activeDoc: Automerge.Doc<WorkspaceDocumentV2> | null;
   currentProfile: LocalProfile | null;
@@ -44,6 +47,8 @@ export const stateRuntime: StateRuntime = {
   docVersion: ref(0),
   availableWorkspaces: ref([]),
   archivedWorkspaces: ref([]),
+  causalReview: ref([]),
+  causalReviewError: ref(""),
   activeWorkspaceMeta: reactive({
     id: "",
     title: "Untitled",

@@ -1,12 +1,13 @@
 import type { Board, CardAgingPolicy, Column, FieldDefinition, PriorityPolicy, WorkspaceDocumentV2 } from "./model"
-import { getChildren, compareRanks } from "./ancestry"
+import { getAncestryPath, getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
+import { isItemArchived } from "./archive"
 import { cardAgingPolicySchema, priorityPolicySchema } from "./entitySchemas"
 import { validatePriorityPolicy } from "./priority"
-import { entityKind, isItem } from "./model"
+import { entityKind, hasEntityKind, isItem } from "./model"
 import { cardStageButtons, type CardStageButton } from "./cardStageButtons"
 
-type BoardSchemaColumn = { id?: string; title: string; archive?: true }
+type BoardSchemaColumn = { id?: string; title: string; archive?: true; collapsible?: boolean }
 type BoardSchemaSelectOption = { id?: string; title: string }
 type BoardSchemaField = { id?: string; title: string; valueType: "text" | "number" | "boolean" | "select" | "url" | "date" | "datetime"; required: boolean; min?: number | null; max?: number | null; options?: BoardSchemaSelectOption[] }
 export type BoardSchemaDraft = { boardId: string; boardTitle: string; entityName: string; columns: BoardSchemaColumn[]; fields: BoardSchemaField[]; cardStageButtons?: CardStageButton[]; priorityPolicy?: PriorityPolicy | null; cardAgingPolicy?: CardAgingPolicy }
@@ -21,7 +22,7 @@ export type SchemaDiff = {
 
 export function projectBoardSchema(doc: WorkspaceDocumentV2, boardId: string): BoardSchemaDraft {
   const board = doc.entities[boardId] as Board | undefined
-  const columns = childEntities<Column>(doc, boardId, "column").map(column => ({ id: column.id, title: column.title, ...(isArchiveColumn(column) ? { archive: true as const } : {}) }))
+  const columns = childEntities<Column>(doc, boardId, "column").map(column => ({ id: column.id, title: column.title, ...(isArchiveColumn(column, board) ? { archive: true as const } : {}), ...(column.collapsible !== undefined ? { collapsible: column.collapsible } : {}) }))
   const fields = childEntities<FieldDefinition>(doc, boardId, "field").map(projectField)
   return {
     boardId,
@@ -53,8 +54,34 @@ export function validateBoardSchemaDraft(draft: unknown, doc?: WorkspaceDocument
   const errors: SchemaValidationError[] = []
   requiredText(draft.boardTitle, "/boardTitle", "Board title is required", errors)
   requiredText(draft.entityName, "/entityName", "Entity name is required", errors)
-  validateColumns(draft.columns, errors); validateCardStageButtons(draft.cardStageButtons, draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
+  validateColumns(draft.columns, errors)
+  validateArchiveRoleRemoval(draft, doc, errors)
+  validateArchiveColumnContents(draft.columns, doc, errors)
+  validateCardStageButtons(draft.cardStageButtons, draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
   return { valid: errors.length === 0, errors }
+}
+
+function validateArchiveRoleRemoval(draft: Record<string, unknown>, doc: WorkspaceDocumentV2 | undefined, errors: SchemaValidationError[]): void {
+  if (!doc || !Array.isArray(draft.columns) || draft.columns.some(entry => record(entry) && entry.archive === true)) return
+  const boardId = draft.boardId
+  if (typeof boardId !== "string") return
+  const hasArchivedItems = Object.values(doc.entities).some(entity => isItem(entity) && isItemArchived(entity) && getAncestryPath(doc.entities, entity.id).path.includes(boardId))
+  if (hasArchivedItems) errors.push({ path: "/columns", message: "Archive role cannot be removed while archived items exist" })
+}
+
+function validateArchiveColumnContents(columns: unknown, doc: WorkspaceDocumentV2 | undefined, errors: SchemaValidationError[]): void {
+  if (!doc || !Array.isArray(columns)) return
+  const index = columns.findIndex(entry => record(entry) && entry.archive === true)
+  const entry: unknown = columns[index]
+  if (index < 0 || !record(entry) || typeof entry.id !== "string") return
+  const column = doc.entities[entry.id]
+  if (!hasEntityKind(column, "column")) return
+  const boardId = column.placement.parentId
+  if (!boardId) return
+  const board = doc.entities[boardId]
+  if (hasEntityKind(board, "board") && isArchiveColumn(column, board)) return
+  const hasActiveItems = Object.values(doc.entities).some(entity => isItem(entity) && !isItemArchived(entity) && getAncestryPath(doc.entities, entity.id).path.includes(column.id))
+  if (hasActiveItems) errors.push({ path: `/columns/${index}/archive`, message: "Archive role cannot hide active items" })
 }
 function validateAgingPolicy(draft: Record<string, unknown>, errors: SchemaValidationError[]): void {
   if (draft.cardAgingPolicy === undefined) return
@@ -75,9 +102,10 @@ function validateColumns(value: unknown, errors: SchemaValidationError[]): void 
 function validateColumn(value: unknown, index: number, archive: boolean, errors: SchemaValidationError[]): boolean {
   const path = `/columns/${index}`
   if (!record(value)) { errors.push({ path, message: "Column definition must be an object" }); return archive }
-  Object.keys(value).filter(key => !["id", "title", "archive"].includes(key)).forEach(key => errors.push({ path: `${path}/${key}`, message: "Unknown column setting" }))
+  Object.keys(value).filter(key => !["id", "title", "archive", "collapsible"].includes(key)).forEach(key => errors.push({ path: `${path}/${key}`, message: "Unknown column setting" }))
   requiredText(value.title, `${path}/title`, "Column title is required", errors)
   if (value.archive !== undefined && value.archive !== true) errors.push({ path: `${path}/archive`, message: "archive must be true when present" })
+  if (value.collapsible !== undefined && typeof value.collapsible !== "boolean") errors.push({ path: `${path}/collapsible`, message: "collapsible must be boolean" })
   if (archive && value.archive === true) errors.push({ path: `${path}/archive`, message: "Only one archive column is allowed" })
   return archive || value.archive === true
 }
@@ -157,7 +185,7 @@ function diffColumns(current: BoardSchemaColumn[], draft: BoardSchemaColumn[], d
   const columnsArchived = current.flatMap(column => {
     if (!column.id || incoming.has(column.id)) return []
     const retainedItemCount = getChildren(doc.entities, column.id)
-      .filter(entity => isItem(entity) && !entity.archivedAt).length
+      .filter(entity => isItem(entity) && isItemArchived(entity)).length
     return [{ id: column.id, title: column.title, retainedItemCount }]
   })
   return { columnsRenamed, columnsAdded, columnsArchived, columnsReordered: JSON.stringify(current.map(column => column.id).filter(Boolean)) !== JSON.stringify(draft.map(column => column.id).filter(Boolean)) }

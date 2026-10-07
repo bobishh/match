@@ -15,7 +15,9 @@ Chat already attributes signed messages to stable person IDs and resolves worksp
 
 ## Deferred
 
-Custom pictures need their own bounded image ingestion, metadata/profile signing, blob replication, offline fallback, and replacement/removal contract. Card avatar strips need a defined relationship such as assignee or discussion participant; displaying arbitrary known participants would mislead. Neither is part of this slice.
+Custom photos use a bounded cropper that emits a metadata-free 128 × 128 WebP or JPEG no larger than 16 KiB. The workspace Automerge document stores one JSON-string scalar per deterministic `member-profile:<personId>` entity, coupling avatar bytes and change timestamp in one register. Independent per-person entities let concurrent first writes from a legacy document merge without replacing a shared profile map. Verified change authorization binds every profile mutation or removal to the signing person's stable ID; visitors may change only their own profile. Default vector avatars remain the fallback when no custom photo is present. The browser File/Blob exists only during crop; there is no separate blob store or remote image fetch.
+
+Card avatar strips need a defined relationship such as assignee or discussion participant; displaying arbitrary known participants would mislead. This remains deferred.
 
 ## Validation
 

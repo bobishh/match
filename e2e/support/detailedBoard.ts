@@ -14,6 +14,14 @@ export async function populatedBoard(page: Page, jobSearch = false) {
     const A = await import("/@id/@automerge/automerge/slim")
     const tincanban = useTincanban()
     await tincanban.whenReady()
+    const waitForPendingWorkspaceWrite = async () => {
+      const deadline = performance.now() + 15_000
+      while (tincanban.saveState.value === "saving" && performance.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+      if (tincanban.saveState.value === "saving") throw new Error("Workspace fixture setup waited 15 seconds for pending save")
+    }
+    await waitForPendingWorkspaceWrite()
     const base = tincanban.getActiveDoc()!
     const board = Object.values(base.entities).find(entity => entity.kind === "board")!
     const parent = Object.values(base.entities).find(entity => entity.kind === "column" && entity.title === (jobSearch ? "Lead" : "To do"))!
@@ -23,6 +31,8 @@ export async function populatedBoard(page: Page, jobSearch = false) {
         const id = `performance-card-${index}`
         draft.entities[id] = { id, title: `Performance card ${index}`, body: "Detailed job requirements. ".repeat(320),
           placement: { parentId: parent.id, rank: `${index}/1` }, archivedAt: null,
+          lifecycle: JSON.stringify({ state: "active", changedAt: now }),
+          workflow: JSON.stringify({ columnId: parent.id, changedAt: now }),
           createdAt: now, updatedAt: now, lastActivityAt: now, values: jobSearch ? {
             [board.preset!.bindings["field.company"]!]: `Performance card ${index}`,
             [board.preset!.bindings["field.role"]!]: "Senior Software Engineer",
@@ -32,15 +42,20 @@ export async function populatedBoard(page: Page, jobSearch = false) {
     const proofs = await prepareLocalChangeAuthorizations(doc, tincanban.getCurrentProfile()!, [A.getHeads(doc)[0]!])
     await defaultStorage.commitWorkspace(doc.id, doc, A.save(doc), proofs)
     updateReactiveState(doc)
+    await waitForPendingWorkspaceWrite()
   }, jobSearch)
   await expect(page.getByRole("button", { name: "Open Performance card 0", exact: true })).toBeVisible()
 }
 
 export async function moveFirst(page: Page) {
-  const source = (await page.getByRole("button", { name: "Open Performance card 0", exact: true }).boundingBox())!
-  const target = (await page.getByRole("region", { name: "Doing", exact: true }).locator(".card-stack").boundingBox())!
-  await page.mouse.move(source.x + source.width / 2, source.y + Math.min(30, source.height / 2))
+  const source = (await page.locator('[data-item-id="performance-card-0"]').boundingBox())!
+  const destination = page.getByRole("region", { name: "Doing", exact: true })
+  const target = (await destination.locator(".card-stack").boundingBox())!
+  const sourceX = source.x + 4
+  const sourceY = source.y + 4
+  await page.mouse.move(sourceX, sourceY)
   await page.mouse.down()
   await page.mouse.move(target.x + target.width / 2, target.y + 28, { steps: 15 })
+  await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await destination.getAttribute("data-column-id"))
   await page.mouse.up()
 }

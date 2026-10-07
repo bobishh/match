@@ -4,14 +4,20 @@ test("Given a local journal created before the catalog index, when tincanban ope
   await page.route("**/old-journal.html", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Old journal</title>" }))
   await page.goto((baseURL ?? "http://127.0.0.1:4244") + "/old-journal.html")
   const workspaceId = await page.evaluate(async () => {
+    const { initializePolicyBrowserRuntime } = await import("/src/iroh.ts")
     const { initializeAutomerge } = await import("/src/crdt.ts")
     const { createWorkspaceDoc } = await import("/src/domain/seeds.ts")
+    const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+    const { recordGenesisAuthority } = await import("/src/sync/changeAuthorization.ts")
     const Automerge = await import("/@id/@automerge/automerge/slim")
+    await initializePolicyBrowserRuntime()
     await initializeAutomerge()
     const { default: wasmUrl } = await import("/@id/@automerge/automerge/automerge.wasm?url")
     await Automerge.initializeWasm(wasmUrl)
+    const profile = await bootstrapIdentity("Upgrade owner")
     const id = crypto.randomUUID()
-    const doc = Automerge.from(createWorkspaceDoc(id, "Older local board", "owner", "blank"))
+    const doc = Automerge.from(createWorkspaceDoc(id, "Older local board", profile.identity.personId, "blank"))
+    await recordGenesisAuthority(doc as never, profile)
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open("tincanban-workspace-state", 1)
       request.onupgradeneeded = () => {

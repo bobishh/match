@@ -114,3 +114,25 @@ Authorization export still returns the complete history and retains the existing
 record/byte limits. Paging, restart-safe transfer cursors, and any authenticated
 history checkpoint remain separate protocol work. This commit boundary does not
 fix transport timeout causes or establish replication coverage on Lighthouse.
+
+## Causal write admission
+
+The journal retains raw signed history separately from the authorized document.
+New authority evidence reclassifies already-known hashes as well as incoming
+changes. A valid old-grant write outside the signed revocation frontier becomes
+quarantined; descendants with missing or unadmitted dependencies remain pending.
+Invalid signatures and unauthorized visitor writes still reject admission.
+Raw history, verified proofs, decisions, and the authorized snapshot commit
+atomically before the UI or replication announces success.
+
+The board shows quarantined changes for explicit review. Applying a reviewed edit
+creates a new signed command against the current authorized document; it does not
+rewrite the original or attach a renewed grant to its old hash. Receiver clocks
+and transaction timestamps do not decide write authority.
+
+Match negotiates `causal-write-admission-v1` in both handshake directions. Older
+clients must upgrade. Other MetaMesh consumers require their own integration.
+The core accepts detached pending change bytes, but Match currently transports
+serialized Automerge documents. Its review UI covers pending descendants already
+in retained history, without an orphan-byte transport or persistence path.
+See [admission policy and limits](../vendor/meta-mesh/docs/causal-admission.md).

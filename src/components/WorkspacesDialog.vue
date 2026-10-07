@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import ModalLayer from "./ModalLayer.vue"
-import { defineAsyncComponent, ref } from "vue"
+import { computed, defineAsyncComponent, ref, watch } from "vue"
 import type { WorkspaceCreationDraft } from "../domain/seeds"
 
 const CreateWorkspaceDialog = defineAsyncComponent(() => import("./CreateWorkspaceDialog.vue"))
@@ -14,6 +14,10 @@ const props = defineProps<{
   restoreWorkspace: (id: string) => Promise<void>
   canRenameWorkspace: (id: string) => boolean
   createWorkspace: (payload: { title: string; preset: "blank" | "job-search"; config?: WorkspaceCreationDraft }) => Promise<void>
+  readOwner: (id: string) => Promise<string>
+  currentPersonId: string
+  currentIdentityName: string
+  knownPeople: { personId: string; name: string }[]
 }>()
 
 const emit = defineEmits<{
@@ -31,8 +35,67 @@ const archivingId = ref("")
 const archiveError = ref("")
 const archiveBusy = ref(false)
 const showArchived = ref(false)
+const query = ref("")
+const scope = ref<"all" | "mine" | "shared">("all")
+const ownerIds = ref<Record<string, string>>({})
+const pinnedIds = ref<string[]>([])
+const recentIds = ref<string[]>([])
+const preferenceKey = computed(() => `tincanban:board-directory:${props.currentPersonId || "local"}`)
+function ownerLabel(id: string) {
+  const ownerId = ownerIds.value[id]
+  if (!ownerId) return "Owner unavailable"
+  if (ownerId === props.currentPersonId) return props.currentIdentityName || "You"
+  const knownName = props.knownPeople.find(person => person.personId === ownerId)?.name
+  if (knownName) return knownName
+  const ids = [...new Set(Object.values(ownerIds.value).filter(Boolean))]
+  let length = Math.min(6, ownerId.length)
+  while (length < ownerId.length && ids.filter(candidate => candidate.slice(0, length) === ownerId.slice(0, length)).length > 1) length++
+  return `Participant · ${ownerId.slice(0, length)}`
+}
+const filteredWorkspaces = computed(() => props.workspaces.filter(ws => {
+  const ownerId = ownerIds.value[ws.id]
+  if (scope.value !== "all" && !ownerId) return false
+  const mine = ownerId === props.currentPersonId
+  const owner = ownerLabel(ws.id)
+  return (scope.value === "all" || (scope.value === "mine" ? mine : !mine)) &&
+    `${ws.title} ${owner} ${ownerIds.value[ws.id] ?? ""}`.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase())
+}))
+const pinnedWorkspaces = computed(() => pinnedIds.value.map(id => props.workspaces.find(ws => ws.id === id)).filter((ws): ws is typeof props.workspaces[number] => Boolean(ws)))
+const recentWorkspaces = computed(() => recentIds.value.map(id => props.workspaces.find(ws => ws.id === id)).filter((ws): ws is typeof props.workspaces[number] => Boolean(ws)).slice(0, 5))
+
+let ownerLoad = 0
+watch(() => props.workspaces.map(ws => ws.id).join("|"), async () => {
+  const load = ++ownerLoad
+  try {
+    const saved = JSON.parse(localStorage.getItem(preferenceKey.value) || "{}") as { pinned?: string[]; recent?: string[] }
+    pinnedIds.value = Array.isArray(saved.pinned) ? saved.pinned.filter(id => typeof id === "string") : []
+    recentIds.value = Array.isArray(saved.recent) ? saved.recent.filter(id => typeof id === "string").slice(0, 5) : []
+  } catch { pinnedIds.value = []; recentIds.value = [] }
+  const owners = await Promise.all(props.workspaces.map(async ws => [ws.id, await props.readOwner(ws.id).catch(() => "")] as const))
+  if (load === ownerLoad) ownerIds.value = { ...ownerIds.value, ...Object.fromEntries(owners) }
+}, { immediate: true })
+
+function persistDirectory() {
+  try { localStorage.setItem(preferenceKey.value, JSON.stringify({ pinned: pinnedIds.value, recent: recentIds.value.slice(0, 5) })) }
+  catch { /* directory preferences are local convenience */ }
+}
+function togglePin(id: string) {
+  pinnedIds.value = pinnedIds.value.includes(id) ? pinnedIds.value.filter(item => item !== id) : [...pinnedIds.value, id]
+  persistDirectory()
+}
+function movePin(id: string, delta: number) {
+  const index = pinnedIds.value.indexOf(id)
+  const target = index + delta
+  if (index < 0 || target < 0 || target >= pinnedIds.value.length) return
+  const next = [...pinnedIds.value]
+  ;[next[index], next[target]] = [next[target]!, next[index]!]
+  pinnedIds.value = next
+  persistDirectory()
+}
 
 function handleSwitch(id: string) {
+  recentIds.value = [id, ...recentIds.value.filter(item => item !== id)].slice(0, 5)
+  persistDirectory()
   emit("switch", id)
   emit("close")
 }
@@ -108,9 +171,18 @@ function displayTitle(title: string) {
         <button class="icon-button" type="button" aria-label="Close" @click="emit('close')">×</button>
       </div>
 
+      <section class="board-directory" aria-label="Board discovery">
+        <label class="board-directory-search">Search boards<input v-model="query" type="search" aria-label="Search boards" placeholder="Title or owner" /></label>
+        <div class="board-directory-filters" role="group" aria-label="Board filters">
+          <button v-for="filter in ['all', 'mine', 'shared'] as const" :key="filter" type="button" :aria-pressed="scope === filter" @click="scope = filter">{{ filter === 'all' ? 'All boards' : filter === 'mine' ? 'Mine' : 'Shared' }}</button>
+        </div>
+        <section v-if="pinnedWorkspaces.length && !query && scope === 'all'" aria-label="Pinned boards"><h3>Pinned</h3><div v-for="(ws, index) in pinnedWorkspaces" :key="ws.id" class="directory-row"><button type="button" class="directory-link" @click="handleSwitch(ws.id)">{{ displayTitle(ws.title) }} <small>Owner: {{ ownerLabel(ws.id) }}</small></button><button type="button" :aria-label="`Move ${ws.title} up`" :disabled="index === 0" @click="movePin(ws.id, -1)">↑</button><button type="button" :aria-label="`Move ${ws.title} down`" :disabled="index === pinnedWorkspaces.length - 1" @click="movePin(ws.id, 1)">↓</button><button type="button" :aria-label="`Unpin ${ws.title}`" @click="togglePin(ws.id)">★</button></div></section>
+        <section v-if="recentWorkspaces.length && !query && scope === 'all'" aria-label="Recent boards"><h3>Recent</h3><button v-for="ws in recentWorkspaces" :key="ws.id" type="button" class="directory-link" @click="handleSwitch(ws.id)">{{ displayTitle(ws.title) }} <small>Owner: {{ ownerLabel(ws.id) }}</small></button></section>
+      </section>
+
       <div class="workspace-list">
         <div
-          v-for="ws in workspaces"
+          v-for="ws in filteredWorkspaces"
           :key="ws.id"
           :data-workspace-id="ws.id"
           class="workspace-item"
@@ -118,9 +190,11 @@ function displayTitle(title: string) {
         >
           <button class="workspace-switch" type="button" @click="handleSwitch(ws.id)">
             <strong>{{ displayTitle(ws.title) }}</strong>
+            <small>Owner: {{ ownerLabel(ws.id) }}</small>
             <span v-if="ws.id === activeWorkspaceId" class="workspace-active-badge">Active</span>
           </button>
           <div class="workspace-item-actions">
+            <button type="button" :aria-label="pinnedIds.includes(ws.id) ? `Unpin ${ws.title}` : `Pin ${ws.title}`" @click="togglePin(ws.id)">{{ pinnedIds.includes(ws.id) ? '★' : '☆' }}</button>
             <button v-if="canRenameWorkspace(ws.id)" type="button" aria-label="Rename" @click="startRename(ws)">Rename</button>
             <button type="button" aria-label="Archive" :disabled="archiveBusy" @click="startArchive(ws.id)">Archive</button>
           </div>
@@ -140,6 +214,7 @@ function displayTitle(title: string) {
             <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
           </div>
         </div>
+        <p v-if="!filteredWorkspaces.length" class="dialog-copy" role="status">No boards match this search.</p>
       </div>
 
       <button v-if="archivedWorkspaces.length" class="button button-quiet" type="button" @click="showArchived = !showArchived">{{ showArchived ? 'Hide archived' : 'Show archived' }}</button>
@@ -161,3 +236,18 @@ function displayTitle(title: string) {
     <CreateWorkspaceDialog v-else :create-workspace="createWorkspace" @close="isCreating = false" />
   </ModalLayer>
 </template>
+
+<style scoped>
+.board-directory { display: grid; gap: 12px; margin: 0 0 16px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.board-directory-search { display: grid; gap: 5px; font-weight: 650; }
+.board-directory-search input { min-height: 40px; padding: 8px 10px; }
+.board-directory-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.board-directory-filters button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.board-directory section { display: grid; gap: 5px; }
+.board-directory h3 { margin: 2px 0; font-size: .84rem; }
+.directory-row { display: flex; align-items: center; gap: 4px; }
+.directory-row .directory-link { flex: 1; }
+.directory-link { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; width: 100%; padding: 7px 8px; text-align: left; }
+.directory-link small, .workspace-switch small { color: var(--muted); font-size: .76rem; font-weight: 500; }
+.workspace-switch { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+</style>

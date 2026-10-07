@@ -61,13 +61,19 @@ function mergeAuthorization(current: WorkspaceChangeAuthorization, incoming: Wor
     ownerCertificates: mergeCertificates(current.ownerCertificates, incoming.ownerCertificates) }
 }
 
+function authorizationVariantKey(record: WorkspaceChangeAuthorization): string {
+  return `${record.signed.signature}:${canonicalizeJson(record.grant ?? null)}`
+}
+
 export function mergeAuthorizationRecords(existing: WorkspaceChangeAuthorization[], incoming: WorkspaceChangeAuthorization[]) {
   const result = new Map<string, WorkspaceChangeAuthorization>()
   for (const record of [...existing, ...incoming]) {
-    const current = result.get(record.signed.signature)
-    result.set(record.signed.signature, current ? mergeAuthorization(current, record) : record)
+    const key = authorizationVariantKey(record)
+    const current = result.get(key)
+    result.set(key, current ? mergeAuthorization(current, record) : record)
   }
-  return [...result.values()].sort((left, right) => left.signed.signature.localeCompare(right.signed.signature))
+  return [...result.values()].sort((left, right) => left.signed.signature.localeCompare(right.signed.signature) ||
+    canonicalizeJson(left.grant ?? null).localeCompare(canonicalizeJson(right.grant ?? null)))
 }
 
 export async function records(workspaceId: string): Promise<WorkspaceChangeAuthorization[]> {

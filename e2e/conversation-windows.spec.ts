@@ -1,6 +1,7 @@
+import { discussObject } from "./support/discussions"
 import { expect, test, type Page } from "./support/coverage"
 
-async function openGenericItem(page: Page) {
+async function createGenericItem(page: Page) {
   await page.goto("/")
   await page.getByRole("button", { name: "Open workspaces" }).click()
   await page.getByRole("button", { name: "New workspace" }).click()
@@ -15,7 +16,12 @@ async function openGenericItem(page: Page) {
   await form.getByLabel("Body", { exact: true }).fill("Inspect this description")
   await form.getByRole("button", { name: "Save item", exact: true }).click()
   await expect(form).toBeHidden()
-  await page.getByRole("button", { name: "Open Window source", exact: true }).click()
+  return page.getByRole("button", { name: "Open Window source", exact: true })
+}
+
+async function openGenericItem(page: Page) {
+  await (await createGenericItem(page)).focus()
+  await page.keyboard.press("Enter")
   return page.getByRole("dialog", { name: "Item overview", exact: true })
 }
 
@@ -23,8 +29,16 @@ test("Given generic item and discussion, when pointer drag and resize then both 
   await page.setViewportSize({ width: 1280, height: 900 })
   const item = await openGenericItem(page)
   await expect(item).not.toHaveAttribute("aria-modal", "true")
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
+  await expect(discussion).toBeVisible()
+  await expect(discussion.getByRole("button", { name: "Next window", exact: true })).toHaveCount(0)
+  await expect(discussion.getByRole("button", { name: /Minimize/i })).toHaveCount(0)
+  await expect(discussion.getByRole("button", { name: "Send message", exact: true })).toBeDisabled()
+  await discussion.getByRole("button", { name: "Maximize window", exact: true }).click()
+  await expect(discussion.locator(".spatial-resize")).toBeDisabled()
+  await discussion.getByRole("button", { name: "Restore window size", exact: true }).click()
+  await expect(discussion.getByRole("button", { name: /^Resize/ })).toBeEnabled()
   const before = (await discussion.boundingBox())!
   const titlebar = (await discussion.locator(".spatial-titlebar").boundingBox())!
   await page.mouse.move(titlebar.x + 10, titlebar.y + 18)
@@ -43,26 +57,27 @@ test("Given generic item and discussion, when pointer drag and resize then both 
   expect(resized.width).toBeCloseTo(moved.width + 50, 0)
   expect(resized.height).toBeCloseTo(moved.height + 30, 0)
   await discussion.getByRole("button", { name: "Close", exact: true }).click()
-  await expect(item.getByRole("button", { name: "Discuss", exact: true })).toBeFocused()
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await expect(item).toBeFocused()
+  await discussObject(page, item)
   expect((await discussion.boundingBox())!.width).toBeCloseTo(resized.width, 0)
 })
 
 test("Given overlapping windows, when cycling focus and opening Settings then bounded ring yields to modal", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   const item = await openGenericItem(page)
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await discussion.locator(".spatial-titlebar").focus()
   await page.keyboard.press("Alt+Backquote")
-  await expect(item).toBeFocused()
+  await expect.poll(() => item.evaluate(element => element.contains(document.activeElement))).toBe(true)
   const itemZ = await item.evaluate(el => Number(getComputedStyle(el).zIndex))
   const discussionZ = await discussion.evaluate(el => Number(getComputedStyle(el).zIndex))
   expect(itemZ).toBeGreaterThan(discussionZ)
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   await expect(page.getByRole("dialog", { name: /^Discussion/ })).toHaveCount(1)
   const settingsButton = page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true })
-  await settingsButton.click()
+  await settingsButton.focus()
+  await page.keyboard.press("Enter")
   const settings = page.getByRole("dialog", { name: "Settings", exact: true })
   await expect(settings).toBeVisible()
   expect(await settings.evaluate(el => el.contains(document.activeElement))).toBe(true)
@@ -75,18 +90,22 @@ test("Given overlapping windows, when cycling focus and opening Settings then bo
   await expect(settingsButton).toBeFocused()
 })
 
-test("Given narrow touch screen, when switching window views then source and composer stay reachable", async ({ browser, baseURL }) => {
+test("Given narrow touch screen and unsent draft, when closing and reopening discussion then source and draft stay reachable", async ({ browser, baseURL }) => {
   const context = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
   try {
     const page = await context.newPage()
     const item = await openGenericItem(page)
-    await item.getByRole("button", { name: "Discuss", exact: true }).tap()
+    await discussObject(page, item)
     const discussion = page.getByRole("dialog", { name: /^Discussion/ })
     await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toBeVisible()
     expect(await discussion.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-    await discussion.getByRole("button", { name: "Next window", exact: true }).tap()
-    await expect(item.getByRole("button", { name: "Discuss", exact: true })).toBeVisible()
-    await item.getByRole("button", { name: "Discuss", exact: true }).tap()
+    await expect(discussion.getByRole("button", { name: "Next window", exact: true })).toHaveCount(0)
+    await discussion.getByRole("textbox", { name: "Message", exact: true }).fill("Unsent mobile draft")
+    await discussion.getByRole("button", { name: "Close", exact: true }).tap()
+    await expect(discussion).toBeHidden()
+    await expect(item).toBeVisible()
+    await discussObject(page, item)
+    await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Unsent mobile draft")
     await discussion.getByRole("button", { name: "Close", exact: true }).tap()
     await expect(item).toBeVisible()
     await item.getByRole("button", { name: "Dismiss", exact: true }).tap()
@@ -96,22 +115,23 @@ test("Given narrow touch screen, when switching window views then source and com
 
 test("Given generic description, when keyboard Discuss targets its field then message retains field anchor", async ({ page }) => {
   const item = await openGenericItem(page)
-  const discuss = item.getByRole("button", { name: "Discuss description", exact: true })
-  await discuss.focus()
+  await item.locator(".detail-copy").click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Discuss", exact: true }).focus()
   await page.keyboard.press("Enter")
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await discussion.getByRole("textbox", { name: "Message", exact: true }).fill("Field-level question")
   await discussion.getByRole("button", { name: "Send message", exact: true }).click()
   await expect(discussion.getByText("Field-level question", { exact: true })).toBeVisible()
-  await expect(discussion.locator(".chat-message-item").getByRole("button", { name: "Field · narrative", exact: true })).toBeVisible()
+  await expect(discussion.locator(".chat-message-item").getByRole("button", { name: "Window source · Description", exact: true })).toBeVisible()
 })
 
-test("Given tablet touch window, when titlebar and corner gestures move resize and cancel then content keeps native touch behavior", async ({ browser, baseURL }) => {
+test("Given tablet touch window, when titlebar and corner gestures move resize and cancel then content keeps native touch behavior", async ({ browser, browserName, baseURL }) => {
+  test.skip(browserName !== "chromium", "Touch gesture injection uses Chromium's CDP")
   const context = await browser.newContext({ baseURL, viewport: { width: 1024, height: 844 }, hasTouch: true, isMobile: true })
   try {
     const page = await context.newPage()
     const item = await openGenericItem(page)
-    await item.getByRole("button", { name: "Discuss", exact: true }).tap()
+    await discussObject(page, item)
     const discussion = page.getByRole("dialog", { name: /^Discussion/ })
     const session = await context.newCDPSession(page)
     async function drag(x: number, y: number, dx: number, dy: number, cancel = false) {
@@ -136,7 +156,7 @@ test("Given tablet touch window, when titlebar and corner gestures move resize a
     expect(await discussion.locator(".spatial-body").evaluate(el => getComputedStyle(el).touchAction)).toBe("auto")
     await discussion.getByRole("textbox", { name: "Message", exact: true }).fill("Touch draft survives")
     await discussion.getByRole("button", { name: "Close", exact: true }).tap()
-    await item.getByRole("button", { name: "Discuss", exact: true }).tap()
+    await discussObject(page, item)
     await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("Touch draft survives")
     expect((await discussion.boundingBox())!.width).toBeCloseTo(resized.width, 0)
     await session.detach()
@@ -148,7 +168,7 @@ test("Given workspace A windows and separate B item, when switching back then A 
   await item.locator(".spatial-titlebar").focus()
   await page.keyboard.press("ArrowRight")
   const itemGeometry = (await item.boundingBox())!
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await discussion.getByRole("textbox", { name: "Message", exact: true }).fill("Workspace A draft")
   await discussion.locator(".spatial-titlebar").focus()
@@ -169,11 +189,11 @@ test("Given workspace A windows and separate B item, when switching back then A 
   await form.getByRole("button", { name: "Save item", exact: true }).click()
   await page.getByRole("button", { name: "Open Other workspace item", exact: true }).click()
   await expect(item).toContainText("Other workspace item")
-  await item.getByRole("button", { name: "Discuss", exact: true }).click()
+  await discussObject(page, item)
   await expect(discussion.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("")
   await page.getByRole("button", { name: "Open workspaces" }).click()
   const workspaces = page.getByRole("dialog", { name: "Workspaces", exact: true })
-  await workspaces.locator(".workspace-switch").filter({ hasText: /^Window board$/ }).click()
+  await workspaces.getByRole("button", { name: /^Window board Owner:/ }).click()
   await expect(workspaces).toBeHidden()
   await expect(item).toContainText("Window source")
   await expect(item).not.toContainText("Other workspace item")
