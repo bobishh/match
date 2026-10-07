@@ -89,6 +89,7 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   let controllerApproved = false
   let provisionRequests = 0
   let approvedWorkspaceIds: string[] = []
+  let failStatusPollOnce = true
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
@@ -107,6 +108,11 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test" }) })
   })
   await page.route(`${origin}/v1/pairings/pairing-test/status`, async route => {
+    if (failStatusPollOnce) {
+      failStatusPollOnce = false
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ message: "Temporary status failure" }) })
+      return
+    }
     const status = provisionRequests > 0 ? "provisioning" : controllerApproved ? "approved" : "pending"
     const provisioning = status === "provisioning" ? { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "pending" })) } : false
     const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
@@ -154,6 +160,8 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   await expect(dialog.locator(".sync-workspace-detail")).toHaveText(["Editor access", "Editor access"])
   await dialog.getByRole("button", { name: "Request access" }).click()
   await expect(dialog.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  await expect(dialog.getByRole("alert")).toContainText("Temporary status failure")
+  await expect(dialog.getByText("Temporary status failure")).toHaveCount(0)
   await dialog.getByRole("button", { name: "Back" }).click()
   const pendingKeeper = dialog.getByRole("list", { name: "Pending keeper requests" })
   await expect(pendingKeeper).toContainText("Approval pending · no access yet")
@@ -169,4 +177,55 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   await dialog.getByRole("button", { name: "Retry board setup" }).click()
   await expect(dialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 10_000 })
   expect(provisionRequests).toBeGreaterThanOrEqual(2)
+})
+
+test("Given a failed status poll, when Rusty later reports expiry, then the stale network error clears", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let transcriptHash = ""
+  let poll = 0
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey,
+      deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse",
+      capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true },
+      publicOrigin: origin, managementPath: "/admin" }),
+  }))
+  await page.route(`${origin}/v1/pairings`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: unknown } }
+    transcriptHash = keeper.hash(request.signed.payload)
+    const now = Math.floor(Date.now() / 1000)
+    const expiresAt = now + 600
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "expiry-test", transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      nonce: randomBytes(32).toString("base64url"), integrationId: "expiry-integration", issuedAt: now, expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "expiry-test", expiresAt,
+      operatorUrl: `${origin}/admin/?pairing=expiry-test`, comparisonCode: "123456", transcriptHash, challenge }) })
+  })
+  await page.route(`${origin}/v1/pairings/expiry-test/status`, async route => {
+    poll += 1
+    if (poll === 1) {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ message: "Temporary status failure" }) })
+      return
+    }
+    const now = Math.floor(Date.now() / 1000)
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "expiry-test",
+      integrationId: "expiry-integration", transcriptHash, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: now + 600,
+      operatorApproved: false, controllerApproved: false, status: "expired", provisioning: null, issuedAt: now })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByRole("alert")).toContainText("Temporary status failure")
+  await expect(dialog.getByText("Pairing expired. No access granted.")).toBeVisible({ timeout: 5_000 })
+  await expect(dialog.getByText("Temporary status failure")).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Start new request" })).toBeVisible()
 })

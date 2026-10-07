@@ -226,6 +226,7 @@ async function checkStatus() {
   try {
     const current: KeeperPairingStatus = await keeperApi.pairingStatus(currentPairing)
     if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
+    error.value = ""
     if (current === "rejected") status.value = "rejected"
     else if (current === "expired") status.value = "expired"
     else if (current === "approved") { status.value = "approved"; await provision() }
@@ -234,7 +235,7 @@ async function checkStatus() {
     else status.value = "pairing"
   } catch (cause) {
     if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
-    if (currentPairing.expiresAt <= Math.floor(Date.now() / 1000)) status.value = "expired"
+    if (currentPairing.expiresAt <= Math.floor(Date.now() / 1000)) { error.value = ""; status.value = "expired" }
     else error.value = cause instanceof Error ? cause.message : "Could not verify keeper pairing status."
   }
   scheduleStatusCheck()
