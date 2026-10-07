@@ -163,7 +163,7 @@ jobs:
     # Run after every Iroh-backed project. Rusty and browser-network share relay
     # infrastructure, so this real-process contract test must not overlap them.
     needs: [verify, formal-models, browser-core, browser-network]
-    if: ${{ always() && needs.verify.result == 'success' && needs.formal-models.result == 'success' && (needs.browser-network.result == 'success' || needs.browser-network.result == 'failure') }}
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' && (needs.browser-network.result == 'success' || needs.browser-network.result == 'failure') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
