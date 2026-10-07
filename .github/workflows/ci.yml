@@ -168,13 +168,15 @@ jobs:
           repository: bobishh/rusty
           ref: 2777175fc9e5731faf801753b38455ede3cf7909
           path: rusty-lifecycle
+      - name: Move Rusty checkout outside Tincanban Cargo workspace
+        run: cp -a "$GITHUB_WORKSPACE/rusty-lifecycle" "$RUNNER_TEMP/rusty-lifecycle"
       - uses: dtolnay/rust-toolchain@stable
       - name: Build pinned Rusty lifecycle fixture binary
-        run: cargo build --locked --features e2e-fixture --manifest-path "$GITHUB_WORKSPACE/rusty-lifecycle/Cargo.toml" --bin mesh-lighthouse
+        run: cargo build --locked --features e2e-fixture --manifest-path "$RUNNER_TEMP/rusty-lifecycle/Cargo.toml" --bin mesh-lighthouse
       - name: Require canonical Rusty test binary
         run: |
-          echo "TINCANBAN_LIGHTHOUSE_BINARY=$GITHUB_WORKSPACE/rusty-lifecycle/target/debug/mesh-lighthouse" >> "$GITHUB_ENV"
-          echo "TINCANBAN_LIGHTHOUSE_MANIFEST=$GITHUB_WORKSPACE/rusty-lifecycle/Cargo.toml" >> "$GITHUB_ENV"
+          echo "TINCANBAN_LIGHTHOUSE_BINARY=$RUNNER_TEMP/rusty-lifecycle/target/debug/mesh-lighthouse" >> "$GITHUB_ENV"
+          echo "TINCANBAN_LIGHTHOUSE_MANIFEST=$RUNNER_TEMP/rusty-lifecycle/Cargo.toml" >> "$GITHUB_ENV"
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=lighthouse-keeper-provisioning
       - uses: actions/upload-artifact@v6
