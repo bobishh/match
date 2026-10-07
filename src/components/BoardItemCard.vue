@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { MarkdownContent } from "../ui/markdownContent"
+import { previewCardNote } from "../ui/cardNotePreview"
 import type { Item } from "../domain/model"
 import type { Lead } from "../types"
 
 type CardField = { id: string; title: string; value: string }
-const CARD_NOTE_PREVIEW_LIMIT = 320
 
 const props = defineProps<{
   item: Item
@@ -23,27 +23,6 @@ const props = defineProps<{
 }>()
 
 const notePreview = computed(() => previewCardNote(props.notes, props.searchQuery ?? "", props.searchMatchIndex ?? -1))
-
-function previewCardNote(source: string, searchQuery: string, match: number) {
-  const query = searchQuery.trim()
-  const limit = Math.min(Math.max(CARD_NOTE_PREVIEW_LIMIT, query.length + 80), 2_000)
-  if (source.length <= limit) return source
-  let start = match >= limit || match + query.length > limit ? Math.max(0, match - 120) : 0
-  if (start > 0) {
-    const wordStart = source.lastIndexOf(" ", start)
-    if (wordStart >= start - 40) start = wordStart + 1
-  }
-  const excerpt = source.slice(start, start + limit)
-  const paragraphEnd = excerpt.lastIndexOf("\n\n")
-  const wordEnd = excerpt.lastIndexOf(" ")
-  let end = paragraphEnd >= limit / 2 ? paragraphEnd : wordEnd
-  if (match >= start && match < start + limit) {
-    end = Math.max(end, Math.min(limit, match - start + query.length + 48))
-  }
-  const prefix = start > 0 ? "…\n\n" : ""
-  const suffix = start + end < source.length ? "\n\n…" : ""
-  return `${prefix}${excerpt.slice(0, end > 0 ? end : limit).trimEnd()}${suffix}`
-}
 
 const emit = defineEmits<{
   open: [item: Item, event: MouseEvent]
