@@ -1,18 +1,24 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createServer } from "node:net"
 import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 import { expect, test, type Browser, type Page } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 
 const binary = process.env.TINCANBAN_LIGHTHOUSE_BINARY
-const manifest = resolve(process.env.TINCANBAN_LIGHTHOUSE_MANIFEST ?? "../mesh-lighthouse/Cargo.toml")
-test.skip(!binary || !existsSync(binary) || !existsSync(manifest), "Built standalone Lighthouse binary and checkout are required")
+const manifest = resolve(process.env.TINCANBAN_LIGHTHOUSE_MANIFEST ?? "../mesh-lighthouse-cors-settings/Cargo.toml")
+const lifecycleBinaryReady = Boolean(binary && existsSync(binary) && existsSync(manifest))
+if (process.env.TINCANBAN_REQUIRE_LIGHTHOUSE_E2E === "1" && !lifecycleBinaryReady) {
+  throw new Error("Required Rusty lifecycle E2E needs a built binary and canonical checkout.")
+}
+test.skip(!lifecycleBinaryReady, "Built standalone Rusty binary and checkout are required")
 test.use({ trace: "off" })
 
 const processOutput = new WeakMap<ChildProcessWithoutNullStreams, string>()
+const execFileAsync = promisify(execFile)
 
 function native(args: string[], env?: NodeJS.ProcessEnv) {
   const child = spawn(binary!, args, { stdio: "pipe", env: { ...process.env, ...env } })
@@ -80,41 +86,22 @@ async function freePort() {
   return port
 }
 
-async function bootstrapKeeperIdentity(browser: Browser, directory: string, baseURL: string) {
-  const context = await browser.newContext()
-  const page = await context.newPage()
-  let joinProcess: ChildProcessWithoutNullStreams | undefined
-  try {
-    console.log("[keeper e2e] bootstrap: open owner board")
-    await page.goto(baseURL)
-    await createJobSearchWorkspace(page, "Bootstrap board")
-    console.log("[keeper e2e] bootstrap: open sync and generate invite")
-    await page.getByRole("button", { name: "Sync", exact: true }).click()
-    const dialog = page.getByRole("dialog", { name: "Device sync" })
-    await dialog.getByRole("button", { name: "Add someone" }).click()
-    await dialog.getByRole("button", { name: "Generate link" }).click()
-    const invite = await dialog.getByLabel("Pairing link").inputValue()
-    joinProcess = native(["join", invite, directory])
-    console.log("[keeper e2e] bootstrap: wait for Lighthouse join")
-    const joined = waitOutput(joinProcess, /Lighthouse joined/)
-    await page.getByLabel("Participant role").waitFor({ timeout: 90_000 })
-    await page.getByLabel("Participant role").selectOption("editor")
-    await page.getByRole("button", { name: "Approve access" }).click()
-    await joined
-    console.log("[keeper e2e] bootstrap: join approved")
-    const config = JSON.parse(await readFile(join(directory, "config.json"), "utf8")) as {
-      localHandshake: { peer: { advertisement: { payload: { personId: string } } } }
-      identitySeed: number[]
-      deviceSeed: number[]
-      irohSecret: number[]
-    }
-    await stop(joinProcess)
-    joinProcess = undefined
-    return config
-  } finally {
-    await stop(joinProcess)
-    await context.close()
+async function createEmptyServiceFixture(directory: string) {
+  if (!binary) throw new Error("Built Rusty binary is required for keeper lifecycle E2E")
+  const { stdout } = await execFileAsync(binary, ["e2e-fixture-empty", directory], { maxBuffer: 1024 * 1024 })
+  const fixture = JSON.parse(stdout) as {
+    configPath: string
+    servicePersonId: string
+    serviceDeviceId: string
+    status: string
+    fixtureWorkspaceId: string
   }
+  expect(fixture.configPath).toBe(join(directory, "config.json"))
+  expect(fixture.servicePersonId).toMatch(/^[A-Za-z0-9_-]{20,}$/)
+  expect(fixture.serviceDeviceId).toMatch(/^[A-Za-z0-9_-]{20,}$/)
+  expect(fixture.status).toBe("detached")
+  expect(fixture.fixtureWorkspaceId).toBeTruthy()
+  return fixture
 }
 
 async function startService(directory: string, origin: string, appOrigin: string, token: string) {
@@ -135,6 +122,14 @@ async function createTargetBoards(page: Page) {
 
 async function openApprovals(page: Page) {
   await page.getByRole("navigation", { name: "Keeper sections" }).getByRole("link", { name: /Approvals/ }).click()
+}
+
+async function signInOperator(page: Page, token: string) {
+  const tokenInput = page.locator("#operator-token")
+  if (!(await tokenInput.isVisible())) await page.getByText("Service administration").click()
+  await tokenInput.fill(token)
+  await page.getByRole("button", { name: "Sign in as operator" }).click()
+  await expect(page.locator(".login-card")).toBeHidden()
 }
 
 async function openKeeperDetails(page: Page) {
@@ -162,32 +157,50 @@ test("Given a running Lighthouse identity, when both controllers approve all own
   let humanB: Page | undefined
   let bodyForRetry: string | undefined
   let ownerBProvisionBody: string | undefined
+  let ownerAReaddProvisionBody: string | undefined
+  let ownerAReaddRequested = false
+  let ownerAPairingId: string | undefined
+  let ownerAIntegrationId: string | undefined
+  let ownerAServiceDeviceId: string | undefined
+  let lastOwnerAStatus: { httpStatus: number; status?: string; provisioningStatus?: string; scopes?: { workspaceId: string; status?: string }[] } | undefined
+  let statusFetchFailure: string | undefined
   let droppedResponse = false
   let completed = false
   try {
     console.log("[keeper e2e] create target boards")
     await page.goto(appOrigin)
     await createTargetBoards(page)
-    console.log("[keeper e2e] bootstrap keeper identity")
-    const bootstrapConfig = await bootstrapKeeperIdentity(browser, baseDirectory, appOrigin)
-    nativeIdentity.personId = bootstrapConfig.localHandshake.peer.advertisement.payload.personId
-    nativeSeeds.identity = bootstrapConfig.identitySeed
-    nativeSeeds.device = bootstrapConfig.deviceSeed
-    nativeSeeds.iroh = bootstrapConfig.irohSecret
+    console.log("[keeper e2e] create genuine Rusty identity with empty scope registry")
+    const fixture = await createEmptyServiceFixture(baseDirectory)
+    nativeIdentity.personId = fixture.servicePersonId
+    const initialConfig = JSON.parse(await readFile(fixture.configPath, "utf8")) as {
+      identitySeed: number[]; deviceSeed: number[]; irohSecret: number[]
+      primaryDetached?: boolean
+      additionalScopes?: { workspaceId: string }[]
+    }
+    expect(initialConfig.primaryDetached).toBe(true)
+    expect(initialConfig.additionalScopes ?? []).toEqual([])
+    nativeSeeds.identity = initialConfig.identitySeed
+    nativeSeeds.device = initialConfig.deviceSeed
+    nativeSeeds.iroh = initialConfig.irohSecret
 
     console.log("[keeper e2e] start isolated native service")
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
     await page.route(serviceOrigin + "/v1/pairings/*/provision", async route => {
       const requestBody = route.request().postData() ?? undefined
-      const request = JSON.parse(requestBody ?? "{}") as { signed?: { payload?: { body?: { invitation?: { role?: string } } } } }
+      const request = JSON.parse(requestBody ?? "{}") as { signed?: { payload?: { body?: { pairingId?: string; invitation?: { role?: string } } } } }
       expect(request.signed?.payload?.body?.invitation?.role).toBe("editor")
-      if (!droppedResponse) bodyForRetry = requestBody
+      if (!droppedResponse) {
+        bodyForRetry = requestBody
+        ownerAPairingId = request.signed?.payload?.body?.pairingId
+      }
+      else if (ownerAReaddRequested) ownerAReaddProvisionBody ??= requestBody
       else if (!ownerBProvisionBody) ownerBProvisionBody = requestBody
       let response
       try {
         response = await route.fetch()
       } catch (error) {
-        throw new Error(String(error) + "\nLighthouse output:\n" + (processOutput.get(service!) ?? ""))
+        throw new Error(String(error) + "\nLighthouse output:\n" + (processOutput.get(service!) ?? ""), { cause: error })
       }
       if (!response.ok()) {
         await route.fulfill({ response })
@@ -202,6 +215,30 @@ test("Given a running Lighthouse identity, when both controllers approve all own
         return
       }
       await route.fulfill({ status: response.status(), contentType: "application/json", body: responseBody })
+    })
+    await page.route(serviceOrigin + "/v1/pairings/*/status", async route => {
+      let response
+      try {
+        response = await route.fetch()
+      } catch (error) {
+        statusFetchFailure = String(error).slice(0, 500)
+        await route.abort("failed")
+        return
+      }
+      statusFetchFailure = undefined
+      const body = await response.json() as { signerKeyId?: string; payload?: { status?: string; integrationId?: string } }
+      const provisioning = body.payload as { provisioning?: { status?: string; scopes?: { workspaceId?: string; status?: string }[] } } | undefined
+      lastOwnerAStatus = {
+        httpStatus: response.status(),
+        status: body.payload?.status,
+        provisioningStatus: provisioning?.provisioning?.status,
+        scopes: provisioning?.provisioning?.scopes?.map(scope => ({ workspaceId: scope.workspaceId ?? "", status: scope.status })),
+      }
+      if (body.payload?.status === "active" && body.payload.integrationId) {
+        ownerAIntegrationId = body.payload.integrationId
+        ownerAServiceDeviceId = body.signerKeyId
+      }
+      await route.fulfill({ response, body: JSON.stringify(body) })
     })
 
     console.log("[keeper e2e] check overview authorization and operator login")
@@ -248,7 +285,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     humanA = operator
     const adminResponse = await humanA.goto(serviceOrigin + "/admin/")
     expect(adminResponse?.status(), "Lighthouse operator page must be served locally").toBe(200)
-    await expect(humanA.getByRole("button", { name: "Sign in with Match" })).toBeVisible()
+    await expect(humanA.getByRole("button", { name: "Sign in with Tincanban" })).toBeVisible()
     await expect(humanA.getByRole("heading", { name: "Sign in" })).toBeVisible()
     let loginProofRequests = 0
     const challengeRoute = serviceOrigin + "/v1/login/challenges/*"
@@ -262,7 +299,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       envelope.payload.nonce += "tampered"
       await route.fulfill({ response, body: JSON.stringify(envelope) })
     })
-    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Tincanban" }).click()
     await expect(humanA.getByRole("heading", { name: "Could not verify sign-in request" })).toBeVisible()
     await expect(humanA.getByRole("button", { name: "Approve sign-in" })).toHaveCount(0)
     await humanA.screenshot({ path: testInfo.outputPath("lighthouse-tincanban-invalid-challenge.png"), fullPage: true })
@@ -271,7 +308,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await humanA.unroute(challengeRoute)
 
     await humanA.goto(serviceOrigin + "/admin/")
-    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Tincanban" }).click()
     await expect(humanA.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await expect(humanA.getByText("tincanban identity", { exact: true })).toBeVisible()
     await expect(humanA.getByRole("button", { name: "Approve sign-in" })).toBeVisible()
@@ -287,7 +324,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(humanA.getByRole("heading", { name: /^Approvals/ })).toBeVisible()
     await expect(humanA.getByText("No pending keeper requests")).toBeVisible()
     await humanA.getByRole("button", { name: "Sign out" }).click()
-    await expect(humanA.getByRole("button", { name: "Sign in with Match" })).toBeVisible()
+    await expect(humanA.getByRole("button", { name: "Sign in with Tincanban" })).toBeVisible()
 
     operator = await browser.newPage()
     await operator.goto(serviceOrigin + "/admin/")
@@ -295,9 +332,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await operator.locator("#operator-token").fill("incorrect-test-operator-token")
     await operator.getByRole("button", { name: "Sign in as operator" }).click()
     await expect(operator.getByRole("status")).toContainText("Approval is not authorized")
-    await operator.locator("#operator-token").fill(operatorToken)
-    await operator.getByRole("button", { name: "Sign in as operator" }).click()
-    await expect(operator.locator(".login-card")).toBeHidden()
+    await signInOperator(operator, operatorToken)
     await openApprovals(operator)
     await expect(operator.getByText("No pending keeper requests")).toBeVisible()
     await operator.reload()
@@ -305,11 +340,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(operator.getByRole("heading", { name: /^Approvals/ })).toBeVisible()
     await expect(operator.getByText("No pending keeper requests")).toBeVisible()
     await openKeeperDetails(operator)
-    await expect(operator.getByText("Bootstrap board")).toBeVisible()
-    await expect(operator.getByText("JEV intake")).toBeVisible()
-    const intake = operator.locator(".admin-section article.keeper-card").filter({ has: operator.getByRole("heading", { name: "Triggers", exact: true }) }).locator(".board-row").filter({ hasText: "JEV intake" })
-    await expect(intake).toContainText(/configured|not configured/)
-    await expect(intake).toContainText("pending")
+    await expect(operator.getByText("No attached boards.")).toBeVisible()
     await operator.screenshot({ path: testInfo.outputPath("lighthouse-admin-overview.png"), fullPage: true })
     await openApprovals(operator)
 
@@ -348,6 +379,11 @@ test("Given a running Lighthouse identity, when both controllers approve all own
 
     console.log("[keeper e2e] owner approves matching code; wait for durable activation")
     await sync.getByRole("button", { name: "Code matches · approve" }).click()
+    await expect.poll(() => lastOwnerAStatus, { timeout: 90_000 }).toMatchObject({
+      httpStatus: 200,
+      status: "active",
+      provisioningStatus: "active",
+    })
     await expect(sync.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     // Status polling may observe the durable commit before the intercepted
     // provision response returns. Keep the native process alive until loss occurs.
@@ -358,17 +394,30 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     const config = JSON.parse(await readFile(configPath, "utf8")) as {
       identitySeed: number[]; deviceSeed: number[]; irohSecret: number[]
       additionalScopes: { workspaceId: string; identitySeed: number[]; deviceSeed: number[]; irohSecret: number[]; controllerPersonId?: string }[]
-      provisioningCommits: { workspaceIds: string[]; futureBoards: boolean }[]
+      provisioningCommits: { workspaceIds: string[]; futureBoards: boolean; baselineWorkspaceIds: string[] }[]
       controllerPersonId?: string
     }
-    const approvedWorkspaceIds = (JSON.parse(bodyForRetry!) as { signed: { payload: { body: { approvedScopes: { workspaceId: string }[] } } } })
-      .signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
+    const firstProvisionBody = JSON.parse(bodyForRetry!) as { signed: { payload: { body: {
+      approvedScopes: { workspaceId: string }[]; baselineWorkspaceIds: string[]
+    } } } }
+    const approvedWorkspaceIds = firstProvisionBody.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
+    const approvedBaselineIds = firstProvisionBody.signed.payload.body.baselineWorkspaceIds
     expect(approvedWorkspaceIds).toHaveLength(2)
+    expect(approvedBaselineIds).toHaveLength(3)
+    expect(approvedBaselineIds).toEqual(expect.arrayContaining(approvedWorkspaceIds))
+    expect(new Set(approvedBaselineIds).size).toBe(approvedBaselineIds.length)
+    const baselineTitles = await page.evaluate(async ids => {
+      const { defaultStorage } = await import("/src/storage.ts")
+      return (await defaultStorage.listWorkspaces()).filter(workspace => ids.includes(workspace.id))
+        .map(workspace => workspace.title).sort()
+    }, approvedBaselineIds)
+    expect(baselineTitles).toEqual(["Keeper target A", "Keeper target B", "Untitled"])
     expect(config.additionalScopes.filter(scope => approvedWorkspaceIds.includes(scope.workspaceId)).map(scope => scope.workspaceId)).toEqual(approvedWorkspaceIds)
     expect(config.additionalScopes.map(scope => scope.identitySeed)).toEqual(config.additionalScopes.map(() => nativeSeeds.identity))
     expect(config.additionalScopes.map(scope => scope.deviceSeed)).toEqual(config.additionalScopes.map(() => nativeSeeds.device))
     expect(config.additionalScopes.map(scope => scope.irohSecret)).toEqual(config.additionalScopes.map(() => nativeSeeds.iroh))
     expect(config.provisioningCommits.at(-1)?.workspaceIds).toEqual(approvedWorkspaceIds)
+    expect(config.provisioningCommits.at(-1)?.baselineWorkspaceIds).toEqual(approvedBaselineIds)
     expect((JSON.parse(bodyForRetry!) as { signed: { payload: { body: { futureBoards: boolean } } } })
       .signed.payload.body.futureBoards).toBe(true)
     expect(config.provisioningCommits.at(-1)?.futureBoards).toBe(true)
@@ -379,6 +428,12 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await sync.getByRole("button", { name: "Close" }).click()
     console.log("[keeper e2e] verify future-board replication")
     await createJobSearchWorkspace(page, "Keeper future board")
+    const ownerAFutureWorkspaceId = await page.evaluate(async () => {
+      const { defaultStorage } = await import("/src/storage.ts")
+      return (await defaultStorage.listWorkspaces()).find(workspace => workspace.title === "Keeper future board")?.id
+    })
+    expect(ownerAFutureWorkspaceId).toBeTruthy()
+    expect(approvedBaselineIds).not.toContain(ownerAFutureWorkspaceId)
     await expect.poll(async () => {
       const current = JSON.parse(await readFile(configPath, "utf8")) as { additionalScopes: { workspaceId: string }[] }
       return current.additionalScopes.length
@@ -387,6 +442,11 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       additionalScopes: { workspaceId: string; statePath: string }[]
     }
     expect(withFutureBoard.additionalScopes.every(scope => existsSync(scope.statePath))).toBe(true)
+    expect(withFutureBoard.additionalScopes.some(scope => scope.workspaceId === ownerAFutureWorkspaceId)).toBe(true)
+    const ownerAWorkspaceIds = [...approvedWorkspaceIds, ownerAFutureWorkspaceId!]
+    const ownerAScopePaths = withFutureBoard.additionalScopes
+      .filter(scope => ownerAWorkspaceIds.includes(scope.workspaceId))
+      .map(scope => scope.statePath)
 
     console.log("[keeper e2e] second owner requests a separate static board")
     ownerBContext = await browser.newContext()
@@ -410,7 +470,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(ownerBSync.getByText("Waiting for operator approval. No access granted.")).toBeVisible()
 
     console.log("[keeper e2e] owner A cannot see owner B pending request or board")
-    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Tincanban" }).click()
     await expect(humanA.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await humanA.getByRole("button", { name: "Approve sign-in" }).click()
     await expect(humanA.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
@@ -428,7 +488,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] owner B sees only own pending service approval")
     humanB = await ownerBContext.newPage()
     await humanB.goto(serviceOrigin + "/admin/")
-    await humanB.getByRole("button", { name: "Sign in with Match" }).click()
+    await humanB.getByRole("button", { name: "Sign in with Tincanban" }).click()
     await expect(humanB.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await humanB.getByRole("button", { name: "Approve sign-in" }).click()
     await openKeeperDetails(humanB)
@@ -483,7 +543,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(humanB.getByText("Keeper future board", { exact: true })).toHaveCount(0)
     await expect(humanB.getByText("JEV intake", { exact: true })).toHaveCount(0)
     await humanB.screenshot({ path: testInfo.outputPath("lighthouse-owner-b-scoped.png"), fullPage: true })
-    await humanA.getByRole("button", { name: "Sign in with Match" }).click()
+    await humanA.getByRole("button", { name: "Sign in with Tincanban" }).click()
     await expect(humanA.getByRole("heading", { name: "Sign in with your tincanban identity?" })).toBeVisible()
     await humanA.getByRole("button", { name: "Approve sign-in" }).click()
     await openKeeperDetails(humanA)
@@ -498,6 +558,10 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] graceful shutdown and restart")
     await stop(service, true)
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
+    await operator.reload()
+    await signInOperator(operator, operatorToken)
+    await openApprovals(operator)
+    await expect(operator.getByText("No pending keeper requests")).toBeVisible()
     const retryPairingId = JSON.parse(bodyForRetry!).signed.payload.body.pairingId as string
     const retry = await page.request.post(serviceOrigin + "/v1/pairings/" + retryPairingId + "/provision", {
       data: bodyForRetry,
@@ -512,6 +576,287 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     expect(signedStatus.payload?.provisioning?.status).toBe("active")
     expect(signedStatus.payload?.provisioning?.scopes?.map(scope => scope.workspaceId)).toEqual(approvedWorkspaceIds)
     expect(signedStatus.payload?.provisioning?.scopes?.every(scope => scope.status === "active")).toBe(true)
+
+    console.log("[keeper e2e] remove active integration; preserve local board through pending and signed cleanup")
+    expect(ownerAIntegrationId).toBeTruthy()
+    expect(ownerAPairingId).toBeTruthy()
+    const localWorkspace = await page.evaluate(async () => {
+      const state = (await import("/src/state.ts")).useTincanban()
+      const id = state.activeWorkspace.id
+      return { id, bytes: Array.from(await state.readWorkspaceBytes(id)) }
+    })
+    await page.evaluate(async ({ integrationId, servicePersonId }) => {
+      const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+      const { defaultStorage } = await import("/src/storage.ts")
+      const { removeOwnerKeeper } = await import("/src/sync/ownerKeeper.ts")
+      const profile = await bootstrapIdentity()
+      await removeOwnerKeeper(profile.identity.personId, servicePersonId)
+      const root = await defaultStorage.loadPersonalRoot()
+      if (root?.keeperIntegrations) delete root.keeperIntegrations[integrationId]
+      if (root) await defaultStorage.savePersonalRoot(root)
+    }, { integrationId: ownerAIntegrationId!, servicePersonId: nativeIdentity.personId })
+    let statusRequest: { signed?: { payload?: Record<string, unknown> } } | undefined
+    let statusResponse: { signerKeyId?: string; signature?: string; payload?: Record<string, unknown> } | undefined
+    let disconnectReceipt: { signerKeyId?: string; signature?: string; payload?: Record<string, unknown> } | undefined
+    const disconnectRequests: { url: string; body: { signed?: { payload?: Record<string, unknown> } } }[] = []
+    let failFirstDisconnect = true
+    await page.route(serviceOrigin + "/v1/integrations/status", async route => {
+      statusRequest = JSON.parse(route.request().postData() ?? "{}")
+      const response = await route.fetch()
+      statusResponse = await response.json() as typeof statusResponse
+      await route.fulfill({ response, body: JSON.stringify(statusResponse) })
+    })
+    await page.route(serviceOrigin + "/v1/integrations/*/disconnect", async route => {
+      const request = JSON.parse(route.request().postData() ?? "{}") as { signed?: { payload?: Record<string, unknown> } }
+      disconnectRequests.push({ url: route.request().url(), body: request })
+      if (failFirstDisconnect) {
+        failFirstDisconnect = false
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ message: "Temporary Rusty outage" }) })
+        return
+      }
+      const response = await route.fetch()
+      const responseBody = await response.text()
+      disconnectReceipt = JSON.parse(responseBody) as typeof disconnectReceipt
+      await route.fulfill({ response, body: responseBody })
+    })
+    let spoofDiscovery = true
+    await page.route(serviceOrigin + "/.well-known/mesh-lighthouse", async route => {
+      const response = await route.fetch()
+      if (!spoofDiscovery) { await route.fulfill({ response }); return }
+      const descriptor = await response.json() as { service?: { personId?: string } }
+      if (descriptor.service) descriptor.service.personId = "different-service-identity"
+      await route.fulfill({ response, body: JSON.stringify(descriptor) })
+    })
+
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const removalDialog = page.getByRole("dialog", { name: "Device sync" })
+    const keeperRow = removalDialog.getByRole("list", { name: "Keeper services" }).getByRole("button").first()
+    await expect(keeperRow).toBeVisible()
+    await keeperRow.click()
+    const addressInput = removalDialog.getByLabel("Rusty address")
+    await addressInput.fill(serviceOrigin)
+    await expect(addressInput).toHaveValue(serviceOrigin)
+    const verifyRusty = removalDialog.getByRole("button", { name: "Verify Rusty" })
+    await expect(verifyRusty).toBeEnabled()
+    await verifyRusty.click()
+    await expect(removalDialog.getByRole("alert")).toContainText("different keeper identity")
+    expect(statusRequest).toBeUndefined()
+    expect(disconnectRequests).toHaveLength(0)
+    spoofDiscovery = false
+    await removalDialog.getByRole("button", { name: "Verify Rusty" }).click()
+    await expect(removalDialog.getByRole("button", { name: "Remove keeper" })).toBeVisible()
+    await removalDialog.getByRole("button", { name: "Remove keeper" }).click()
+    await removalDialog.getByRole("button", { name: "Remove access from all boards" }).click()
+    await expect.poll(() => disconnectRequests.length, { timeout: 10_000 }).toBe(1)
+    await expect(removalDialog.getByRole("status", { name: "Keeper removal status" })).toContainText("not confirmed")
+    await expect(removalDialog.getByRole("alert")).toContainText("Temporary Rusty outage")
+    await removalDialog.getByRole("button", { name: "Close" }).click()
+    const rootBeforeReload = await page.evaluate(async integrationId => {
+      const root = await (await import("/src/storage.ts")).defaultStorage.loadPersonalRoot()
+      return root?.keeperIntegrations?.[integrationId] ?? null
+    }, ownerAIntegrationId)
+    expect(rootBeforeReload).toMatchObject({ state: "removing", pendingRemoval: { operationId: expect.any(String) } })
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 60_000 })
+    const rootAfterReload = await page.evaluate(async integrationId => {
+      const root = await (await import("/src/storage.ts")).defaultStorage.loadPersonalRoot()
+      return root?.keeperIntegrations?.[integrationId] ?? null
+    }, ownerAIntegrationId)
+    expect(rootAfterReload).toMatchObject({ state: "removing", pendingRemoval: { operationId: rootBeforeReload?.pendingRemoval?.operationId } })
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const reopenedRemovalDialog = page.getByRole("dialog", { name: "Device sync" })
+    const rootLoadError = reopenedRemovalDialog.getByRole("alert", { name: "Keeper integrations unavailable" })
+    if (await rootLoadError.isVisible().catch(() => false)) {
+      console.log("[keeper e2e] pending integration load error", await rootLoadError.innerText())
+      await rootLoadError.getByRole("button", { name: "Retry loading keeper status" }).click()
+    }
+    const pendingKeeperRow = reopenedRemovalDialog.getByRole("list", { name: "Keeper services" })
+      .getByRole("button").filter({ hasText: "Removal pending" })
+    await expect(pendingKeeperRow).toBeVisible()
+    await pendingKeeperRow.click()
+    await expect(reopenedRemovalDialog.getByRole("status", { name: "Keeper removal status" })).toContainText("not confirmed")
+    const retryRemoval = reopenedRemovalDialog.getByRole("button", { name: "Retry removal" })
+    await expect(retryRemoval).toBeVisible()
+    expect(statusRequest?.signed?.payload).toMatchObject({
+      kind: "lighthouse-integration-status-request",
+      controllerPersonId: ownerAPersonId,
+      controllerDeviceId: expect.any(String),
+      operationId: expect.any(String),
+    })
+    expect(statusResponse?.signature).toBeTruthy()
+    expect(statusResponse?.signerKeyId).toBe(ownerAServiceDeviceId)
+    expect(statusResponse?.payload?.servicePersonId).toBe(nativeIdentity.personId)
+    expect(statusResponse?.payload?.controllerPersonId).toBe(ownerAPersonId)
+    expect(statusResponse?.payload?.controllerDeviceId).toBe(statusRequest?.signed?.payload?.controllerDeviceId)
+    expect(statusResponse?.payload?.operationId).toBe(statusRequest?.signed?.payload?.operationId)
+    const discoveredIntegrations = statusResponse?.payload?.integrations as { integrationId?: string; scopes?: { workspaceId: string }[] }[] | undefined
+    const discoveredOwnerIntegration = discoveredIntegrations?.find(integration => integration.integrationId === ownerAIntegrationId)
+    const discoveredScopeIds = discoveredOwnerIntegration?.scopes?.map(scope => scope.workspaceId).sort() ?? []
+    if (JSON.stringify(discoveredScopeIds) !== JSON.stringify([...ownerAWorkspaceIds].sort())) {
+      const configSnapshot = JSON.parse(await readFile(configPath, "utf8")) as {
+        additionalScopes: { workspaceId: string; controllerPersonId?: string; statePath: string }[]
+      }
+      const scopeTitles = await page.evaluate(async (ids) => {
+        const { defaultStorage } = await import("/src/storage.ts")
+        return (await defaultStorage.listWorkspaces()).filter(workspace => ids.includes(workspace.id))
+          .map(workspace => ({ id: workspace.id, title: workspace.title }))
+      }, discoveredScopeIds)
+      console.log("[keeper e2e] scope mismatch", JSON.stringify({
+        ownerAWorkspaceIds, ownerBWorkspaceId, discoveredScopeIds, scopeTitles,
+        configScopes: configSnapshot.additionalScopes.map(scope => ({ workspaceId: scope.workspaceId, controllerPersonId: scope.controllerPersonId })),
+      }))
+    }
+    expect(discoveredScopeIds).toEqual([...ownerAWorkspaceIds].sort())
+    const failedRequest = disconnectRequests[0]
+    const failedPayload = failedRequest.body.signed?.payload
+    expect(failedPayload).toMatchObject({
+      kind: "lighthouse-integration-disconnect",
+      integrationId: ownerAIntegrationId,
+      controllerPersonId: ownerAPersonId,
+      servicePersonId: nativeIdentity.personId,
+      operationId: expect.any(String),
+      expectedRevision: expect.any(Number),
+    })
+    const failedScopes = failedPayload?.scopes as { workspaceId: string }[] | undefined
+    expect(failedScopes?.map(scope => scope.workspaceId).sort()).toEqual([...ownerAWorkspaceIds].sort())
+    expect(failedRequest.url).toContain(`/v1/integrations/${ownerAIntegrationId}/disconnect`)
+
+    await retryRemoval.click()
+    await expect.poll(() => disconnectRequests.length, { timeout: 30_000 }).toBe(2)
+    const completedPayload = disconnectRequests[1].body.signed?.payload
+    expect(completedPayload?.operationId).toBe(failedPayload?.operationId)
+    expect(completedPayload?.expectedRevision).toBe(failedPayload?.expectedRevision)
+    expect(completedPayload?.scopes).toEqual(failedPayload?.scopes)
+    for (let retry = 0; retry < 4 && disconnectReceipt?.payload?.status !== "removed"; retry += 1) {
+      await expect.poll(() => disconnectReceipt?.payload?.status, { timeout: 30_000 })
+        .toMatch(/^(pending|removed)$/)
+      const pendingScopes = disconnectReceipt?.payload?.scopes as {
+        workspaceId: string; grantEpoch: number; state: string; cleanup: string
+      }[] | undefined
+      if (disconnectReceipt?.payload?.status === "removed") break
+      expect(pendingScopes?.map(scope => scope.workspaceId).sort()).toEqual([...ownerAWorkspaceIds].sort())
+      expect(pendingScopes?.every(scope => scope.grantEpoch > 0 && scope.state === "pending" && scope.cleanup === "pending")).toBe(true)
+      await expect(reopenedRemovalDialog.getByRole("status", { name: "Keeper removal status" }))
+        .toContainText("not confirmed")
+      await expect(retryRemoval).toBeEnabled()
+      const requestCount = disconnectRequests.length
+      await retryRemoval.click()
+      await expect.poll(() => disconnectRequests.length, { timeout: 30_000 }).toBe(requestCount + 1)
+      const retryPayload = disconnectRequests.at(-1)?.body.signed?.payload
+      expect(retryPayload?.operationId).toBe(failedPayload?.operationId)
+      expect(retryPayload?.expectedRevision).toBe(failedPayload?.expectedRevision)
+      expect(retryPayload?.scopes).toEqual(failedPayload?.scopes)
+    }
+    const receiptDiagnostic = `receipt=${JSON.stringify(disconnectReceipt?.payload)}\nRustyExit=${service?.exitCode ?? "running"}/${service?.signalCode ?? "none"}\nRustyOutput=${processOutput.get(service!) ?? ""}`
+    expect(disconnectReceipt?.payload?.status, receiptDiagnostic).toBe("removed")
+    expect(disconnectReceipt?.signature).toBeTruthy()
+    expect(disconnectReceipt?.signerKeyId).toBe(ownerAServiceDeviceId)
+    expect(disconnectReceipt?.payload).toMatchObject({
+      kind: "lighthouse-integration-disconnect-receipt",
+      integrationId: ownerAIntegrationId,
+      operationId: failedPayload?.operationId,
+    })
+    expect(disconnectReceipt?.payload?.requestHash).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    const receiptScopes = disconnectReceipt?.payload?.scopes as { workspaceId: string; grantEpoch: number; state: string; cleanup: string }[] | undefined
+    expect(receiptScopes?.map(scope => scope.workspaceId).sort()).toEqual([...ownerAWorkspaceIds].sort())
+    expect(receiptScopes?.every(scope => scope.grantEpoch > 0 && scope.state === "removed" && scope.cleanup === "complete")).toBe(true)
+    await expect(reopenedRemovalDialog.getByRole("list", { name: "Keeper services" }).getByRole("button")).toHaveCount(0, { timeout: 30_000 })
+    const afterDisconnect = JSON.parse(await readFile(configPath, "utf8")) as {
+      additionalScopes: { workspaceId: string; statePath: string }[]
+    }
+    expect(afterDisconnect.additionalScopes.some(scope => ownerAWorkspaceIds.includes(scope.workspaceId))).toBe(false)
+    expect(ownerAScopePaths.every(path => !existsSync(path))).toBe(true)
+    const retainedLocalWorkspace = await page.evaluate(async (id) => {
+      const state = (await import("/src/state.ts")).useTincanban()
+      return Array.from(await state.readWorkspaceBytes(id))
+    }, localWorkspace.id)
+    expect(retainedLocalWorkspace).toEqual(localWorkspace.bytes)
+
+    console.log("[keeper e2e] restart Rusty and verify signed removal status")
+    await stop(service, true)
+    service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
+    const restartedStatus = await page.evaluate(async (origin) => {
+      const { discoverLighthouse } = await import("/src/sync/lighthouseDiscovery.ts")
+      const { getKeeperIntegrationStatus } = await import("/src/sync/lighthousePairing.ts")
+      const discovery = await discoverLighthouse(origin, { allowLoopbackHttp: true })
+      return getKeeperIntegrationStatus(discovery)
+    }, serviceOrigin)
+    expect(restartedStatus.signature).toBeTruthy()
+    expect(restartedStatus.signerKeyId).toBe(ownerAServiceDeviceId)
+    const persistedRemoval = restartedStatus.integrations.find(integration => integration.integrationId === ownerAIntegrationId)
+    expect(persistedRemoval).toBeTruthy()
+    expect(persistedRemoval?.scopes).toEqual([])
+    expect(persistedRemoval?.pendingOperation).toBeUndefined()
+    expect(persistedRemoval?.tombstones.map(scope => scope.workspaceId).sort()).toEqual([...ownerAWorkspaceIds].sort())
+    expect(persistedRemoval?.tombstones.every(scope => scope.state === "removed" && scope.cleanup === "complete")).toBe(true)
+    const restartedConfig = JSON.parse(await readFile(configPath, "utf8")) as {
+      additionalScopes: { workspaceId: string; statePath: string }[]
+    }
+    expect(restartedConfig.additionalScopes.some(scope => ownerAWorkspaceIds.includes(scope.workspaceId))).toBe(false)
+    expect(ownerAScopePaths.every(path => !existsSync(path))).toBe(true)
+    const localWorkspaceAfterRestart = await page.evaluate(async (id) => {
+      const state = (await import("/src/state.ts")).useTincanban()
+      return Array.from(await state.readWorkspaceBytes(id))
+    }, localWorkspace.id)
+    expect(localWorkspaceAfterRestart).toEqual(localWorkspace.bytes)
+
+    console.log("[keeper e2e] re-add removed scopes with a fresh pairing and grant epoch")
+    const readdDialog = reopenedRemovalDialog
+    await readdDialog.getByRole("button", { name: "Add keeper" }).click()
+    await readdDialog.getByRole("textbox", { name: "Keeper hostname" }).fill(serviceOrigin)
+    await readdDialog.getByRole("button", { name: "Discover keeper" }).click()
+    await expect(readdDialog.getByText("Service identity " + nativeIdentity.personId)).toBeVisible()
+    for (const title of ["Keeper target A", "Keeper target B", "Keeper future board"]) {
+      const board = readdDialog.getByRole("checkbox", { name: "Keeper board: " + title })
+      await expect(board).toBeVisible()
+      await board.check()
+    }
+    await readdDialog.getByRole("checkbox", { name: "Keeper board: Untitled" }).uncheck()
+    await expect(readdDialog.getByRole("checkbox", { name: "Keeper board: Owner B private board" })).toHaveCount(0)
+    await expect(readdDialog.getByRole("checkbox", { name: "Also replicate my future boards" })).toBeChecked()
+    ownerAReaddRequested = true
+    await readdDialog.getByRole("button", { name: "Request access" }).click()
+    await expect(readdDialog.getByRole("status")).toContainText("Waiting for both approvals")
+    await operator.reload()
+    await signInOperator(operator, operatorToken)
+    await openApprovals(operator)
+    const readdApproval = operator.locator(".approvals-section article.approval-card")
+    await expect(readdApproval).toHaveCount(1)
+    await expect(readdApproval).toContainText("Keeper target A")
+    await readdApproval.getByRole("button", { name: "Approve exact boards" }).click()
+    await readdDialog.getByRole("button", { name: "Code matches · approve" }).click()
+    await expect(readdDialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
+    expect(ownerAReaddProvisionBody).toBeTruthy()
+    const readdRequest = JSON.parse(ownerAReaddProvisionBody!) as {
+      signed: { payload: { operationId: string; body: { pairingId: string; approvedScopes: { workspaceId: string }[] } } }
+    }
+    expect(readdRequest.signed.payload.operationId).toBeTruthy()
+    expect(readdRequest.signed.payload.body.pairingId).not.toBe(ownerAPairingId)
+    const readdedWorkspaceIds = readdRequest.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
+    expect(readdedWorkspaceIds.sort()).toEqual([...ownerAWorkspaceIds].sort())
+    const readdedStatus = await page.evaluate(async (origin) => {
+      const { discoverLighthouse } = await import("/src/sync/lighthouseDiscovery.ts")
+      const { getKeeperIntegrationStatus } = await import("/src/sync/lighthousePairing.ts")
+      return getKeeperIntegrationStatus(await discoverLighthouse(origin, { allowLoopbackHttp: true }))
+    }, serviceOrigin)
+    expect(readdedStatus.signature).toBeTruthy()
+    expect(readdedStatus.signerKeyId).toBe(ownerAServiceDeviceId)
+    const activeReaddedIntegration = readdedStatus.integrations.find(integration => integration.integrationId === ownerAIntegrationId)
+    expect(activeReaddedIntegration?.scopes.map(scope => scope.workspaceId).sort()).toEqual([...ownerAWorkspaceIds].sort())
+    expect(activeReaddedIntegration?.pendingOperation).toBeUndefined()
+    for (const scope of activeReaddedIntegration?.scopes ?? []) {
+      const oldEpoch = receiptScopes?.find(removed => removed.workspaceId === scope.workspaceId)?.grantEpoch ?? 0
+      expect(scope.grantEpoch).toBeGreaterThan(oldEpoch)
+      expect(scope.activationOperationId).toBe(readdRequest.signed.payload.operationId)
+    }
+    const staleDisconnect = await page.request.post(serviceOrigin + "/v1/integrations/" + ownerAIntegrationId + "/disconnect", {
+      data: failedRequest.body,
+      headers: { Origin: appOrigin, "Content-Type": "application/json" },
+    })
+    expect(staleDisconnect.status()).toBe(409)
+    await expect(readdDialog.getByRole("status")).toContainText("All selected boards activated and saved by Rusty.")
+    await expect(readdDialog.getByRole("alert")).toHaveCount(0)
+    expect(statusFetchFailure).toBeUndefined()
     completed = true
   } finally {
     await operator?.close()

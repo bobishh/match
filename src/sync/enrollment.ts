@@ -14,11 +14,32 @@ const certificateSchema = z.object({
   signerKeyId: text, signature: text,
 })
 const identitySchema = z.object({ personId: text, publicKey: text, displayName: text })
+const keeperIntegrationSchema = z.object({
+  integrationId: text,
+  serviceOrigin: text,
+  servicePersonId: text,
+  serviceDeviceId: text,
+  servicePublicKey: text,
+  serviceCertificates: z.array(certificateSchema).max(32),
+  workspaceIds: z.array(text).max(512),
+  scopeReceipts: z.array(z.object({ workspaceId: text, grantEpoch: z.number().int().positive(), activationOperationId: text })).max(512).optional(),
+  futureBoards: z.boolean(),
+  futureBoardBaselineIds: z.array(text).max(512).optional(),
+  revision: z.number().int().nonnegative(),
+  state: z.enum(["active", "removing", "removed"]),
+  verifiedAt: text,
+  pendingRemoval: z.object({
+    operationId: text,
+    expectedRevision: z.number().int().nonnegative(),
+    scopes: z.array(z.object({ workspaceId: text, expectedGrantEpoch: z.number().int().positive() })).max(512),
+  }).optional(),
+})
 const rootSchema = z.object({ kind: z.literal("personal-root"), formatVersion: z.literal(1), rootId: text,
   identity: identitySchema,
   displayNamePreset: z.string().min(1).max(256).optional(),
   devices: z.record(z.string(), z.object({ deviceId: text, publicKey: text, displayName: text, certificateHash: text, addedAt: text })),
   workspaces: z.record(z.string(), z.object({ workspaceId: text, documentId: text, grantHash: text, forgotten: z.boolean() })),
+  keeperIntegrations: z.record(z.string(), keeperIntegrationSchema).optional(),
 })
 const requestPayload = z.object({ kind: z.literal("device-enrollment-request"), version: z.literal(2),
   invitationId: text, deviceId: text, publicKey: text, displayName: text })
@@ -96,7 +117,8 @@ export async function installEnrollment(bytes: Uint8Array, invite: DeviceEnrollm
     }
     prepared.payload.personalRoot = { ...incoming, rootId: existingRoot.rootId,
       devices: { ...existingRoot.devices, ...incoming.devices },
-      workspaces: { ...incoming.workspaces, ...existingRoot.workspaces } }
+      workspaces: { ...incoming.workspaces, ...existingRoot.workspaces },
+      keeperIntegrations: { ...incoming.keeperIntegrations, ...existingRoot.keeperIntegrations } }
   }
   for (const cert of prepared.certificates) await defaultProofStore.putCertificate(await certHashDefault(cert), cert)
   await defaultStorage.savePersonalRoot(prepared.payload.personalRoot)

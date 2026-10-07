@@ -14,15 +14,15 @@ Companion: [service design](../../../../mesh-lighthouse/openspec/changes/multi-i
 
 ### 1. Integrations are identity-scoped preferences
 
-Store integration ID, service origin, pinned service person ID, controller person ID, approved device certificates, selected scopes, per-scope mode, policy revision and optional future-board policy. Synchronize these non-secret settings across the user's enrolled devices. Keep workspace grants and verified authority in their existing authoritative stores. HTTP session secrets and operator credentials never enter a workspace document.
+Store integration ID, service origin, pinned service person ID, approved device certificates, selected scopes, verified grant epochs, the approval-time eligible-scope baseline, future-board consent and pending removal operation in the identity's personal root. Enrollment copies this descriptor to a new device; the personal root is not an ongoing cross-device sync channel, so Rusty's signed integration status and revision remain canonical. Keep workspace grants and verified authority in their existing authoritative stores. HTTP session secrets and operator credentials never enter a workspace document.
 
 One tincanban identity can use multiple keepers; one keeper can accept multiple unrelated controllers. Switching identity changes the visible integrations. Identity enrollment and board imports never silently adopt a keeper integration from another identity. Conflicting policy revisions display a conflict and suspend automatic additions rather than unioning permissions.
 
 ### 2. Connection UX
 
-Sync → Add keeper → hostname → discovery → choose boards/mode → request admission → compare code/approve → provisioning → replication status.
+Sync → Add keeper → hostname → discovery → choose owned boards and future-board policy → request admission → compare code/approve → provisioning → replication status.
 
-Default mode is Replicate (visitor). Enable automation explicitly for a board to request editor permission. Only currently owned boards are eligible in v1. Disabled boards explain why. An operator approval URL opens on the discovered service origin and requires its operator session; it is not a public approval capability.
+Keeper integrations use Editor grants because Rusty writes replicated boards; both parties approve the exact initial board set and Tincanban verifies the independent owner-signed grants. Generic workspace invitations retain their own chosen role, including Visitor. An operator approval URL opens on the discovered service origin and requires its operator session; it is not a public approval capability.
 
 Show service identity fingerprint and the same transcript code at both ends. HTTPS locates the service; the saved person ID pins it thereafter. A different identity at the same hostname requires a new trust decision, never automatic acceptance. Service operator authentication stays on Lighthouse, not in a tincanban password field.
 
@@ -38,9 +38,9 @@ Pairing reaches Active only after every selected scope has durably installed its
 
 Adding/removing scopes is a signed revisioned operation with an explicit affected-board list. The operator approves a controller once for a capacity/policy envelope; later additions within that envelope require fresh workspace-owner authorization but not another operator click. Expanding the envelope requires operator approval.
 
-Auto-add future owned boards is off by default. Enabling it records a signed, revisioned intent and mode. An authorized online owner device issues normal per-board grants when the new board appears; the keeper cannot grant itself access. Deduplicate concurrent owner tabs by integration/workspace/policy revision. Failed provisioning remains visible and retryable. Turning policy off cancels pending additions. Authority is rechecked before every grant.
+Auto-add future owned boards is off by default. Enabling it signs a sorted baseline of every currently eligible owned board into pairing approval and provisioning. Only owner boards absent from that baseline can be automatically offered later; a preexisting unchecked board stays excluded. Missing legacy baseline fails closed. An authorized online owner device issues normal per-board Editor grants when a later board appears; the keeper cannot grant itself access. Deduplicate concurrent owner tabs by integration/workspace/policy revision. Failed provisioning remains visible and retryable. Turning policy off cancels pending additions. Authority is rechecked before every grant.
 
-Remove keeper from this board revokes that board membership; disconnect everywhere enumerates only scopes the current user can revoke. A transfer of ownership makes that scope require its new owner's decision. Disconnect never deletes the user's identity or local boards. Service storage deletion is a separate retention action; previously copied data cannot be remotely guaranteed erased.
+Removal revokes local access immediately and persists an exact per-scope pending operation. Sync keeps the integration visible after closing or reloading and offers retry. Rusty tombstones the exact grant generation before deleting its scope and signs completion only after cleanup; retries are idempotent and stale offers cannot restore removed scopes. Disconnect enumerates only scopes the current identity can revoke. A transfer of ownership makes that scope require its new owner's decision. Disconnect never deletes the user's identity or local boards. Service storage deletion is a separate retention action; previously copied data cannot be remotely guaranteed erased.
 
 ### 5. Replication evidence
 

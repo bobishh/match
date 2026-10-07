@@ -34,12 +34,16 @@ tincanban MUST activate only the exact integration and scopes approved by both c
 - **WHEN** transport fails after grants are issued
 - **THEN** tincanban shows pending provisioning, resumes idempotently, or revokes issued grants on cancellation; it does not report completion.
 
-### Requirement: Own-board and least-privilege selection
-tincanban SHALL offer only currently owned boards in v1, default to visitor replication, and request editor access only through an explicit automation selection.
+### Requirement: Owner-approved keeper scope selection
+Tincanban SHALL offer only currently owned boards. Dedicated keeper integrations SHALL use an independently verified owner-signed Editor grant after both parties approve the exact scopes. Ordinary workspace invitations SHALL retain their selected role, including Visitor.
 
-#### Scenario: Replication only
-- **WHEN** a user selects two owned boards for replication
-- **THEN** the service receives visitor grants for those boards and cannot create or modify cards.
+#### Scenario: Keeper editor grant
+- **WHEN** both parties approve two currently owned boards for a keeper integration
+- **THEN** Rusty accepts only matching owner-signed Editor grants for those exact boards.
+
+#### Scenario: Ordinary visitor invitation
+- **WHEN** an owner sends a generic workspace invitation with Visitor role
+- **THEN** the ordinary invitation flow preserves Visitor role and does not inherit keeper Editor policy.
 
 #### Scenario: Ownership changes while pending
 - **WHEN** ownership changes before grant issuance
@@ -65,11 +69,19 @@ tincanban SHALL synchronize non-secret integration settings between devices of t
 - **THEN** a conflict is displayed and permissions are not silently combined.
 
 ### Requirement: Explicit future-board policy
-tincanban SHALL auto-provision future owned boards only under an enabled revisioned policy and fresh per-board owner authorization.
+tincanban SHALL auto-provision future owned boards only under an enabled, owner-approved revisioned policy and fresh per-board owner authorization. Approval SHALL bind a sorted, unique baseline of all eligible owner scopes present before approval. Future automation SHALL exclude every baseline scope, even when user left that scope unchecked. A missing legacy baseline SHALL fail closed for automatic additions.
 
 #### Scenario: Policy disabled
 - **WHEN** a new board is created with auto-add off
 - **THEN** no keeper grant is issued.
+
+#### Scenario: Existing unchecked scope
+- **WHEN** future-board policy is approved while an existing eligible board is unchecked
+- **THEN** that board remains outside the integration and only a board created after the approved baseline may be auto-added.
+
+#### Scenario: Legacy policy without baseline
+- **WHEN** an active integration has no verified baseline
+- **THEN** no future board is auto-added until the owner explicitly approves a refreshed policy.
 
 #### Scenario: Concurrent tabs
 - **WHEN** two owner tabs observe the same new board under one enabled policy
@@ -99,7 +111,7 @@ tincanban MUST derive up-to-date status from authenticated durable coverage for 
 - **THEN** tincanban retains last-confirmed time and marks offline without treating later edits as persisted.
 
 ### Requirement: Scoped removal and service recovery
-tincanban SHALL distinguish membership revocation, integration disconnect and storage deletion, and MUST preserve local boards and personal identity.
+tincanban SHALL distinguish membership revocation, integration disconnect and storage deletion, and MUST preserve local boards and personal identity. Removal SHALL revoke local access immediately, persist a per-scope pending operation, and remain visible across dialog close, reload and restart until Rusty returns a verified signed cleanup receipt. Rusty SHALL tombstone the exact integration/scope generation before cleanup and SHALL block stale retries or owner offers from restoring it.
 
 #### Scenario: Remove one board
 - **WHEN** the owner confirms removing one keeper scope
@@ -112,3 +124,11 @@ tincanban SHALL distinguish membership revocation, integration disconnect and st
 #### Scenario: Replaced server device
 - **WHEN** the same service identity presents a newly certified device with valid recovery/revocation evidence
 - **THEN** tincanban verifies it through core policy and invalidates stale device evidence without transferring ownership.
+
+#### Scenario: Pending removal survives reload
+- **WHEN** Rusty accepts a disconnect request but cleanup is pending or unreachable
+- **THEN** local membership stays revoked and Sync shows the exact integration and retry action after reload.
+
+#### Scenario: Fresh re-add after removal
+- **WHEN** both parties approve a new pairing after complete removal
+- **THEN** Rusty activates a fresh operation with a grant epoch newer than the removed generation and rejects replay of the old disconnect or offer.

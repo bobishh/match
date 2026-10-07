@@ -12,6 +12,7 @@ import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
 import { generateWorkspaceInvite as generateHostInvite, WorkspaceAdmissionFailure, type WorkspaceHostContext } from "./deviceSyncHost"
 import { createKeeperProvisioner, removeKeeperAccess } from "./deviceSyncKeeper"
+import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
@@ -19,7 +20,6 @@ import { recoverLiveSession } from "./deviceSyncLiveRecovery"
 import { meshTrace } from "./meshTrace"
 import { createDeviceSyncJoinApproval } from "./deviceSyncJoinApproval"
 import { AuthorityFingerprintTracker } from "./authorityFingerprint"
-
 export type DeviceSyncOptions = {
   workspace: WorkspaceReplica
   workspaceStore?: WorkspaceSetStore
@@ -210,10 +210,11 @@ export class DeviceSyncController {
     await direct?.close()
   }
 
-  private async removeKeeper(personId: string) {
-    await removeKeeperAccess(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
-      workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.() })
-    this.state.ownershipRevision.value += 1
+  private async removeKeeper(personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]): Promise<"removed" | "pending"> {
+    const result = await removeKeeperAccess(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
+      workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.(),
+      discovery, knownServiceDeviceIds })
+    this.state.ownershipRevision.value += 1; return result
   }
 
   private async withActiveWorkspace(action: (workspaceId: string, mesh: DurableMesh) => Promise<void>, changeOwnership = false) {
@@ -537,10 +538,9 @@ export class DeviceSyncController {
       ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
       promotePeer: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.promotePerson(id, personId), true),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
-      removeKeeper: (personId: string) => this.removeKeeper(personId),
+      removeKeeper: (personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]) => this.removeKeeper(personId, discovery, knownServiceDeviceIds),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),
-      setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)),
-      voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),
+      setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)), voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),
       claimSuccession: () => this.withActiveWorkspace((id, mesh) => mesh.claimSuccession(id), true),
       leaveMesh: () => this.leaveMesh(), leaveWorkspace: (workspaceId: string) => this.leaveWorkspace(workspaceId),
       copyInvite: (target?: string) => copyInviteLink(state, target), close: () => this.close(), dismiss: () => this.dismiss(),

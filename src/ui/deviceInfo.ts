@@ -35,6 +35,7 @@ export type MeshMemberView = {
     onlineDevices: number
     devices: number
     self: boolean
+    pendingRemoval?: boolean
     deviceList: Array<{
       deviceId: string
       name: string

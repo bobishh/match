@@ -1,7 +1,7 @@
 import { type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
-import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
+import { keeperIntegrationReferences, mayOfferFutureKeeperWorkspace, ownerKeepers, saveOwnerKeeper, type OwnerKeeper } from "./ownerKeeper"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createPeerAdvertisement, verifyWorkspaceMemberBundle,
@@ -15,6 +15,29 @@ import { registerOwnerOfferProofs } from "./ownerOfferProofs"
 import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
   type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
+
+async function ownerKeeperOfferPolicy(profile: LocalProfile, remotePersonId: string): Promise<{ allowed: boolean; keeper?: OwnerKeeper }> {
+  if (remotePersonId === profile.identity.personId) return { allowed: true }
+  let keeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === remotePersonId)
+  let reference
+  try {
+    const { integrations } = await keeperIntegrationReferences()
+    reference = Object.values(integrations).filter(item => item.servicePersonId === remotePersonId)
+      .sort((left, right) => right.revision - left.revision)[0]
+  } catch {
+    return { allowed: false }
+  }
+  if (reference && reference.state !== "active") return { allowed: false }
+  if (reference) keeper = { personId: remotePersonId, role: "editor", details: {
+    boardIds: reference.workspaceIds,
+    futureBoards: reference.futureBoards,
+    futureBoardBaselineIds: reference.futureBoardBaselineIds,
+    integrationId: reference.integrationId,
+    removalPending: Boolean(reference.pendingRemoval),
+  } }
+  if (!keeper || keeper.details?.removalPending) return { allowed: false }
+  return { allowed: true, keeper }
+}
 
 export abstract class DurableMeshCredentials extends DurableMeshBase {
   private readonly ownerWorkspaceOffers = new Map<string, Promise<void>>()
@@ -165,13 +188,15 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     onlyWorkspaceIds?: string[]) {
     const profile = await this.options.getProfile()
     if (!ownerWorkspaceOfferFrame) return
-    const keeper = remotePersonId === profile.identity.personId ? undefined :
-      (await ownerKeepers(profile.identity.personId)).find(item => item.personId === remotePersonId)
-    if (remotePersonId !== profile.identity.personId && !keeper) return
+    const policy = await ownerKeeperOfferPolicy(profile, remotePersonId)
+    if (!policy.allowed) return
+    const keeper = policy.keeper
     const ownedIds = this.options.getOwnedWorkspaceIds ? await this.options.getOwnedWorkspaceIds() : await this.ownerWorkspaceIds(profile)
     if (this.node) await this.ensureOwnerWorkspaces(ownedIds, this.node.endpointId, profile)
     const missing = meshRustRuntime().state.missingOwnerWorkspaces(ownedIds, remoteWorkspaceIds)
       .filter(workspaceId => !onlyWorkspaceIds || onlyWorkspaceIds.includes(workspaceId))
+      .filter(workspaceId => !keeper || keeper.details?.boardIds.includes(workspaceId)
+        || mayOfferFutureKeeperWorkspace(keeper.details, workspaceId))
     for (const workspaceId of missing) {
       const key = `${remotePersonId}\0${workspaceId}`
       const pending = this.ownerWorkspaceOffers.get(key)

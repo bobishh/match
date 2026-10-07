@@ -3,7 +3,7 @@ import { onMounted, ref, shallowRef } from "vue"
 import TincanbanPageLayout from "./TincanbanPageLayout.vue"
 import TincanbanHeading from "./TincanbanHeading.vue"
 import BrandCan from "./BrandCan.vue"
-import { prepareLighthouseLoginApproval, type LighthouseLoginApproval } from "../app/lighthouseLogin"
+import type { LighthouseLoginApproval } from "../app/lighthouseLogin"
 
 const request = shallowRef<LighthouseLoginApproval | null>(null)
 const loading = ref(true)
@@ -18,6 +18,7 @@ async function loadRequest() {
     const origin = params.get("keeper") ?? ""
     const challengeId = params.get("challenge") ?? ""
     if ([...params.keys()].some(key => !["keeper", "challenge"].includes(key))) throw new Error("Sign-in link contains unexpected parameters.")
+    const { prepareLighthouseLoginApproval } = await import("../app/lighthouseLogin")
     request.value = await prepareLighthouseLoginApproval(origin, challengeId)
   } catch (cause) {
     request.value = null

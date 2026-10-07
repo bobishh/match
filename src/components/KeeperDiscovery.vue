@@ -1,25 +1,41 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails } from "../app/keeperApi"
 import { keeperDisplayName, type MeshMemberView } from "../ui/deviceInfo"
+import type { LighthouseDiscovery } from "../sync/lighthouseDiscovery"
 import RustyMark from "./RustyMark.vue"
+import { keeperIntegrationReferences } from "../sync/ownerKeeper"
 
 const props = defineProps<{
   ownedWorkspaces: KeeperWorkspace[]
   keepers: MeshMemberView[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
-  removeKeeper?: (personId: string) => Promise<void>
+  removeKeeper?: (personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
 }>()
 const emit = defineEmits<{ (event: "viewChange", view: "list" | "form" | "detail"): void }>()
 const view = ref<"list" | "form" | "detail">("list")
 const selectedKeeperId = ref("")
 const retainedKeeper = ref<MeshMemberView | null>(null)
-const displayedKeepers = computed(() => props.keepers.some(keeper => keeper.personId === retainedKeeper.value?.personId)
-  ? props.keepers : retainedKeeper.value ? [...props.keepers, retainedKeeper.value] : props.keepers)
+const pendingIntegrationKeepers = ref<MeshMemberView[]>([])
+const pendingIntegrationLoadError = ref("")
+const pendingIntegrationsLoaded = ref(false)
+const displayedKeepers = computed(() => {
+  const byPerson = new Map(props.keepers.map(keeper => [keeper.personId, keeper]))
+  for (const pending of pendingIntegrationKeepers.value) {
+    const current = byPerson.get(pending.personId)
+    byPerson.set(pending.personId, current ? { ...current, pendingRemoval: true } : pending)
+  }
+  if (retainedKeeper.value && !byPerson.has(retainedKeeper.value.personId)) byPerson.set(retainedKeeper.value.personId, retainedKeeper.value)
+  return [...byPerson.values()]
+})
 const keeperDetails = ref<KeeperDetails | null>(null)
 const confirmRemoval = ref(false)
 const removingKeeper = ref(false)
 const removalError = ref("")
+const removalAddress = ref("")
+const removalDiscovery = ref<LighthouseDiscovery | null>(null)
+const removalPending = ref(false)
+const verifyingRemoval = ref(false)
 const originInput = ref("")
 const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired">("idle")
 const error = ref("")
@@ -32,27 +48,38 @@ const controllerApproved = ref(false)
 const flowEpoch = ref(0)
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let provisioning = false
+let keeperDetailsRequest = 0
 
 const selectedWorkspaces = () => eligibleWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
 const selectedKeeper = () => displayedKeepers.value.find(keeper => keeper.personId === selectedKeeperId.value)
 const pendingPairing = () => pairing.value && ["pairing", "approved", "provisioning"].includes(status.value)
 
 async function openKeeper(personId: string) {
+  const request = ++keeperDetailsRequest
   retainedKeeper.value = displayedKeepers.value.find(keeper => keeper.personId === personId) ?? null
   selectedKeeperId.value = personId
   keeperDetails.value = null
   confirmRemoval.value = false
   removalError.value = ""
+  removalAddress.value = ""
+  removalDiscovery.value = null
+  removalPending.value = false
   showView("detail")
   try {
     const details = await keeperApi.keeperDetails(personId)
-    if (selectedKeeperId.value === personId && view.value === "detail") keeperDetails.value = details
+    if (request === keeperDetailsRequest && selectedKeeperId.value === personId && view.value === "detail") {
+      keeperDetails.value = details
+      removalPending.value = details?.removalPending === true
+      confirmRemoval.value = removalPending.value
+      if (!removalAddress.value.trim()) removalAddress.value = details?.origin ?? ""
+    }
   } catch {
-    if (selectedKeeperId.value === personId && view.value === "detail") keeperDetails.value = null
+    if (request === keeperDetailsRequest && selectedKeeperId.value === personId && view.value === "detail") keeperDetails.value = null
   }
 }
 
 function showView(next: "list" | "form" | "detail") {
+  if (next !== "detail") keeperDetailsRequest += 1
   if (next === "list") confirmRemoval.value = false
   view.value = next
   emit("viewChange", next)
@@ -63,7 +90,15 @@ async function removeSelectedKeeper() {
   removingKeeper.value = true
   removalError.value = ""
   try {
-    await props.removeKeeper(selectedKeeperId.value)
+    const result = await props.removeKeeper(selectedKeeperId.value, removalDiscovery.value ?? undefined,
+      selectedKeeper()?.deviceList.map(device => device.deviceId) ?? [])
+    if (result === "pending") {
+      removalPending.value = true
+      return
+    }
+    const removedPersonId = selectedKeeperId.value
+    pendingIntegrationKeepers.value = pendingIntegrationKeepers.value
+      .filter(keeper => keeper.personId !== removedPersonId)
     selectedKeeperId.value = ""
     retainedKeeper.value = null
     keeperDetails.value = null
@@ -71,8 +106,34 @@ async function removeSelectedKeeper() {
     showView("list")
   } catch (cause) {
     removalError.value = cause instanceof Error ? cause.message : "Could not remove keeper"
+    removalPending.value = true
   } finally {
     removingKeeper.value = false
+  }
+}
+
+async function verifyRemovalService() {
+  const keeper = selectedKeeper()
+  if (!keeper) return
+  verifyingRemoval.value = true
+  removalError.value = ""
+  try {
+    const discovery = await keeperApi.discover(removalAddress.value)
+    if (discovery.personId !== keeper.personId || !keeper.deviceList.some(device => device.deviceId === discovery.deviceId)) {
+      throw new Error("This address points to a different keeper identity.")
+    }
+    const status = await keeperApi.integrationStatus(discovery)
+    const matchingIntegration = status.integrations.find(integration =>
+      !keeperDetails.value?.integrationId || integration.integrationId === keeperDetails.value.integrationId)
+    if (!matchingIntegration || (matchingIntegration.scopes.length === 0 && !matchingIntegration.pendingOperation
+      && !matchingIntegration.tombstones.some(tombstone => tombstone.state === "removed" && tombstone.cleanup === "complete"))) {
+      throw new Error("Rusty has no active integration for this identity.")
+    }
+    removalDiscovery.value = discovery
+  } catch (cause) {
+    removalError.value = cause instanceof Error ? cause.message : "Could not verify Rusty identity."
+  } finally {
+    verifyingRemoval.value = false
   }
 }
 
@@ -87,6 +148,8 @@ function resetFlow() {
   provisioning = false
   selectedKeeperId.value = ""
   keeperDetails.value = null
+  removalDiscovery.value = null
+  removalPending.value = false
   clearTimeout(pollTimer)
 }
 
@@ -118,7 +181,16 @@ async function requestPairing() {
   error.value = ""
   status.value = "creating"
   try {
-    const created = await keeperApi.beginPairing(currentDiscovery, selectedWorkspaces(), futureBoards.value)
+    const baselineWorkspaces = await keeperApi.eligibleWorkspaces(props.ownedWorkspaces)
+    const selected = selectedWorkspaces()
+    const baselineIds = baselineWorkspaces.map(workspace => workspace.id)
+    if (selected.some(workspace => !baselineIds.includes(workspace.id))) {
+      throw new Error("A selected board changed before approval. Discover Rusty again and choose current boards.")
+    }
+    const created = await keeperApi.beginPairing(currentDiscovery, selected, {
+      futureBoards: futureBoards.value,
+      futureBoardBaselineIds: baselineIds,
+    })
     if (epoch !== flowEpoch.value) return
     pairing.value = created
     status.value = "pairing"
@@ -213,6 +285,42 @@ function startAddKeeper() {
   showView("form")
 }
 
+async function loadPendingIntegrationKeepers() {
+  pendingIntegrationLoadError.value = ""
+  try {
+    const { integrations } = await keeperIntegrationReferences()
+    pendingIntegrationKeepers.value = Object.values(integrations)
+      .filter(reference => reference.state === "removing" || Boolean(reference.pendingRemoval))
+      .map((reference): MeshMemberView => ({
+        personId: reference.servicePersonId,
+        name: "Rusty keeper",
+        role: "editor",
+        online: false,
+        reconnecting: false,
+        onlineDevices: 0,
+        devices: 1,
+        self: false,
+        pendingRemoval: true,
+        deviceList: [{
+          deviceId: reference.serviceDeviceId,
+          name: "Rusty",
+          online: false,
+          reconnecting: false,
+          lastSeen: reference.verifiedAt,
+          userAgent: "mesh-lighthouse/1.0.0",
+          description: "Rusty",
+          tabs: 1,
+        }],
+      }))
+  } catch (cause) {
+    pendingIntegrationKeepers.value = []
+    pendingIntegrationLoadError.value = cause instanceof Error ? cause.message : "Could not load saved keeper status."
+  } finally {
+    pendingIntegrationsLoaded.value = true
+  }
+}
+
+onMounted(() => { void loadPendingIntegrationKeepers() })
 onBeforeUnmount(() => clearTimeout(pollTimer))
 </script>
 
@@ -223,7 +331,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
       <div v-if="displayedKeepers.length" class="keeper-list" role="list" aria-label="Keeper services">
         <button v-for="keeper in displayedKeepers" :key="keeper.personId" class="keeper-row" type="button" @click="openKeeper(keeper.personId)">
           <span class="keeper-dot" :data-state="keeper.online ? 'online' : keeper.reconnecting ? 'reconnecting' : 'offline'" aria-hidden="true"></span>
-          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small>Keeper · {{ keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
+          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small>Keeper · {{ keeper.pendingRemoval ? 'Removal pending' : keeper.online ? 'Connected' : keeper.reconnecting ? 'Reconnecting' : 'Offline' }}</small></span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
@@ -234,7 +342,11 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <span aria-hidden="true">›</span>
         </button>
       </div>
-      <p v-if="!displayedKeepers.length" class="keeper-empty">No keepers connected to this board.</p>
+      <div v-if="pendingIntegrationLoadError" class="sync-error" role="alert" aria-label="Keeper integrations unavailable">
+        <p>Saved keeper status could not be loaded: {{ pendingIntegrationLoadError }}</p>
+        <button class="button" type="button" @click="loadPendingIntegrationKeepers">Retry loading keeper status</button>
+      </div>
+      <p v-else-if="pendingIntegrationsLoaded && !displayedKeepers.length" class="keeper-empty">No keepers connected to this board.</p>
       <button class="button button-primary keeper-add" type="button" :disabled="Boolean(pendingPairing())" @click="startAddKeeper"><RustyMark compact aria-hidden="true" />Add keeper</button>
     </template>
 
@@ -295,13 +407,24 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <ul v-if="keeperDetails" class="keeper-devices"><li v-for="board in ownedWorkspaces.filter(workspace => keeperDetails?.boardIds.includes(workspace.id))" :key="board.id">{{ board.title }}</li></ul>
         <ul class="keeper-devices"><li v-for="device in selectedKeeper()!.deviceList" :key="device.deviceId"><RustyMark compact :online="device.online" :reconnecting="device.reconnecting" />{{ keeperDisplayName(device.name) }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
         <div v-if="removeKeeper" class="keeper-removal">
-          <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
+          <template v-if="!keeperDetails?.integrationId && !removalDiscovery">
+            <label class="pairing-paste">
+              <span>Rusty address</span>
+              <input v-model="removalAddress" type="url" autocomplete="url" placeholder="https://rusty.example" aria-label="Rusty address" />
+            </label>
+            <button class="button button-primary" type="button" :disabled="verifyingRemoval || !removalAddress.trim()" @click="verifyRemovalService">{{ verifyingRemoval ? 'Verifying Rusty…' : 'Verify Rusty' }}</button>
+          </template>
           <template v-else>
-            <p class="dialog-copy">Remove access from all owned boards?</p>
-            <div class="dialog-actions">
-              <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : 'Remove access from all boards' }}</button>
-              <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
-            </div>
+            <p v-if="removalDiscovery" class="keeper-summary">Verified Rusty identity <code>{{ removalDiscovery.personId }}</code></p>
+            <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
+            <template v-else>
+              <p class="dialog-copy">{{ removalPending ? "Removal is still pending Rusty confirmation." : "Remove access from all boards still owned by this identity?" }}</p>
+              <p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">Removal is not confirmed. Retry checks local access and Rusty status.</p>
+              <div class="dialog-actions">
+                <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove access from all boards' }}</button>
+                <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
+              </div>
+            </template>
           </template>
           <p v-if="removalError" class="sync-error" role="alert">{{ removalError }}</p>
         </div>

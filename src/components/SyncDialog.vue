@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import RustyMark from "./RustyMark.vue"
 import { keeperDisplayName, isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
+import type { LighthouseDiscovery } from "../sync/lighthouseDiscovery"
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
 import KeeperDiscovery from "./KeeperDiscovery.vue"
@@ -27,7 +28,7 @@ const props = defineProps<{
   availableWorkspaces?: { id: string; title: string }[]
   keeperOwnedWorkspaces?: { id: string; title: string }[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
-  removeKeeper?: (personId: string) => Promise<void>
+  removeKeeper?: (personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
   meshMembers?: MeshMemberView[]

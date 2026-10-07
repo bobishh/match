@@ -41,6 +41,30 @@ export type PersonalRootDocumentV1 = {
   displayNamePreset?: string
   devices: Record<DeviceId, RegisteredDevice>
   workspaces: Record<WorkspaceId, WorkspaceReference>
+  keeperIntegrations?: Record<string, KeeperIntegrationReference>
+}
+
+/** Public, service-signed locator and policy cache; Rusty status remains authoritative. */
+export type KeeperIntegrationReference = {
+  integrationId: string
+  serviceOrigin: string
+  servicePersonId: PersonId
+  serviceDeviceId: DeviceId
+  servicePublicKey: string
+  serviceCertificates: DeviceCertificate[]
+  workspaceIds: WorkspaceId[]
+  scopeReceipts?: Array<{ workspaceId: WorkspaceId; grantEpoch: number; activationOperationId: string }>
+  futureBoards: boolean
+  /** Owner scopes present before this integration was approved; never auto-offer these later. */
+  futureBoardBaselineIds?: WorkspaceId[]
+  revision: number
+  state: "active" | "removing" | "removed"
+  verifiedAt: IsoTime
+  pendingRemoval?: {
+    operationId: string
+    expectedRevision: number
+    scopes: Array<{ workspaceId: WorkspaceId; expectedGrantEpoch: number }>
+  }
 }
 
 export type TransactionMetadataV1 = {
