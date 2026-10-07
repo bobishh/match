@@ -13,3 +13,12 @@
 - [x] 3.1 Pass happy-path and pending/failure browser scenarios with isolated browsers.
 - [x] 3.2 Verify deterministic fixtures, invalid-ID fallback, accessible labels, and unchanged existing chat behavior.
 - [x] 3.3 Run relevant type/lint/build checks and strict OpenSpec validation.
+
+## 4. Custom photo profiles
+- [x] 4.1 Add real-route crop, save, reload, invalid-image, and persistence-failure BDD before UI integration.
+- [x] 4.2 Encode bounded metadata-free 128 × 128 WebP/JPEG output and expose crop cancel/error behavior.
+- [x] 4.3 Store avatar bytes and timestamp together in per-person Automerge profile entity; support removal.
+- [x] 4.4 Enforce own-profile-only changes from verified signed person ID, including visitor grants.
+- [x] 4.5 Render shared profile photos in settings, participant lists, and workspace chat with deterministic fallback.
+- [ ] 4.6 Pass custom-avatar real-route happy path and failure/retry browser scenarios, including peer projection.
+- [ ] 4.7 Pass profile command, visitor security, merge-preservation, type, lint, and OpenSpec checks.

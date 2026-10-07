@@ -20,7 +20,7 @@ export async function executeCommand(
 ): Promise<ExecuteResult> {
   const transactionId = crypto.randomUUID()
   const beforeHeads = Automerge.getHeads(doc).sort()
-  const prepared = prepareCommand(doc, command, new Date().toISOString(), beforeHeads)
+  const prepared = prepareCommand(doc, command, new Date().toISOString(), beforeHeads, profile.identity.personId)
   if (!prepared.ok) return prepared
   const metadata = commandMetadata(transactionId, command.kind, prepared.value.changedEntityIds, profile, authorityGrantHash)
   const newDoc = Automerge.change(Automerge.clone(doc), { message: JSON.stringify(metadata) }, draft => prepared.value.apply(draft))

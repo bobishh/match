@@ -116,7 +116,7 @@ describe("workspace settings transaction", () => {
     expect(board.archiveColumnId).toBeTruthy()
     expect(archive.title).toBe("Archive")
     expect(archive).not.toHaveProperty("archive")
-    expect(archive.collapsible).toBe(true)
+    expect(archive.collapsible).toBeUndefined()
   })
 
   it("stores declarative priority rules in the board CRDT and rejects dangling criteria", async () => {

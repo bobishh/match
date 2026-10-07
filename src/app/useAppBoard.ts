@@ -2,7 +2,7 @@ import { computed, nextTick, watch } from "vue"
 import type { useAppCore } from "./useAppCore"
 import { useBoardDragController } from "./useBoardDrag"
 import { activeFilterCount, defaultBoardFilters, matchesItemFilters } from "../filters"
-import { isArchiveColumn, isItemArchived } from "../domain/archive"
+import { effectiveColumnStatus, isArchiveColumn, isItemArchived } from "../domain/archive"
 import { projectEntityHistory } from "../domain/history"
 import { isItem, type AttachedDocument, type Item } from "../domain/model"
 import type { LeadStatus } from "../types"
@@ -32,7 +32,9 @@ function useBoardPresentation(core: AppBoardContext) {
   const addItemLabel = computed(() => `+ Add ${entityName.value}`)
   const columnStatus = (columnId: string): LeadStatus | null => {
     const bindings = tincanban.activeBoard.value?.preset?.bindings
-    return bindings ? (Object.entries(bindings).find(([, id]) => id === columnId)?.[0].replace("status.", "") as LeadStatus | undefined) ?? null : null
+    const status = bindings ? Object.entries(bindings).find(([, id]) => id === columnId)?.[0].replace("status.", "") as LeadStatus | undefined : undefined
+    const column = tincanban.genericColumns.value.find(candidate => candidate.id === columnId) ?? { id: columnId }
+    return (effectiveColumnStatus(column, tincanban.activeBoard.value ?? undefined, status) as LeadStatus | undefined) ?? null
   }
   const itemFormColumns = computed(() => tincanban.genericColumns.value.filter(column => !isArchiveColumn(column)).map(column => ({ ...column, formValue: tincanban.isBlankBoard.value ? column.id : columnStatus(column.id) ?? column.id })))
   const itemFormParentValue = computed(() => tincanban.isBlankBoard.value ? itemFormParentId.value : columnStatus(itemFormParentId.value) ?? itemFormParentId.value)

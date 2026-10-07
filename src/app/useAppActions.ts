@@ -8,7 +8,7 @@ import { exportWorkspaceBundleV2, readWorkspaceBundleV2, referenceBlobId, type B
 import { blobDescriptor, readStoredAttachment, writeStoredAttachment } from "../attachments"
 import type { BoardSchemaDraft } from "../domain/schema"
 import type { WorkspaceCreationDraft } from "../domain/seeds"
-import type { WorkspaceSettingsDraft } from "../domain/workspaceSettings"
+import { projectWorkspaceSettings, type WorkspaceSettingsDraft } from "../domain/workspaceSettings"
 import { isArchiveColumn, isItemArchived } from "../domain/archive"
 import { isInlineNarrativeNote, type NarrativeNoteSource } from "../domain/narrative"
 import type { NarrativeFoldSources } from "../domain/commandTypes"
@@ -155,6 +155,7 @@ async function moveItemToColumn(core: ReturnType<typeof useAppCore>, item: Item,
 function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>) {
   const itemInsertion = ref<{ columnId: string; beforeId: string } | null>(null)
   const newBoardColumnArchive = ref(false)
+  const newBoardColumnCollapsible = ref(false)
   const addingBoardColumn = ref(false)
   const addBoardColumnError = ref("")
   const openBoardItem = (item: Item) => { if (!core.tincanban.isBlankBoard.value && board.leadForItem(item)) core.selectedLeadId.value = item.id; else handleOpenItem(item) }
@@ -182,16 +183,17 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
   const handleAddSubitem = (parentItemId: string) => { core.itemFormParentId.value = parentItemId; core.itemFormError.value = ""; core.showItemForm.value = true }
   const handleStartMove = (item: Item) => { core.itemToMove.value = item; core.showMoveDialog.value = true }
   const handleConfirmMove = (newParentId: string) => confirmMove(core, newParentId)
-  const handleRenameColumn = (newTitle: string, collapsible: boolean) => renameColumn(core, newTitle, collapsible)
+  const handleRenameColumn = (newTitle: string, collapsible: boolean, archive: boolean) => renameColumn(core, newTitle, collapsible, archive)
   const handleArchiveColumn = () => archiveColumn(core)
   const addBoardColumn = async () => {
     if (addingBoardColumn.value || !core.newBoardColumnTitle.value.trim()) return
     addingBoardColumn.value = true
     addBoardColumnError.value = ""
     try {
-      await addColumn(core, core.newBoardColumnTitle.value, newBoardColumnArchive.value)
+      await addColumn(core, core.newBoardColumnTitle.value, newBoardColumnArchive.value, newBoardColumnCollapsible.value)
       core.newBoardColumnTitle.value = ""
       newBoardColumnArchive.value = false
+      newBoardColumnCollapsible.value = false
     } catch (error) { addBoardColumnError.value = messageFrom(error) }
     finally { addingBoardColumn.value = false }
   }
@@ -199,7 +201,7 @@ function useBoardActions(core: ReturnType<typeof useAppCore>, board: ReturnType<
     newBoardColumnArchive.value = checked
     if (checked && !core.newBoardColumnTitle.value.trim()) core.newBoardColumnTitle.value = "Archive"
   }
-  return { openBoardItem, closeDetail, openAddItem, handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings, handleArchiveItem, handleRestoreItem, undoArchive, handleOpenItem, handleOpenItemEdit, handleAddSubitem, handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, addingBoardColumn, addBoardColumnError, selectArchiveColumn }
+  return { openBoardItem, closeDetail, openAddItem, handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings, handleArchiveItem, handleRestoreItem, undoArchive, handleOpenItem, handleOpenItemEdit, handleAddSubitem, handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, newBoardColumnCollapsible, addingBoardColumn, addBoardColumnError, selectArchiveColumn }
 }
 
 type ItemSavePayload = { title: string; body: string; parentId?: string; values: Record<string, FieldValue>; foldSnapshot?: NarrativeFoldSources }
@@ -335,11 +337,23 @@ async function confirmMove(core: ReturnType<typeof useAppCore>, newParentId: str
   core.notice.value = "Item moved"
 }
 
-async function renameColumn(core: ReturnType<typeof useAppCore>, title: string, collapsible: boolean) {
+async function renameColumn(core: ReturnType<typeof useAppCore>, title: string, collapsible: boolean, archive: boolean) {
   if (!core.editingColumn.value) return
-  await core.tincanban.executeCommandAsync({ kind: "renameEntity", entityId: core.editingColumn.value.id, title, collapsible })
+  const doc = core.tincanban.getActiveDoc()
+  const board = core.tincanban.activeBoard.value
+  if (!doc || !board) return
+  const settings = projectWorkspaceSettings(doc, board.id)
+  const target = settings.board.columns.find(column => column.id === core.editingColumn.value?.id)
+  if (!target) return
+  target.title = title
+  target.collapsible = collapsible
+  if (archive) {
+    settings.board.columns.forEach(column => { if (column.id !== target.id) delete column.archive })
+    target.archive = true
+  } else delete target.archive
+  if (!await applyWorkspaceSettings(core, { settings, expectedHeads: Automerge.getHeads(doc) })) return
   core.editingColumn.value = null
-  core.notice.value = "Column renamed"
+  core.notice.value = "Column settings updated"
 }
 
 async function archiveColumn(core: ReturnType<typeof useAppCore>) {
@@ -349,9 +363,9 @@ async function archiveColumn(core: ReturnType<typeof useAppCore>) {
   core.notice.value = "Column removed"
 }
 
-async function addColumn(core: ReturnType<typeof useAppCore>, title: string, archive: boolean) {
+async function addColumn(core: ReturnType<typeof useAppCore>, title: string, archive: boolean, collapsible: boolean) {
   if (!title.trim() || !core.tincanban.activeBoard.value) return
-  await core.tincanban.executeCommandAsync({ kind: "createColumn", boardId: core.tincanban.activeBoard.value.id, title: title.trim(), ...(archive ? { archive: true as const } : {}) })
+  await core.tincanban.executeCommandAsync({ kind: "createColumn", boardId: core.tincanban.activeBoard.value.id, title: title.trim(), ...(archive ? { archive: true as const } : {}), collapsible })
   core.notice.value = `Column "${title.trim()}" created`
 }
 

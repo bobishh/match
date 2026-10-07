@@ -9,13 +9,9 @@ import {
 } from "./domain/permissions";
 import {
   bootstrapIdentity,
-  sha256Base64Url,
   type LocalProfile,
 } from "./domain/identity";
-import {
-  createPersonalRoot,
-  reconcilePersonalRootWorkspaces,
-} from "./domain/personalRoot";
+import { initializePersonalRootCatalog, registerWorkspaceInCurrentRoot } from "./statePersonalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
 import { needsWorkspaceStateMigration } from "./domain/workspaceMigration";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
@@ -123,7 +119,7 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
     updateReactiveState(doc);
     await refreshCausalReview(storage, doc.id);
     console.info("[tincanban.startup] hydrate", "personal-root")
-    await initializePersonalRoot(storage, profile);
+    await initializePersonalRootCatalog(storage, profile);
     applyInjectedFixture(updateReactiveState);
     console.info("[tincanban.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
@@ -202,9 +198,9 @@ async function commitAuthorizedCommand(
 ): Promise<Automerge.Doc<WorkspaceDocumentV2>> {
   await assertWorkspaceWritesAllowed(doc.id);
   const role = await workspaceRole(doc, profile);
-  ensureContentWrite(role);
+  if (command.kind !== "setMemberAvatar") ensureContentWrite(role)
   assertWorkspaceCommand(role, doc, command);
-  const authorityGrantHash = await localChangeAuthorityGrantHash(doc.id, profile.identity.personId);
+  const authorityGrantHash = await localChangeAuthorityGrantHash(doc.id, profile.identity.personId, command.kind === "setMemberAvatar");
   const result = await executeCommand(doc, command, profile, undefined, authorityGrantHash);
   if (!result.ok)
     throw new Error(
@@ -295,11 +291,20 @@ export async function refreshAvailableWorkspaces(
   storage = defaultStorage,
 ): Promise<void> {
   const catalog = await storage.listWorkspaceCatalog();
-  stateRuntime.availableWorkspaces.value = catalog.available;
-  stateRuntime.archivedWorkspaces.value = catalog.archived;
+  const root = await storage.loadPersonalRoot();
+  const profile = stateRuntime.currentProfile;
+  const entitled = root && profile?.identity.personId === root.identity.personId
+    ? new Set(Object.values(root.workspaces ?? {}).filter(reference => !reference.forgotten).map(reference => reference.workspaceId))
+    : root ? new Set<string>() : undefined;
+  stateRuntime.availableWorkspaces.value = entitled
+    ? catalog.available.filter(workspace => entitled.has(workspace.id))
+    : catalog.available;
+  stateRuntime.archivedWorkspaces.value = entitled
+    ? catalog.archived.filter(workspace => entitled.has(workspace.id))
+    : catalog.archived;
   const meta = stateRuntime.activeWorkspaceMeta;
   if (
-    meta.id && !stateRuntime.activeDoc?.archivedAt &&
+    meta.id && !stateRuntime.activeDoc?.archivedAt && (!entitled || entitled.has(meta.id)) &&
     !stateRuntime.availableWorkspaces.value.some(
       (workspace) => workspace.id === meta.id,
     )
@@ -339,9 +344,16 @@ async function loadPreferredWorkspace(
   storage: WorkspaceStorage,
   initialId: string,
 ) {
-  const preferred = await storage.loadWorkspaceDoc(initialId);
+  const root = await storage.loadPersonalRoot();
+  const entitledIds = root
+    ? new Set(Object.values(root.workspaces ?? {}).filter(reference => !reference.forgotten).map(reference => reference.workspaceId))
+    : undefined;
+  const preferred = !entitledIds || entitledIds.has(initialId)
+    ? await storage.loadWorkspaceDoc(initialId)
+    : null;
   if (preferred && !preferred.doc.archivedAt) return preferred;
-  const fallback = initialId === "default" ? null : await storage.loadWorkspaceDoc("default");
+  const fallback = initialId === "default" || (entitledIds && !entitledIds.has("default"))
+    ? null : await storage.loadWorkspaceDoc("default");
   return fallback && !fallback.doc.archivedAt ? fallback : null;
 }
 
@@ -350,7 +362,11 @@ async function initializeFirstWorkspace(
   profile: LocalProfile,
 ) {
   const initialize = async () => {
-    const existing = await storage.listWorkspaces();
+    const catalogRoot = await storage.loadPersonalRoot();
+    const entitledIds = catalogRoot
+      ? new Set(Object.values(catalogRoot.workspaces ?? {}).filter(reference => !reference.forgotten).map(reference => reference.workspaceId))
+      : undefined;
+    const existing = (await storage.listWorkspaces()).filter(workspace => !entitledIds || entitledIds.has(workspace.id));
     const first = existing[0];
     if (first) return (await storage.loadWorkspaceDoc(first.id))?.doc ?? null;
     const workspaceId = crypto.randomUUID();
@@ -360,33 +376,13 @@ async function initializeFirstWorkspace(
     await recordGenesisAuthority(doc, profile);
     await storage.saveSnapshot(workspaceId, doc, Automerge.save(doc));
     await storage.registerWorkspace(workspaceId, "Untitled");
+    await registerWorkspaceInCurrentRoot(storage, profile, workspaceId, "genesis");
     await writeLocal("tincanban.active_workspace_id", workspaceId);
     return doc;
   };
   return typeof navigator !== "undefined" && navigator.locks
     ? navigator.locks.request("tincanban-first-workspace", initialize)
     : initialize();
-}
-
-async function initializePersonalRoot(
-  storage: WorkspaceStorage,
-  profile: LocalProfile,
-): Promise<void> {
-  let root = await storage.loadPersonalRoot();
-  if (!root) {
-    const certificate = new TextEncoder().encode(
-      JSON.stringify(profile.certificate),
-    );
-    root = createPersonalRoot(profile, await sha256Base64Url(certificate));
-    await storage.savePersonalRoot(root);
-  }
-  const newlyAdded = reconcilePersonalRootWorkspaces(
-    root,
-    await storage.listWorkspaces(),
-  );
-  const nameChanged = root.identity.personId === profile.identity.personId && root.identity.displayName !== profile.identity.displayName;
-  if (nameChanged) root.identity.displayName = profile.identity.displayName;
-  if (newlyAdded.length > 0 || nameChanged) await storage.savePersonalRoot(root);
 }
 
 function startPendingWrite(): void {

@@ -114,7 +114,7 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
 }
 
 /** Immutable grant identity embedded in each newly authored editor change. */
-export async function localChangeAuthorityGrantHash(workspaceId: string, personId: string): Promise<string | undefined> {
+export async function localChangeAuthorityGrantHash(workspaceId: string, personId: string, allowVisitorProfile = false): Promise<string | undefined> {
   if (typeof indexedDB === "undefined") return undefined
   const stored = await storedWorkspaceAuthority(workspaceId)
   const authority = stored.authority
@@ -123,8 +123,8 @@ export async function localChangeAuthorityGrantHash(workspaceId: string, personI
   if (authority.ownerPersonId === personId) return undefined
   const grant = authority.localGrant as WorkspaceGrant | undefined
   if (!grant || grant.payload.workspaceId !== workspaceId || grant.payload.personId !== personId ||
-    grant.payload.role !== "editor") {
-    throw new Error("Workspace editor grant is unavailable")
+    (grant.payload.role !== "editor" && !(allowVisitorProfile && grant.payload.role === "visitor"))) {
+    throw new Error(allowVisitorProfile ? "Workspace profile grant is unavailable" : "Workspace editor grant is unavailable")
   }
   return sha256Base64Url(new TextEncoder().encode(canonicalizeJson(grant)))
 }

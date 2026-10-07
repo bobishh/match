@@ -6,6 +6,7 @@ import type { useObjectConversations } from "../app/useObjectConversations"
 
 defineProps<{
   workspaceId: string; workspaceTitle: string; readOnly: boolean; canView: boolean; connected: boolean
+  memberAvatars?: Record<string, string>
   chat: ReturnType<typeof useWorkspaceChat>; conversations: ReturnType<typeof useObjectConversations>
 }>()
 const emit = defineEmits<{ workspaces: []; chatClose: []; sourceDismiss: [] }>()
@@ -14,13 +15,13 @@ const emit = defineEmits<{ workspaces: []; chatClose: []; sourceDismiss: [] }>()
 <template>
     <WorkspaceChat v-if="chat.open.value" :key="workspaceId" :workspace-title="workspaceTitle"
       :read-only="readOnly" :workspace-id="workspaceId" :workspace-scope="conversations.scope.value" :field-titles="conversations.fieldTitles.value"
-      :members="chat.members.value" :reference-choices="conversations.referenceChoices.value" :send-message="chat.send" :target-id="conversations.linkedMessageId.value" :navigation-state="conversations.navigationState.value"
+      :members="chat.members.value" :member-avatars="memberAvatars" :reference-choices="conversations.referenceChoices.value" :send-message="chat.send" :target-id="conversations.linkedMessageId.value" :navigation-state="conversations.navigationState.value"
       :messages="canView ? chat.messages.value : []" :current-person-id="chat.personId.value" :sending="chat.sending.value"
       :error="chat.error.value" :loading="chat.loading.value" :connected="connected"
       :typing-people="chat.typingPeople.value"
       @close="emit('chatClose')" @send="chat.send" @typing="chat.setTyping" @reference="conversations.openReference" @read="chat.markVisible" @thread="conversations.openThread" />
     <WorkspaceChat v-for="view in conversations.currentDiscussions.value" :key="`${view.workspaceId}:${view.id}`" :workspace-id="view.workspaceId" :window-id="view.id" :title="view.title"
-      :workspace-title="workspaceTitle" :workspace-scope="conversations.scope.value" :initial-context="view.context" :reference-choices="conversations.referenceChoices.value" :field-titles="conversations.fieldTitles.value" :members="chat.members.value"
+      :workspace-title="workspaceTitle" :workspace-scope="conversations.scope.value" :initial-context="view.context" :reference-choices="conversations.referenceChoices.value" :field-titles="conversations.fieldTitles.value" :members="chat.members.value" :member-avatars="memberAvatars"
       :messages="canView ? conversations.messages(view) : []" :all-messages="canView ? chat.messages.value : []" :current-person-id="chat.personId.value" :sending="chat.sending.value" :error="chat.error.value" :loading="chat.loading.value"
       :connected="connected" :typing-people="chat.typingPeople.value" :read-only="readOnly" :send-message="chat.send" :target-id="view.targetId"
       @close="conversations.close(view)" @reference="conversations.openReference" @read="chat.markVisible" @typing="chat.setTyping" @thread="conversations.openThread" />

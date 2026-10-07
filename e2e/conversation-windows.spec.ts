@@ -1,7 +1,7 @@
 import { discussObject } from "./support/discussions"
 import { expect, test, type Page } from "./support/coverage"
 
-async function openGenericItem(page: Page) {
+async function createGenericItem(page: Page) {
   await page.goto("/")
   await page.getByRole("button", { name: "Open workspaces" }).click()
   await page.getByRole("button", { name: "New workspace" }).click()
@@ -16,7 +16,11 @@ async function openGenericItem(page: Page) {
   await form.getByLabel("Body", { exact: true }).fill("Inspect this description")
   await form.getByRole("button", { name: "Save item", exact: true }).click()
   await expect(form).toBeHidden()
-  await page.getByRole("button", { name: "Open Window source", exact: true }).focus()
+  return page.getByRole("button", { name: "Open Window source", exact: true })
+}
+
+async function openGenericItem(page: Page) {
+  await (await createGenericItem(page)).focus()
   await page.keyboard.press("Enter")
   return page.getByRole("dialog", { name: "Item overview", exact: true })
 }
@@ -65,7 +69,7 @@ test("Given overlapping windows, when cycling focus and opening Settings then bo
   const discussion = page.getByRole("dialog", { name: /^Discussion/ })
   await discussion.locator(".spatial-titlebar").focus()
   await page.keyboard.press("Alt+Backquote")
-  await expect(item).toBeFocused()
+  await expect.poll(() => item.evaluate(element => element.contains(document.activeElement))).toBe(true)
   const itemZ = await item.evaluate(el => Number(getComputedStyle(el).zIndex))
   const discussionZ = await discussion.evaluate(el => Number(getComputedStyle(el).zIndex))
   expect(itemZ).toBeGreaterThan(discussionZ)

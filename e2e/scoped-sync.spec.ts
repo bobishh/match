@@ -46,6 +46,13 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.goto(inviteLink)
       const secondDialog = secondPage.getByRole("dialog", { name: "Device sync" })
       await expect(secondDialog.getByRole("heading", { name: "Add your device" })).toBeVisible()
+      const guestBootstrapId = await secondPage.evaluate(async () => {
+        const { whenReady } = await import("/src/statePersistence.ts")
+        const { useTincanban } = await import("/src/state.ts")
+        await whenReady()
+        return useTincanban().activeWorkspace.id
+      })
+      expect(guestBootstrapId).toBeTruthy()
 
       // Target device starts pairing and enters waiting approval state
       await secondDialog.getByRole("button", { name: "Add this device" }).waitFor({ state: "visible" })
@@ -54,6 +61,16 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await expect(secondDialog.getByText("Waiting for approval")).toBeVisible()
 
       await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toHaveCount(0)
+      const beforeApproval = await secondPage.evaluate(async () => {
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().availableWorkspaces.value.map(workspace => workspace.id)
+      })
+      expect(beforeApproval).toContain(guestBootstrapId)
+      const hostWorkspaceId = await page.evaluate(async () => {
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().activeWorkspace.id
+      })
+      expect(beforeApproval).not.toContain(hostWorkspaceId)
       await expect(hostDialog.getByLabel("Participant role")).toHaveCount(0)
 
       // Both devices show the matching authentication code
@@ -75,11 +92,32 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await hostDialog.getByRole("button", { name: "Close", exact: true }).first().click()
       await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toBeVisible()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
+      const afterApproval = await secondPage.evaluate(async () => {
+        const { useTincanban } = await import("/src/state.ts")
+        return {
+          activeId: useTincanban().activeWorkspace.id,
+          availableIds: useTincanban().availableWorkspaces.value.map(workspace => workspace.id),
+        }
+      })
+      expect(afterApproval.activeId).toBe(hostWorkspaceId)
+      expect(afterApproval.availableIds).toContain(hostWorkspaceId)
+      expect(afterApproval.availableIds).not.toContain(guestBootstrapId)
+      const oldDocumentPreserved = await secondPage.evaluate(async (oldId: string) => {
+        const { defaultStorage } = await import("/src/storage.ts")
+        return Boolean(await defaultStorage.loadWorkspaceDoc(oldId))
+      }, guestBootstrapId)
+      expect(oldDocumentPreserved).toBe(true)
       const identity = async (target: Page) => (await profile(target)).identity.personId
       expect(await identity(secondPage)).toBe(await identity(page))
       await secondPage.reload()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
       await expect(secondPage.getByRole("button", { name: "Open Enrollment proof — Engineer" })).toBeVisible()
+      const afterReloadIds = await secondPage.evaluate(async () => {
+        const { useTincanban } = await import("/src/state.ts")
+        return useTincanban().availableWorkspaces.value.map(workspace => workspace.id)
+      })
+      expect(afterReloadIds).toContain(hostWorkspaceId)
+      expect(afterReloadIds).not.toContain(guestBootstrapId)
       await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 60_000 })
       await expect(page.getByLabel("Mesh connected")).toBeVisible({ timeout: 60_000 })
       await secondPage.getByRole("button", { name: /Add lead to/ }).first().click()

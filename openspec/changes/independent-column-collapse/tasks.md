@@ -15,5 +15,5 @@
 
 - `npm run quality`, `npm run test:coverage`, `npm run quality:size`, `npm audit --audit-level=moderate`, and `npm run verify:policy` pass. Coverage: 101 files; 916 passed, 1 skipped; all thresholds pass.
 - Focused corrected Playwright cases pass, including filtered-board 7/7 and performance/recovery 7/7. Earlier full core run reported 226 passed and 33 failed; all 33 failures later passed in focused corrected runs. No fresh full-core aggregate recorded.
-- Bounded TLC scenarios pass: 14/14.
+- Bounded TLC scenarios pass: 15/15, including identity catalog scope.
 - `git diff --check` passes. No remote CI run or deployment performed.

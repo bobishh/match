@@ -117,15 +117,26 @@ it.runIf(process.env.TINCANBAN_PROOF_BENCHMARK === "1")("benchmarks complete TS/
 }, 180_000)
 it("rejects visitor writes even with a valid device signature and owner-issued visitor grant", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
-  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).rejects.toThrow(/Visitors/)
+  const admission = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [record]))
+  const status = admission.decisions.find(decision => decision.hash === record.signed.payload.hashes[0])?.status
+  expect(status?.type).toBe("quarantined")
+  expect(status?.type === "quarantined" ? status.reason : "").toMatch(/own avatar profile/)
   expect(() => assertWorkspaceTransition("visitor", local, remote)).toThrow(/Visitors/)
+})
+
+it("admits a visitor's signed change only for their own avatar profile", async () => {
+  const { local, remote, record } = await fixture(() => ({ kind: "setMemberAvatar", avatarData: "data:image/webp;base64,UklGRhYAAABXRUJQVlA4WAoAAAAAAAAAfwAAfwAA" }), "visitor")
+  await expect(validateIncomingChanges(local, remote, authorizationBundle(local, [record]))).resolves.toBeUndefined()
+  expect(() => assertWorkspaceTransition("visitor", local, remote, owner.identity.personId))
+    .toThrow("A participant may change only their own profile")
 })
 
 it("defaults an omitted optional departures list before calling Rust", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
   const bundle = authorizationBundle(local, [record])
   delete (bundle.authority as any).departures
-  await expect(validateIncomingChanges(local, remote, bundle)).rejects.toThrow(/Visitors/)
+  const admission = await evaluateIncomingWorkspaceAdmission(local, remote, bundle)
+  expect(admission.decisions.some(decision => decision.status.type === "quarantined")).toBe(true)
 })
 
 it("Given divergent durable branches, metadata admission retains dependency coverage and rejects missing parent proof", async () => {

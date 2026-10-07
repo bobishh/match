@@ -8,6 +8,11 @@ flapping, stalls, or history/export growth is fixed. `ItemTransitions` checks it
 placement/workflow pairing, independent column collapse, archive/restore workflow
 preservation, failed publish silence, and idempotent single archive-column
 reference under finite interleavings.
+`IdentityCatalog` models identity replacement as switching to the new identity's
+explicit personal-root entitlement set: old local document bytes remain, old-only
+catalog entries disappear, and invited/shared refs remain visible. Ownership is
+fixed and never inferred from peer count or offline status. This finite model does
+not verify signatures, IndexedDB, or enrollment transport implementation.
 
 ## Run
 
@@ -42,6 +47,8 @@ TLC 2.19, official release 1.7.4, Java 26.0.1, 2026-09-28.
 Expected counterexamples are successful regression checks, not passing
 invariants. Their state counts stop at a counterexample; passing checks explore
 the entire reachable finite graph. No symmetry or state constraints used.
+IdentityCatalog explores 6 generated / 2 distinct states for its finite identity,
+workspace, ownership, and entitlement abstraction.
 
 | Configuration | Result | Generated / distinct states |
 | --- | --- | ---: |
@@ -59,6 +66,7 @@ the entire reachable finite graph. No symmetry or state constraints used.
 | TransportEarlyAck | AckDurable violated | 9 / 6 |
 | TransportConnection | ConnectionImpliesCoverage violated | 2 / 2 |
 | ItemTransitions | Safety holds | 2257 / 360 |
+| IdentityCatalog | Safety holds | 6 / 2 |
 
 ## Interpretation and code mapping
 

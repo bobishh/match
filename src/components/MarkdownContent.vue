@@ -33,6 +33,7 @@ function stopTaskClick(event: MouseEvent) {
 
 <style>
 .markdown-content.markdown-content { min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.55; }
+.detail-copy.markdown-content { width: 100%; max-inline-size: min(70ch, 100%); }
 .markdown-content > :first-child { margin-top: 0; }
 .markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content p, .markdown-content ul, .markdown-content ol, .markdown-content blockquote { margin: .6em 0; }

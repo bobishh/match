@@ -77,7 +77,7 @@ test("Given board setup loses its response, when signed status confirms durable 
     expect(request.signed.payload.body.transcriptHash).toBe(transcriptHash)
     expect(request.signed.payload.body.servicePersonId).toBe(keeper.identity.personId)
     expect(request.signed.payload.body.invitation.kind).toBe("workspace-join")
-    expect(request.signed.payload.body.invitation.role).toBe("visitor")
+    expect(request.signed.payload.body.invitation.role).toBe("editor")
     approvedWorkspaceIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
     expect(request.signed.payload.body.approvedScopes.every(scope => scope.mode === "replicate")).toBe(true)
     expect(approvedWorkspaceIds).toEqual(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id))

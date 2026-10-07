@@ -1,5 +1,7 @@
 import { expect, test } from "./support/coverage"
 
+type StorageFailureWindow = Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }
+
 async function createBlankBoard(page: import("@playwright/test").Page) {
   await page.goto("/")
   await page.getByRole("button", { name: "Open workspaces" }).click()
@@ -16,6 +18,7 @@ test("Given a blank board, when Archive column is enabled and item archived, the
   const archiveOption = page.getByRole("checkbox", { name: "Archive column" })
   await expect(archiveOption).toBeEnabled()
   await archiveOption.check()
+  await page.getByRole("checkbox", { name: "Allow this column to collapse" }).check()
   await expect(page.getByRole("textbox", { name: "New column" })).toHaveValue("Archive")
   await page.getByRole("button", { name: "+ Add column" }).click()
   await expect(archiveOption).toBeDisabled()
@@ -38,7 +41,7 @@ test("Given a blank board, when Archive column is enabled and item archived, the
 test("Given archive column save fails, when checked column is added, then draft remains and board has no Archive", async ({ page }) => {
   await createBlankBoard(page)
   await page.getByRole("button", { name: "Edit board" }).click()
-  await page.evaluate(() => { (window as any).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
+  await page.evaluate(() => { (window as StorageFailureWindow).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   await page.getByRole("checkbox", { name: "Archive column" }).check()
   await page.getByRole("button", { name: "+ Add column" }).click()
   await expect(page.getByRole("checkbox", { name: "Archive column" })).toBeChecked()
@@ -58,6 +61,7 @@ test("Given item archived before Archive column exists, when column is enabled, 
 
   await page.getByRole("button", { name: "Edit board" }).click()
   await page.getByRole("checkbox", { name: "Archive column" }).check()
+  await page.getByRole("checkbox", { name: "Allow this column to collapse" }).check()
   await page.getByRole("button", { name: "+ Add column" }).click()
   await page.getByRole("button", { name: "Done" }).click()
   await page.getByRole("button", { name: "Open Archive with 1 cards" }).click()

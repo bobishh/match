@@ -5,6 +5,7 @@ import type { CommandContext, CommandHandler, PreparedCommand } from "./commandH
 import * as basic from "./commandBasicHandlers"
 import * as content from "./commandContentHandlers"
 import * as schema from "./commandSchemaHandlers"
+import * as profile from "./commandProfileHandlers"
 import { planWorkspaceMigration } from "./workspaceMigration"
 
 const handlers = {
@@ -32,9 +33,10 @@ const handlers = {
   patchFieldOption: content.patchFieldOption,
   updateBoardSchema: schema.updateBoardSchema,
   updateWorkspaceSettings: schema.updateWorkspaceSettings,
+  setMemberAvatar: profile.setMemberAvatar,
 } satisfies { [K in Command["kind"]]: CommandHandler<K> }
 
-export function prepareCommand(doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command, nowIso: string, beforeHeads: Heads): PreparedCommand {
+export function prepareCommand(doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command, nowIso: string, beforeHeads: Heads, actorPersonId?: string): PreparedCommand {
   const handler = handlers[command.kind] as CommandHandler<Command["kind"]>
-  return handler(doc, command, { nowIso, beforeHeads } as CommandContext)
+  return handler(doc, command, { nowIso, beforeHeads, actorPersonId } as CommandContext)
 }

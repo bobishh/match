@@ -1,10 +1,10 @@
 import type { Board, CardAgingPolicy, Column, FieldDefinition, PriorityPolicy, WorkspaceDocumentV2 } from "./model"
-import { getChildren, compareRanks } from "./ancestry"
+import { getAncestryPath, getChildren, compareRanks } from "./ancestry"
 import { isArchiveColumn } from "./archive"
 import { isItemArchived } from "./archive"
 import { cardAgingPolicySchema, priorityPolicySchema } from "./entitySchemas"
 import { validatePriorityPolicy } from "./priority"
-import { entityKind, isItem } from "./model"
+import { entityKind, hasEntityKind, isItem } from "./model"
 import { cardStageButtons, type CardStageButton } from "./cardStageButtons"
 
 type BoardSchemaColumn = { id?: string; title: string; archive?: true; collapsible?: boolean }
@@ -54,8 +54,34 @@ export function validateBoardSchemaDraft(draft: unknown, doc?: WorkspaceDocument
   const errors: SchemaValidationError[] = []
   requiredText(draft.boardTitle, "/boardTitle", "Board title is required", errors)
   requiredText(draft.entityName, "/entityName", "Entity name is required", errors)
-  validateColumns(draft.columns, errors); validateCardStageButtons(draft.cardStageButtons, draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
+  validateColumns(draft.columns, errors)
+  validateArchiveRoleRemoval(draft, doc, errors)
+  validateArchiveColumnContents(draft.columns, doc, errors)
+  validateCardStageButtons(draft.cardStageButtons, draft.columns, errors); validateFields(draft.fields, errors); validatePolicy(draft, doc, errors); validateAgingPolicy(draft, errors)
   return { valid: errors.length === 0, errors }
+}
+
+function validateArchiveRoleRemoval(draft: Record<string, unknown>, doc: WorkspaceDocumentV2 | undefined, errors: SchemaValidationError[]): void {
+  if (!doc || !Array.isArray(draft.columns) || draft.columns.some(entry => record(entry) && entry.archive === true)) return
+  const boardId = draft.boardId
+  if (typeof boardId !== "string") return
+  const hasArchivedItems = Object.values(doc.entities).some(entity => isItem(entity) && isItemArchived(entity) && getAncestryPath(doc.entities, entity.id).path.includes(boardId))
+  if (hasArchivedItems) errors.push({ path: "/columns", message: "Archive role cannot be removed while archived items exist" })
+}
+
+function validateArchiveColumnContents(columns: unknown, doc: WorkspaceDocumentV2 | undefined, errors: SchemaValidationError[]): void {
+  if (!doc || !Array.isArray(columns)) return
+  const index = columns.findIndex(entry => record(entry) && entry.archive === true)
+  const entry: unknown = columns[index]
+  if (index < 0 || !record(entry) || typeof entry.id !== "string") return
+  const column = doc.entities[entry.id]
+  if (!hasEntityKind(column, "column")) return
+  const boardId = column.placement.parentId
+  if (!boardId) return
+  const board = doc.entities[boardId]
+  if (hasEntityKind(board, "board") && isArchiveColumn(column, board)) return
+  const hasActiveItems = Object.values(doc.entities).some(entity => isItem(entity) && !isItemArchived(entity) && getAncestryPath(doc.entities, entity.id).path.includes(column.id))
+  if (hasActiveItems) errors.push({ path: `/columns/${index}/archive`, message: "Archive role cannot hide active items" })
 }
 function validateAgingPolicy(draft: Record<string, unknown>, errors: SchemaValidationError[]): void {
   if (draft.cardAgingPolicy === undefined) return

@@ -9,6 +9,7 @@ Participants currently appear primarily as names. A stable visual identity makes
 - Reuse the same component in mention completion and object conversations when those surfaces are delivered.
 - Keep identity, authorization, and presence separate from avatar appearance.
 - Preserve author clarity when grouping consecutive messages and when profiles are missing.
+- Let each participant crop and share a small custom photo through a per-person Automerge profile record.
 
 ## Capabilities
 
@@ -20,4 +21,4 @@ Participants currently appear primarily as names. A stable visual identity makes
 
 ## Impact
 
-Shared avatar component, chat author presentation, participant settings, and isolated browser tests. Default avatars need no new signed profile fields, replicated records, network requests, or storage migrations. Custom image upload, avatar editing, and card participant/assignee/presence indicators are deferred; those indicators require explicit product semantics.
+Shared avatar component, chat author presentation, participant settings, an owned profile command, bounded crop encoding, and isolated browser tests. Custom photo bytes live inline in the workspace CRDT; no remote blob store is added. Card participant/assignee/presence indicators remain deferred until product semantics exist.

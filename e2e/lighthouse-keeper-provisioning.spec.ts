@@ -179,6 +179,8 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
     await page.route(serviceOrigin + "/v1/pairings/*/provision", async route => {
       const requestBody = route.request().postData() ?? undefined
+      const request = JSON.parse(requestBody ?? "{}") as { signed?: { payload?: { body?: { invitation?: { role?: string } } } } }
+      expect(request.signed?.payload?.body?.invitation?.role).toBe("editor")
       if (!droppedResponse) bodyForRetry = requestBody
       else if (!ownerBProvisionBody) ownerBProvisionBody = requestBody
       let response

@@ -1,5 +1,6 @@
-import { entityKind, isItem, type WorkspaceDocumentV2 } from "./model"
+import { entityKind, hasEntityKind, isItem, type WorkspaceDocumentV2 } from "./model"
 import { canonicalizeJson } from "./identity"
+import { isMemberProfileData, memberProfileEntityId } from "./avatarData"
 import type { Command } from "./commandTypes"
 
 export type WorkspaceRole = "owner" | "editor" | "visitor"
@@ -77,6 +78,7 @@ const commandCapabilities: Record<Command["kind"], WorkspaceCapability | "entity
   recordArtifact: "content.write",
   updateBoardSchema: "board.configure",
   updateWorkspaceSettings: "board.configure",
+  setMemberAvatar: "chat.profile",
 }
 
 function entityCapability(entity: WorkspaceDocumentV2["entities"][string] | undefined): WorkspaceCapability {
@@ -85,15 +87,65 @@ function entityCapability(entity: WorkspaceDocumentV2["entities"][string] | unde
     : "board.configure"
 }
 
-export function assertWorkspaceTransition(role: WorkspaceRole, before: WorkspaceDocumentV2, after: WorkspaceDocumentV2) {
-  if (role === "visitor") assertWorkspaceCapability(role, "content.write")
-  const { entities: beforeEntities, title: beforeTitle, ...beforeRoot } = before
-  const { entities: afterEntities, title: afterTitle, ...afterRoot } = after
+export function assertWorkspaceTransition(role: WorkspaceRole, before: WorkspaceDocumentV2, after: WorkspaceDocumentV2, actorPersonId?: string) {
+  const { entities: rawBeforeEntities, title: beforeTitle, ...beforeRoot } = before
+  const { entities: rawAfterEntities, title: afterTitle, ...afterRoot } = after
+  // The first Automerge change has an empty dependency view. Legacy and
+  // partially hydrated documents can also lack the root map until migration.
+  const beforeEntities = rawBeforeEntities ?? {}
+  const afterEntities = rawAfterEntities ?? {}
   assertRootChanges(role, beforeTitle, afterTitle, beforeRoot, afterRoot)
-  for (const id of new Set([...Object.keys(beforeEntities), ...Object.keys(afterEntities)])) {
+  assertWorkspaceEntityTransitions(role, beforeEntities, afterEntities, new Set([...Object.keys(beforeEntities), ...Object.keys(afterEntities)]), actorPersonId)
+}
+
+export function assertWorkspaceRootTransition(role: WorkspaceRole, changedRootKeys: ReadonlySet<string>): void {
+  if (changedRootKeys.has("title")) assertWorkspaceCapability(role, "workspace.rename")
+  if ([...changedRootKeys].some(key => key !== "title" && key !== "entities")) assertWorkspaceCapability(role, "board.configure")
+}
+
+export function assertWorkspaceEntityTransitions(
+  role: WorkspaceRole,
+  beforeEntities: WorkspaceDocumentV2["entities"],
+  afterEntities: WorkspaceDocumentV2["entities"],
+  changedEntityIds: ReadonlySet<string>,
+  actorPersonId?: string,
+): void {
+  for (const id of changedEntityIds) {
     const a = beforeEntities[id], b = afterEntities[id]
     if (canonicalizeJson(a ?? null) === canonicalizeJson(b ?? null)) continue
+    if (id.startsWith("member-profile:") || hasEntityKind(a, "member_profile") || hasEntityKind(b, "member_profile")) {
+      assertMemberProfileTransition(role, a, b, actorPersonId)
+      continue
+    }
     assertEntityTransition(role, a, b, afterEntities)
+  }
+}
+
+function assertMemberProfileTransition(role: WorkspaceRole, before: WorkspaceDocumentV2["entities"][string] | undefined,
+  after: WorkspaceDocumentV2["entities"][string] | undefined, actorPersonId?: string): void {
+  const beforeProfile = hasEntityKind(before, "member_profile") ? before : undefined
+  const afterProfile = hasEntityKind(after, "member_profile") ? after : undefined
+  const profile = afterProfile ?? beforeProfile
+  if (!profile) throw new Error("A participant may change only their own profile")
+  assertProfileActor(profile, actorPersonId)
+  if (before && !beforeProfile) throw new Error("Profile record cannot replace another entity")
+  if (after && !afterProfile) throw new Error("Profile record cannot be replaced by another entity")
+  if (beforeProfile && afterProfile) assertMemberProfileUpdate(beforeProfile, afterProfile)
+  if (afterProfile && !isMemberProfileData(afterProfile.data)) throw new Error("Profile avatar data is invalid")
+  assertWorkspaceCapability(role, "chat.profile")
+}
+
+function assertProfileActor(profile: Extract<WorkspaceDocumentV2["entities"][string], { kind: "member_profile" }>, actorPersonId?: string): void {
+  if (!actorPersonId || profile.personId !== actorPersonId || profile.id !== memberProfileEntityId(actorPersonId)) {
+    throw new Error("A participant may change only their own profile")
+  }
+}
+
+function assertMemberProfileUpdate(before: Extract<WorkspaceDocumentV2["entities"][string], { kind: "member_profile" }>,
+  after: Extract<WorkspaceDocumentV2["entities"][string], { kind: "member_profile" }>): void {
+  const stable = (value: typeof before) => Object.fromEntries(Object.entries(value).filter(([key]) => key !== "data" && key !== "updatedAt"))
+  if (canonicalizeJson(stable(before)) !== canonicalizeJson(stable(after)) || before.data === after.data || !isMemberProfileData(after.data)) {
+    throw new Error("Profile updates may change only valid avatar data")
   }
 }
 

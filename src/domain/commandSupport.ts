@@ -65,7 +65,7 @@ function applyColumns(draft: WorkspaceDocumentV2, boardId: string, schema: Board
     const id = column.id || `col-${crypto.randomUUID()}`
     ids.add(id)
     if (column.archive === true) archiveColumnId = id
-    const collapsible = column.collapsible ?? (column.archive === true ? true : undefined)
+    const collapsible = column.collapsible
     const target = draft.entities[id]
     if (hasEntityKind(target, "column")) updateColumn(target, column.title, collapsible, index, nowIso)
     else draft.entities[id] = createColumn(id, boardId, column.title, collapsible, index, nowIso)

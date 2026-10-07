@@ -543,7 +543,7 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     const createdColumn = queue.getDocument().entities[created.value.receipt.changedEntityIds[0] ?? ""]
     if (!hasEntityKind(createdBoard, "board") || !hasEntityKind(createdColumn, "column")) throw new Error("Expected board and column")
     expect(createdBoard.archiveColumnId).toBe(createdColumn.id)
-    expect(createdColumn.collapsible).toBe(true)
+    expect(createdColumn.collapsible).toBeUndefined()
     expect(await queue.transact({ kind: "createColumn", boardId, title: "Duplicate", archive: true }))
       .toMatchObject({ ok: false, error: { code: "invalid_input", field: "archive" } })
   })

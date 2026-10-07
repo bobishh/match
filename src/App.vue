@@ -13,10 +13,8 @@ import TincanbanHeading from "./components/TincanbanHeading.vue"
 import BrandCan from "./components/BrandCan.vue"
 import BoardDragOverlay from "./components/BoardDragOverlay.vue"
 import LeadFilters from "./components/LeadFilters.vue"
-import SpatialWindow from "./components/SpatialWindow.vue"
 import { useObjectConversations } from "./app/useObjectConversations"
 import ObjectConversationLayer from "./components/ObjectConversationLayer.vue"
-import ItemDetailDialog from "./components/ItemDetailDialog.vue"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
 import QuickNoteForm from "./components/QuickNoteForm.vue"
@@ -27,26 +25,18 @@ import CausalChangeReview from "./components/CausalChangeReview.vue"
 import { LazyItemDocuments as ItemDocuments } from "./app/lazyItemDocuments"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
-import { defineAsyncComponent, ref, type Component } from "vue"
+import { ref } from "vue"
 import type { NarrativeFoldSources } from "./domain/commandTypes"
 import { createNarrativeEditHandler } from "./app/narrativeEditor"
 import { useColumnCollapse } from "./app/useColumnCollapse"
 import { useAppViewState } from "./app/useAppViewState"
-
-const IdentityRecoveryDialog = defineAsyncComponent(() => import("./components/IdentityRecoveryDialog.vue"))
-const IdentitySettingsPanel = defineAsyncComponent(() => import("./components/IdentitySettingsPanel.vue"))
-const WorkspacesDialog = defineAsyncComponent(() => import("./components/WorkspacesDialog.vue"))
-const ColumnDialog = defineAsyncComponent(() => import("./components/ColumnDialog.vue"))
-const WorkspaceFileActions = defineAsyncComponent(() => import("./components/WorkspaceFileActions.vue"))
-const SchemaEditorDialog = defineAsyncComponent(() => import("./components/SchemaEditorDialog.vue"))
-const MoveItemDialog = defineAsyncComponent<Component>(() => import("./components/MoveItemDialog.vue"))
-const WorkspaceParticipants = defineAsyncComponent<Component>(() => import("./components/WorkspaceParticipants.vue"))
+import { useMemberAvatars } from "./app/useMemberAvatars"
+import { ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, WorkspaceFileActions, WorkspaceParticipants, WorkspacesDialog } from "./app/lazyUiComponents"
 
 const app = useAppController()
 const { SyncDialog, reviewCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)
-const showIdentityRecovery = ref(false)
-const showSettings = ref(false)
+const [showIdentityRecovery, showSettings] = [ref(false), ref(false)]
 const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
 const stopSyncForIdentityRestore = () => app.collaboration.device.sync.shutdown()
 const restoredIdentity = () => window.location.reload()
@@ -89,7 +79,7 @@ const {
   handleSwitchWorkspace, handleRenameWorkspace, handleArchiveWorkspace, handleRestoreWorkspace, openAddItem,
   handleSaveItem, currentDocHeads, handleApplySchema, handleApplyWorkspaceSettings,
   handleArchiveItem, handleRestoreItem, undoArchive, handleOpenItemEdit, handleAddSubitem,
-  handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, addingBoardColumn, addBoardColumnError, selectArchiveColumn,
+  handleStartMove, handleConfirmMove, handleRenameColumn, handleArchiveColumn, addBoardColumn, newBoardColumnArchive, newBoardColumnCollapsible, addingBoardColumn, addBoardColumnError, selectArchiveColumn,
 } = app.actions
 
 const rejectionEditor = ref<InstanceType<typeof AutosaveTextarea>>()
@@ -102,6 +92,9 @@ async function editItem(item: Parameters<typeof editItemNow>[0]) { if (!rejectio
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
+const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.workspace.docVersion, getActiveDoc,
+  () => app.workspace.getCurrentProfile()?.identity.personId,
+  async avatarData => { await app.workspace.executeCommandAsync({ kind: "setMemberAvatar", avatarData }) })
 </script>
 
 <template>
@@ -258,7 +251,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
         </template>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
-      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(column => isArchiveColumn(column)) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
+      <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(column => isArchiveColumn(column)) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><label><input v-model="newBoardColumnCollapsible" type="checkbox" :disabled="addingBoardColumn" /> Allow this column to collapse</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
     </section>
 
     <BoardDragOverlay :controller="app.board" :filtered="hasFilters" />
@@ -268,7 +261,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       v-if="showWorkspaces"
       :workspaces="availableWorkspaces" :archived-workspaces="archivedWorkspaces"
       :active-workspace-id="activeWorkspace.id"
-      :read-owner="async id => (await app.workspace.readWorkspaceDoc(id)).ownerPersonId"
+      :read-owner="async (id: string) => (await app.workspace.readWorkspaceDoc(id)).ownerPersonId"
       :current-person-id="chat.personId.value" :current-identity-name="chat.displayName.value" :known-people="chat.members.value"
       :rename-workspace="handleRenameWorkspace" :archive-workspace="handleArchiveWorkspace" :restore-workspace="handleRestoreWorkspace"
       :create-workspace="handleCreateWorkspace"
@@ -283,6 +276,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       :column-id="editingColumn.id"
       :initial-title="editingColumn.title"
       :initial-collapsible="editingColumn.collapsible"
+      :initial-archive="isArchiveColumn(editingColumn, activeBoard ?? undefined)"
       @close="editingColumn = null"
       @save="handleRenameColumn"
       @archive="handleArchiveColumn"
@@ -303,11 +297,12 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       @apply-workspace-settings="applyWorkspaceSettings"
     >
       <template #identity>
-        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :save-name="name => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :avatar-data="currentAvatar" :save-avatar="saveAvatar" :save-name="(name: string) => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
       </template>
       <template #participants>
         <WorkspaceParticipants
           :members="chat.members.value" :current-person-id="chat.personId.value"
+          :member-avatars="memberAvatars"
           :current-identity-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''"
           :current-role="currentRole"
           :owner-person-id="currentWorkspaceOwnerId"
@@ -323,14 +318,14 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
     <ModalLayer v-else-if="showSettings" @close="showSettings = false">
       <section class="dialog" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="dialog-head"><div><span class="eyebrow">Identity</span><h2>Settings</h2></div><button class="icon-button" type="button" aria-label="Close" @click="showSettings = false">×</button></div>
-        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''"
-          :save-name="name => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :avatar-data="currentAvatar" :save-avatar="saveAvatar"
+          :save-name="(name: string) => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
       </section>
     </ModalLayer>
     <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
 
     <ObjectConversationLayer :workspace-id="activeWorkspace.id" :workspace-title="activeWorkspace.title" :chat="chat" :conversations="conversations"
-      :can-view="chatCanView" :read-only="!canEditItems" :connected="sync.isWorkspaceLive(activeWorkspace.id)" @workspaces="showWorkspaces = true" @chat-close="chat.open.value = false" @source-dismiss="conversations.sourceState.value = ''" />
+      :can-view="chatCanView" :read-only="!canEditItems" :connected="sync.isWorkspaceLive(activeWorkspace.id)" :member-avatars="memberAvatars" @workspaces="showWorkspaces = true" @chat-close="chat.open.value = false" @source-dismiss="conversations.sourceState.value = ''" />
     <aside v-if="chat.toast.value" class="chat-toast" role="status">
       <button class="button button-quiet" type="button" @click="chat.open.value = true">{{ chat.toast.value.text }}</button>
       <button class="icon-button" type="button" aria-label="Dismiss chat notification" @click="chat.toast.value = null">×</button>
@@ -360,7 +355,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       :subitems="subitemsForSelectedItem"
       :fields="boardFields"
       :documents="documentsFor(selectedItem.id)"
-      :save-document="document => saveItemDocument(selectedItem, document)"
+      :save-document="(document: Omit<DocumentInput, 'leadId'>) => saveItemDocument(selectedItem, document)"
       :update-document="updateDocumentMarkdown"
       :history="selectedItemHistory"
       :archive-error="archiveError"
@@ -419,7 +414,17 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
       <CardStageStrip v-if="selectedLeadItem" :item="selectedLeadItem" :columns="genericColumns" :buttons="cardStageButtons(activeBoard, genericColumns)" :read-only="!canEditItems" :move="moveCardToColumn" />
       <p v-if="archiveError" class="form-error" role="alert">{{ archiveError }}</p>
       <button v-if="archiveUndo && archiveUndo.workspaceId === activeWorkspace.id" class="button button-small" type="button" :disabled="undoSaving" @click="undoArchive">{{ undoSaving ? 'Restoring…' : 'Undo archive' }}</button>
-      <div class="detail-scroll">
+      <div class="detail-scroll detail-layout" data-detail-layout>
+        <div class="detail-primary" data-detail-primary role="region" aria-label="Lead description and documents">
+          <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><MarkdownContent class="detail-copy" data-discussion-text data-discussion-field="narrative" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
+          <section v-if="selectedLead.sourceText" class="detail-section"><span class="detail-label">Source snapshot</span><p class="source-snapshot" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.sourceText']">{{ selectedLead.sourceText }}</p></section>
+          <section class="detail-section artifacts-section"><div class="section-heading"><div><span class="detail-label">PDF artifacts</span><h3>{{ selectedArtifacts.length ? `${selectedArtifacts.length} attached` : "No generated PDFs" }}</h3></div><button class="button button-small" type="button" :disabled="!canEditItems" @click="showArtifactForm ? showArtifactForm = false : openArtifactForm()">+ PDF</button></div>
+            <form v-if="showArtifactForm" class="document-form" novalidate @submit.prevent="submitArtifact"><label><span>Kind</span><select v-model="artifactDraft.kind" @change="artifactDraft.templateId = ''"><option v-for="(label, kind) in artifactKindLabels" :key="kind" :value="kind">{{ label }}</option></select></label><label><span>Title</span><input v-model="artifactDraft.title" placeholder="Cleo CV" /></label><label><span>Base template</span><select v-model="artifactDraft.templateId"><option value="">Select template</option><option v-for="template in availableArtifactTemplates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label><label><span>PDF path</span><input v-model="artifactDraft.pdfPath" placeholder="/Users/…/cleo-cv.pdf" /></label><label><span>Generated Markdown path</span><input v-model="artifactDraft.sourceMarkdownPath" placeholder="/Users/…/cleo-cv.md" /></label><p v-if="artifactError" class="form-error" role="alert">{{ artifactError }}</p><button class="button button-primary" type="submit">Attach PDF</button></form>
+            <div v-for="artifact in selectedArtifacts" :key="artifact.id" class="document-row"><span class="document-icon">{{ artifact.kind === "cv" ? "CV" : "CL" }}</span><div><strong>{{ artifact.title }}</strong><span>{{ artifactKindLabels[artifact.kind] }} · from template</span></div><a :href="`file://${artifact.pdfPath}`" class="open-path" title="Open PDF">Open PDF</a></div>
+          </section>
+          <ItemDocuments v-if="selectedLeadItem" :documents="selectedDocuments" :read-only="!canEditItems" :save="saveSelectedLeadDocument" :update="updateDocumentMarkdown" />
+        </div>
+        <aside class="detail-inspector" data-detail-inspector aria-label="Lead properties and actions">
         <div class="detail-grid" data-discussion-text data-discussion-field="overview">
           <div><span class="detail-label">Priority</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.priority']">{{ selectedLead.priority ? priorityLabels[selectedLead.priority] : "—" }}</strong></div>
           <div><span class="detail-label">Fit</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.fitScore']">{{ selectedLead.fitScore ?? "—" }}<small v-if="selectedLead.fitScore !== undefined">/10</small></strong></div>
@@ -427,7 +432,6 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
           <div><span class="detail-label">Work mode</span><strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.workMode']">{{ selectedLead.workMode || "—" }}</strong></div>
         </div>
         <a v-if="selectedLead.url" class="source-link" :href="selectedLead.url" target="_blank" rel="noreferrer">Open job source ↗</a>
-        <section v-if="selectedLeadItem && cardNotes(selectedLeadItem)" class="detail-section"><span class="detail-label">Description</span><MarkdownContent class="detail-copy" data-discussion-text data-discussion-field="narrative" :source="cardNotes(selectedLeadItem) || ''" :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(selectedLeadItem, $event)" /></section>
         <QuickNoteForm
           v-if="selectedLeadItem"
           v-model="quickNoteDraft"
@@ -436,7 +440,6 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
           :read-only="!canEditItems"
           @save="saveQuickNote(selectedLeadItem)"
         />
-        <section v-if="selectedLead.sourceText" class="detail-section"><span class="detail-label">Source snapshot</span><p class="source-snapshot" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.sourceText']">{{ selectedLead.sourceText }}</p></section>
         <section v-if="selectedLead.status === 'rejected' || selectedLead.rejectionReason" class="detail-section">
           <span class="detail-label">Rejection notes / retrospective</span>
           <AutosaveTextarea
@@ -444,18 +447,7 @@ const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
             :save="reason => handleUpdateRejectionReason(activeWorkspace.id, selectedLead!.id, reason)"
             placeholder="Optional rejection reason or retrospective note (what went wrong)…" label="Rejection notes" />
         </section>
-        <section class="detail-section artifacts-section"><div class="section-heading"><div><span class="detail-label">PDF artifacts</span><h3>{{ selectedArtifacts.length ? `${selectedArtifacts.length} attached` : "No generated PDFs" }}</h3></div><button class="button button-small" type="button" :disabled="!canEditItems" @click="showArtifactForm ? showArtifactForm = false : openArtifactForm()">+ PDF</button></div>
-          <form v-if="showArtifactForm" class="document-form" novalidate @submit.prevent="submitArtifact"><label><span>Kind</span><select v-model="artifactDraft.kind" @change="artifactDraft.templateId = ''"><option v-for="(label, kind) in artifactKindLabels" :key="kind" :value="kind">{{ label }}</option></select></label><label><span>Title</span><input v-model="artifactDraft.title" placeholder="Cleo CV" /></label><label><span>Base template</span><select v-model="artifactDraft.templateId"><option value="">Select template</option><option v-for="template in availableArtifactTemplates" :key="template.id" :value="template.id">{{ template.name }}</option></select></label><label><span>PDF path</span><input v-model="artifactDraft.pdfPath" placeholder="/Users/…/cleo-cv.pdf" /></label><label><span>Generated Markdown path</span><input v-model="artifactDraft.sourceMarkdownPath" placeholder="/Users/…/cleo-cv.md" /></label><p v-if="artifactError" class="form-error" role="alert">{{ artifactError }}</p><button class="button button-primary" type="submit">Attach PDF</button></form>
-          <div v-for="artifact in selectedArtifacts" :key="artifact.id" class="document-row"><span class="document-icon">{{ artifact.kind === "cv" ? "CV" : "CL" }}</span><div><strong>{{ artifact.title }}</strong><span>{{ artifactKindLabels[artifact.kind] }} · from template</span></div><a :href="`file://${artifact.pdfPath}`" class="open-path" title="Open PDF">Open PDF</a></div>
-        </section>
-
-        <ItemDocuments
-          v-if="selectedLeadItem"
-          :documents="selectedDocuments"
-          :read-only="!canEditItems"
-          :save="saveSelectedLeadDocument"
-          :update="updateDocumentMarkdown"
-        />
+        </aside>
       </div>
       </section>
     </SpatialWindow>

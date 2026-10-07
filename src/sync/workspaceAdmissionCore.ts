@@ -2,7 +2,7 @@ import * as Automerge from "@automerge/automerge/slim"
 import { canonicalizeJson } from "../domain/identity"
 import type { RustStateCore } from "@meta-uber/mesh-replication/runtime"
 import type { WorkspaceDocumentV2 } from "../domain/model"
-import { assertWorkspaceTransition } from "../domain/permissions"
+import { assertWorkspaceEntityTransitions, assertWorkspaceRootTransition, assertWorkspaceTransition } from "../domain/permissions"
 import type { WorkspaceAuthority, WorkspaceOwnershipTransfer, WorkspaceSuccessionClaim } from "./meshRecords"
 import type { WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
 
@@ -92,10 +92,20 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
     nowMs: input.now,
   }) as AdmissionPlan
   const changesByHash = new Map(Automerge.getChangesMetaSince(merged, []).map(change => [change.hash, change]))
+  const decodedChanges = Automerge.getAllChanges(merged).map(bytes => Automerge.decodeChange(bytes))
+  const operationsByHash = new Map(decodedChanges.map(decoded => [decoded.hash, decoded.ops]))
+  const objectParents = indexOperationParents(decodedChanges)
+  const actorByHash = new Map<string, string>()
+  for (const authorization of plan.verifiedAuthorizations) {
+    for (const hash of authorization.signed.payload.hashes) actorByHash.set(hash, authorization.signed.payload.personId)
+  }
   for (const decision of plan.decisions) {
-    if (decision.status.type !== "admitted" || decision.status.role !== "editor") continue
+    if (decision.status.type !== "admitted") continue
     const change = changesByHash.get(decision.hash)
-    if (change) assertWorkspaceTransition("editor", Automerge.view(merged, change.deps), Automerge.view(merged, [change.hash]))
+    if (change) {
+      const operations = operationsByHash.get(change.hash)
+      assertAdmittedTransition(merged, change, decision.status.role, actorByHash.get(change.hash), operations, objectParents)
+    }
   }
   const quarantinedHashes = plan.decisions.filter(decision => decision.status.type === "quarantined").map(decision => decision.hash)
   const pendingHashes = plan.decisions.filter(decision => decision.status.type === "pending").map(decision => decision.hash)
@@ -124,6 +134,101 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
     authorizationEvidence: verifiedAuthorizations,
     quarantinedHashes, pendingHashes,
     decisions: plan.decisions, authorizedDocument, authorizedHeads }
+}
+
+function assertAdmittedTransition(
+  document: Automerge.Doc<WorkspaceDocumentV2>,
+  change: ReturnType<typeof Automerge.getChangesMetaSince>[number],
+  role: "owner" | "editor" | "visitor",
+  actorPersonId: string | undefined,
+  operations: ReturnType<typeof Automerge.decodeChange>["ops"] | undefined,
+  objectParents: ReadonlyMap<string, { parentId: string; key: string }>,
+): void {
+  const touchedPaths = touchedPathsForChange(operations, objectParents)
+  if (touchedPaths) {
+    assertWorkspaceRootTransition(role, touchedPaths.rootKeys)
+    if (touchedPaths.entityIds.size === 0) return
+    const before = Automerge.view(document, change.deps)
+    const after = Automerge.view(document, [change.hash])
+    assertWorkspaceEntityTransitions(role, before.entities ?? {}, after.entities ?? {}, touchedPaths.entityIds, actorPersonId)
+    return
+  }
+  const patches = Automerge.diffPath(document, [], change.deps, [change.hash])
+  if (patches.length === 0) return assertFullTransition(document, change, role, actorPersonId)
+  const rootKeys = new Set<string>()
+  const entityIds = new Set<string>()
+  for (const patch of patches) {
+    const [rootKey, entityId] = patch.path
+    if (typeof rootKey !== "string") return assertFullTransition(document, change, role, actorPersonId)
+    if (rootKey !== "entities") { rootKeys.add(rootKey); continue }
+    // Replacing the whole map needs full validation. Keyed patches validate only
+    // entities named by the CRDT patch, including nested fields and deletions.
+    if (typeof entityId !== "string") return assertFullTransition(document, change, role, actorPersonId)
+    entityIds.add(entityId)
+  }
+  assertWorkspaceRootTransition(role, rootKeys)
+  if (entityIds.size === 0) return
+  const before = Automerge.view(document, change.deps)
+  const after = Automerge.view(document, [change.hash])
+  assertWorkspaceEntityTransitions(role, before.entities ?? {}, after.entities ?? {}, entityIds, actorPersonId)
+}
+
+export function touchedPathsForChange(
+  operations: ReturnType<typeof Automerge.decodeChange>["ops"] | undefined,
+  objectParents: ReadonlyMap<string, { parentId: string; key: string }>,
+): { rootKeys: Set<string>; entityIds: Set<string> } | undefined {
+  if (!operations?.length) return undefined
+  const rootKeys = new Set<string>()
+  const entityIds = new Set<string>()
+  for (const operation of operations) {
+    const path = operationObjectPath(operation.obj, objectParents)
+    if (!path) return undefined
+    if (path.length === 0) {
+      if (operation.key === "entities") return undefined
+      rootKeys.add(operation.key)
+    } else if (path[0] === "entities") {
+      entityIds.add(path.length === 1 ? operation.key : path[1]!)
+    } else {
+      rootKeys.add(path[0]!)
+    }
+  }
+  return { rootKeys, entityIds }
+}
+
+export function indexOperationParents(
+  decodedChanges: Iterable<ReturnType<typeof Automerge.decodeChange>>,
+): Map<string, { parentId: string; key: string }> {
+  const objectParents = new Map<string, { parentId: string; key: string }>()
+  for (const decoded of decodedChanges) {
+    for (const [index, operation] of decoded.ops.entries()) {
+      if (!operation.action.startsWith("make")) continue
+      const objectId = `${decoded.startOp + index}@${decoded.actor}`
+      objectParents.set(objectId, { parentId: operation.obj, key: operation.key })
+    }
+  }
+  return objectParents
+}
+
+function operationObjectPath(
+  objectId: string,
+  objectParents: ReadonlyMap<string, { parentId: string; key: string }>,
+): string[] | undefined {
+  if (objectId === "_root") return []
+  const link = objectParents.get(objectId)
+  if (!link) return undefined
+  const parentPath = operationObjectPath(link.parentId, objectParents)
+  return parentPath ? [...parentPath, link.key] : undefined
+}
+
+function assertFullTransition(
+  document: Automerge.Doc<WorkspaceDocumentV2>,
+  change: ReturnType<typeof Automerge.getChangesMetaSince>[number],
+  role: "owner" | "editor" | "visitor",
+  actorPersonId: string | undefined,
+): void {
+  const before = Automerge.view(document, change.deps)
+  const after = Automerge.view(document, [change.hash])
+  assertWorkspaceTransition(role, before, after, actorPersonId)
 }
 
 export type WorkspaceAdmissionRequest = { id: number; input: WorkspaceAdmissionInput }

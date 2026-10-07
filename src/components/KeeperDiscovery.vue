@@ -263,7 +263,7 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <div v-if="eligibleWorkspaces.length" class="sync-workspace-list">
           <label v-for="workspace in eligibleWorkspaces" :key="workspace.id" class="sync-checkbox-item">
             <input v-model="selectedWorkspaceIds" type="checkbox" :value="workspace.id" :aria-label="`Keeper board: ${workspace.title}`" :disabled="Boolean(pairing)" />
-            <span>{{ workspace.title }}<small class="sync-workspace-detail">Visitor access</small></span>
+            <span>{{ workspace.title }}<small class="sync-workspace-detail">Editor access</small></span>
           </label>
         </div>
         <p v-else class="dialog-copy">No eligible owned boards found.</p>

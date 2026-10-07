@@ -12,7 +12,7 @@ import {
   type BoardSchemaDraft,
 } from "./schema"
 import { executeCommand } from "./commands"
-import type { WorkspaceDocumentV2, FieldDefinition } from "./model"
+import type { WorkspaceDocumentV2, FieldDefinition, Item } from "./model"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -118,6 +118,58 @@ describe("Board Schema Projection, Validation and Atomic Diff (Gate E)", () => {
     expect(validateBoardSchemaDraft(draft)).toMatchObject({
       valid: false,
       errors: [{ path: `/columns/${archiveIndex}/archive`, message: "Only one archive column is allowed" }],
+    })
+  })
+
+  it("rejects moving Archive role onto a column with active items", () => {
+    const raw = createWorkspaceDoc("ws_archive_occupied", "Applications", profile.identity.personId, "job-search")
+    const doc = Automerge.from<WorkspaceDocumentV2>(raw)
+    const board = Object.values(doc.entities).find((entity) => hasEntityKind(entity, "board"))!
+    const draft = projectBoardSchema(doc, board.id)
+    const target = draft.columns.find(column => column.title === "Rejected")!
+    const active: Item = {
+      id: "active-rejected",
+      title: "Active card",
+      body: "",
+      values: {},
+      placement: { parentId: target.id!, rank: "0/1" },
+      createdAt: "2026-10-07T00:00:00.000Z",
+      updatedAt: "2026-10-07T00:00:00.000Z",
+      lifecycle: JSON.stringify({ state: "active", changedAt: "2026-10-07T00:00:00.000Z" }),
+    }
+    const withActive = Automerge.change(doc, mutable => { mutable.entities[active.id] = active })
+    const archive = draft.columns.find(column => column.archive)!
+    delete archive.archive
+    target.archive = true
+
+    expect(validateBoardSchemaDraft(draft, withActive)).toMatchObject({
+      valid: false,
+      errors: expect.arrayContaining([{ path: `/columns/${draft.columns.indexOf(target)}/archive`, message: "Archive role cannot hide active items" }]),
+    })
+  })
+
+  it("rejects removing the Archive role while archived items would become hidden", () => {
+    const raw = createWorkspaceDoc("ws_archive_removal", "Applications", profile.identity.personId, "job-search")
+    const doc = Automerge.from<WorkspaceDocumentV2>(raw)
+    const board = Object.values(doc.entities).find(entity => hasEntityKind(entity, "board"))!
+    const draft = projectBoardSchema(doc, board.id)
+    const lead = draft.columns.find(column => column.title === "Lead")!
+    const archived: Item = {
+      id: "archived-without-role",
+      title: "Keep archived",
+      body: "",
+      values: {},
+      placement: { parentId: lead.id!, rank: "0/1" },
+      createdAt: "2026-10-07T00:00:00.000Z",
+      updatedAt: "2026-10-07T00:00:00.000Z",
+      lifecycle: JSON.stringify({ state: "archived", changedAt: "2026-10-07T00:00:00.000Z" }),
+    }
+    const withArchived = Automerge.change(doc, mutable => { mutable.entities[archived.id] = archived })
+    delete draft.columns.find(column => column.archive)!.archive
+
+    expect(validateBoardSchemaDraft(draft, withArchived)).toMatchObject({
+      valid: false,
+      errors: expect.arrayContaining([{ path: "/columns", message: "Archive role cannot be removed while archived items exist" }]),
     })
   })
 

@@ -22,6 +22,7 @@ MODELS = [
     ("TransportEarlyAck", "DurableTransport", "Invariant AckDurable is violated"),
     ("TransportConnection", "DurableTransport", "Invariant ConnectionImpliesCoverage is violated"),
     ("ItemTransitions", "ItemTransitions", None),
+    ("IdentityCatalog", "IdentityCatalog", None),
 ]
 
 

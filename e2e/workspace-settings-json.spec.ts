@@ -49,7 +49,7 @@ test("Given a blank workspace, when invalid settings are repaired, then one appl
     await expect(dialog).toBeHidden()
 
     await expect(page.getByText("TINCANBAN // Reading")).toBeVisible()
-    await expect(page.getByRole("button", { name: "Open Cold storage with 0 cards" })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Cold storage", exact: true })).toBeVisible()
     await expect(page.getByRole("button", { name: "Add book to Unread" })).toBeVisible()
     await expect(page.getByRole("region", { name: "Unread" }).getByText("No books", { exact: true })).toBeVisible()
 
@@ -66,7 +66,7 @@ test("Given a blank workspace, when invalid settings are repaired, then one appl
 
   await test.step("Reload and verify archive, field, and template in their UI", async () => {
     await page.reload()
-    await expect(page.getByRole("button", { name: "Open Cold storage with 0 cards" })).toBeVisible()
+    await expect(page.getByRole("region", { name: "Cold storage", exact: true })).toBeVisible()
     await page.getByRole("button", { name: "Open The Left Hand of Darkness" }).click()
     const persistedItem = page.getByRole("dialog", { name: "Item overview" })
     await expect(persistedItem.getByText("Ursula K. Le Guin", { exact: true })).toBeVisible()

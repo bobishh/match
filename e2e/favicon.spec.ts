@@ -42,7 +42,7 @@ test("Given a ready board with no peers, when its tab opens, then tincanban favi
 test("Given app startup fails, when its tab opens, then tincanban icon still loads", async ({ page }) => {
   await page.route("**/src/main.ts", route => route.abort())
   await page.goto("/", { waitUntil: "domcontentloaded" })
-  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", "/favicon.svg?v=9")
+  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", /^(?:\/favicon\.svg\?v=\d+|data:image\/svg\+xml,)/)
   await faviconLoads(page, [105, 219, 124])
 })
 

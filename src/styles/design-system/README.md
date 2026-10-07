@@ -1,6 +1,6 @@
 # tincanban shared design system
 
-Match and Rusty import `index.css` in full. tincanban owns these modules; Rusty consumes a pinned tincanban revision. Do not copy styles into consumers. Font overrides are the only local styling exception for Rusty.
+Rusty imports `index.css` in full from a pinned tincanban revision. Match imports the shared modules directly and leaves out `keeper.css`, because Match has no `.keeper-admin` surface. tincanban owns these modules; do not copy styles into consumers. Font overrides are the only local styling exception for Rusty.
 
 - `tokens.css`: palette, spacing and sizes.
 - `reset.css`: box sizing, viewport bounds and reduced-motion behavior.

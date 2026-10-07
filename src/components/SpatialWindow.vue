@@ -111,7 +111,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", resizeViewport); if
 </template>
 
 <style scoped>
-.spatial-window { padding: 0; max-width: none; max-height: none; position: absolute; display: flex; flex-direction: column; pointer-events: auto; min-width: 0; min-height: 0; background: var(--panel, white); color: var(--ink, #171717); border: 2px solid var(--line, #171717); box-shadow: 6px 6px 0 var(--ink, #171717); overflow: hidden; }
+.spatial-window { container: detail-window / inline-size; padding: 0; max-width: none; max-height: none; position: absolute; display: flex; flex-direction: column; pointer-events: auto; min-width: 0; min-height: 0; background: var(--panel, white); color: var(--ink, #171717); border: 2px solid var(--line, #171717); box-shadow: 6px 6px 0 var(--ink, #171717); overflow: hidden; }
 .spatial-window:focus-within { border-color: var(--blue, #165be0); }
 .spatial-titlebar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex: none; padding: 8px 12px; min-height: 52px; border-bottom: 2px solid var(--line, #171717); background: var(--soft, #eee); touch-action: none; user-select: none; cursor: grab; }
 .spatial-heading { flex: 1; min-width: 0; padding-block: 6px; line-height: 1.5; overflow-wrap: anywhere; }
@@ -130,5 +130,19 @@ onBeforeUnmount(() => { window.removeEventListener("resize", resizeViewport); if
   }
   .spatial-titlebar { cursor: default; }
   .spatial-resize { display: none; }
+}
+</style>
+
+<style>
+.spatial-window .spatial-detail { width: 100%; height: 100%; max-height: none; padding: 18px; box-sizing: border-box; }
+.spatial-window .spatial-detail > .detail-layout { flex: 1; }
+.detail-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; min-width: 0; }
+.detail-primary, .detail-inspector { min-width: 0; }
+.detail-inspector { display: grid; align-content: start; gap: 22px; }
+@container detail-window (min-width: 920px) {
+  .detail-layout { grid-template-columns: minmax(0, 1.8fr) minmax(270px, .9fr); gap: 32px; align-items: start; }
+  .detail-primary { grid-column: 1; grid-row: 1; }
+  .detail-inspector { grid-column: 2; grid-row: 1; }
+  .detail-inspector { padding-left: 24px; border-left: 2px solid var(--line); }
 }
 </style>

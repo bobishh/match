@@ -1,5 +1,5 @@
 import { getAncestryPath } from "./ancestry"
-import { hasEntityKind, isItem, type Item, type WorkspaceDocumentV2, type WorkspaceEntity } from "./model"
+import { hasEntityKind, isItem, type Board, type Item, type WorkspaceDocumentV2, type WorkspaceEntity } from "./model"
 
 export type ItemLifecycle = { state: "active" | "archived"; changedAt: string }
 export type ItemWorkflow = { columnId: string; changedAt: string }
@@ -43,6 +43,10 @@ export type ArchiveColumnLike = {
 export function isArchiveColumn(column: ArchiveColumnLike, board?: { archiveColumnId?: string | null }): boolean {
   if (board && board.archiveColumnId !== undefined) return board.archiveColumnId === column.id
   return column.archive === true
+}
+
+export function effectiveColumnStatus<T extends string>(column: ArchiveColumnLike, board: Pick<Board, "archiveColumnId"> | undefined, status: T | undefined): T | undefined {
+  return status === "archived" && !isArchiveColumn(column, board) ? undefined : status
 }
 
 export function isArchiveColumnInWorkspace(column: ArchiveColumnLike & { placement?: { parentId?: string | null } }, entities: Record<string, unknown>): boolean {

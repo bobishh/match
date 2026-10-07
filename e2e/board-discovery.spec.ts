@@ -11,6 +11,7 @@ test("Given several boards, when searching discovery, then title, owner, filters
   await dialog.getByRole("searchbox", { name: "Search boards" }).fill("job")
   await expect(dialog.locator(".workspace-item")).toHaveCount(1)
   await expect(dialog.locator(".workspace-item").first()).toContainText("Owner:")
+  await expect.poll(async () => dialog.locator(".workspace-item small").first().textContent()).not.toContain("Owner unavailable")
   const ownerName = (await dialog.locator(".workspace-item small").first().textContent())?.replace("Owner:", "").trim() ?? ""
   await dialog.getByRole("searchbox", { name: "Search boards" }).fill(ownerName)
   await expect(dialog.locator(".workspace-item")).toHaveCount(2)

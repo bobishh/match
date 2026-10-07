@@ -1,0 +1,7 @@
+.board-drag-pending,
+.board-drag-pending *,
+.board-dragging,
+.board-dragging * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}

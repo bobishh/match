@@ -29,7 +29,8 @@ const props = withDefaults(
     initialContext?: MessageContext
     fieldTitles?: Record<string, string>
     referenceChoices?: readonly ReferenceChoice[]
-    members?: readonly {personId: string; name: string}[]
+  members?: readonly {personId: string; name: string}[]
+  memberAvatars?: Record<string, string>
     allMessages?: readonly ChatMessage[]
     targetId?: string
     navigationState?: string
@@ -323,7 +324,9 @@ function formatDisplayTime(createdAt: string): string {
   try {
     const d = new Date(createdAt)
     if (isNaN(d.getTime())) return createdAt
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    const date = d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    return `${date} · ${time}`
   } catch {
     return createdAt
   }
@@ -341,7 +344,7 @@ function formatDisplayTime(createdAt: string): string {
         <p v-else-if="!displayedMessages.length">No messages yet. Send a message to start chatting.</p>
         <article v-for="msg in displayedMessages" :key="msg.id" class="chat-message-item" :data-message-id="msg.id" tabindex="-1" :class="{ 'is-own': msg.personId === currentPersonId, 'is-reply': Boolean(msg.context?.replyTo), 'is-linked-message': msg.id === targetId }">
           <div class="chat-message-meta">
-            <ParticipantAvatar :person-id="msg.personId" />
+            <ParticipantAvatar :person-id="msg.personId" :avatar-data="memberAvatars?.[msg.personId]" />
             <strong class="chat-message-author">{{ msg.name || 'Anonymous' }}</strong>
             <span v-if="msg.personId === currentPersonId" class="chat-author-tag">(You)</span>
             <time class="chat-message-time" :datetime="msg.createdAt">{{ formatDisplayTime(msg.createdAt) }}</time>
@@ -380,7 +383,7 @@ function formatDisplayTime(createdAt: string): string {
         <details v-if="members?.length" class="mention-picker">
           <summary>Invite @participant</summary>
           <input v-model="mentionQuery" aria-label="Find participant" />
-          <button v-for="member in mentionChoices" :key="member.personId" class="button button-small" type="button" :disabled="context.mentions.length >= MAX_MENTIONS" @click="mention(member)"><ParticipantAvatar :person-id="member.personId" />{{ member.name }}</button>
+          <button v-for="member in mentionChoices" :key="member.personId" class="button button-small" type="button" :disabled="context.mentions.length >= MAX_MENTIONS" @click="mention(member)"><ParticipantAvatar :person-id="member.personId" :avatar-data="memberAvatars?.[member.personId]" />{{ member.name }}</button>
         </details>
         <form class="chat-composer-form" @submit.prevent="handleSubmit">
           <label :for="`message-${windowId ?? 'chat'}`" class="chat-composer-label">Message</label>

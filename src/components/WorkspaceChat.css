@@ -173,6 +173,7 @@
   margin-left: auto;
   font: 700 .8rem/1 var(--site-font-sans);
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .chat-message-pending {

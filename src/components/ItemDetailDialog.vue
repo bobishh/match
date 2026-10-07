@@ -63,40 +63,42 @@ const emit = defineEmits<{
 
       </template>
     <section class="detail-dialog" :data-discussion-item="item.id">
-      <div class="detail-scroll detail-content">
-        <CardStageStrip :item="item" :columns="columns" :buttons="cardStageButtons" :read-only="readOnly" :move="moveToColumn" />
-        <div v-if="narrative" class="detail-section">
-          <span class="detail-label">Description</span>
-          <MarkdownContent class="detail-copy" data-discussion-field="narrative" data-discussion-text :source="narrative" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
-        </div>
+      <div class="detail-scroll detail-layout" data-detail-layout>
+        <aside class="detail-inspector" data-detail-inspector aria-label="Item actions and properties">
+          <CardStageStrip :item="item" :columns="columns" :buttons="cardStageButtons" :read-only="readOnly" :move="moveToColumn" />
+          <QuickNoteForm
+            :model-value="quickNote"
+            :saving="noteSaving"
+            :error="noteError"
+            :read-only="readOnly"
+            @update:model-value="emit('update:quickNote', $event)"
+            @save="emit('saveNote')"
+          />
 
-        <QuickNoteForm
-          :model-value="quickNote"
-          :saving="noteSaving"
-          :error="noteError"
-          :read-only="readOnly"
-          @update:model-value="emit('update:quickNote', $event)"
-          @save="emit('saveNote')"
-        />
+          <div v-if="fields.length" class="detail-grid" data-discussion-text data-discussion-field="overview">
+            <template v-for="field in fields" :key="field.id">
+              <div v-if="item.values[field.id] !== undefined && item.values[field.id] !== null && item.values[field.id] !== ''">
+                <span class="detail-label">{{ field.title }}</span>
+                <strong v-if="field.valueType === 'select'" :data-discussion-field="field.id" data-discussion-text>
+                  {{ field.options[String(item.values[field.id])]?.title ?? item.values[field.id] }}
+                </strong>
+                <strong v-else :data-discussion-field="field.id" data-discussion-text>{{ String(item.values[field.id]) }}</strong>
+              </div>
+            </template>
+          </div>
+        </aside>
 
-        <ItemDocuments
-          :documents="documents"
-          :read-only="readOnly"
-          :save="saveDocument"
-          :update="updateDocument"
-        />
-
-        <div v-if="fields.length" class="detail-grid" data-discussion-text data-discussion-field="overview">
-          <template v-for="field in fields" :key="field.id">
-            <div v-if="item.values[field.id] !== undefined && item.values[field.id] !== null && item.values[field.id] !== ''">
-              <span class="detail-label">{{ field.title }}</span>
-              <strong v-if="field.valueType === 'select'" :data-discussion-field="field.id" data-discussion-text>
-                {{ field.options[String(item.values[field.id])]?.title ?? item.values[field.id] }}
-              </strong>
-              <strong v-else :data-discussion-field="field.id" data-discussion-text>{{ String(item.values[field.id]) }}</strong>
-            </div>
-          </template>
-        </div>
+        <div class="detail-primary" data-detail-primary role="region" aria-label="Item content">
+          <div v-if="narrative" class="detail-section">
+            <span class="detail-label">Description</span>
+            <MarkdownContent class="detail-copy" data-discussion-field="narrative" data-discussion-text :source="narrative" :editable-tasks="!readOnly" @task-toggle="emit('updateMarkdown', item, $event)" />
+          </div>
+          <ItemDocuments
+            :documents="documents"
+            :read-only="readOnly"
+            :save="saveDocument"
+            :update="updateDocument"
+          />
 
         <section class="detail-section detail-subsection">
           <div class="section-heading detail-section-head">
@@ -152,6 +154,7 @@ const emit = defineEmits<{
           <p v-else-if="restoreNotice" role="status" class="dialog-copy">{{ restoreNotice }}</p>
           <p v-if="restoreError" role="alert" class="form-error">{{ restoreError }}</p>
         </section>
+        </div>
       </div>
 
       <div class="dialog-actions dialog-actions-split">

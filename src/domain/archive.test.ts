@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { archivedItemsForBoard, isArchiveColumn, isArchiveColumnInWorkspace, isItemArchived, itemLifecycle, itemWorkflow, setItemLifecycle, setItemWorkflow, workflowColumnId } from "./archive"
+import { archivedItemsForBoard, effectiveColumnStatus, isArchiveColumn, isArchiveColumnInWorkspace, isItemArchived, itemLifecycle, itemWorkflow, setItemLifecycle, setItemWorkflow, workflowColumnId } from "./archive"
 import { createWorkspaceDoc } from "./seeds"
 import { validateWorkspaceDoc } from "./validation"
 import { hasEntityKind, type Item, type WorkspaceDocumentV2, type WorkspaceEntity } from "./model"
@@ -81,6 +81,14 @@ describe("item lifecycle and workflow records", () => {
     const workspace = { ...doc, entities: { ...doc.entities, [archived.id]: archived, [active.id]: active, [broken.id]: broken } } as WorkspaceDocumentV2
     expect(archivedItemsForBoard(workspace, board.id).map(value => value.id)).toEqual([archived.id])
     expect(workflowColumnId(workspace.entities, archived.id)).toBe(column.id)
+  })
+
+  it("does not let stale preset archived status transfer archive styling to an ordinary column", () => {
+    const formerArchive = { id: "former", archive: true as const }
+    expect(effectiveColumnStatus(formerArchive, { archiveColumnId: "current" }, "archived")).toBeUndefined()
+    expect(effectiveColumnStatus(formerArchive, { archiveColumnId: null }, "archived")).toBeUndefined()
+    expect(effectiveColumnStatus(formerArchive, { archiveColumnId: "former" }, "archived")).toBe("archived")
+    expect(effectiveColumnStatus({ id: "ordinary" }, { archiveColumnId: null }, "rejected")).toBe("rejected")
   })
 
   it("rejects malformed lifecycle and workflow transitions with field-specific errors", () => {

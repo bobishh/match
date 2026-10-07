@@ -81,3 +81,19 @@ export function reconcilePersonalRootWorkspaces(
   }
   return newlyRegistered
 }
+
+/** Remove old broad-catalog registrations that claimed genesis ownership under another identity. */
+export function pruneForeignGenesisWorkspaceRefs(
+  root: PersonalRootDocumentV1,
+  ownerByWorkspaceId: ReadonlyMap<string, string>,
+): string[] {
+  const removed: string[] = []
+  for (const [workspaceId, reference] of Object.entries(root.workspaces ?? {})) {
+    const owner = ownerByWorkspaceId.get(workspaceId)
+    if (reference.grantHash === "genesis" && owner && owner !== root.identity.personId) {
+      delete root.workspaces[workspaceId]
+      removed.push(workspaceId)
+    }
+  }
+  return removed
+}

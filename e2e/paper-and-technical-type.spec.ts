@@ -31,14 +31,15 @@ test("Given paper buttons and cards, when hovered, then rotation is visible and 
   expect(await angle(card)).toBe(0)
 })
 
-test("Given archive, when expanded and collapsed, then both use gray crossed strokes and dark readable labels", async ({ page }, info) => {
+test("Given archive, when expanded and collapsed, then open archive keeps strokes and collapsed columns stay white", async ({ page }, info) => {
   await page.setViewportSize({ width: 1920, height: 950 })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   const archive = page.getByRole("region", { name: "Archive", exact: true })
   const closed = archive.getByRole("button", { name: "Open Archive with 0 cards", exact: true })
   await expect(closed).toHaveCSS("color", "rgb(23, 23, 23)")
-  expect(await archive.evaluate(element => getComputedStyle(element, "::before").maskImage)).toContain("archive-hatch.svg")
+  await expect(closed).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  expect(await closed.evaluate(element => getComputedStyle(element, "::before").maskImage)).toBe("none")
   await closed.click()
   await expect(archive.getByText("No leads", { exact: true })).toBeVisible()
   const header = archive.locator(".column-header")
@@ -47,6 +48,8 @@ test("Given archive, when expanded and collapsed, then both use gray crossed str
   await page.screenshot({ path: info.outputPath("archive-crossed.png") })
   await archive.getByRole("button", { name: "Collapse Archive", exact: true }).click()
   await expect(closed).toBeVisible()
+  await expect(closed).toHaveCSS("background-color", "rgb(255, 255, 255)")
+  expect(await closed.evaluate(element => getComputedStyle(element, "::before").maskImage)).toBe("none")
 })
 
 test("Given mesh devices or an offline board and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {

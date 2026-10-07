@@ -1,7 +1,7 @@
 import { hasEntityKind } from "./domain/model"
 import type * as Automerge from "@automerge/automerge/slim";
 import { isEntityVisible } from "./domain/ancestry";
-import { archivedItemsForBoard, isArchiveColumn, isItemArchived } from "./domain/archive";
+import { archivedItemsForBoard, effectiveColumnStatus, isArchiveColumn, isItemArchived } from "./domain/archive";
 import {
   isItem,
   type AttachedDocument,
@@ -117,7 +117,7 @@ function projectLead(
     id: item.id,
     company: title.company,
     role: title.role,
-    status: isItemArchived(item) ? "archived" : bindings.columnStatuses[column.id] ?? "lead",
+    status: isItemArchived(item) ? "archived" : effectiveColumnStatus(column, board, bindings.columnStatuses[column.id]) ?? "lead",
     description: item.body,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,

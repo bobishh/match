@@ -4,6 +4,7 @@ import ParticipantAvatar from "./ParticipantAvatar.vue"
 
 defineProps<{
   members: Array<{ personId: string; name: string }>
+  memberAvatars?: Record<string, string>
   currentPersonId: string
   currentIdentityName: string
   currentRole: WorkspaceRole
@@ -29,7 +30,7 @@ function roleFor(member: { personId: string }, peers: Array<{ personId: string; 
     <p>{{ canManageAccess ? 'Trusted devices and current connection state.' : 'Participants known to this device.' }}</p>
     <ul>
       <li v-for="member in members" :key="member.personId" class="participant-row">
-        <div class="participant-name"><ParticipantAvatar :person-id="member.personId" /><strong>{{ member.personId === currentPersonId ? currentIdentityName : member.name }}</strong></div>
+        <div class="participant-name"><ParticipantAvatar :person-id="member.personId" :avatar-data="memberAvatars?.[member.personId]" /><strong>{{ member.personId === currentPersonId ? currentIdentityName : member.name }}</strong></div>
         <span>{{ roleFor(member, peers, ownerPersonId, currentPersonId, currentRole) }}{{ member.personId === currentPersonId ? ' · You' : '' }}</span>
       </li>
     </ul>
@@ -37,7 +38,7 @@ function roleFor(member: { personId: string }, peers: Array<{ personId: string; 
       <h4>Trusted peer devices</h4>
       <ul>
         <li v-for="peer in peers" :key="peer.deviceId" class="peer-device-row">
-          <div class="participant-name"><ParticipantAvatar :person-id="peer.personId" /><div class="participant-device-name"><strong>{{ peer.name }}</strong><small>{{ peer.online ? 'Online' : 'Offline' }} · {{ peer.role }}</small></div></div>
+          <div class="participant-name"><ParticipantAvatar :person-id="peer.personId" :avatar-data="memberAvatars?.[peer.personId]" /><div class="participant-device-name"><strong>{{ peer.name }}</strong><small>{{ peer.online ? 'Online' : 'Offline' }} · {{ peer.role }}</small></div></div>
           <button v-if="!peer.revokedAt" class="button button-danger" type="button" :disabled="Boolean(revokingPersonId)" @click="emit('revoke', peer.personId)">Remove access</button>
           <span v-else>Revoked</span>
         </li>

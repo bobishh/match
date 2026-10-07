@@ -2,6 +2,7 @@ import type { z } from "zod"
 import { entitySchema, workspaceSchema } from "./entitySchemas"
 import type { CommandResult, EntityKind } from "./model"
 import type { Item, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
+import { memberProfileEntityId } from "./avatarData"
 
 function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
   const result = schema.safeParse(input)
@@ -18,11 +19,28 @@ export function validateWorkspaceDoc(input: unknown): CommandResult<WorkspaceDoc
   const parsed = validate(workspaceSchema, input)
   if (!parsed.ok) return parsed
   const doc = parsed.value as WorkspaceDocumentV2
+  const profileError = validateMemberProfiles(doc)
+  if (profileError) return profileError
   const archiveError = validateArchiveReferences(doc)
   if (archiveError) return archiveError
   const transitionError = validateItemTransitions(doc)
   if (transitionError) return transitionError
   return parsed as CommandResult<WorkspaceDocumentV2>
+}
+
+function validateMemberProfiles(doc: WorkspaceDocumentV2): CommandResult<never> | undefined {
+  for (const entity of Object.values(doc.entities)) {
+    if (!("kind" in entity) || entity.kind !== "member_profile") continue
+    if (entity.id !== memberProfileEntityId(entity.personId) || entity.title !== "Member profile" ||
+      entity.placement.parentId !== null || entity.placement.rank !== "0/1" || entity.archivedAt !== null ||
+      !isIso(entity.createdAt) || !isIso(entity.updatedAt)) {
+      return invalid(`entities.${entity.id}`, "Member profile identity or placement is invalid")
+    }
+  }
+}
+
+function isIso(value: string): boolean {
+  return Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value
 }
 
 function validateArchiveReferences(doc: WorkspaceDocumentV2): CommandResult<never> | undefined {
@@ -93,7 +111,7 @@ function parseTransition(value: unknown): Record<string, unknown> | undefined {
 
 const allowedParents: Record<EntityKind, readonly (string | null)[]> = {
   board: [null], column: ["board"], field: ["board"], item: ["column", "item"],
-  document: ["item"], artifact: ["item"], document_template: [null], template: [null],
+  document: ["item"], artifact: ["item"], document_template: [null], template: [null], member_profile: [null],
 }
 export function validatePlacementParent(childKind: string, parentKind: string | null): CommandResult<void> {
   if (!Object.hasOwn(allowedParents, childKind)) return { ok: false, error: { code: "invalid_input", message: `Unknown entity kind: ${childKind}` } }

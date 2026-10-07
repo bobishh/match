@@ -1,8 +1,5 @@
 {
   "src/App.vue": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    },
     "@typescript-eslint/no-unsafe-call": {
       "count": 2
     },

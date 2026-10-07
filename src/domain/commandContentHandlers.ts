@@ -22,7 +22,7 @@ export const createColumn: CommandHandler<"createColumn"> = (doc, command, conte
   const buttons = cardStageButtons(board, existingColumns)
   return { ok: true, value: { changedEntityIds: [id, command.boardId], apply: draft => {
     applyRenumbering(draft, insertion.renumbered)
-    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, archivedAt: null, ...(command.archive ? { collapsible: true } : {}), createdAt: context.nowIso, updatedAt: context.nowIso }
+    draft.entities[id] = { id, kind: "column", title: command.title.trim(), placement: { parentId: command.boardId, rank: insertion.rank }, archivedAt: null, ...(command.collapsible !== undefined ? { collapsible: command.collapsible } : {}), createdAt: context.nowIso, updatedAt: context.nowIso }
     const targetBoard = draft.entities[command.boardId]
     if (hasEntityKind(targetBoard, "board")) {
       targetBoard.cardStageButtons = [...buttons, { columnId: id }]

@@ -92,7 +92,7 @@ export const workspaceSettingsSchema = {
                 type: "boolean",
                 enum: [true],
                 description:
-                  "Optional. Marks the board's sole Archive column; its collapsed presentation is derived.",
+                  "Optional. Assigns this as the board's sole Archive column. Independent from the collapsible setting.",
               },
             },
             required: ["title"],
