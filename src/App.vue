@@ -12,6 +12,7 @@ import TincanbanPageLayout from "./components/TincanbanPageLayout.vue"
 import TincanbanHeading from "./components/TincanbanHeading.vue"
 import BrandCan from "./components/BrandCan.vue"
 import BoardDragOverlay from "./components/BoardDragOverlay.vue"
+import BoardItemCard from "./components/BoardItemCard.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import { useObjectConversations } from "./app/useObjectConversations"
 import ObjectConversationLayer from "./components/ObjectConversationLayer.vue"
@@ -85,6 +86,8 @@ const {
 
 const rejectionEditor = ref<InstanceType<typeof AutosaveTextarea>>()
 async function closeDetail() { if (!rejectionEditor.value || await rejectionEditor.value.flush()) closeDetailNow() }
+function openCard(item: Parameters<typeof openBoardItem>[0], event: MouseEvent) { conversations.openCard(item, event) }
+function toggleCardTask(item: Parameters<typeof openBoardItem>[0], markdown: string) { void updateItemMarkdown(item, markdown) }
 
 function saveItemDocument(item: { id: string } | null | undefined, document: Omit<DocumentInput, "leadId">) { return item ? submitDocument(item.id, document) : Promise.reject(new Error("Item is no longer open")) }
 function saveSelectedLeadDocument(document: Omit<DocumentInput, "leadId">) { return saveItemDocument(selectedLeadItem.value, document) }
@@ -228,24 +231,25 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
               <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
               <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="column.collapsible && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="toggleColumnCollapse(column)">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
             </header>
-            <template v-for="(item, index) in itemsForColumn(column)" :key="item.id"><div v-if="index > 0 && !isEditingBoard && canEditItems && !isArchiveColumn(column)" class="card-add-gap"><button class="column-add-button card-insert-button" type="button" :aria-label="`Add ${entityName} between cards in ${column.title}, before ${item.title}`" @click="openAddItem(column.id, item.id)">{{ addItemLabel }}</button></div><article class="lead-card item-card" :class="[{ 'card-moved': movedItemId === item.id, 'lead-card-expanded': hasFilters }, cardAgeFor(item, column)?.level ? `card-aging-${cardAgeFor(item, column)?.level}` : '']" :data-item-id="item.id" :data-discussion-item="item.id" @click="conversations.openCard(item, $event)">
-              <button class="card-open-button" type="button" :aria-label="`Open ${item.title}${cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh' ? `. ${cardAgeFor(item, column)?.label}` : ''}`" @click="openBoardItem(item)"></button>
-              <div class="card-layout"><div class="card-main">
-              <template v-if="leadForItem(item)">
-                <div class="card-head"><span class="company" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.company']">{{ leadForItem(item)?.company }}</span><span v-if="leadForItem(item)?.priority" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.priority']" class="priority" :class="leadForItem(item)?.priority">{{ leadForItem(item)?.priority?.toUpperCase() }}</span></div>
-                <strong data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.role']">{{ leadForItem(item)?.role }}</strong>
-                <div class="card-meta"><span v-if="leadForItem(item)?.location" data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.location']">{{ leadForItem(item)?.location }}</span><span v-if="leadForItem(item)?.fitScore !== undefined" class="fit"><span data-discussion-text :data-discussion-field="activeBoard?.preset?.bindings['field.fitScore']">{{ leadForItem(item)?.fitScore }}</span>/10 fit</span></div>
-              </template>
-              <template v-else><strong data-discussion-text data-discussion-field="title">{{ item.title }}</strong><MarkdownContent v-if="item.body && !hasFilters" class="item-card-body" data-discussion-text data-discussion-field="narrative" :source="item.body" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" /></template>
-              </div>
-              <div v-if="hasFilters && (cardNotes(item) || cardFields(item).length)" class="card-context">
-                <MarkdownContent v-if="cardNotes(item)" class="card-notes" data-discussion-text data-discussion-field="narrative" :source="cardNotes(item) || ''" compact :editable-tasks="canEditItems" @task-toggle="updateItemMarkdown(item, $event)" />
-                <dl v-if="cardFields(item).length" class="card-fields">
-                  <div v-for="field in cardFields(item)" :key="field.id"><dt>{{ field.title }}</dt><dd data-discussion-text :data-discussion-field="field.id">{{ field.value }}</dd></div>
-                </dl>
-              </div>
-              </div><button v-if="canEditItems" class="card-chat-action" type="button" :aria-label="`Discuss ${item.title}`" title="Discuss card" @click.stop="conversations.discuss(item.id)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8l-6 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /><path d="M7 9h10M7 13h7" /></svg></button><span v-if="cardAgeFor(item, column) && cardAgeFor(item, column)?.level !== 'fresh'" class="card-activity-age">{{ cardAgeFor(item, column)?.label }}</span>
-            </article></template>
+            <template v-for="(item, index) in itemsForColumn(column)" :key="item.id">
+              <div v-if="index > 0 && !isEditingBoard && canEditItems && !isArchiveColumn(column)" class="card-add-gap"><button class="column-add-button card-insert-button" type="button" :aria-label="`Add ${entityName} between cards in ${column.title}, before ${item.title}`" @click="openAddItem(column.id, item.id)">{{ addItemLabel }}</button></div>
+              <BoardItemCard
+                :item="item"
+                :lead="leadForItem(item)"
+                :notes="cardNotes(item)"
+                :fields="cardFields(item)"
+                :bindings="activeBoard?.preset?.bindings"
+                :has-filters="hasFilters"
+                :can-edit-items="canEditItems"
+                :moved="movedItemId === item.id"
+                :age-level="cardAgeFor(item, column)?.level"
+                :age-label="cardAgeFor(item, column)?.label"
+                @open="openCard"
+                @select="openBoardItem"
+                @discuss="conversations.discuss"
+                @task-toggle="toggleCardTask"
+              />
+            </template>
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
             <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
           </div>

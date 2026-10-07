@@ -42,9 +42,33 @@ jobs:
       - run: npm run quality:size
       - run: npm audit --audit-level=moderate
 
+  formal-models:
+    name: Match formal models
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install pinned TLC
+        env:
+          TLC_SHA256: 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+        run: |
+          jar="$RUNNER_TEMP/tla2tools-1.7.4.jar"
+          curl -fL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar -o "$jar"
+          printf '%s  %s\n' "$TLC_SHA256" "$jar" | sha256sum --check --status
+          java -version
+      - name: Check Match TLA+ scenarios
+        env:
+          TLC_JAR: ${{ runner.temp }}/tla2tools-1.7.4.jar
+          TLC_LOGS: ${{ runner.temp }}/match-tlc
+        run: python3 verification/tla/run_models.py --logs "$TLC_LOGS"
+
   browser-core:
     name: Browser (core ${{ matrix.shard }})
-    needs: verify
+    needs: [verify, formal-models]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -74,8 +98,8 @@ jobs:
     name: Browser (${{ matrix.project }})
     # Run after core browser shards to keep real Iroh relay traffic isolated,
     # while still collecting network results when a core shard fails.
-    needs: [verify, browser-core]
-    if: ${{ always() && needs.verify.result == 'success' }}
+    needs: [verify, formal-models, browser-core]
+    if: ${{ always() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
     runs-on: ubuntu-24.04
     # Twenty serial durable scenarios take seven minutes locally, before CI
     # setup and the single retry. Keep individual test deadlines unchanged.
@@ -122,7 +146,7 @@ jobs:
 
   browser-policy:
     name: Browser (production policy/transport packaging)
-    needs: verify
+    needs: [verify, formal-models]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -146,7 +170,7 @@ jobs:
 
   browser-native:
     name: Browser (native Rust peer)
-    needs: verify
+    needs: [verify, formal-models]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

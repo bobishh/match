@@ -4,44 +4,99 @@ import { computeWorkspaceAdmission, type WorkspaceAdmissionInput, type Workspace
 
 type PendingJob = { resolve(result: WorkspaceAdmissionResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 let worker: Worker | undefined
+let workerReady: Promise<void> | undefined
+let resolveWorkerReady: (() => void) | undefined
 let nextId = 0
 const pending = new Map<number, PendingJob>()
 const admissionDeadlineMs = 60_000
+const workerReadinessDeadlineMs = 15_000
+let onlineWarmupInstalled = false
+let workerReadinessTimer: ReturnType<typeof setTimeout> | undefined
 
-function failWorker(error: Error) {
+function failWorker(target: Worker, error: Error) {
+  if (worker !== target) return
+  if (workerReadinessTimer) clearTimeout(workerReadinessTimer)
+  workerReadinessTimer = undefined
+  rejectWorkerReady(error)
   worker?.terminate()
   worker = undefined
+  workerReady = undefined
+  resolveWorkerReady = undefined
   for (const job of pending.values()) { clearTimeout(job.timer); job.reject(error) }
   pending.clear()
+}
+
+let rejectReady: ((error: Error) => void) | undefined
+
+function rejectWorkerReady(error: Error) {
+  rejectReady?.(error)
+  rejectReady = undefined
 }
 
 function admissionWorker(): Worker {
   if (worker) return worker
   // Browser failures must reject admission, never fall back to blocking UI.
-  worker = new Worker(new URL("./workspaceAdmissionWorker.ts", import.meta.url), { type: "module", name: "workspace-admission" })
-  worker.onmessage = (event: MessageEvent<WorkspaceAdmissionResponse>) => {
+  const target = new Worker(new URL("./workspaceAdmissionWorker.ts", import.meta.url), { type: "module", name: "workspace-admission" })
+  worker = target
+  target.onmessage = (event: MessageEvent<WorkspaceAdmissionResponse>) => {
+    if (worker !== target) return
     const response = event.data
+    if ("type" in response) {
+      if (response.type === "ready") {
+        if (workerReadinessTimer) clearTimeout(workerReadinessTimer)
+        workerReadinessTimer = undefined
+        resolveWorkerReady?.()
+        resolveWorkerReady = undefined
+        rejectReady = undefined
+      } else failWorker(target, new Error(response.error))
+      return
+    }
     const job = pending.get(response.id)
     if (!job) return
-    if ("error" in response && response.fatal) { failWorker(new Error(response.error)); return }
+    if ("error" in response && response.fatal) { failWorker(target, new Error(response.error)); return }
     pending.delete(response.id)
     clearTimeout(job.timer)
     if ("error" in response) job.reject(new Error(response.error))
     else job.resolve(response.result)
   }
-  worker.onerror = event => { event.preventDefault(); failWorker(new Error(`Workspace admission worker failed: ${event.message}`)) }
-  worker.onmessageerror = () => failWorker(new Error("Workspace admission worker response could not be decoded"))
+  target.onerror = event => { event.preventDefault(); failWorker(target, new Error(`Workspace admission worker failed: ${event.message}`)) }
+  target.onmessageerror = () => failWorker(target, new Error("Workspace admission worker response could not be decoded"))
+  workerReady = new Promise<void>((resolve, reject) => {
+    resolveWorkerReady = resolve
+    rejectReady = reject
+  })
+  workerReadinessTimer = setTimeout(() => failWorker(target, new Error("Workspace admission worker initialization timed out")), workerReadinessDeadlineMs)
+  // Prewarming has no waiter yet; keep a rejected readiness promise handled.
+  void workerReady.catch(() => {})
   return worker
 }
 
-export function runWorkspaceAdmission(input: WorkspaceAdmissionInput): Promise<WorkspaceAdmissionResult> {
+export async function warmWorkspaceAdmissionWorker(): Promise<void> {
+  if (typeof window === "undefined") return
+  installOnlineWarmup()
+  const target = admissionWorker()
+  const ready = workerReady
+  if (!ready) return
+  await ready
+  if (worker !== target) throw new Error("Workspace admission worker was replaced while starting")
+}
+
+function installOnlineWarmup() {
+  if (onlineWarmupInstalled) return
+  onlineWarmupInstalled = true
+  window.addEventListener("online", () => { void warmWorkspaceAdmissionWorker().catch(() => {}) })
+}
+
+export async function runWorkspaceAdmission(input: WorkspaceAdmissionInput): Promise<WorkspaceAdmissionResult> {
   // Non-browser callers (CLI/unit fixtures) use the identical pure algorithm.
-  if (typeof window === "undefined") return Promise.resolve().then(() => computeWorkspaceAdmission(input, meshRustRuntime().state))
-  return new Promise((resolve, reject) => {
+  if (typeof window === "undefined") return computeWorkspaceAdmission(input, meshRustRuntime().state)
+  await warmWorkspaceAdmissionWorker()
+  return new Promise<WorkspaceAdmissionResult>((resolve, reject) => {
     const id = ++nextId
     try {
-      const target = admissionWorker()
-      const timer = setTimeout(() => failWorker(new Error("Workspace admission worker timed out")), admissionDeadlineMs)
+      const target = worker
+      if (!target) throw new Error("Workspace admission worker is unavailable")
+      const timer = setTimeout(() => failWorker(target, new Error("Workspace admission worker timed out")), admissionDeadlineMs)
       pending.set(id, { resolve, reject, timer })
       const request: WorkspaceAdmissionRequest = { id, input }
       const buffers = [input.remote.buffer, ...(input.local ? [input.local.buffer] : [])] as ArrayBuffer[]

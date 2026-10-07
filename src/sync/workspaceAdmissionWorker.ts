@@ -7,8 +7,10 @@ const scope = globalThis as unknown as {
   postMessage(response: WorkspaceAdmissionResponse): void
 }
 const ready = Promise.all([initializeAutomerge(), policyInit()])
-// Catch startup failures immediately, then report the same failure to each job.
-void ready.catch(() => undefined)
+void ready.then(
+  () => scope.postMessage({ type: "ready" }),
+  error => scope.postMessage({ type: "initialization-error", error: error instanceof Error ? error.message : String(error) }),
+)
 let queue = Promise.resolve()
 scope.onmessage = event => {
   queue = queue.then(() => handleAdmission(event.data)).catch(() => undefined)

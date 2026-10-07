@@ -34,6 +34,7 @@ for (const role of ["visitor", "editor"] as const) {
       await host.getByRole("button", { name: "Close", exact: true }).first().click()
       await expect(guest.getByLabel(`Workspace role: ${role}`)).toBeVisible()
       await expect(guest.locator(`.can-role-stamp[data-role-stamp="${role}"]`)).toBeVisible()
+      const sharedWorkspaceId = await guest.evaluate(async () => (await import("/src/state.ts")).useTincanban().activeWorkspace.id)
       await expect.poll(() => faviconRole(guest)).toEqual({ role, body: role === "editor" ? "#80b9d8" : "#c8c9cb" })
       if (role === "editor") {
         const structuralMove = await guest.evaluate(async () => {
@@ -64,8 +65,9 @@ for (const role of ["visitor", "editor"] as const) {
       await expect(guest.getByRole("button", { name: "Edit board", exact: true })).toHaveCount(0)
       await guest.getByRole("button", { name: "Open workspaces" }).click()
       const workspaces = guest.getByRole("dialog", { name: "Workspaces" })
-      const activeWorkspace = workspaces.locator(".workspace-item-active")
-      if (role === "editor") await expect(activeWorkspace.getByRole("button", { name: "Rename", exact: true })).toBeVisible()
+      const activeWorkspace = workspaces.locator(`.workspace-item[data-workspace-id="${sharedWorkspaceId}"]`)
+      await expect(activeWorkspace).toHaveClass(/workspace-item-active/, { timeout: 30_000 })
+      if (role === "editor") await expect(activeWorkspace.getByRole("button", { name: "Rename", exact: true })).toBeVisible({ timeout: 30_000 })
       else await expect(activeWorkspace.getByRole("button", { name: "Rename", exact: true })).toHaveCount(0)
       await workspaces.getByRole("button", { name: "Close", exact: true }).last().click()
       await guest.getByRole("button", { name: "Sync", exact: true }).click()

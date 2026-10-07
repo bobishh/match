@@ -1,6 +1,6 @@
 # Board columns
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Collapse capability is independent from archive role
 Each column MAY be collapsible independently of whether it is the board's archive destination. Archive and non-archive columns MUST use the same collapse interaction when enabled.

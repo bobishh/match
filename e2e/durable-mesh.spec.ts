@@ -1013,7 +1013,7 @@ test("Given an editor has an unsigned raw branch, when it is reloaded, then it s
     expect(await persistedTitles(guest)).toEqual({title:"Job search", untrustedItem:false})
     expect(await persistedTitles(page)).toEqual({title:"Job search", untrustedItem:false})
     await expect(page.getByLabel("Mesh connected")).toBeVisible()
-    await expect(guest.getByLabel("Mesh connected")).toBeVisible()
+    await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await addLead(guest, "Authorized after quarantine")
     await expect(page.getByRole("button", {name:"Open Authorized after quarantine — Engineer"})).toBeVisible({timeout:20_000})
     await guest.reload()

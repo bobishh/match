@@ -13,6 +13,12 @@ explicit personal-root entitlement set: old local document bytes remain, old-onl
 catalog entries disappear, and invited/shared refs remain visible. Ownership is
 fixed and never inferred from peer count or offline status. This finite model does
 not verify signatures, IndexedDB, or enrollment transport implementation.
+`WorkerLifecycle` checks admission requests wait for a ready worker and stale
+fatal and queued-timeout callbacks from an earlier worker generation cannot fail
+the retry. Negative configurations deliberately remove each generation guard
+and expect a counterexample. The abstraction models at most two worker generations
+and two queued jobs; it does not model browser event-loop scheduling or worker
+internals.
 
 ## Run
 
@@ -24,8 +30,8 @@ No jar committed. Download outside repository:
 mkdir -p "$HOME/.cache/tla-tools"
 curl -fL https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar \
   -o "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
-shasum -a 1 "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
-# Expected official SHA-1: bee4a54f3ee3d4afc347c3240ec2d9e93b075104
+printf '%s  %s\n' '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88' \
+  "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar" | sha256sum --check
 python3 verification/tla/run_models.py \
   --jar "$HOME/.cache/tla-tools/tla2tools-1.7.4.jar"
 ```
@@ -67,6 +73,9 @@ workspace, ownership, and entitlement abstraction.
 | TransportConnection | ConnectionImpliesCoverage violated | 2 / 2 |
 | ItemTransitions | Safety holds | 2257 / 360 |
 | IdentityCatalog | Safety holds | 6 / 2 |
+| WorkerLifecycle | Safety holds | 518 / 174 |
+| WorkerLifecycleStaleFatal | StaleFatalIsolated violated | 37 / 29 |
+| WorkerLifecycleQueuedTimeout | QueuedTimeoutIsolated violated | 37 / 29 |
 
 ## Interpretation and code mapping
 

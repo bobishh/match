@@ -233,5 +233,7 @@ function assertFullTransition(
 
 export type WorkspaceAdmissionRequest = { id: number; input: WorkspaceAdmissionInput }
 export type WorkspaceAdmissionResponse =
+  | { type: "ready" }
+  | { type: "initialization-error"; error: string }
   | { id: number; result: WorkspaceAdmissionResult }
   | { id: number; error: string; fatal?: boolean }

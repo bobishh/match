@@ -112,6 +112,7 @@ function useAppCollaboration(tincanban: ReturnType<typeof useTincanban>, ui: Ret
       }),
       merge: (id, bytes, authorization) => timedWorkspaceStoreStage("merge", id, () =>
         tincanban.mergeAuthorizedWorkspace(id, bytes, authorization)),
+      recordVerifiedOwnerWorkspace: id => tincanban.recordVerifiedOwnerWorkspace(id),
       readAuthorization: (bytes, id) => timedWorkspaceStoreStage("read-authorization", id ?? "unknown", () =>
         // The exchanged bytes include quarantined history; export proofs for that raw evidence.
         exportAuthorizationBundle(bytes)),

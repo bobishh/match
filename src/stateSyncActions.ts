@@ -37,6 +37,7 @@ export function createSyncActions() {
   return {
     readWorkspaceDoc,
     readWorkspaceBytes,
+    recordVerifiedOwnerWorkspace,
     reclassifyWorkspace,
     switchWorkspace: switchWorkspaceWithAdmission,
     validateAuthorizedWorkspace,
@@ -63,6 +64,7 @@ async function switchWorkspaceWithAdmission(id: string, storage = defaultStorage
   await reclassifyWorkspace(id, storage)
   await switchWorkspace(id, storage)
   await refreshCausalReview(storage, id)
+  await refreshAvailableWorkspaces(storage)
 }
 
 async function readWorkspaceDoc(
@@ -74,6 +76,16 @@ async function readWorkspaceDoc(
     : (await storage.loadWorkspaceDoc(id))?.doc;
   if (!doc) throw new Error("The selected workspace is unavailable on this device.");
   return doc;
+}
+
+async function recordVerifiedOwnerWorkspace(id: string, storage = defaultStorage): Promise<void> {
+  const profile = await requireProfile()
+  const doc = await readWorkspaceDoc(id, storage)
+  if (doc.ownerPersonId !== profile.identity.personId) {
+    throw new Error("Only a workspace owned by this identity can be added from an owner offer.")
+  }
+  await addWorkspaceToPersonalRoot(id, "import", storage)
+  await refreshAvailableWorkspaces(storage)
 }
 
 async function readWorkspaceBytes(

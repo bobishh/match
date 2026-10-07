@@ -37,6 +37,8 @@ export type WorkspaceSetStore = {
   reclassify?: (id: string) => Promise<void>
   validate?: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   merge: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
+  /** Records a verified same-person owner offer in this device's personal catalog. */
+  recordVerifiedOwnerWorkspace?: (id: string) => Promise<void>
   activate: (id: string) => Promise<void>
   readAuthorization?: (bytes: Uint8Array, workspaceId?: string) => Promise<unknown>
   readChat?: (id: string, known?: Set<string>, remoteDeviceId?: string) => Promise<unknown>

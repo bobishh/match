@@ -23,6 +23,9 @@ MODELS = [
     ("TransportConnection", "DurableTransport", "Invariant ConnectionImpliesCoverage is violated"),
     ("ItemTransitions", "ItemTransitions", None),
     ("IdentityCatalog", "IdentityCatalog", None),
+    ("WorkerLifecycle", "WorkerLifecycle", None),
+    ("WorkerLifecycleStaleFatal", "WorkerLifecycle", "Invariant StaleFatalIsolated is violated"),
+    ("WorkerLifecycleQueuedTimeout", "WorkerLifecycle", "Invariant QueuedTimeoutIsolated is violated"),
 ]
 
 

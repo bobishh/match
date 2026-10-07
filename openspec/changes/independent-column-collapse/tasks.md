@@ -9,12 +9,12 @@
 - [x] Add unit tests for archive migration, state transitions, and invalid board references.
 - [x] Add isolated Playwright happy-path and failure/pending coverage.
 - [x] Add and run bounded TLA+ scenarios for invariants and interleavings.
-- [ ] Run full CI-equivalent verification; the `vendor/meta-mesh` verification gate now passes, but the current Match run still needs a green rerun after a quality-lint fix.
+- [ ] Run full CI-equivalent verification. `vendor/meta-mesh` verification gate passes; latest Match run `375718` failed several browser cases. Scoped fixes have focused green evidence, but current source still needs a fresh complete CI run.
 
 ## Verification record
 
 - Previous local checks passed: `npm run quality`, `npm run test:coverage`, `npm run quality:size`, `npm audit --audit-level=moderate`, and `npm run verify:policy`. Coverage at that point: 101 files; 916 passed, 1 skipped; all thresholds passed.
 - Focused corrected Playwright cases pass, including filtered-board 7/7 and performance/recovery 7/7. Earlier full core run reported 226 passed and 33 failed; all 33 failures later passed in focused corrected runs. No fresh full-core aggregate recorded.
 - Bounded TLC scenarios pass: 15/15, including identity catalog scope.
-- Latest Match Verify run `37570724148` on `71f679f` passed `verify:meta-mesh`, the receive-mutation contract, and `verify:policy`; `npm run quality` failed on an unused preload export. Main fixed the lint issue; rerun remains pending.
+- Latest recorded full Match run `375718` had 14/20 checks pass and 6 failures. Subsequent focused fixes passed relevant targeted cases; no fresh full green run recorded.
 - Rusty deployment completed. Match deployment remains pending green CI.

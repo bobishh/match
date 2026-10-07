@@ -441,8 +441,11 @@ test.describe("Scoped Sync Outer Scenarios", () => {
       await secondPage.evaluate(() => window.dispatchEvent(new Event("online")))
       await expect(secondPage.getByLabel("Mesh connected")).toBeVisible({ timeout: 45_000 })
       await secondPage.getByRole("button", { name: "Open workspaces" }).click()
-      await expect(secondPage.getByRole("button", { name: "Future plans" })).toBeVisible({ timeout: 30_000 })
-      await secondPage.getByRole("button", { name: "Future plans" }).click()
+      const futurePlans = secondPage.locator(".workspace-item").filter({
+        has: secondPage.locator(".workspace-switch strong", { hasText: /^Future plans$/ }),
+      })
+      await expect(futurePlans).toHaveCount(1, { timeout: 30_000 })
+      await futurePlans.locator(".workspace-switch").click()
       await expect(secondPage.getByRole("heading", { name: "Future plans" })).toBeVisible()
       await expect(secondPage.getByLabel("Workspace role: owner")).toBeVisible()
     } finally {
@@ -547,23 +550,27 @@ test("Given a visitor already has the owner's board, when the same device is enr
   } finally { await context.close() }
 })
 
-test("Given existing data under another identity, when enrollment is approved, then the same device joins the owner and keeps its local board", async ({ page, browser }) => {
+test("Given existing data under another identity, when enrollment is approved, then the same device keeps old data stored but hides its unentitled scope", async ({ page, browser }) => {
   test.setTimeout(90_000)
   await page.goto("/")
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
   await host.getByRole("button", { name: "Add someone" }).click()
   await host.getByRole("button", { name: "Add my device", exact: true }).click()
+  const deviceInvite = await host.getByLabel("Pairing link").inputValue()
   const context = await browser.newContext()
   try {
     const guest = await context.newPage()
     await guest.goto("/")
     await ensureJobSearchWorkspace(guest)
+    const previousWorkspaceId = await guest.evaluate(async () => (await import("/src/state.ts")).useTincanban().activeWorkspace.id)
     await guest.getByRole("button", { name: /Add lead to/ }).first().click()
     await guest.getByLabel("Company *").fill("Keep my data")
     await guest.getByLabel("Role *").fill("Engineer")
     await guest.getByRole("button", { name: "Create item" }).click()
     await guest.getByRole("button", { name: "Close detail" }).click()
+    const previousWorkspaceBytes = await guest.evaluate(async id =>
+      Array.from(await (await import("/src/state.ts")).useTincanban().readWorkspaceBytes(id)), previousWorkspaceId)
     // This identity previously enabled mesh for its own local board.
     await guest.getByRole("button", { name: "Sync", exact: true }).click()
     const oldIdentityDialog = guest.getByRole("dialog", { name: "Device sync" })
@@ -571,7 +578,7 @@ test("Given existing data under another identity, when enrollment is approved, t
     await oldIdentityDialog.getByRole("button", { name: "Generate link" }).click()
     await expect(oldIdentityDialog.getByLabel("Pairing link")).toHaveValue(/workspace-join/)
     const original = await stored(guest)
-    await guest.goto(await host.getByLabel("Pairing link").inputValue())
+    await guest.goto(deviceInvite)
     const dialog = guest.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("button", { name: "Add this device" }).waitFor({ state: "visible" })
     await expect(dialog.getByRole("alert")).toContainText("Identity conflict")
@@ -591,9 +598,28 @@ test("Given existing data under another identity, when enrollment is approved, t
     expect(await stored(guest, `tincanban.local_profile.v1.backup.${JSON.parse(original!).identity.personId}`)).toBe(original)
     await expect(guest.getByLabel("Mesh connected")).toBeVisible({ timeout: 30_000 })
     await expect(guest.getByText(/Invalid workspace grant signature/)).toHaveCount(0)
+    const retainedWorkspace = await guest.evaluate(async id => {
+      const { WorkspaceStorage } = await import("/src/storage.ts")
+      const { isItem } = await import("/src/domain/model.ts")
+      const loaded = await new WorkspaceStorage().loadWorkspaceDoc(id)
+      return loaded && {
+        title: loaded.doc.title,
+        itemTitles: Object.values(loaded.doc.entities)
+          .filter(isItem)
+          .map(entity => entity.title),
+      }
+    }, previousWorkspaceId)
+    expect(retainedWorkspace).toMatchObject({ title: "Job search", itemTitles: ["Keep my data — Engineer"] })
+    const entitledWorkspaceIds = await guest.evaluate(async () =>
+      (await import("/src/state.ts")).useTincanban().availableWorkspaces.value.map(workspace => workspace.id))
+    expect(entitledWorkspaceIds).not.toContain(previousWorkspaceId)
+    const retainedWorkspaceBytes = await guest.evaluate(async id =>
+      Array.from(await (await import("/src/state.ts")).useTincanban().readWorkspaceBytes(id)), previousWorkspaceId)
+    expect(retainedWorkspaceBytes).toEqual(previousWorkspaceBytes)
     await guest.getByRole("button", { name: "Open workspaces" }).click()
-    await guest.getByRole("dialog", { name: "Workspaces" }).getByRole("button", { name: /^jobs/ }).click()
-    await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toBeVisible()
+    const workspaces = guest.getByRole("dialog", { name: "Workspaces" })
+    await expect(workspaces.locator(`.workspace-item[data-workspace-id="${previousWorkspaceId}"]`)).toHaveCount(0)
+    await expect(guest.getByRole("button", { name: "Open Keep my data — Engineer" })).toHaveCount(0)
   } finally { await context.close() }
 })
 

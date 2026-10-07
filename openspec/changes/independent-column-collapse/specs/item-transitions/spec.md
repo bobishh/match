@@ -1,6 +1,6 @@
 # Item transitions
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Workflow changes have one paired value and timestamp
 An item workflow transition MUST store destination column ID and change timestamp together. Placement MUST agree with destination column.

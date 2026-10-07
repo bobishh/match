@@ -154,6 +154,10 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     await this.receiveInvitation([value.envelope], [workspaceId], profile, [])
     if (!this.node) throw new Error("Workspace mesh is unavailable")
     await this.ensureOwnerWorkspaces([workspaceId], this.node.endpointId, profile)
+    const recordVerifiedOwnerWorkspace = this.options.workspaceStore.recordVerifiedOwnerWorkspace
+    if (!recordVerifiedOwnerWorkspace)
+      throw new Error("Verified owner workspace could not be added to the local catalog")
+    await recordVerifiedOwnerWorkspace(workspaceId)
   }
 
   protected async offerMissingOwnerWorkspaces(connection: SyncConnection, secret: string,

@@ -6,5 +6,6 @@
 - [x] Register validated workspace invitation memberships in the personal root.
 - [x] Add unit checks for identity filtering, visitor refs, legacy root shapes, and stale genesis repair.
 - [x] Add and run bounded identity/catalog TLC scenario.
-- [ ] Pass real device-enrollment BDD for pending and post-adoption catalog scope, local-data preservation, reload, and remote write propagation.
-- [ ] Verify full enrollment BDD including post-reload cross-device write propagation; the earlier focused run reached catalog assertions but failed its final remote-write assertion. No later green run recorded yet.
+- [x] Pass real device-enrollment BDD for pending and post-adoption catalog scope, local-data preservation, reload, and remote write propagation (focused scoped-enrollment run passed on `0ff`).
+- [x] Verify identity replacement preserves the prior workspace bytes while hiding its ID from the replacement identity's catalog/UI; focused existing-identity BDD passed.
+- [ ] Record a fresh full enrollment BDD pass on the current source after the catalog refresh and owner-offer registration changes.

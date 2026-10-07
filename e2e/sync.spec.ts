@@ -1,19 +1,6 @@
 import { expect, test } from "./support/coverage"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
-async function addLead(page: import("@playwright/test").Page, input: { company: string; role: string; priority: string; workMode: string; fit: string }) {
-  await ensureJobSearchWorkspace(page)
-  await page.getByRole("button", { name: /Add lead to/ }).first().click()
-  const form = page.getByRole("dialog", { name: /Add item|Item details/ })
-  await form.getByLabel("Company *").fill(input.company)
-  await form.getByLabel("Role *").fill(input.role)
-  await form.getByLabel("Priority").selectOption(input.priority)
-  await form.getByLabel("Work mode").selectOption(input.workMode)
-  await form.getByLabel("Fit score").fill(input.fit)
-  await form.getByRole("button", { name: "Create item" }).click()
-  await page.getByRole("button", { name: "Close detail" }).click()
-}
-
 test("Given clipboard access is denied, when Sync opens, then its pairing link remains selectable for manual copy", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
@@ -69,7 +56,31 @@ test("Given a QR invitation opened in a scanner, when its current URL opens in a
 
 for (const exit of ["Dismiss", "Close", "Escape"]) {
   test(`Given an expired invitation, when its error is closed with ${exit}, then the URL returns to the board and reload stays there`, async ({ page }) => {
-    await page.goto("/pair?view=board#v=1&kind=workspace-join&invitationId=expired&workspaceId=ws1&expiresAt=2020-01-01T00:00:00.000Z&endpoint=peer1&secret=abc")
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    const boardLabel = await page.locator(".workspace-heading").textContent()
+    const invite = await page.evaluate(async () => {
+      const state = (await import("/src/state.ts")).useTincanban()
+      const profile = state.getCurrentProfile()
+      if (!profile) throw new Error("Expected a local profile for invitation fixture")
+      const params = new URLSearchParams({
+        v: "1",
+        kind: "workspace-join",
+        invitationId: "expired",
+        issuerPersonId: profile.identity.personId,
+        issuerDeviceId: profile.device.deviceId,
+        issuerPublicKey: profile.device.publicKey,
+        endpoint: "peer1",
+        createdAt: "2019-01-01T00:00:00.000Z",
+        expiresAt: "2020-01-01T00:00:00.000Z",
+        secret: "abc",
+        workspaceId: "expired-ws",
+        workspaceTitle: "Expired board",
+        role: "visitor",
+      })
+      return `/pair?view=board#${params}`
+    })
+    await page.goto(invite)
     const dialog = page.getByRole("dialog", { name: "Device sync" })
     await expect(dialog.getByRole("alert")).toHaveText("This invitation has expired.")
     if (exit === "Escape") await page.keyboard.press("Escape")
@@ -77,7 +88,7 @@ for (const exit of ["Dismiss", "Close", "Escape"]) {
     await expect(dialog).toBeHidden()
     await expect(page).toHaveURL(/\/\?view=board$/)
     await page.reload()
-    await expect(page.getByRole("region", { name: "Untitled", exact: true })).toBeVisible()
+    await expect(page.locator(".workspace-heading")).toHaveText(boardLabel ?? "")
     await expect(dialog).toBeHidden()
   })
 }
