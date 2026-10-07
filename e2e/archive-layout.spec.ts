@@ -189,20 +189,9 @@ test.describe("Folded board motion", () => {
     await page.waitForTimeout(600)
     await expect(archive.locator(".column-spine-mark")).toHaveCSS("background-color", ink)
     await expect(archive.locator(".column-spine-mark")).toHaveCSS("opacity", "0.34")
-    const edges = archive.locator(".column-spine-edges")
-    const bounds = await edges.evaluate(element => {
-      const box = element.getBoundingClientRect()
-      return ["::before", "::after"].map(pseudo => {
-        const style = getComputedStyle(element, pseudo)
-        const height = parseFloat(style.height)
-        const width = parseFloat(style.width)
-        const matrix = new DOMMatrix(style.transform)
-        const rotatedHeight = Math.abs(matrix.b * width) + Math.abs(matrix.d * height)
-        const inset = parseFloat(pseudo === "::before" ? style.top : style.bottom)
-        return inset > Math.abs(matrix.b * width) + 1 && inset + rotatedHeight < box.height
-      })
-    })
-    expect(bounds).toEqual([true, true])
+    await expect(archive).toHaveCSS("border-top-width", "2px")
+    await expect(archive).toHaveCSS("border-bottom-width", "2px")
+    await expect(archive).toHaveCSS("border-image-source", "none")
     await page.screenshot({ path: info.outputPath("folded-board.png") })
     await page.emulateMedia({ reducedMotion: "reduce" })
     await archive.getByRole("button", { name: /Open Archive with/ }).click()

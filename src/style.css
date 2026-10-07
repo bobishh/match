@@ -61,7 +61,7 @@
 /* Foldable boards retain a spine while their paper and contents unfold. */
 .column-foldable { --spine-mark: var(--muted); position: relative; border-image-source: var(--ink-frame) !important; border-image-slice: 12 !important; }
 .column-paper { position: absolute; inset: 0; background: var(--panel); opacity: 1; pointer-events: none; transition: opacity 160ms ease 120ms; }
-.column-collapsed .column-paper { opacity: 0; transition-delay: 0ms; transition-duration: 100ms; }
+.column-collapsed .column-paper { background: color-mix(in srgb, var(--spine-mark) 18%, var(--panel)); }
 .column-fold-enter-active { transition: opacity 140ms ease 220ms, transform 140ms ease 220ms; }
 .column-fold-leave-active { position: absolute; inset: 0; pointer-events: none; transition: opacity 100ms ease, transform 100ms ease; }
 .column-fold-enter-from, .column-fold-leave-to { opacity: 0; transform: translateX(-8px); }
@@ -70,15 +70,10 @@
 .bin-column-open { background: var(--panel); }
 .bin-column .column-header { transition: transform .25s ease, opacity .2s ease; }
 .bin-close { width: 26px; height: 26px; padding: 0; border: 2px solid var(--line); color: var(--ink); background: white; font: 700 1rem/1 var(--site-font-sans); }.bin-close:hover { color: white; background: var(--red); }
-.column-collapsed { position: relative; flex: 0 0 64px; min-width: 64px; border-width: 0 2px; border-image-source: var(--ink-frame) !important; border-image-slice: 12 !important; background: transparent; }
+.column-collapsed { position: relative; flex: 0 0 64px; min-width: 64px; border-width: 2px; border-image: none !important; background: var(--panel); }
 .bin-column, .column-archived { --spine-mark: var(--focus); }
 .column-closed { position: relative; flex: 1; width: 100%; min-height: 516px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 18px; padding: 24px 6px; border: 0; color: var(--ink); background: transparent; }
 .column-spine-mark { width: 20px; height: 48px; background: var(--spine-mark); mask: url("/assets/column-hatch.svg?v=1") repeat; mask-size: 64px 64px; opacity: .34; }
-.column-spine-edges { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 100ms ease; }
-.column-collapsed .column-spine-edges { opacity: 1; }
-.column-spine-edges::before, .column-spine-edges::after { content: ""; position: absolute; width: 100%; height: 8px; border: 0 solid var(--line); border-image: none !important; pointer-events: none; }
-.column-spine-edges::before { top: 4px; left: 0; border-top-width: 2px; transform: rotate(-1deg); transform-origin: left top; }
-.column-spine-edges::after { bottom: 4px; right: 0; border-bottom-width: 2px; transform: rotate(-1deg); transform-origin: right bottom; }
 .column-closed strong { writing-mode: vertical-rl; transform: rotate(180deg); font: 700 .9rem/1 var(--site-font-sans); text-transform: uppercase; letter-spacing: .12em; }
 .column-closed .count { flex: 0 0 auto; background: var(--paper); font: 700 .8rem/1 var(--site-font-sans); }
 .column-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 14px 12px; border-bottom: 2px solid var(--line); position: relative; background: var(--panel); --column-hatch-color: var(--yellow); }
