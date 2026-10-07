@@ -7,4 +7,4 @@
 - [x] Add unit checks for identity filtering, visitor refs, legacy root shapes, and stale genesis repair.
 - [x] Add and run bounded identity/catalog TLC scenario.
 - [ ] Pass real device-enrollment BDD for pending and post-adoption catalog scope, local-data preservation, reload, and remote write propagation.
-- [ ] Verify full enrollment BDD including post-reload cross-device write propagation; current focused run reaches catalog assertions but fails its final existing remote-write assertion.
+- [ ] Verify full enrollment BDD including post-reload cross-device write propagation; the earlier focused run reached catalog assertions but failed its final remote-write assertion. No later green run recorded yet.

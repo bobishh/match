@@ -20,5 +20,5 @@
 - [x] 4.3 Store avatar bytes and timestamp together in per-person Automerge profile entity; support removal.
 - [x] 4.4 Enforce own-profile-only changes from verified signed person ID, including visitor grants.
 - [x] 4.5 Render shared profile photos in settings, participant lists, and workspace chat with deterministic fallback.
-- [ ] 4.6 Pass custom-avatar real-route happy path and failure/retry browser scenarios, including peer projection.
+- [x] 4.6 Pass custom-avatar real-route happy path and failure/retry browser scenarios, including peer projection (3/3 focused cases passed).
 - [ ] 4.7 Pass profile command, visitor security, merge-preservation, type, lint, and OpenSpec checks.

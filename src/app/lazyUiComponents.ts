@@ -25,7 +25,7 @@ export const WorkspaceParticipants = defineAsyncComponent<Component>(() => impor
 
 let detailChunksPromise: Promise<void> | null = null
 
-export function preloadOfflineDetailChunks() {
+function preloadOfflineDetailChunks() {
   if (typeof navigator === "undefined" || !navigator.onLine) return Promise.resolve()
   if (!detailChunksPromise) {
     detailChunksPromise = Promise.all([
