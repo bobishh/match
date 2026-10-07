@@ -30,10 +30,7 @@ const keeperDetails = ref<KeeperDetails | null>(null)
 const confirmRemoval = ref(false)
 const removingKeeper = ref(false)
 const removalError = ref("")
-const removalAddress = ref("")
-const removalDiscovery = ref<KeeperServiceDiscovery | null>(null)
 const removalPending = ref(false)
-const verifyingRemoval = ref(false)
 const originInput = ref("")
 const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired">("idle")
 const error = ref("")
@@ -59,8 +56,6 @@ async function openKeeper(personId: string) {
   keeperDetails.value = null
   confirmRemoval.value = false
   removalError.value = ""
-  removalAddress.value = ""
-  removalDiscovery.value = null
   removalPending.value = false
   showView("detail")
   try {
@@ -69,7 +64,6 @@ async function openKeeper(personId: string) {
       keeperDetails.value = details
       removalPending.value = details?.removalPending === true
       confirmRemoval.value = removalPending.value
-      if (!removalAddress.value.trim()) removalAddress.value = details?.origin ?? ""
     }
   } catch {
     if (request === keeperDetailsRequest && selectedKeeperId.value === personId && view.value === "detail") keeperDetails.value = null
@@ -88,7 +82,7 @@ async function removeSelectedKeeper() {
   removingKeeper.value = true
   removalError.value = ""
   try {
-    const result = await props.removeKeeper(selectedKeeperId.value, removalDiscovery.value ?? undefined,
+    const result = await props.removeKeeper(selectedKeeperId.value, undefined,
       selectedKeeper()?.deviceList.map(device => device.deviceId) ?? [])
     if (result === "pending") {
       removalPending.value = true
@@ -115,31 +109,6 @@ async function removeSelectedKeeper() {
   }
 }
 
-async function verifyRemovalService() {
-  const keeper = selectedKeeper()
-  if (!keeper) return
-  verifyingRemoval.value = true
-  removalError.value = ""
-  try {
-    const discovery = await keeperApi.discover(removalAddress.value)
-    if (discovery.personId !== keeper.personId || !keeper.deviceList.some(device => device.deviceId === discovery.deviceId)) {
-      throw new Error("This address points to a different keeper identity.")
-    }
-    const status = await keeperApi.integrationStatus(discovery)
-    const matchingIntegration = status.integrations.find(integration =>
-      !keeperDetails.value?.integrationId || integration.integrationId === keeperDetails.value.integrationId)
-    if (!matchingIntegration || (matchingIntegration.scopes.length === 0 && !matchingIntegration.pendingOperation
-      && !matchingIntegration.tombstones.some(tombstone => tombstone.state === "removed" && tombstone.cleanup === "complete"))) {
-      throw new Error("Rusty has no active integration for this identity.")
-    }
-    removalDiscovery.value = discovery
-  } catch (cause) {
-    removalError.value = cause instanceof Error ? cause.message : "Could not verify Rusty identity."
-  } finally {
-    verifyingRemoval.value = false
-  }
-}
-
 function resetFlow() {
   flowEpoch.value += 1
   status.value = "idle"
@@ -151,7 +120,6 @@ function resetFlow() {
   provisioning = false
   selectedKeeperId.value = ""
   keeperDetails.value = null
-  removalDiscovery.value = null
   removalPending.value = false
   clearTimeout(pollTimer)
 }
@@ -407,34 +375,24 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
         <ul v-if="keeperDetails" class="keeper-devices"><li v-for="board in ownedWorkspaces.filter(workspace => keeperDetails?.boardIds.includes(workspace.id))" :key="board.id">{{ board.title }}</li></ul>
         <ul class="keeper-devices"><li v-for="device in selectedKeeper()!.deviceList" :key="device.deviceId"><RustyMark compact :online="device.online" :reconnecting="device.reconnecting" />{{ keeperDisplayName(device.name) }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
         <div v-if="removeKeeper" class="keeper-removal">
-          <template v-if="!keeperDetails?.integrationId && !removalDiscovery && !removalPending">
-            <button v-if="!confirmRemoval" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
+          <template v-if="!keeperDetails?.integrationId">
+            <button v-if="!confirmRemoval && !removalPending" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
             <template v-else>
-              <p class="dialog-copy">Revoke this keeper’s local access now. Rusty removal stays pending until its identity is verified and it confirms.</p>
+              <p class="dialog-copy">Revoke this keeper’s access to your boards and remove it from the list.</p>
+              <p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">Removal did not finish. Retry to revoke remaining access and remove this keeper.</p>
               <div class="dialog-actions">
-                <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : 'Revoke local access' }}</button>
+                <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove keeper now' }}</button>
                 <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
               </div>
             </template>
           </template>
           <template v-else>
-            <label v-if="!keeperDetails?.integrationId && !removalDiscovery" class="pairing-paste">
-              <span>Rusty address</span>
-              <input v-model="removalAddress" type="url" autocomplete="url" placeholder="https://rusty.example" aria-label="Rusty address" />
-            </label>
-            <button v-if="!keeperDetails?.integrationId && !removalDiscovery" class="button button-primary" type="button" :disabled="verifyingRemoval || !removalAddress.trim()" @click="verifyRemovalService">{{ verifyingRemoval ? 'Verifying Rusty…' : 'Verify Rusty' }}</button>
-            <p v-if="removalDiscovery" class="keeper-summary">Verified Rusty identity <code>{{ removalDiscovery.personId }}</code></p>
             <button v-if="!confirmRemoval && !removalPending" class="button button-danger" type="button" @click="confirmRemoval = true">Remove keeper</button>
             <template v-if="confirmRemoval || removalPending">
               <p class="dialog-copy">{{ removalPending ? "Removal is still pending Rusty confirmation." : "Remove access from all boards still owned by this identity?" }}</p>
-              <p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">{{ !keeperDetails?.integrationId && !removalDiscovery
-                ? keeperDetails?.localRevocationComplete
-                  ? "Local access is revoked. Verify Rusty to finish remote removal."
-                  : "Local access may still remain on some boards. Retry local revocation before verifying Rusty."
-                : "Remote removal is not confirmed. Verify Rusty status and retry." }}</p>
+              <p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">Remote removal is not confirmed. Retry removal.</p>
               <div class="dialog-actions">
-                <button v-if="!keeperDetails?.integrationId && !removalDiscovery && removalPending && !keeperDetails?.localRevocationComplete" class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : 'Retry local revocation' }}</button>
-                <button v-if="keeperDetails?.integrationId || removalDiscovery || !removalPending" class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove access from all boards' }}</button>
+                <button class="button button-danger" type="button" :disabled="removingKeeper" @click="removeSelectedKeeper">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove access from all boards' }}</button>
                 <button class="button button-quiet" type="button" :disabled="removingKeeper" @click="confirmRemoval = false">Cancel</button>
               </div>
             </template>

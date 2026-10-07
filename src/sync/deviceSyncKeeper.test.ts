@@ -84,7 +84,7 @@ describe("keeper removal", () => {
     await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "editor" }])
   })
 
-  it("revokes only locally owned legacy boards and persists pending without a Rusty address", async () => {
+  it("revokes only locally owned legacy boards and finishes removal without a Rusty address", async () => {
     const { profile, owner, keeper } = await setupOwnerKeeper(["owned", "foreign"])
     const root = await defaultStorage.loadPersonalRoot()
     root!.keeperIntegrations = {}
@@ -104,17 +104,12 @@ describe("keeper removal", () => {
       workspaceOwner: async id => id === "owned" ? owner : "another-owner",
       mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
       knownServiceDeviceIds: ["rusty-device"],
-    })).resolves.toBe("pending")
+    })).resolves.toBe("removed")
 
     expect(revokePerson.mock.calls).toEqual([["owned", keeper]])
     expect(intentPersistedBeforeRevoke).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()
-    await expect(ownerKeepers(owner)).resolves.toEqual([{
-      personId: keeper,
-      role: "editor",
-      details: { boardIds: ["owned", "foreign"], futureBoards: false, removalPending: true,
-        localRevocationComplete: true, serviceDeviceIds: ["rusty-device"] },
-    }])
+    await expect(ownerKeepers(owner)).resolves.toEqual([])
   })
   it("recovers missing legacy board lists from available owned boards and disables future access", async () => {
     const { profile, owner, keeper } = await setupOwnerKeeper(["owned", "foreign"])
@@ -130,11 +125,10 @@ describe("keeper removal", () => {
       workspaceOwner: async id => id === "owned" ? owner : "another-owner",
       mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
       knownServiceDeviceIds: ["rusty-device"],
-    })).resolves.toBe("pending")
+    })).resolves.toBe("removed")
     expect(revokePerson.mock.calls).toEqual([["owned", keeper]])
     expect(fetchMock).not.toHaveBeenCalled()
-    expect((await ownerKeepers(owner))[0]?.details).toMatchObject({ boardIds: ["owned", "foreign"],
-      futureBoards: false, removalPending: true, localRevocationComplete: true })
+    await expect(ownerKeepers(owner)).resolves.toEqual([])
   })
 
 })

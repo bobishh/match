@@ -226,7 +226,7 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
     .sort((left, right) => right.revision - left.revision)[0]
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
-  if (!options.discovery && !reference && !cachedDiscovery(legacyKeeper?.details ?? { boardIds: [], futureBoards: false })) {
+  if (!reference && !legacyKeeper?.details?.integrationId) {
     const { beginLegacyLocalRemoval } = await import("./legacyKeeperRemoval")
     return beginLegacyLocalRemoval(personId, profile, options, legacyKeeper)
   }

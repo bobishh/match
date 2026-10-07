@@ -1,5 +1,5 @@
 import type { LocalProfile } from "../domain/identity"
-import { saveOwnerKeeper } from "./ownerKeeper"
+import { removeOwnerKeeper, saveOwnerKeeper } from "./ownerKeeper"
 import type { OwnerKeeper } from "./ownerKeeper"
 import type { DurableMesh } from "./durableMesh"
 
@@ -11,7 +11,7 @@ type LegacyRemovalOptions = {
 }
 
 export async function beginLegacyLocalRemoval(personId: string, profile: LocalProfile, options: LegacyRemovalOptions,
-  keeper: OwnerKeeper | undefined): Promise<"pending"> {
+  keeper: OwnerKeeper | undefined): Promise<"removed"> {
   if (!keeper && !options.knownServiceDeviceIds?.length) throw new Error("Keeper identity is unavailable. Local access was not changed.")
   const details = keeper?.details ?? { boardIds: [], futureBoards: false }
   const boardIds = details.boardIds?.length ? details.boardIds : options.workspaces.map(workspace => workspace.id)
@@ -27,11 +27,8 @@ export async function beginLegacyLocalRemoval(personId: string, profile: LocalPr
     details: { ...pendingDetails, localRevocationComplete: false, serviceDeviceIds },
   })
   for (const workspaceId of ownerIds) await mesh.revokePerson(workspaceId, personId)
-  await saveOwnerKeeper(profile.identity.personId, {
-    ...record,
-    details: { ...pendingDetails, localRevocationComplete: true, serviceDeviceIds },
-  })
-  return "pending"
+  await removeOwnerKeeper(profile.identity.personId, personId)
+  return "removed"
 }
 
 async function ownedLegacyRemovalScopes(workspaceIds: string[], workspaceOwner: LegacyRemovalOptions["workspaceOwner"], ownerId: string) {

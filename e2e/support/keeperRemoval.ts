@@ -63,6 +63,9 @@ export async function mountKeeperRemoval(options: {
           revokedScopes.push(workspaceId)
         } }) as never,
         knownServiceDeviceIds,
+      }).then(result => {
+        if (result === "removed") keepers.value = []
+        return result
       }))
     }
     return new Promise<"removed">((resolve, reject) => {
