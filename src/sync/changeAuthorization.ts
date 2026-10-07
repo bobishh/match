@@ -101,7 +101,10 @@ type Authorization = WorkspaceChangeAuthorization
 
 export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfile): Promise<WorkspaceRole> {
   const stored = await storedWorkspaceAuthority(doc.id)
-  if (stored.invalid) return "visitor"
+  if (stored.invalid) {
+    traceWorkspaceAccess(doc, profile, stored.authority, "visitor", "invalid")
+    return "visitor"
+  }
   const authority = stored.authority
   const genesisOwner = authorities(authority).find(owner => owner.personId === doc.ownerPersonId)
   if (!authority && typeof indexedDB === "undefined" && doc.ownerPersonId === profile.identity.personId) {
@@ -114,8 +117,55 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
       updatedAt: new Date().toISOString(), catalog: {},
     }, root)
   }
-  if (!authority || !genesisOwner) return "visitor"
-  return decideWorkspaceRole(doc, profile, authority, genesisOwner)
+  if (!authority || !genesisOwner) {
+    traceWorkspaceAccess(doc, profile, authority, "visitor", "missing")
+    return "visitor"
+  }
+  try {
+    const role = await decideWorkspaceRole(doc, profile, authority, genesisOwner)
+    traceWorkspaceAccess(doc, profile, authority, role, "valid")
+    return role
+  } catch (error) {
+    traceWorkspaceAccess(doc, profile, authority, "unavailable", "error")
+    throw error
+  }
+}
+
+/** Opt-in, bounded access diagnostics. Extra identity fields stay in the local
+ * trace snapshot; telemetry's allowlist intentionally drops them. */
+function traceWorkspaceAccess(doc: WorkspaceDocumentV2, profile: LocalProfile, authority: StoredWorkspaceAuthority | null,
+  role: WorkspaceRole | "unavailable", validation: "valid" | "invalid" | "missing" | "error") {
+  if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("syncTrace") !== "1") return
+  const catalog = authority?.catalog as {
+    deviceRevocations?: Array<{ record?: { payload?: { personId?: string; deviceId?: string } } }>
+    revocations?: Array<{ payload?: { personId?: string; epoch?: number } }>
+  } | undefined
+  const deviceRevocations = catalog?.deviceRevocations ?? []
+  const personRevocations = catalog?.revocations ?? []
+  const profilePersonId = profile.identity.personId
+  const currentDeviceId = profile.device.deviceId
+  const matchingDeviceRevocations = deviceRevocations.filter(item =>
+    item.record?.payload?.personId === profilePersonId && item.record?.payload?.deviceId === currentDeviceId)
+  const matchingPersonRevocations = personRevocations.filter(item => item.payload?.personId === profilePersonId)
+  const grant = authority?.localGrant as WorkspaceGrant | undefined
+  void import("./meshTrace").then(({ meshTrace }) => meshTrace("workspace.access.resolution", {
+    workspaceId: doc.id.slice(0, 8),
+    profilePersonPrefix: profilePersonId.slice(0, 8),
+    documentOwnerPrefix: doc.ownerPersonId.slice(0, 8),
+    authorityOwnerPrefix: authority?.ownerPersonId.slice(0, 8) ?? "",
+    currentDevicePrefix: currentDeviceId.slice(0, 8),
+    localGrantPersonPrefix: grant?.payload.personId.slice(0, 8) ?? "",
+    localGrantEpoch: grant?.payload.accessEpoch ?? null,
+    role,
+    authorityValidation: validation,
+    profileIsAuthorityOwner: profilePersonId === authority?.ownerPersonId,
+    profileIsDocumentOwner: profilePersonId === doc.ownerPersonId,
+    deviceRevocationCount: deviceRevocations.length,
+    personRevocationCount: personRevocations.length,
+    localDeviceRevoked: matchingDeviceRevocations.length > 0,
+    localPersonRevocationCount: matchingPersonRevocations.length,
+    localPersonRevocationEpoch: Math.max(0, ...matchingPersonRevocations.map(item => item.payload?.epoch ?? 0)),
+  })).catch(() => {})
 }
 
 /** Immutable grant identity embedded in each newly authored editor change. */
