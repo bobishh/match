@@ -1,11 +1,19 @@
 import { expect, test } from "./support/coverage"
 import { populatedBoard, moveFirst } from "./support/detailedBoard"
+import { readWorkspacePhaseProbe, startWorkspacePhaseProbe } from "./support/workspacePhaseProbe"
 
 test("Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists", async ({ page }) => {
   await populatedBoard(page)
+  await startWorkspacePhaseProbe(page)
   await page.evaluate(async () => (await import("/src/storage.ts")).setStorageFailureHookForTest(true))
   await moveFirst(page)
-  await expect(page.getByRole("status")).toContainText("Move failed")
+  try {
+    await expect(page.getByRole("status")).toContainText("Move failed")
+  } catch (error) {
+    console.info("Workspace command phase probe", JSON.stringify(await readWorkspacePhaseProbe(page)))
+    throw error
+  }
+  console.info("Workspace command phase probe", JSON.stringify(await readWorkspacePhaseProbe(page)))
   await expect(page.getByRole("region", { name: "To do", exact: true }).getByText("Performance card 0", { exact: true })).toBeVisible()
   await page.evaluate(async () => (await import("/src/storage.ts")).setStorageFailureHookForTest(false))
   await moveFirst(page)
