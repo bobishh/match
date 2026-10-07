@@ -173,8 +173,8 @@ function moveEntityResult(doc: Automerge.Doc<WorkspaceDocumentV2>, command: Comm
   const valid = validateMove(doc, entity, command)
   if (!valid.ok) return valid
   const insertion = computeInsertionRank(doc.entities, command.parentId, command.beforeId)
-  const descendants = isItem(entity) ? Object.values(doc.entities).filter(candidate => isItem(candidate) && getAncestryPath(doc.entities, candidate.id).path.includes(entity.id)).map(candidate => candidate.id) : []
-  return { ok: true, value: { changedEntityIds: [command.entityId, ...descendants.filter(id => id !== command.entityId)], apply: draft => moveEntityInDraft(draft, command, insertion, context.nowIso, restore) } }
+  const descendantItemIds = isItemShell(entity) ? itemDescendantIds(doc.entities, entity.id) : []
+  return { ok: true, value: { changedEntityIds: [command.entityId, ...descendantItemIds.filter(id => id !== command.entityId)], apply: draft => moveEntityInDraft(draft, command, insertion, context.nowIso, restore, descendantItemIds) } }
 }
 
 function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: WorkspaceEntity, command: CommandByKind<"moveEntity"> | CommandByKind<"restoreAndMove">): PreparedCommand | { ok: true } {
@@ -189,20 +189,51 @@ function validateMove(doc: Automerge.Doc<WorkspaceDocumentV2>, entity: Workspace
   return { ok: true }
 }
 
-function moveEntityInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"moveEntity"> | CommandByKind<"restoreAndMove">, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string, restore: boolean) {
+function itemDescendantIds(entities: Record<string, WorkspaceEntity>, rootId: string): string[] {
+  const childrenByParent = new Map<string, string[]>()
+  for (const entity of Object.values(entities)) {
+    const parentId = entity.placement.parentId
+    if (!parentId) continue
+    const children = childrenByParent.get(parentId) ?? []
+    children.push(entity.id)
+    childrenByParent.set(parentId, children)
+  }
+  const itemIds = [rootId]
+  const visited = new Set([rootId])
+  const pending = [...(childrenByParent.get(rootId) ?? [])]
+  while (pending.length) {
+    const id = pending.pop()!
+    if (visited.has(id)) continue
+    visited.add(id)
+    const entity = entities[id]
+    if (!entity) continue
+    if (isItemShell(entity)) itemIds.push(id)
+    pending.push(...(childrenByParent.get(id) ?? []))
+  }
+  return itemIds
+}
+
+function isItemShell(entity: WorkspaceEntity): entity is Item {
+  // Valid workspace items are the only entities without a `kind` discriminator.
+  // Avoid reading `body` here: on Automerge text fields that decodes the full
+  // narrative, and descendant scans must stay cheap on cards with long notes.
+  return !("kind" in entity) && typeof entity.id === "string" && typeof entity.title === "string" &&
+    Boolean(entity.values && typeof entity.values === "object") && Boolean(entity.placement && typeof entity.placement === "object")
+}
+
+function moveEntityInDraft(draft: WorkspaceDocumentV2, command: CommandByKind<"moveEntity"> | CommandByKind<"restoreAndMove">, insertion: ReturnType<typeof computeInsertionRank>, nowIso: string, restore: boolean, descendantItemIds: string[]) {
   applyRenumbering(draft, insertion.renumbered)
   const entity = draft.entities[command.entityId]
-  const descendantItems = isItem(entity)
-    ? Object.values(draft.entities).filter((candidate): candidate is Item => isItem(candidate) && getAncestryPath(draft.entities, candidate.id).path.includes(entity.id))
-    : []
   const movedToNewParent = entity.placement.parentId !== command.parentId
-  if (restore && isItem(entity)) setItemLifecycle(entity, false, nowIso)
+  if (restore && isItemShell(entity)) setItemLifecycle(entity, false, nowIso)
   else if (restore) entity.archivedAt = null
   if (entity.placement.parentId === command.parentId) entity.placement.rank = insertion.rank
   else entity.placement = { parentId: command.parentId, rank: insertion.rank }
   entity.updatedAt = nowIso
-  if (isItem(entity)) {
-    for (const descendant of descendantItems) {
+  if (isItemShell(entity)) {
+    for (const descendantId of descendantItemIds) {
+      const descendant = draft.entities[descendantId]
+      if (!descendant || !isItemShell(descendant)) continue
       const columnId = workflowColumnId(draft.entities, descendant.id)
       if (columnId && itemWorkflow(descendant)?.columnId !== columnId) setItemWorkflow(descendant, columnId, nowIso)
     }
