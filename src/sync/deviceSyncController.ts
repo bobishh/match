@@ -11,14 +11,13 @@ import type { DurableMesh, DurableMeshOptions, MeshPeerView, MeshSuccessionView 
 import { createDeviceSyncState, userMessage } from "./deviceSyncState"
 import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnrollment"
 import { generateWorkspaceInvite as generateHostInvite, WorkspaceAdmissionFailure, type WorkspaceHostContext } from "./deviceSyncHost"
-import { createKeeperProvisioner } from "./deviceSyncKeeper"
+import { createKeeperOperations } from "./keeperOperations"
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
 import { recoverLiveSession } from "./deviceSyncLiveRecovery"
 import { meshTrace } from "./meshTrace"
-import { removeKeeperWithTrace } from "./keeperRemovalTrace"
 import { createDeviceSyncJoinApproval } from "./deviceSyncJoinApproval"
 import { AuthorityFingerprintTracker } from "./authorityFingerprint"
 export type DeviceSyncOptions = {
@@ -63,6 +62,7 @@ export class DeviceSyncController {
   private durableMesh?: DurableMesh
   private durableMeshPromise?: Promise<DurableMesh | undefined>
   private readonly authorityFingerprint = new AuthorityFingerprintTracker()
+  private readonly keeperOperations = createKeeperOperations(() => this.ensureDurableMesh(), () => this.workspaceHostContext())
 
   constructor(options: DeviceSyncOptions) {
     this.workspace = options.workspace
@@ -115,6 +115,7 @@ export class DeviceSyncController {
     this.state.meshSuccession.value = succession.filter(item => !this.leavingWorkspaceIds.has(item.workspaceId))
     if (this.authorityFingerprint.update(fingerprint)) this.state.ownershipRevision.value += 1
     if (ids.length > 0 && this.state.step.value === "workspace-reconnecting") this.state.step.value = "members"
+    this.keeperOperations.traceProjection(peers)
   }
 
   private attachMeshStore() {
@@ -211,8 +212,8 @@ export class DeviceSyncController {
     await direct?.close()
   }
 
-  private async removeKeeper(personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]): Promise<"removed" | "pending"> {
-    return removeKeeperWithTrace(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
+  private removeKeeper(personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]): Promise<"removed" | "pending"> {
+    return this.keeperOperations.remove(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
       workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.(),
       discovery, knownServiceDeviceIds, peers: () => this.state.meshPeers.value, changed: () => { this.state.ownershipRevision.value++ } })
   }
@@ -357,9 +358,7 @@ export class DeviceSyncController {
 
   private selectSyncWorkspace() {
     this.state.step.value = "workspace-select"
-    if (this.availableWorkspaces.value.length && this.state.selectedWorkspaceIds.value.length === 0) {
-      this.state.selectedWorkspaceIds.value = [this.availableWorkspaces.value[0].id]
-    }
+    if (this.availableWorkspaces.value.length && this.state.selectedWorkspaceIds.value.length === 0) this.state.selectedWorkspaceIds.value = [this.availableWorkspaces.value[0].id]
   }
 
   private async generateWorkspaceInvite() {
@@ -527,7 +526,7 @@ export class DeviceSyncController {
       selectedWorkspaceId: state.selectedWorkspaceId, selectedWorkspaceIds: state.selectedWorkspaceIds, invitationWorkspaceTitle: state.invitationWorkspaceTitle,
       invitationWorkspaces: state.invitationWorkspaces, availableWorkspaces: this.availableWorkspaces, open: () => this.open(),
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
-      provisionKeeperPairing: createKeeperProvisioner(() => this.ensureDurableMesh(), () => this.workspaceHostContext()),
+      provisionKeeperPairing: this.keeperOperations.provision,
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
       requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
       canReconnectDevice: computed(() => canReconnectDevice(state)), reconnectDevice: () => reconnectWorkspaceDevice({ state,

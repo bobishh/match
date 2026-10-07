@@ -15,7 +15,6 @@ import { liveAutomergeWorkspaceSync, type LiveWorkspaceSync} from "./workspaceSe
 import { DurableMeshBase, MeshDialCancelled, MeshNodeRestart, CAUSAL_WRITE_ADMISSION_CAPABILITY, uniqueCertificates, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities, revocations, isGrantRevoked,
   type MeshPeerView, type MeshSuccessionView, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshHandshake } from "./durableMeshHandshake"
-import { recordKeeperRemovalProjection } from "./keeperRemovalTrace"
 
 export class DurableMeshSessions extends DurableMeshHandshake {
   private readonly workspacePublishTasks = new Map<string, Promise<void>>()
@@ -501,7 +500,6 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       ? workspaceAuthorityFingerprint(credentials, authorityResult.authorities)
       : `authority-read-failed:${++this.authorityReadFailure}`
     this.options.onChange?.(workspaces, peers, revoked, succession, fingerprint)
-    recordKeeperRemovalProjection(peers)
   }
 }
 

@@ -5,6 +5,7 @@ import type { LocalProfile } from "../domain/identity"
 import { meshTrace } from "./meshTrace"
 
 let activeRemovalPersonId = ""
+type KeeperRemovalProjection = Pick<MeshPeerView, "personId" | "workspaceId" | "deviceId" | "revokedAt">
 
 function keeperRemovalTrace(event: string, detail: Record<string, unknown>, peers: MeshPeerView[]) {
   meshTrace(`keeper.remove.${event}`, detail)
@@ -14,11 +15,11 @@ function keeperRemovalTrace(event: string, detail: Record<string, unknown>, peer
   }
 }
 
-export function recordKeeperRemovalProjection(peers: MeshPeerView[], phase = "mesh-notify") {
-  if (!activeRemovalPersonId) return
-  const matching = peers.filter(peer => peer.personId === activeRemovalPersonId)
+export function recordKeeperRemovalProjection(peers: KeeperRemovalProjection[], phase = "mesh-notify", personId = activeRemovalPersonId) {
+  if (!personId) return
+  const matching = peers.filter(peer => peer.personId === personId)
   if (!matching.length) {
-    meshTrace("keeper.remove.projection", { peerId: activeRemovalPersonId, phase, outcome: "no-peer" })
+    meshTrace("keeper.remove.projection", { peerId: personId, phase, outcome: "no-peer" })
     return
   }
   for (const peer of matching) meshTrace("keeper.remove.projection", {

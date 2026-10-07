@@ -116,7 +116,7 @@ async function persistRemovalReceipt(profile: LocalProfile, personId: string, di
   } })
 }
 
-type RemovalOptions = {
+export type RemovalOptions = {
   getProfile: () => Promise<LocalProfile>
   workspaces: { id: string }[]
   workspaceOwner?: (id: string) => Promise<string>
