@@ -65,3 +65,8 @@ select { min-height: 42px; padding: 8px 26px 8px 10px; }
 }
 .keeper-dot[data-state="online"], .mesh-member-presence.is-online, .mesh-device-presence.is-online { background: var(--green); }
 .keeper-dot[data-state="reconnecting"], .mesh-member-presence.is-reconnecting, .mesh-device-presence.is-reconnecting { background: var(--yellow); }
+
+/* Secondary chat actions stay quiet, with a compact keyboard focus ring. */
+.message-action { border: 0; background: transparent; padding: 4px 6px; min-height: 32px; color: var(--muted); font-size: .8rem; }
+.message-action:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
+.message-action:focus-visible { outline: 1px solid var(--ink); outline-offset: 1px; }

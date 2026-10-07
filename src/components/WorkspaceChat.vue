@@ -86,12 +86,6 @@ function mention(member: {personId: string; name: string}) {
   draft.value += `${draft.value && !draft.value.endsWith(" ") ? " " : ""}@${member.name} `
   mentionQuery.value = ""
 }
-function reply(message: ChatMessage) {
-  if (!props.windowId?.startsWith("conversation:")) { emit("thread", message.id, true); return }
-  context.value.replyTo = message.id
-  context.value.conversationRootId = message.context?.conversationRootId ?? message.id
-  if (!context.value.references.length) context.value.references = clone(message.context?.references ?? [])
-}
 function resetComposerContext() {
   const initial = props.initialContext
   context.value = { references: clone(initial?.references ?? []), mentions: [],
@@ -106,6 +100,12 @@ const threadRoots = computed(() => {
     return root.state === "invalid" ? [] : [[id, root.rootId] as const]
   }))
 })
+const inThread = computed(() => Boolean(props.windowId?.startsWith("conversation:")))
+const threadRoot = computed(() => (props.allMessages ?? props.messages).find(message => message.id === props.initialContext?.conversationRootId))
+function visibleReferences(message: ChatMessage) {
+  const inherited = inThread.value && message.context?.replyTo ? threadRoot.value?.context?.references ?? [] : []
+  return (message.context?.references ?? []).filter(anchor => !inherited.some(parent => JSON.stringify(parent) === JSON.stringify(anchor)))
+}
 const replyCounts = computed(() => {
   const counts = new Map<string, number>()
   for (const message of props.allMessages ?? props.messages) {
@@ -114,13 +114,6 @@ const replyCounts = computed(() => {
   }
   return counts
 })
-function threadReplies(message: ChatMessage) {
-  return (props.allMessages ?? props.messages).filter(reply => reply.context?.replyTo && threadRoots.value.get(reply.id) === message.id)
-}
-function threadLabel(message: ChatMessage) {
-  const count = replyCounts.value.get(message.context?.conversationRootId ?? message.id) ?? 0
-  return count ? `Thread · ${count} ${count === 1 ? "reply" : "replies"}` : "Thread"
-}
 function anchorLabel(anchor: Anchor) {
   const item = props.referenceChoices?.find(choice => choice.anchor.itemId === anchor.itemId)?.title ?? "Open item"
   return anchor.selection?.exact ?? (anchor.fieldId ? `${item} · ${props.fieldTitles?.[anchor.fieldId] ?? "Field"}` : item)
@@ -148,7 +141,7 @@ const hasEarlier = computed(() => {
 const displayedMessages = computed(() => {
   const all = availableMessages.value
   const visible = all.length <= visibleCount.value ? all : all.slice(-visibleCount.value)
-  if (props.windowId) return visible
+  if (inThread.value) return visible
   const roots = new Set(visible.filter(message => !message.context?.replyTo).map(message => message.id))
   return visible.filter(message => !message.context?.replyTo || !roots.has(threadRoots.value.get(message.id) ?? ""))
 })
@@ -350,24 +343,17 @@ function formatDisplayTime(createdAt: string): string {
             <time class="chat-message-time" :datetime="msg.createdAt">{{ formatDisplayTime(msg.createdAt) }}</time>
             <span v-if="msg.status === 'saving'" class="chat-message-pending">Saving locally…</span>
           </div>
-          <blockquote v-if="msg.context?.replyTo" class="reply-quote">{{ quote(msg) }}</blockquote>
-          <div v-if="msg.context?.references.length" class="reference-chips">
-            <button v-for="(anchor, index) in msg.context.references" :key="index" class="button button-small" type="button" @click="emit('reference', anchor)">{{ anchorLabel(anchor) }}</button>
+          <blockquote v-if="!inThread && msg.context?.replyTo" class="reply-quote">{{ quote(msg) }}</blockquote>
+          <div v-if="visibleReferences(msg).length" class="reference-chips">
+            <button v-for="(anchor, index) in visibleReferences(msg)" :key="index" class="button button-small" type="button" @click="emit('reference', anchor)">{{ anchorLabel(anchor) }}</button>
           </div>
           <MarkdownContent class="chat-message-body" :source="msg.body" />
           <div class="message-actions">
-            <button v-if="!readOnly && !msg.status" class="button button-small button-quiet" type="button" aria-label="Reply to message" @click="reply(msg)">Reply</button>
-            <button v-if="!msg.status" class="button button-small button-quiet" type="button" aria-label="Open thread" @click="emit('thread', msg.id)">{{ threadLabel(msg) }}</button>
+            <button v-if="!inThread && !readOnly && !msg.status && !msg.context?.replyTo && !replyCounts.get(msg.id)" class="message-action" type="button" aria-label="Reply to message" @click="emit('thread', msg.id, true)">Reply</button>
+            <button v-if="!inThread && !msg.context?.replyTo && replyCounts.get(msg.id) && !msg.status" class="message-action" type="button" @click="emit('thread', msg.id)">{{ replyCounts.get(msg.id) }} {{ replyCounts.get(msg.id) === 1 ? 'reply' : 'replies' }}</button>
+            <button v-if="!inThread && msg.context?.replyTo && !msg.status" class="message-action" type="button" @click="emit('thread', msg.id)">View conversation</button>
             <MessageLinkAction v-if="workspaceScope" :workspace-scope="workspaceScope" :message-id="msg.id" :disabled="Boolean(msg.status)" />
           </div>
-          <details v-if="!windowId && !msg.context?.replyTo && threadReplies(msg).length" class="chat-thread-preview" @toggle="reportVisible">
-            <summary>{{ threadReplies(msg).length }} {{ threadReplies(msg).length === 1 ? 'reply' : 'replies' }} · Preview</summary>
-            <article v-for="answer in threadReplies(msg)" :key="answer.id" class="thread-preview-message" :data-message-id="answer.id">
-              <div class="thread-preview-heading"><strong>{{ answer.name || 'Anonymous' }}</strong><button v-if="!answer.status" class="button button-small button-quiet" type="button" aria-label="Open reply" @click="emit('thread', answer.id)">Open</button><span v-else>Saving locally…</span></div>
-              <blockquote v-if="answer.context?.replyTo" class="reply-quote">{{ quote(answer) }}</blockquote>
-              <MarkdownContent class="thread-preview-body" :source="answer.body" />
-            </article>
-          </details>
         </article>
         <div v-if="typingLabel" class="chat-typing" role="status" aria-label="Typing presence">{{ typingLabel }}</div>
       </div>
@@ -377,7 +363,7 @@ function formatDisplayTime(createdAt: string): string {
         <div class="reference-chips">
           <span v-for="(anchor, index) in context.references" :key="index" class="draft-reference"><button class="button button-small" type="button" @click="emit('reference', anchor)">{{ anchorLabel(anchor) }}</button><button class="button button-small" type="button" aria-label="Remove reference" @click="context.references.splice(index, 1)">×</button></span>
         </div>
-        <div v-if="context.replyTo" class="reply-quote">Replying to: {{ replyQuote }} <button v-if="!windowId?.startsWith('conversation:')" type="button" aria-label="Cancel reply" @click="context.replyTo = undefined; context.conversationRootId = undefined">×</button></div>
+        <div v-if="context.replyTo && !inThread" class="reply-quote">Replying to: {{ replyQuote }} <button type="button" aria-label="Cancel reply" @click="context.replyTo = undefined; context.conversationRootId = undefined">×</button></div>
         <div v-if="context.mentions.length" class="reference-chips"><span v-for="personId in context.mentions" :key="personId">@{{ members?.find(member => member.personId === personId)?.name ?? 'Participant' }} <button class="button button-small" type="button" aria-label="Remove mention" @click="context.mentions = context.mentions.filter(id => id !== personId)">×</button></span></div>
         <ReferencePicker v-if="referenceChoices?.length" :choices="referenceChoices" :selected="context.references" @select="anchor => context.references.push(clone(anchor))" />
         <details v-if="members?.length" class="mention-picker">
@@ -403,13 +389,7 @@ function formatDisplayTime(createdAt: string): string {
 .draft-reference { display: inline-flex; align-items: center; }
 .reference-chips button { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 .reply-quote { margin: 6px 0; padding: 4px 8px; border-left: 2px solid var(--muted); color: var(--muted); overflow-wrap: anywhere; }
-.is-reply { margin-left: 12px; }
 .is-linked-message { outline: 3px solid var(--blue); outline-offset: -3px; }
-.chat-thread-preview { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; }
-.chat-thread-preview summary { cursor: pointer; color: var(--blue); }
-.thread-preview-message { padding: 8px 0; border-bottom: 1px solid var(--soft); }
-.thread-preview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.thread-preview-body { overflow-wrap: anywhere; }
 .mention-picker { margin-block: 6px; }
 .mention-picker button { display: inline-flex; align-items: center; gap: 4px; }
 .chat-composer-form { display: grid; gap: 6px; }

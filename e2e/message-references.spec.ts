@@ -26,8 +26,8 @@ async function copiedLink(page: Page) {
       writeText: async (text: string) => { sessionStorage.setItem("test-message-link", text) },
     } })
   })
-  await chat.getByRole("button", { name: "Copy message link", exact: true }).click()
-  await expect(chat.getByRole("status").filter({ hasText: "Message link copied" })).toBeVisible()
+  await chat.getByRole("button", { name: "Copy link", exact: true }).click()
+  await expect(chat.getByRole("button", { name: "Copied ✓", exact: true })).toBeVisible()
   const url = await page.evaluate(() => sessionStorage.getItem("test-message-link"))
   expect(url).toBeTruthy()
   return url!
@@ -58,11 +58,11 @@ test("Given denied clipboard access, when copying a message link, then a selecta
       writeText: async () => { throw new DOMException("Denied", "NotAllowedError") },
     } })
   })
-  await chat.getByRole("button", { name: "Copy message link", exact: true }).click()
+  await chat.getByRole("button", { name: "Copy link", exact: true }).click()
   await expect(chat.getByText("Clipboard unavailable. Select and copy this link.", { exact: true })).toBeVisible()
   const input = chat.getByRole("textbox", { name: "Message link", exact: true })
   await expect(input).toHaveValue(/#message=/)
-  await expect(chat.getByText("Message link copied", { exact: true })).toHaveCount(0)
+  await expect(chat.getByRole("button", { name: "Copied ✓", exact: true })).toHaveCount(0)
   await expect(chat.getByText("Workspace must already be available on the receiving device.", { exact: true })).toBeVisible()
 })
 
@@ -99,9 +99,9 @@ test("Given signing remains pending, when its optimistic message appears, then c
   await chat.getByRole("textbox", { name: "Message", exact: true }).fill("Pending link")
   await chat.getByRole("button", { name: "Send message", exact: true }).click()
   await expect(chat.getByText("Saving locally…", { exact: true })).toBeVisible()
-  await expect(chat.getByRole("button", { name: "Copy message link", exact: true })).toBeDisabled()
+  await expect(chat.getByRole("button", { name: "Copy link", exact: true })).toBeDisabled()
   await expect(chat.getByText("Saving locally…", { exact: true })).toHaveCount(0)
-  await expect(chat.getByRole("button", { name: "Copy message link", exact: true })).toBeEnabled()
+  await expect(chat.getByRole("button", { name: "Copy link", exact: true })).toBeEnabled()
 })
 
 

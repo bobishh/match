@@ -20,8 +20,8 @@ test("Given a root message with replies, when its copied local link reloads, the
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (url: string) => { sessionStorage.setItem("root-message-link", url) } } })
   })
-  await chat.locator(`[data-message-id="${rootId}"]`).getByRole("button", { name: "Copy message link" }).click()
-  await expect(chat.getByText("Message link copied", { exact: true })).toBeVisible()
+  await chat.locator(`[data-message-id="${rootId}"]`).getByRole("button", { name: "Copy link" }).click()
+  await expect(chat.getByRole("button", { name: "Copied ✓", exact: true })).toBeVisible()
   const url = await page.evaluate(() => sessionStorage.getItem("root-message-link"))
   expect(url).toBeTruthy()
   await page.goto(url!)
