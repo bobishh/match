@@ -57,4 +57,61 @@ describe("keeper integration status", () => {
     payload.integrations[0]!.policy = { futureBoards: true, baselineWorkspaceIds: ["board-1", "board-1"] }
     expect(() => parseKeeperIntegrationStatus(payload, discovery)).toThrow("Rusty returned malformed future-board baseline.")
   })
+
+  it("keeps exact pending removal scope discoverable after local access is revoked", () => {
+    const payload = status({
+      operationId: "remove-1",
+      requestHash: "request-hash",
+      expectedRevision: 2,
+      scopes: [{ workspaceId: "board-1", expectedGrantEpoch: 1 }],
+      status: "pending",
+    })
+    const integration = payload.integrations[0]!
+    integration.scopes = []
+    integration.tombstones = [{
+      workspaceId: "board-1", grantEpoch: 1, operationId: "remove-1",
+      state: "pending", cleanup: "pending",
+    }]
+
+    const [parsed] = parseKeeperIntegrationStatus(payload, discovery)
+
+    expect(parsed?.scopes).toEqual([])
+    expect(parsed?.pendingOperation?.scopes).toEqual([{ workspaceId: "board-1", expectedGrantEpoch: 1 }])
+    expect(parsed?.tombstones[0]).toMatchObject({ state: "pending", cleanup: "pending", operationId: "remove-1" })
+  })
+
+  it("accepts a fresh higher grant epoch while retaining completed removal history", () => {
+    const payload = status(null)
+    const integration = payload.integrations[0]!
+    integration.scopes[0]!.grantEpoch = 2
+    integration.scopes[0]!.activationOperationId = "activation-2"
+    integration.tombstones = [{
+      workspaceId: "board-1", grantEpoch: 1, operationId: "remove-1",
+      state: "removed", cleanup: "complete",
+    }]
+
+    const [parsed] = parseKeeperIntegrationStatus(payload, discovery)
+
+    expect(parsed?.scopes[0]).toMatchObject({ grantEpoch: 2, activationOperationId: "activation-2" })
+    expect(parsed?.tombstones[0]).toMatchObject({ grantEpoch: 1, state: "removed", cleanup: "complete" })
+  })
+
+  it("rejects a pending removal whose tombstone belongs to another operation", () => {
+    const payload = status({
+      operationId: "remove-new",
+      requestHash: "request-hash",
+      expectedRevision: 2,
+      scopes: [{ workspaceId: "board-1", expectedGrantEpoch: 1 }],
+      status: "pending",
+    })
+    const integration = payload.integrations[0]!
+    integration.scopes = []
+    integration.tombstones = [{
+      workspaceId: "board-1", grantEpoch: 1, operationId: "remove-old",
+      state: "pending", cleanup: "pending",
+    }]
+
+    expect(() => parseKeeperIntegrationStatus(payload, discovery))
+      .toThrow("Rusty pending operation does not match its scope tombstones.")
+  })
 })
