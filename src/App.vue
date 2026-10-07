@@ -225,7 +225,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
         :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-foldable': column.collapsible, 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
       >
         <span v-if="column.collapsible" class="column-paper" aria-hidden="true"></span>
-        <ColumnFoldCover v-if="column.collapsible" :collapsed="isColumnCollapsed(column)" :title="column.title" :count="itemsForColumn(column).length" />
+        <ColumnFoldCover v-if="column.collapsible" :collapsed="isColumnCollapsed(column)" />
         <Transition name="column-fold">
           <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span class="count">{{ itemsForColumn(column).length }}</span><strong>{{ column.title }}</strong></button>
           <div v-else class="card-stack" :data-column-id="column.id">
