@@ -29,7 +29,7 @@ export async function populatedBoard(page: Page, jobSearch = false) {
     const doc = A.change(A.clone(base), draft => {
       for (let index = 0; index < 55; index++) {
         const id = `performance-card-${index}`
-        draft.entities[id] = { id, title: `Performance card ${index}`, body: "Detailed job requirements. ".repeat(320),
+        draft.entities[id] = { id, title: `Performance card ${index}`, body: "Detailed job requirements. ".repeat(320) + " Portfolio link available on request.",
           placement: { parentId: parent.id, rank: `${index}/1` }, archivedAt: null,
           lifecycle: JSON.stringify({ state: "active", changedAt: now }),
           workflow: JSON.stringify({ columnId: parent.id, changedAt: now }),

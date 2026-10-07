@@ -38,7 +38,7 @@ test("Given a fresh desktop board, when filtering, searching, and moving a card,
     expect((await column.boundingBox())!.width).toBeGreaterThan(1250)
     const openCard = column.getByRole("button", { name: "Open Launch review", exact: true })
     const card = openCard.locator("..")
-    await expect(card.getByText("Context for Launch review: decisions and next steps.")).toBeVisible()
+    await expect(card.locator(".card-context").getByText("Context for Launch review: decisions and next steps.")).toBeVisible()
     await expect(card.getByText("Owner", { exact: true })).toBeVisible()
     await expect(card.getByText("Alex", { exact: true })).toBeVisible()
     await page.locator(".board").evaluate((element) => Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => {}))))

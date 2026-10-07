@@ -5,7 +5,8 @@ import { activeFilterCount, defaultBoardFilters, matchesItemFilters } from "../f
 import { effectiveColumnStatus, isArchiveColumn, isItemArchived } from "../domain/archive"
 import { projectEntityHistory } from "../domain/history"
 import { isItem, type AttachedDocument, type Item } from "../domain/model"
-import type { LeadStatus } from "../types"
+import type { Lead, LeadStatus } from "../types"
+import type { WorkspaceDocumentV2 } from "../domain/entitySchemas"
 import { orderItemsByPriority } from "../domain/priority"
 import { itemNarrative } from "../domain/narrative"
 
@@ -58,22 +59,13 @@ function useBoardPresentation(core: AppBoardContext) {
   })
   const searchableTextByItem = computed(() => {
     void tincanban.docVersion.value
-    const doc = tincanban.getActiveDoc()
-    if (!doc) return new Map<string, string>()
-    const leads = leadsById.value
-    const notes = notesByItem.value
-    const notesFieldId = textNotesFieldId()
-    const searchable = new Map<string, string>()
-    for (const entity of Object.values(doc.entities)) {
-      if (!isItem(entity)) continue
-      const lead = tincanban.isBlankBoard.value ? undefined : leads.get(entity.id)
-      const narrative = itemNarrative(entity, lead ? notesFieldId : undefined, notes.get(entity.id) ?? [])
-      const fieldText = Object.values(entity.values).filter(value => value !== null).join(" ")
-      searchable.set(entity.id, (lead
-        ? `${lead.company} ${lead.role} ${narrative} ${fieldText}`
-        : `${entity.title} ${narrative} ${fieldText}`).toLowerCase())
-    }
-    return searchable
+    return searchableItemTextById(
+      tincanban.getActiveDoc() ?? undefined,
+      leadsById.value,
+      notesByItem.value,
+      textNotesFieldId(),
+      tincanban.isBlankBoard.value,
+    )
   })
   const normalizedSearch = computed(() => search.value.trim().toLowerCase())
   const textNotesFieldId = () => {
@@ -108,7 +100,7 @@ function useBoardPresentation(core: AppBoardContext) {
     const activeFilters = filters.value
     const searchable = query ? searchableTextByItem.value : null
     return new Map([...orderedItemsByColumn.value].map(([columnId, items]) => [columnId, items.filter(item => {
-      const matchesSearch = !query || searchable?.get(item.id)?.includes(query) === true
+      const matchesSearch = !query || searchable?.get(item.id)?.text.includes(query) === true
       return matchesSearch && matchesItemFilters(item, columnId, activeFilters)
     })]))
   })
@@ -116,6 +108,11 @@ function useBoardPresentation(core: AppBoardContext) {
   const totalItems = computed(() => tincanban.genericColumns.value.reduce((total, column) => total + column.items.length, 0))
   const visibleItems = computed(() => tincanban.genericColumns.value.reduce((total, column) => total + itemsForColumn(column).length, 0))
   const hasFilters = computed(() => Boolean(search.value.trim()) || activeFilterCount(filters.value) > 0)
+  const filteredResultsChanged = computed(() => filteredBoardResultsChanged(
+    tincanban.genericColumns.value, orderedItemsByColumn.value, itemsByColumn.value,
+  ))
+  const expandFilteredCards = computed(() => hasFilters.value && (filteredResultsChanged.value || Boolean(filters.value.columnId)))
+  const cardNoteSearchMatch = (item: Item) => cardNoteSearchMatchFor(item, normalizedSearch.value, searchableTextByItem.value)
   const workspacePresenceSummary = computed(() => summarizeWorkspace(totalItems.value, visibleItems.value, tincanban.workspace.documents.length + tincanban.workspace.artifacts.length, core.onlineWorkspaceDevices.value, hasFilters.value))
   const visibleColumns = computed(() => visibleBoardColumns(tincanban.genericColumns.value, hasFilters.value, isEditingBoard.value, filters.value.columnId, itemsForColumn))
   const clearFilters = () => { search.value = ""; filters.value = defaultBoardFilters() }
@@ -148,7 +145,33 @@ function useBoardPresentation(core: AppBoardContext) {
     highlightTimer = setTimeout(() => { movedItemId.value = null; movedColumnId.value = null }, 700)
   }
   const clearHighlightTimer = () => { if (highlightTimer) clearTimeout(highlightTimer) }
-  return { workspaceLabel, entityName, addItemLabel, itemFormColumns, itemFormParentValue, computedItemFieldIds, itemFormOptionValues, leadForItem, cardNotes, cardFields, columnStatus, itemsForColumn, totalItems, visibleItems, hasFilters, workspacePresenceSummary, visibleColumns, clearFilters, updateMobileColumnIndex, resetBoardScroll, moveMobileColumn, highlightMoved, clearHighlightTimer }
+  return { workspaceLabel, entityName, addItemLabel, itemFormColumns, itemFormParentValue, computedItemFieldIds, itemFormOptionValues, leadForItem, cardNotes, cardFields, cardNoteSearchMatch, columnStatus, itemsForColumn, totalItems, visibleItems, hasFilters, expandFilteredCards, workspacePresenceSummary, visibleColumns, clearFilters, updateMobileColumnIndex, resetBoardScroll, moveMobileColumn, highlightMoved, clearHighlightTimer }
+}
+
+function searchableItemTextById(
+  doc: WorkspaceDocumentV2 | undefined,
+  leads: Map<string, Lead>,
+  notes: Map<string, AttachedDocument[]>,
+  notesFieldId: string | undefined,
+  isBlankBoard: boolean,
+) {
+  const searchable = new Map<string, { text: string; narrative: string; narrativeOffset: number }>()
+  if (!doc) return searchable
+  for (const entity of Object.values(doc.entities)) {
+    if (!isItem(entity)) continue
+    const lead = isBlankBoard ? undefined : leads.get(entity.id)
+    const narrative = itemNarrative(entity, lead ? notesFieldId : undefined, notes.get(entity.id) ?? [])
+    const fieldText = Object.values(entity.values).filter(value => value !== null).join(" ")
+    const searchableNarrative = narrative.toLowerCase()
+    const prefix = lead ? `${lead.company} ${lead.role} ` : `${entity.title} `
+    const searchablePrefix = prefix.toLowerCase()
+    searchable.set(entity.id, {
+      narrative: searchableNarrative,
+      narrativeOffset: searchablePrefix.length,
+      text: `${searchablePrefix}${searchableNarrative} ${fieldText.toLowerCase()}`,
+    })
+  }
+  return searchable
 }
 
 function cachedItemProjection<T>(project: (item: Item) => T) {
@@ -158,6 +181,27 @@ function cachedItemProjection<T>(project: (item: Item) => T) {
     if (!cache.has(item)) cache.set(item, project(item))
     return cache.get(item)!
   }
+}
+
+function filteredBoardResultsChanged(columns: Array<{ id: string }>, ordered: ReadonlyMap<string, Item[]>, visible: ReadonlyMap<string, Item[]>) {
+  return columns.some(column => {
+    const allItems = ordered.get(column.id) ?? []
+    const visibleItems = visible.get(column.id) ?? []
+    return allItems.length !== visibleItems.length || allItems.some((item, index) => visibleItems[index]?.id !== item.id)
+  })
+}
+
+function cardNoteSearchMatchFor(
+  item: Item,
+  query: string,
+  searchable: ReadonlyMap<string, { text: string; narrative: string; narrativeOffset: number }>,
+) {
+  if (query.length < 3) return null
+  const indexed = searchable.get(item.id)
+  if (!indexed) return null
+  const match = indexed.text.indexOf(query, indexed.narrativeOffset)
+  const narrativeEnd = indexed.narrativeOffset + indexed.narrative.length
+  return match >= indexed.narrativeOffset && match + query.length <= narrativeEnd ? { query, index: match - indexed.narrativeOffset } : null
 }
 
 function cardFieldValues(item: Item, fields: ReturnType<typeof useAppCore>["tincanban"]["boardFields"]["value"], bindings: Record<string, string>, lead: unknown) {

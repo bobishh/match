@@ -1,14 +1,18 @@
 <script setup lang="ts">
+import { computed } from "vue"
 import { MarkdownContent } from "../ui/markdownContent"
 import type { Item } from "../domain/model"
 import type { Lead } from "../types"
 
 type CardField = { id: string; title: string; value: string }
+const CARD_NOTE_PREVIEW_LIMIT = 320
 
-defineProps<{
+const props = defineProps<{
   item: Item
   lead?: Lead
   notes: string
+  searchQuery?: string
+  searchMatchIndex?: number
   fields: CardField[]
   bindings?: Record<string, string>
   hasFilters: boolean
@@ -17,6 +21,29 @@ defineProps<{
   ageLevel?: string
   ageLabel?: string
 }>()
+
+const notePreview = computed(() => previewCardNote(props.notes, props.searchQuery ?? "", props.searchMatchIndex ?? -1))
+
+function previewCardNote(source: string, searchQuery: string, match: number) {
+  const query = searchQuery.trim()
+  const limit = Math.min(Math.max(CARD_NOTE_PREVIEW_LIMIT, query.length + 80), 2_000)
+  if (source.length <= limit) return source
+  let start = match >= limit || match + query.length > limit ? Math.max(0, match - 120) : 0
+  if (start > 0) {
+    const wordStart = source.lastIndexOf(" ", start)
+    if (wordStart >= start - 40) start = wordStart + 1
+  }
+  const excerpt = source.slice(start, start + limit)
+  const paragraphEnd = excerpt.lastIndexOf("\n\n")
+  const wordEnd = excerpt.lastIndexOf(" ")
+  let end = paragraphEnd >= limit / 2 ? paragraphEnd : wordEnd
+  if (match >= start && match < start + limit) {
+    end = Math.max(end, Math.min(limit, match - start + query.length + 48))
+  }
+  const prefix = start > 0 ? "…\n\n" : ""
+  const suffix = start + end < source.length ? "\n\n…" : ""
+  return `${prefix}${excerpt.slice(0, end > 0 ? end : limit).trimEnd()}${suffix}`
+}
 
 const emit = defineEmits<{
   open: [item: Item, event: MouseEvent]
@@ -54,7 +81,7 @@ const emit = defineEmits<{
         </template>
       </div>
       <div v-if="hasFilters && (notes || fields.length)" class="card-context">
-        <MarkdownContent v-if="notes" class="card-notes" data-discussion-text data-discussion-field="narrative" :source="notes" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
+        <MarkdownContent v-if="notes" class="card-notes" data-discussion-text data-discussion-field="narrative" :source="notePreview" compact :editable-tasks="canEditItems" @task-toggle="emit('taskToggle', item, $event)" />
         <dl v-if="fields.length" class="card-fields">
           <div v-for="field in fields" :key="field.id"><dt>{{ field.title }}</dt><dd data-discussion-text :data-discussion-field="field.id">{{ field.value }}</dd></div>
         </dl>

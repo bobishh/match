@@ -59,7 +59,7 @@ const { toggleMobileMenu, closeMobileMenu } = uiControls
 const {
   workspaceLabel, entityName, addItemLabel, itemFormColumns, itemFormParentValue,
   computedItemFieldIds, itemFormOptionValues, visibleItems, hasFilters, workspacePresenceSummary,
-  visibleColumns, clearFilters, leadForItem, cardNotes, cardFields, columnStatus, itemsForColumn,
+  visibleColumns, clearFilters, leadForItem, cardNotes, cardFields, cardNoteSearchMatch, expandFilteredCards, columnStatus, itemsForColumn,
   updateMobileColumnIndex, moveMobileColumn, selectedItem, subitemsForSelectedItem,
   selectedItemHistory, editingItem, candidateParentsForMove,
 } = app.board
@@ -238,7 +238,9 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
                 :notes="cardNotes(item)"
                 :fields="cardFields(item)"
                 :bindings="activeBoard?.preset?.bindings"
-                :has-filters="hasFilters"
+                :has-filters="expandFilteredCards || Boolean(cardNoteSearchMatch(item))"
+                :search-query="cardNoteSearchMatch(item)?.query"
+                :search-match-index="cardNoteSearchMatch(item)?.index"
                 :can-edit-items="canEditItems"
                 :moved="movedItemId === item.id"
                 :age-level="cardAgeFor(item, column)?.level"
