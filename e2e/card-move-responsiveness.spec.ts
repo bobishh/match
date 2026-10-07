@@ -26,21 +26,23 @@ test("Given 55 detailed cards, when a card moves, then persistence does not stal
     })!
     const cardRect = card.getBoundingClientRect()
     const stackRect = stack.getBoundingClientRect()
+    const targetId = stack.closest<HTMLElement>("[data-column-id]")?.dataset.columnId
     Object.assign(window, { beforeMoveBoard: document.querySelector(".board"), beforeMoveNeighbor: document.querySelector('[data-item-id="performance-card-1"]') })
-    return { sourceX: cardRect.x + 4, sourceY: cardRect.y + 4, targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28 }
+    return { sourceX: cardRect.x + 4, sourceY: cardRect.y + 4, targetX: stackRect.x + stackRect.width / 2, targetY: stackRect.y + 28, targetId }
   })
+  const nextInteraction = page.locator('[data-item-id="performance-card-0"]')
   await session.send("Profiler.start")
   await page.mouse.move(points.sourceX, points.sourceY)
   await page.mouse.down()
   await page.mouse.move(points.targetX, points.targetY, { steps: 15 })
-  await expect(page.locator(".board-drop-marker")).toHaveAttribute("data-target-id", await page.getByRole("region", { name: "Doing", exact: true }).getAttribute("data-column-id"))
+  await page.waitForFunction(targetId => document.querySelector(".board-drop-marker")?.getAttribute("data-target-id") === targetId, points.targetId)
   await page.mouse.up()
   await page.waitForFunction(() => {
     const movedCard = document.querySelector('[data-item-id="performance-card-0"]')
     return movedCard?.closest(".card-stack")?.closest(".column")?.querySelector(".column-title h2")?.textContent === "Doing" &&
       [...document.querySelectorAll("[role=status]")].some(element => element.textContent?.includes("Item moved"))
   }, undefined, { timeout: 15_000 })
-  await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click()
+  await nextInteraction.click()
   await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Item overview"]'))
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   const { profile } = await session.send("Profiler.stop")

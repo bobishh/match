@@ -5,6 +5,7 @@ import { populatedBoard } from "./support/detailedBoard"
 test.use({ trace: "off" })
 
 test("Given 55 detailed leads, when Company and Role are typed, then keystrokes paint within 200ms and only Save commits", async ({ page }, testInfo) => {
+  test.setTimeout(120_000)
   await populatedBoard(page, true)
   await page.getByRole("button", { name: "Open Performance card 0", exact: true }).click()
   await page.getByRole("dialog", { name: "Lead details" }).getByRole("button", { name: "Edit", exact: true }).click()
@@ -68,6 +69,8 @@ test("Given 55 detailed leads, when Company and Role are typed, then keystrokes 
   await form.getByRole("button", { name: "Save changes" }).click()
   await expect(form).toBeHidden({ timeout: 15_000 })
   await page.reload()
+  // Full-history admission gates workspace readiness after reload; the typing and paint limits stay unchanged.
+  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled({ timeout: 60_000 })
   await page.getByRole("button", { name: /^Open Performance card 0 responsive draft/ }).click()
   await expect(page.getByRole("dialog", { name: "Lead details" })).toContainText("Senior Software Engineer responsive draft")
 })
