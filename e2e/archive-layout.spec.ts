@@ -78,7 +78,7 @@ test("Given a collapsible column on desktop or mobile, when it closes and reopen
     await expect(collapse).toBeVisible()
     const expandedWidth = await width()
     await collapse.click()
-    await page.waitForTimeout(60)
+    await page.waitForTimeout(180)
     const closingWidth = await width()
     expect(closingWidth).toBeGreaterThan(80)
     expect(closingWidth).toBeLessThan(expandedWidth - 8)
@@ -86,7 +86,7 @@ test("Given a collapsible column on desktop or mobile, when it closes and reopen
 
     const open = rejected.getByRole("button", { name: /Open Rejected with/ })
     await open.click()
-    await page.waitForTimeout(60)
+    await page.waitForTimeout(180)
     const openingWidth = await width()
     expect(openingWidth).toBeGreaterThan(84)
     expect(openingWidth).toBeLessThan(expandedWidth - 8)
@@ -166,7 +166,7 @@ test.describe("Folded board motion", () => {
             contents: contents ? Number(getComputedStyle(contents).opacity) : 0,
             spineInk: mark ? getComputedStyle(mark, "::before").backgroundColor : undefined,
             headerInk: header ? getComputedStyle(header, "::before").backgroundColor : undefined })
-          if (time < 480) requestAnimationFrame(sample)
+          if (time < 650) requestAnimationFrame(sample)
           else resolve()
         }
         requestAnimationFrame(sample)
@@ -175,7 +175,7 @@ test.describe("Folded board motion", () => {
     })
     expect(frames.filter(frame => frame.spineInk).every(frame => frame.spineInk === ink)).toBe(true)
     expect(frames.filter(frame => frame.headerInk).every(frame => frame.headerInk === ink)).toBe(true)
-    const early = frames.find(frame => frame.time >= 60)!
+    const early = frames.find(frame => frame.time >= 180)!
     const paper = frames.find(frame => frame.time >= 180)!
     expect(early.width).toBeGreaterThan(64)
     expect(early.contents).toBe(0)
@@ -254,7 +254,7 @@ test("Given an open column, when folded and unfolded, then its striped header tu
         const matrix = new DOMMatrix(style?.transform)
         samples.push({ time: performance.now() - start, angle: Math.atan2(matrix.b, matrix.a) * 180 / Math.PI,
           length: parseFloat(style?.width || "0"), visible: style?.visibility === "visible", opacity: Number(style?.opacity) })
-        if (performance.now() - start < 500) requestAnimationFrame(sample)
+        if (performance.now() - start < 650) requestAnimationFrame(sample)
         else resolve()
       }
       requestAnimationFrame(sample)
@@ -271,13 +271,6 @@ test("Given an open column, when folded and unfolded, then its striped header tu
   await page.screenshot({ path: info.outputPath("full-height-striped-spine.png") })
   await column.getByRole("button", { name: /Open Rejected with/ }).click()
   await expect(column.locator(".column-fold-cover")).toHaveCSS("visibility", "visible")
-  await column.locator(".column-fold-cover").evaluate(element => {
-    const animation = element.getAnimations()[0]!
-    animation.pause()
-    animation.currentTime = 180
-  })
-  await page.screenshot({ path: info.outputPath("header-mid-turn.png") })
-  await column.locator(".column-fold-cover").evaluate(element => element.getAnimations()[0]!.play())
   await expect(column.getByText("No leads", { exact: true })).toBeVisible()
   await expect.poll(() => column.locator(".column-fold-cover").evaluate(element => element.getAnimations().length)).toBe(0)
   const reversal = await column.evaluate(async element => {
@@ -287,8 +280,10 @@ test("Given an open column, when folded and unfolded, then its striped header tu
     const before = getComputedStyle(cover).transform
     element.querySelector<HTMLButtonElement>(".column-closed")!.click()
     await new Promise(requestAnimationFrame)
-    const after = getComputedStyle(cover)
-    return { before, after: after.transform, opacity: after.opacity, visible: after.visibility }
+    const style = getComputedStyle(cover)
+    const after = { transform: style.transform, opacity: style.opacity, visibility: style.visibility }
+    await new Promise(resolve => setTimeout(resolve, 100))
+    return { before, after: after.transform, later: getComputedStyle(cover).transform, opacity: after.opacity, visible: after.visibility }
   })
   expect(reversal.opacity).toBe("1")
   expect(reversal.visible).toBe("visible")
@@ -297,6 +292,7 @@ test("Given an open column, when folded and unfolded, then its striped header tu
     return Math.atan2(numbers[1]!, numbers[0]!) * 180 / Math.PI
   }
   expect(Math.abs(angleOf(reversal.before) - angleOf(reversal.after))).toBeLessThan(15)
+  expect(angleOf(reversal.later)).toBeLessThanOrEqual(angleOf(reversal.before) + 1)
   await expect(column.getByText("No leads", { exact: true })).toBeVisible()
   await expect.poll(() => column.locator(".column-fold-cover").evaluate(element => element.getAnimations().length)).toBe(0)
   await page.emulateMedia({ reducedMotion: "reduce" })

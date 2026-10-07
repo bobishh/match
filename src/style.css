@@ -59,19 +59,24 @@
 .board { width: 100%; margin: 0 auto; padding: clamp(26px, 4vw, 52px) clamp(16px, 4vw, 56px) 100px; display: flex; gap: 20px; align-items: stretch; overflow-x: auto; overscroll-behavior-x: contain; }
 .column { --column-hatch-color: var(--yellow); --column-hatch-opacity: .58; flex: 1 0 220px; min-width: 220px; min-height: 520px; display: flex; flex-direction: column; border: 2px solid var(--line); overflow: hidden; transition: flex-basis .32s ease, background var(--motion-fast) ease, transform var(--motion-fast) var(--motion-ease); }
 /* Foldable boards retain a spine while their paper and contents unfold. */
-.column-foldable { --spine-mark: var(--column-hatch-color); position: relative; border-image-source: var(--ink-frame) !important; border-image-slice: 12 !important; }
+.column-foldable { --spine-mark: var(--column-hatch-color); position: relative; transition: none; border-image-source: var(--ink-frame) !important; border-image-slice: 12 !important; }
 .column-paper { position: absolute; inset: 0; background: var(--panel); opacity: 1; pointer-events: none; transition: opacity 160ms ease 120ms; }
+.column-fold-visuals { position: absolute; inset: 0; pointer-events: none; }
+.column-fold-title, .column-fold-count { position: absolute; z-index: 2; top: 0; left: 0; margin: 0; transform-origin: top left; opacity: 1; }
+.column-fold-title { white-space: nowrap; font: 700 .8rem/1 var(--site-font-sans); text-transform: uppercase; }
+.column-fold-count { font: 700 .8rem/1 var(--site-font-sans); }
+.column-foldable .column-header h2, .column-foldable .column-header .count, .column-foldable .column-closed strong, .column-foldable .column-closed .count { opacity: 0; }
 .column-fold-cover { position: absolute; top: 0; left: 0; z-index: 0; display: block; background: var(--panel); transform-origin: top left; pointer-events: none; }
 .column-fold-cover::before { content: ""; position: absolute; inset: 0; background: var(--column-hatch-color); mask: url("/assets/column-hatch.svg?v=1") repeat; mask-size: 64px 64px; opacity: var(--column-hatch-opacity); }
 .column-foldable > .column-closed, .column-foldable > .card-stack { z-index: 1; }
 .column-foldable .column-header { background: transparent !important; }
 .column-foldable .column-header::before { display: none; }
 
-.column-fold-enter-active { transition: opacity 140ms ease 220ms, transform 140ms ease 220ms; }
-.column-fold-leave-active { position: absolute; inset: 0; pointer-events: none; transition: opacity 100ms ease, transform 100ms ease; }
-.column-fold-enter-from, .column-fold-leave-to { opacity: 0; transform: translateX(-8px); }
-.column-closed.column-fold-enter-active { transition-delay: 180ms; }
-.column-closed.column-fold-enter-from, .column-closed.column-fold-leave-to { transform: translateX(8px); }
+.column-fold-enter-active { transition: opacity 160ms ease 340ms; }
+.column-foldable > .column-fold-leave-active { position: absolute; inset: 0; pointer-events: none; transition: opacity 100ms ease; }
+.column-fold-enter-from, .column-fold-leave-to { opacity: 0; }
+.column-closed.column-fold-enter-active { transition-delay: 340ms; }
+
 .bin-column-open { background: var(--panel); }
 .bin-column .column-header { transition: transform .25s ease, opacity .2s ease; }
 .bin-close { width: 26px; height: 26px; padding: 0; border: 2px solid var(--line); color: var(--ink); background: white; font: 700 1rem/1 var(--site-font-sans); }.bin-close:hover { color: white; background: var(--red); }
