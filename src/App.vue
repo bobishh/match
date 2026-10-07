@@ -12,6 +12,7 @@ import TincanbanPageLayout from "./components/TincanbanPageLayout.vue"
 import TincanbanHeading from "./components/TincanbanHeading.vue"
 import BrandCan from "./components/BrandCan.vue"
 import BoardDragOverlay from "./components/BoardDragOverlay.vue"
+import ColumnFoldCover from "./components/ColumnFoldCover.vue"
 import BoardItemCard from "./components/BoardItemCard.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import { useObjectConversations } from "./app/useObjectConversations"
@@ -224,8 +225,9 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
         :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-foldable': column.collapsible, 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
       >
         <span v-if="column.collapsible" class="column-paper" aria-hidden="true"></span>
+        <ColumnFoldCover v-if="column.collapsible" :collapsed="isColumnCollapsed(column)" :title="column.title" :count="itemsForColumn(column).length" />
         <Transition name="column-fold">
-          <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span class="count">{{ itemsForColumn(column).length }}</span><strong>{{ column.title }}</strong><span class="column-spine-mark" aria-hidden="true"></span></button>
+          <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span class="count">{{ itemsForColumn(column).length }}</span><strong>{{ column.title }}</strong></button>
           <div v-else class="card-stack" :data-column-id="column.id">
             <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
               <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>

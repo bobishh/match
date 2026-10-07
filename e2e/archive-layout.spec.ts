@@ -149,7 +149,7 @@ test.describe("Folded board motion", () => {
     const archive = page.getByRole("region", { name: "Archive", exact: true })
     await archive.getByRole("button", { name: /Open Archive with/ }).scrollIntoViewIfNeeded()
     await page.waitForTimeout(600)
-    const ink = await archive.locator(".column-spine-mark").evaluate(element => getComputedStyle(element).backgroundColor)
+    const ink = await archive.locator(".column-paper").evaluate(element => getComputedStyle(element, "::before").backgroundColor)
     const frames = await archive.evaluate(async element => {
       const open = element.querySelector<HTMLButtonElement>(".column-closed")!
       const samples: { time: number; width: number; paper: number; contents: number; spineInk?: string; headerInk?: string }[] = []
@@ -159,12 +159,12 @@ test.describe("Folded board motion", () => {
         function sample() {
           const time = performance.now() - start
           const contents = element.querySelector(".card-stack")
-          const mark = element.querySelector(".column-spine-mark")
+          const mark = element.querySelector(".column-paper")
           const header = element.querySelector(".column-header")
           samples.push({ time, width: element.getBoundingClientRect().width,
             paper: Number(getComputedStyle(element.querySelector(".column-paper")!).opacity),
             contents: contents ? Number(getComputedStyle(contents).opacity) : 0,
-            spineInk: mark ? getComputedStyle(mark).backgroundColor : undefined,
+            spineInk: mark ? getComputedStyle(mark, "::before").backgroundColor : undefined,
             headerInk: header ? getComputedStyle(header, "::before").backgroundColor : undefined })
           if (time < 480) requestAnimationFrame(sample)
           else resolve()
@@ -187,8 +187,8 @@ test.describe("Folded board motion", () => {
     await archive.getByRole("button", { name: "Collapse Archive", exact: true }).click()
     await expect.poll(async () => (await archive.boundingBox())!.width).toBe(64)
     await page.waitForTimeout(600)
-    await expect(archive.locator(".column-spine-mark")).toHaveCSS("background-color", ink)
-    await expect(archive.locator(".column-spine-mark")).toHaveCSS("opacity", "0.34")
+    await expect.poll(() => archive.locator(".column-paper").evaluate(element => getComputedStyle(element, "::before").backgroundColor)).toBe(ink)
+    await expect.poll(() => archive.locator(".column-paper").evaluate(element => getComputedStyle(element, "::before").opacity)).toBe("0.34")
     await expect(archive).toHaveCSS("border-top-width", "2px")
     await expect(archive).toHaveCSS("border-bottom-width", "2px")
     await expect(archive).toHaveCSS("border-image-source", "none")
@@ -229,10 +229,58 @@ test("Given a board taller than the viewport, when Rejected and Archive fold, th
     await expect(column.locator(".column-closed strong")).toBeInViewport({ ratio: 1 })
     await expect(column.locator(".column-closed .count")).toHaveText("1")
     await expect(column.locator(".column-closed .count")).toBeInViewport({ ratio: 1 })
-    await expect(column.locator(".column-spine-mark")).toBeInViewport({ ratio: 1 })
+    await expect.poll(() => column.locator(".column-paper").evaluate(element => getComputedStyle(element, "::before").opacity)).toBe("0.34")
   }
   await page.screenshot({ path: info.outputPath("tall-board-folded-labels.png") })
   await archive.getByRole("button", { name: "Open Archive with 1 cards", exact: true }).focus()
   await page.keyboard.press("Enter")
   await expect(archive.locator(".lead-card").filter({ hasText: "Archive card 1" })).toBeVisible()
+})
+
+test("Given an open column, when folded and unfolded, then its striped header turns and stretches into a full-height spine", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1920, height: 900 })
+  await page.emulateMedia({ reducedMotion: "no-preference" })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  const column = page.getByRole("region", { name: "Rejected", exact: true })
+  const frames = await column.evaluate(async element => {
+    element.querySelector<HTMLButtonElement>(".bin-close")!.click()
+    const start = performance.now()
+    const samples: { time: number; angle: number; length: number; visible: boolean }[] = []
+    await new Promise<void>(resolve => {
+      function sample() {
+        const cover = element.querySelector(".column-fold-cover")
+        const style = cover && getComputedStyle(cover)
+        const matrix = new DOMMatrix(style?.transform)
+        samples.push({ time: performance.now() - start, angle: Math.atan2(matrix.b, matrix.a) * 180 / Math.PI,
+          length: parseFloat(style?.width || "0"), visible: style?.visibility === "visible" })
+        if (performance.now() - start < 500) requestAnimationFrame(sample)
+        else resolve()
+      }
+      requestAnimationFrame(sample)
+    })
+    return samples
+  })
+  const turning = frames.filter(frame => frame.visible && frame.angle > 5 && frame.angle < 85)
+  expect(turning.length).toBeGreaterThan(1)
+  const stretched = frames.filter(frame => frame.visible && frame.angle >= 85)
+  expect(stretched.length).toBeGreaterThan(1)
+  expect(stretched.at(-1)!.length).toBeGreaterThan(turning[0]!.length + 80)
+  await expect(column.getByRole("button", { name: /Open Rejected with/ })).toBeVisible()
+  await page.screenshot({ path: info.outputPath("full-height-striped-spine.png") })
+  await column.getByRole("button", { name: /Open Rejected with/ }).click()
+  await expect(column.locator(".column-fold-cover")).toHaveCSS("visibility", "visible")
+  await column.locator(".column-fold-cover").evaluate(element => {
+    const animation = element.getAnimations()[0]!
+    animation.pause()
+    animation.currentTime = 180
+  })
+  await page.screenshot({ path: info.outputPath("header-mid-turn.png") })
+  await column.locator(".column-fold-cover").evaluate(element => element.getAnimations()[0]!.play())
+  await expect(column.getByText("No leads", { exact: true })).toBeVisible()
+  await expect(column.locator(".column-fold-cover")).toHaveCSS("visibility", "hidden")
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  await column.getByRole("button", { name: "Collapse Rejected", exact: true }).click()
+  await expect(column.locator(".column-fold-cover")).toHaveCSS("visibility", "hidden")
+  await expect.poll(async () => (await column.boundingBox())!.width).toBe(64)
 })
