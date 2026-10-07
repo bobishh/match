@@ -228,7 +228,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const raw = Automerge.save(doc)
     await storage.saveSnapshot(doc.id, doc, raw)
     const evidence = { bytes: raw, decisions: [{ hash: "raw-hash", status: { type: "quarantined" as const, reason: "revoked" } }],
-      authorizationEvidence: [{ signed: { signature: "verified-proof" } }] }
+      authorizationEvidence: [{ signed: { signature: "verified-proof" } }], dismissedHashes: [], resolvedReviews: [] }
 
     await storage.commitWorkspace(doc.id, doc, raw, [], undefined, evidence)
     const reopened = new WorkspaceStorage({ changes: new Map(), proofs: new Map(), receipts: new Map(),
