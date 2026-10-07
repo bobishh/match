@@ -1,6 +1,5 @@
-import { fromBase64Url, type LocalProfile } from "../domain/identity"
+import { type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
@@ -253,9 +252,9 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     let claim!: WorkspaceSuccessionClaim
     for (const action of actions) {
       if (action === "createClaim") {
-        const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential!.workspaceId))
-        try { claim = await createWorkspaceSuccessionClaim(profile, policy!, votes, grant!, Automerge.getHeads(doc), credential!.epoch + 1,
-          uniqueCertificates(profile, await defaultProofStore.listCertificates())) } finally { Automerge.free(doc) }
+        claim = await createWorkspaceSuccessionClaim(profile, policy!, votes, grant!,
+          await this.readAuthorityHeads(credential!.workspaceId), credential!.epoch + 1,
+          uniqueCertificates(profile, await defaultProofStore.listCertificates()))
       }
       if (action === "mergeClaim") await this.mergeSuccessionState(credential!, policy!, votes, [claim])
       if (action === "notify") await this.notify()
@@ -325,9 +324,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (const workspaceId of new Set(workspaceIds)) {
       const credential = (await this.store.getWorkspaceCredential(workspaceId))!
-      const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
-      let heads: string[]
-      try { heads = Automerge.getHeads(doc) } finally { Automerge.free(doc) }
+      const heads = await this.readAuthorityHeads(workspaceId)
       const record = await createWorkspaceDeviceRevocation(profile, workspaceId, personId, deviceId, heads, certificates)
       await this.mergeDeviceRevocations(credential, [record], false)
     }
@@ -379,9 +376,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     let record!: WorkspaceRevocation
     for (const action of actions) {
       if (action === "createRevocation") {
-        const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
-        try { record = await createWorkspaceRevocation(profile, workspaceId, personId, await this.nextAccessEpoch(workspaceId), Automerge.getHeads(doc)) }
-        finally { Automerge.free(doc) }
+        record = await createWorkspaceRevocation(profile, workspaceId, personId,
+          await this.nextAccessEpoch(workspaceId), await this.readAuthorityHeads(workspaceId))
         meshTrace("authority.revoke.generation-created", { ...generation, newRevocationEpoch: record.payload.epoch })
       }
       if (action === "mergeRevocation") await this.mergeRevocations(current!, [record], false)
@@ -392,6 +388,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       if (action === "notify") await this.notify()
     }
     await this.reclassifyWorkspaceAuthority(workspaceId)
+  }
+  private async readAuthorityHeads(workspaceId: string): Promise<string[]> {
+    const readAdmittedHeads = this.options.workspaceStore.readAuthorityHeads
+    if (!readAdmittedHeads) throw new Error("Admitted workspace document unavailable for authority signing")
+    return readAdmittedHeads(workspaceId)
   }
   private async reconcilePriorRevocation(workspaceId: string, personId: string, credential: WorkspaceMeshCredential | null | undefined) {
     if (!credential) return { completed: false as const }
@@ -484,10 +485,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
     await awaitOwnerDelivery(() => [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
       session.remotePersonId === credential.ownerPersonId && session.ownershipReceiptSupported), credential.transportSecret, snapshot, deadline)
-    const [{ bytes }] = JSON.parse(new TextDecoder().decode(snapshot)) as Array<{ bytes: string }>
-    const workspaceDoc = Automerge.load(fromBase64Url(bytes))
-    let workspaceHeads: string[]
-    try { workspaceHeads = Automerge.getHeads(workspaceDoc) } finally { Automerge.free(workspaceDoc) }
+    const workspaceHeads = await this.readAuthorityHeads(workspaceId)
     const departure = await createWorkspaceDeparture(profile, workspaceId, (credential.localGrant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1,
       workspaceHeads,
       uniqueCertificates(profile, await defaultProofStore.listCertificates()))

@@ -112,6 +112,7 @@ async function storeUnadmittedRawTitle(page: Page, workspaceId: string, title: s
   const changeBytes = Automerge.getLastLocalChange(candidate)
   if (!changeBytes) throw new Error("Expected an unadmitted raw change")
   const changeHash = Automerge.decodeChange(changeBytes).hash
+  const rawHeads = Automerge.getHeads(candidate)
   const rawBytes = Array.from(Automerge.save(candidate))
   Automerge.free(candidate)
   await page.evaluate(async ({ id, bytes, hash }) => {
@@ -146,6 +147,7 @@ async function storeUnadmittedRawTitle(page: Page, workspaceId: string, title: s
     })
     db.close()
   }, { id: workspaceId, bytes: rawBytes, hash: changeHash })
+  return rawHeads
 }
 
 test("Given paired browsers, when a lead changes, then the peer receives the durable board update", async ({ browser, page }) => {
@@ -301,6 +303,147 @@ test("Given signed workspace authority, when transport state disappears, then ow
     expect(profileWriteError).toContain("Workspace authority could not be verified")
     const rawReviewCount = await guest.evaluate(async () => (await import("/src/state.ts")).useTincanban().causalReview.value.length)
     expect(rawReviewCount).toBe(0)
+  } finally { await context.close() }
+})
+
+test("Given a current-owner revocation bound to quarantined history, when repair retries after reload, then owner access returns and revoked peer leaves roster", async ({ browser, page }) => {
+  test.setTimeout(120_000)
+  const context = await isolatedContext(browser)
+  const guest = await context.newPage()
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (value: unknown, key?: IDBValidKey | IDBKeyRange) {
+      const entry = value as { key?: string; credential?: { workspaceId?: string; catalog?: { revocationBoundaryHistory?: unknown[] } } }
+      const workspaceKey = String(entry.key ?? key)
+      const failKey = `fail-boundary-repair:${sessionStorage.getItem("boundary-repair-workspace") ?? ""}`
+      if (workspaceKey === `workspace:${sessionStorage.getItem("boundary-repair-workspace") ?? ""}` &&
+        sessionStorage.getItem(failKey) === "armed") {
+        const attemptsKey = `${failKey}:attempts`
+        sessionStorage.setItem(attemptsKey, String(Number(sessionStorage.getItem(attemptsKey) ?? 0) + 1))
+        throw new DOMException("Injected revocation repair persistence failure", "QuotaExceededError")
+      }
+      return put.call(this, value, key)
+    }
+  })
+  try {
+    await Promise.all([page.goto("/"), guest.goto("/")])
+    await pairWorkspace(page, guest)
+    const workspaceId = await page.evaluate(async () => (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id"))
+    const keeperIdentity = await guest.evaluate(async () => {
+      const profile = JSON.parse((await (await import("/src/localDb.ts")).readLocal("tincanban.local_profile.v1"))!)
+      return { personId: profile.identity.personId as string, displayName: profile.identity.displayName as string }
+    })
+    const keeperPersonId = keeperIdentity.personId
+    if (!workspaceId) throw new Error("Active workspace missing")
+    const ownerEvidence = await page.evaluate(async id => {
+      const { WorkspaceStorage } = await import("/src/storage.ts")
+      const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+      const { peerStore } = await import("/src/sync/peerStore.ts")
+      const activeId = await (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id")
+      const stored = await new WorkspaceStorage().loadWorkspaceDoc(id)
+      const profile = await bootstrapIdentity()
+      const authority = await peerStore.getWorkspaceAuthority(id)
+      return {
+        activeId,
+        loadedId: stored?.doc.id ?? "",
+        documentOwnerMatchesProfile: stored?.doc.ownerPersonId === profile.identity.personId,
+        authorityOwnerMatchesProfile: authority?.ownerPersonId === profile.identity.personId,
+      }
+    }, workspaceId)
+    expect(ownerEvidence.activeId).toBe(workspaceId)
+    expect(ownerEvidence.loadedId).toBe(workspaceId)
+    expect(ownerEvidence.documentOwnerMatchesProfile).toBe(true)
+    expect(ownerEvidence.authorityOwnerMatchesProfile).toBe(true)
+    await guest.close()
+    const rawHeads = await storeUnadmittedRawTitle(page, workspaceId, "Quarantined revocation boundary")
+    const seeded = await page.evaluate(async ({ id, personId, heads }) => {
+      const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+      const { createWorkspaceRevocation } = await import("/src/sync/meshRecords.ts")
+      const { peerStore } = await import("/src/sync/peerStore.ts")
+      const profile = await bootstrapIdentity()
+      const credential = await peerStore.getWorkspaceCredential(id)
+      if (!credential) throw new Error("Workspace credential missing")
+      const revocation = await createWorkspaceRevocation(profile, id, personId, 100, heads)
+      await peerStore.putWorkspaceCredential({ ...credential, catalog: {
+        ...(credential.catalog as Record<string, unknown> ?? {}),
+        revocations: [...((credential.catalog as { revocations?: unknown[] } | undefined)?.revocations ?? []), revocation],
+      } })
+      sessionStorage.setItem("boundary-repair-workspace", id)
+      sessionStorage.setItem(`fail-boundary-repair:${id}`, "armed")
+      sessionStorage.removeItem(`fail-boundary-repair:${id}:attempts`)
+      const storedAuthority = await peerStore.getWorkspaceAuthority(id)
+      return {
+        invalidCount: ((storedAuthority?.catalog as { revocations?: Array<{ payload: { personId: string } }> } | undefined)?.revocations ?? [])
+          .filter(record => record.payload.personId === personId).length,
+        currentHeads: (await import("/src/crdt.ts")).workspaceHeads(await (await import("/src/stateContext.ts")).stateRuntime.activeDoc!),
+      }
+    }, { id: workspaceId, personId: keeperPersonId, heads: rawHeads })
+    expect(seeded.invalidCount).toBe(1)
+    expect(rawHeads.some(head => seeded.currentHeads.includes(head))).toBe(false)
+
+    await page.goto("/?syncTrace=1")
+    await expect(page.getByRole("heading", { name: /TINCANBAN/ })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByLabel("Workspace role: owner").or(page.getByLabel("Workspace permissions: unavailable")))
+      .toBeVisible({ timeout: 20_000 })
+    const firstAttempt = await page.evaluate(async id => {
+      await (await import("/src/crdt.ts")).initializeAutomerge()
+      const { peerStore } = await import("/src/sync/peerStore.ts")
+      const authority = await peerStore.getWorkspaceAuthority(id)
+      const catalog = authority?.catalog as {
+        revocationBoundaryHistory?: unknown[]
+        revocations?: Array<{ payload?: { workspaceId?: string; workspaceHeads?: string[] } }>
+      } | undefined
+      const { WorkspaceStorage } = await import("/src/storage.ts")
+      const activeId = await (await import("/src/localDb.ts")).readLocal("tincanban.active_workspace_id")
+      const stored = await new WorkspaceStorage().loadWorkspaceDoc(id)
+      const { workspaceHeads } = await import("/src/crdt.ts")
+      const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+      const profile = await bootstrapIdentity()
+      const documentHeads = workspaceHeads(stored!.doc)
+      const invalidBoundaryCount = (catalog?.revocations ?? []).filter(record => record.payload?.workspaceId === id &&
+        record.payload.workspaceHeads?.some(head => !documentHeads.includes(head))).length
+      const { meshTraceSnapshot } = await import("/src/sync/meshTrace.ts")
+      return { injected: sessionStorage.getItem(`fail-boundary-repair:${id}`), repairWriteAttempts: sessionStorage.getItem(`fail-boundary-repair:${id}:attempts`),
+        historyCount: catalog?.revocationBoundaryHistory?.length ?? 0,
+        revocationCount: ((authority?.catalog as { revocations?: unknown[] } | undefined)?.revocations ?? []).length,
+        activeWorkspaceId: activeId ?? "", loadedWorkspaceId: stored?.doc.id ?? "",
+        docOwnerMatchesProfile: stored?.doc.ownerPersonId === profile.identity.personId,
+        authorityOwnerMatchesProfile: authority?.ownerPersonId === profile.identity.personId,
+        invalidBoundaryCount,
+        renderedRole: document.querySelector('[aria-label^="Workspace role:"]')?.getAttribute("aria-label") ?? "",
+        accessEvents: meshTraceSnapshot().filter(event => event.event === "workspace.access.resolution").map(event => event.payload) }
+    }, workspaceId)
+    if (firstAttempt.injected !== "armed" || firstAttempt.activeWorkspaceId !== workspaceId || firstAttempt.loadedWorkspaceId !== workspaceId ||
+      !firstAttempt.docOwnerMatchesProfile || !firstAttempt.authorityOwnerMatchesProfile || firstAttempt.invalidBoundaryCount !== 1 ||
+      Number(firstAttempt.repairWriteAttempts) < 1 || firstAttempt.historyCount !== 0)
+      throw new Error(`Boundary repair startup state mismatch: ${JSON.stringify(firstAttempt)}`)
+    await expect(page.getByLabel("Workspace permissions: unavailable")).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole("button", { name: "Edit board", exact: true })).toHaveCount(0)
+
+    await page.evaluate(async id => sessionStorage.setItem(`fail-boundary-repair:${id}`, "released"), workspaceId)
+    await page.reload()
+    await expect(page.getByLabel("Workspace role: owner")).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole("button", { name: "Edit board", exact: true })).toBeVisible()
+    const repaired = await page.evaluate(async id => {
+      const { peerStore } = await import("/src/sync/peerStore.ts")
+      const { WorkspaceStorage } = await import("/src/storage.ts")
+      const { workspaceHeads } = await import("/src/crdt.ts")
+      const authority = await peerStore.getWorkspaceAuthority(id)
+      const stored = await new WorkspaceStorage().loadWorkspaceDoc(id)
+      const revocations = (authority?.catalog as { revocations?: Array<{ payload: { personId: string; epoch: number; workspaceHeads: string[] } }> } | undefined)?.revocations ?? []
+      const history = (authority?.catalog as { revocationBoundaryHistory?: Array<{ personId: string; removed: unknown[]; replacements: unknown[] }> } | undefined)?.revocationBoundaryHistory ?? []
+      return { heads: workspaceHeads(stored!.doc), revocations, history }
+    }, workspaceId)
+    const targetRevocations = repaired.revocations.filter(record => record.payload.personId === keeperPersonId)
+    expect(targetRevocations).toHaveLength(1)
+    expect(targetRevocations[0]!.payload.workspaceHeads.every(head => repaired.heads.includes(head))).toBe(true)
+    expect(repaired.history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ personId: keeperPersonId, removed: expect.any(Array), replacements: expect.any(Array) }),
+    ]))
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const members = page.getByRole("list", { name: "Mesh members" })
+    await expect(members).toContainText("You", { timeout: 15_000 })
+    await expect(members).not.toContainText(keeperIdentity.displayName)
   } finally { await context.close() }
 })
 

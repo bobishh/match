@@ -36,6 +36,7 @@ import {
 export function createSyncActions() {
   return {
     readWorkspaceDoc,
+    readWorkspaceHeads,
     readWorkspaceBytes,
     recordVerifiedOwnerWorkspace,
     reclassifyWorkspace,
@@ -76,6 +77,10 @@ async function readWorkspaceDoc(
     : (await storage.loadWorkspaceDoc(id))?.doc;
   if (!doc) throw new Error("The selected workspace is unavailable on this device.");
   return doc;
+}
+
+async function readWorkspaceHeads(id: string): Promise<string[]> {
+  return Automerge.getHeads(await readWorkspaceDoc(id))
 }
 
 async function recordVerifiedOwnerWorkspace(id: string, storage = defaultStorage): Promise<void> {

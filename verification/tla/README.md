@@ -29,6 +29,31 @@ violating `CompletedRevokeCoversCurrentGrant`. This abstracts the revocation
 list to its maximum epoch; signatures, peer-store persistence, and Rusty's
 separate signed disconnect receipt remain implementation-test obligations.
 
+`OwnerRevocationPersistence` models removing a different keeper while preserving
+the owner's role. A signed revocation boundary must exist in both the document
+history and stored authority before local removal completes; the boundary must
+reference an already-admitted head. Reload then keeps the owner authorized and
+the keeper revoked. A failed persist leaves removal incomplete; retry after
+restart can commit both records. Raw causal evidence may contain quarantined
+branches, while access is resolved against the admitted document. The raw-head-
+only mutation signs against a head available only in raw evidence, stores the
+revocation and reports removal without the admitted boundary; reload makes owner
+access unavailable and violates
+`OwnerAccessSurvivesOtherKeeperRemoval`. This finite model
+abstracts signatures and storage transactions; implementation tests must verify
+the actual document/authority commit and recovery behavior.
+
+`OwnerAuthorityRecovery` covers repair of legacy malformed target-revocation
+boundaries: authenticate the current owner and a non-revoked current device,
+retain the old signed boundary in history, CAS-replace that target's record with
+a higher epoch referencing an admitted head, then restore owner access after
+reload while keeping the target revoked. A CAS conflict changes no authority;
+restart refreshes revision before retry. `OwnerAuthorityRecoveryUnauthorized.cfg`
+allows a foreign actor to repair and expects `OnlyCurrentOwnerRepairs` to fail.
+`OwnerAuthorityRecoveryRevokedDevice.cfg` bypasses the device gate and expects
+`OnlyAuthorizedOwnerDeviceRepairs` to fail. The finite model does not represent
+signature bytes or real store transactions.
+
 ## Run
 
 Requirements: Java, Python 3, official
@@ -87,6 +112,11 @@ workspace, ownership, and entitlement abstraction.
 | WorkerLifecycleQueuedTimeout | QueuedTimeoutIsolated violated | 37 / 29 |
 | RevocationGeneration | Safety holds | 6 / 3 |
 | RevocationGenerationPersonOnly | CompletedRevokeCoversCurrentGrant violated | 4 / 3 |
+| OwnerRevocationPersistence | Safety holds | 12 / 10 |
+| OwnerRevocationPersistenceNonAtomic | OwnerAccessSurvivesOtherKeeperRemoval violated | 7 / 7 |
+| OwnerAuthorityRecovery | Safety holds | 18 / 8 |
+| OwnerAuthorityRecoveryUnauthorized | OnlyCurrentOwnerRepairs violated | 3 / 3 |
+| OwnerAuthorityRecoveryRevokedDevice | OnlyAuthorizedOwnerDeviceRepairs violated | 3 / 3 |
 
 ## Interpretation and code mapping
 

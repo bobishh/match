@@ -28,6 +28,11 @@ MODELS = [
     ("WorkerLifecycleQueuedTimeout", "WorkerLifecycle", "Invariant QueuedTimeoutIsolated is violated"),
     ("RevocationGeneration", "RevocationGeneration", None),
     ("RevocationGenerationPersonOnly", "RevocationGeneration", "Invariant CompletedRevokeCoversCurrentGrant is violated"),
+    ("OwnerRevocationPersistence", "OwnerRevocationPersistence", None),
+    ("OwnerRevocationPersistenceNonAtomic", "OwnerRevocationPersistence", "Invariant OwnerAccessSurvivesOtherKeeperRemoval is violated"),
+    ("OwnerAuthorityRecovery", "OwnerAuthorityRecovery", None),
+    ("OwnerAuthorityRecoveryUnauthorized", "OwnerAuthorityRecovery", "Invariant OnlyCurrentOwnerRepairs is violated"),
+    ("OwnerAuthorityRecoveryRevokedDevice", "OwnerAuthorityRecovery", "Invariant OnlyAuthorizedOwnerDeviceRepairs is violated"),
 ]
 
 

@@ -1,5 +1,4 @@
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import * as Automerge from "@automerge/automerge/slim"
 import { signEnvelope, type LocalProfile } from "../domain/identity"
 import type { DeviceCertificate } from "../domain/model"
 import type { WorkspaceSetStore } from "./workspaceSet"
@@ -244,13 +243,11 @@ export async function confirmedOwnershipSnapshot(store: WorkspaceSetStore, works
 export async function createOwnershipProposal(profile: LocalProfile, workspaceId: string,
   target: { payload: { personId: string }; publicKey: string; certificates: DeviceCertificate[] }, credential: WorkspaceMeshCredential,
   store: PeerStore, workspaceStore: WorkspaceSetStore) {
-  const document = Automerge.load(await workspaceStore.read(workspaceId))
-  let transfer: WorkspaceOwnershipTransfer
-  try {
-    transfer = await createWorkspaceOwnershipTransfer(profile, workspaceId, {
-      personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates,
-    }, Automerge.getHeads(document), credential.epoch + 1)
-  } finally { Automerge.free(document) }
+  if (!workspaceStore.readAuthorityHeads) throw new Error("Admitted workspace document unavailable for ownership signing")
+  const heads = await workspaceStore.readAuthorityHeads(workspaceId)
+  const transfer = await createWorkspaceOwnershipTransfer(profile, workspaceId, {
+    personId: target.payload.personId, publicKey: target.publicKey, certificates: target.certificates,
+  }, heads, credential.epoch + 1)
   const snapshot = (await store.getWorkspaceAuthority(workspaceId))?.scopeAuthoritySnapshot
   if (!snapshot) return { transfer, scopeAuthoritySnapshot: undefined }
   const payload = meshRustRuntime().state.createScopeControlTransferPayload({ snapshot,
