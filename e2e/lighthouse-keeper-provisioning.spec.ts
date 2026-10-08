@@ -128,6 +128,15 @@ async function startService(directory: string, origin: string, appOrigin: string
   return child
 }
 
+async function useLegacyKeeperDiscovery(page: Page, serviceOrigin: string) {
+  await page.route(serviceOrigin + "/.well-known/mesh-lighthouse", async route => {
+    const response = await route.fetch()
+    const descriptor = await response.json() as { capabilities?: Record<string, unknown> }
+    if (descriptor.capabilities) delete descriptor.capabilities.ownerOriginAdmission
+    await route.fulfill({ response, body: JSON.stringify(descriptor) })
+  })
+}
+
 async function createTargetBoards(page: Page) {
   await createJobSearchWorkspace(page, "Keeper target A")
   await createJobSearchWorkspace(page, "Keeper target B")
@@ -175,7 +184,11 @@ test("Given a running Lighthouse identity, when both controllers approve all own
   let ownerAPairingId: string | undefined
   let ownerAIntegrationId: string | undefined
   let ownerAServiceDeviceId: string | undefined
-  let lastOwnerAStatus: { httpStatus: number; status?: string; provisioningStatus?: string; scopes?: { workspaceId: string; status?: string }[] } | undefined
+  let lastOwnerAStatus: { httpStatus: number; status?: string; provisioningStatus?: string; admissionSource?: string; controllerOrigin?: string; scopes?: { workspaceId: string; status?: string }[] } | undefined
+  let ownerAControllerOrigin: string | undefined
+  let rejectedForeignOriginOffer = false
+  let ownerAProvisionRequests = 0
+  let ownerADecisionRequests = 0
   let statusFetchFailure: string | undefined
   let droppedResponse = false
   let completed = false
@@ -199,7 +212,29 @@ test("Given a running Lighthouse identity, when both controllers approve all own
 
     console.log("[keeper e2e] start isolated native service")
     service = await startService(baseDirectory, serviceOrigin, appOrigin, operatorToken)
+    await page.route(serviceOrigin + "/.well-known/mesh-lighthouse", async route => {
+      const response = await route.fetch()
+      const descriptor = await response.json() as { capabilities?: { ownerOriginAdmission?: boolean } }
+      expect(descriptor.capabilities?.ownerOriginAdmission).toBe(true)
+      await route.fulfill({ response })
+    })
+    await page.route(serviceOrigin + "/v1/pairings", async route => {
+      const requestBody = route.request().postData() ?? "{}"
+      const offer = JSON.parse(requestBody) as { signed?: { payload?: { controllerOrigin?: string } } }
+      expect(offer.signed?.payload?.controllerOrigin).toBe(appOrigin)
+      ownerAControllerOrigin = offer.signed?.payload?.controllerOrigin
+      if (!rejectedForeignOriginOffer) {
+        rejectedForeignOriginOffer = true
+        const headers = await route.request().allHeaders()
+        const foreignResponse = await route.fetch({ headers: { ...headers, origin: "https://foreign.example" } })
+        expect(foreignResponse.status(), "Rusty must reject a signed owner offer replayed from a foreign Origin").toBe(403)
+        await route.fulfill({ response: foreignResponse })
+        return
+      }
+      await route.continue()
+    })
     await page.route(serviceOrigin + "/v1/pairings/*/provision", async route => {
+      ownerAProvisionRequests += 1
       const requestBody = route.request().postData() ?? undefined
       const request = JSON.parse(requestBody ?? "{}") as { signed?: { payload?: { body?: { pairingId?: string; invitation?: { role?: string } } } } }
       expect(request.signed?.payload?.body?.invitation?.role).toBe("editor")
@@ -229,6 +264,10 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       }
       await route.fulfill({ status: response.status(), contentType: "application/json", body: responseBody })
     })
+    await page.route(serviceOrigin + "/v1/pairings/*/decision", async route => {
+      ownerADecisionRequests += 1
+      await route.continue()
+    })
     await page.route(serviceOrigin + "/v1/pairings/*/status", async route => {
       let response
       try {
@@ -239,12 +278,14 @@ test("Given a running Lighthouse identity, when both controllers approve all own
         return
       }
       statusFetchFailure = undefined
-      const body = await response.json() as { signerKeyId?: string; payload?: { status?: string; integrationId?: string } }
-      const provisioning = body.payload as { provisioning?: { status?: string; scopes?: { workspaceId?: string; status?: string }[] } } | undefined
+      const body = await response.json() as { signerKeyId?: string; payload?: { status?: string; integrationId?: string; admissionSource?: string; controllerOrigin?: string; provisioning?: { status?: string; scopes?: { workspaceId?: string; status?: string }[] } } }
+      const provisioning = body.payload
       lastOwnerAStatus = {
         httpStatus: response.status(),
         status: body.payload?.status,
         provisioningStatus: provisioning?.provisioning?.status,
+        admissionSource: body.payload?.admissionSource,
+        controllerOrigin: body.payload?.controllerOrigin,
         scopes: provisioning?.provisioning?.scopes?.map(scope => ({ workspaceId: scope.workspaceId ?? "", status: scope.status })),
       }
       if (body.payload?.status === "active" && body.payload.integrationId) {
@@ -409,30 +450,29 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await sync.getByRole("checkbox", { name: "Keeper board: Keeper target A" }).check()
     await sync.getByRole("checkbox", { name: "Keeper board: Keeper target B" }).check()
     await sync.getByRole("button", { name: "Request access" }).click()
-    await expect(sync.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+    await expect(sync.getByRole("alert")).toBeVisible()
+    expect(rejectedForeignOriginOffer).toBe(true)
+    expect(lastOwnerAStatus).toBeUndefined()
+    await sync.getByRole("button", { name: "Request access" }).click()
+    await expect(sync.getByText("Review the requested boards and policy, then approve. No access granted yet.")).toBeVisible()
+    await expect(sync.getByText("Future boards: included.")).toBeVisible()
+    expect(ownerAControllerOrigin).toBe(appOrigin)
+    await expect(sync.getByRole("link", { name: "Open operator approval" })).toHaveCount(0)
+    await expect(sync.getByRole("button", { name: "Code matches · approve" })).toHaveCount(0)
+    await expect(operator.locator(".approvals-section article.approval-card")).toHaveCount(0)
+    await expect.poll(() => lastOwnerAStatus).toMatchObject({ httpStatus: 200, status: "pending" })
+    expect(ownerADecisionRequests).toBe(0)
+    expect(ownerAProvisionRequests).toBe(0)
 
-    console.log("[keeper e2e] operator refreshes and approves pending pairing")
-    const request = operator.locator(".approvals-section article.approval-card")
-    await expect(request).toHaveCount(1)
-    await expect(request).toContainText("Keeper target A")
-    await expect(request).toContainText("Keeper target B")
-    await expect(request).toContainText("Controller approval: pending")
-    await expect(request).toContainText("Future boards included in approval")
-    await operator.reload()
-    await expect(operator.locator(".login-card")).toBeHidden()
-    const restoredRequest = operator.locator(".approvals-section article.approval-card")
-    await expect(restoredRequest).toHaveCount(1)
-    await expect(restoredRequest).toContainText("Keeper target A")
-    await restoredRequest.getByRole("button", { name: "Approve exact boards" }).click()
-    await expect(restoredRequest).toContainText("Controller approval: pending")
-    await expect(restoredRequest).toContainText("Future boards included in approval")
-
-    console.log("[keeper e2e] owner approves matching code; wait for durable activation")
-    await sync.getByRole("button", { name: "Code matches · approve" }).click()
+    console.log("[keeper e2e] owner gives one explicit approval; wait for signed Rusty confirmation and activation")
+    await sync.getByRole("button", { name: "Approve and connect" }).click()
+    await expect.poll(() => ownerADecisionRequests).toBe(1)
     await expect.poll(() => lastOwnerAStatus, { timeout: 90_000 }).toMatchObject({
       httpStatus: 200,
       status: "active",
       provisioningStatus: "active",
+      admissionSource: "owner_origin",
+      controllerOrigin: appOrigin,
     })
     await expect(sync.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     // Status polling may observe the durable commit before the intercepted
@@ -501,6 +541,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] second owner requests a separate static board")
     ownerBContext = await browser.newContext()
     ownerBPage = await ownerBContext.newPage()
+    await useLegacyKeeperDiscovery(ownerBPage, serviceOrigin)
     await ownerBPage.goto(appOrigin)
     await createJobSearchWorkspace(ownerBPage, "Owner B private board")
     await ownerBPage.route(serviceOrigin + "/v1/pairings/*/provision", async route => {
