@@ -47,6 +47,10 @@ export type WorkspaceHostContext = PairingContext & {
   removeDirectSession: (personId: string, session: LiveWorkspaceSync) => void
 }
 
+function startWorkspaceHostNode(context: Pick<WorkspaceHostContext, "durableMesh" | "transport">): Promise<SyncNode> {
+  return context.durableMesh?.startInstanceNode() ?? startPersistentNode(context.transport)
+}
+
 export async function generateWorkspaceInvite(context: WorkspaceHostContext) {
   if (context.state.selectedWorkspaceIds.value.length === 0) return
   try {
@@ -66,7 +70,7 @@ async function createWorkspaceHost(context: WorkspaceHostContext) {
   await context.stopNode("Starting workspace host")
   const run = context.nextRun()
   clearHostNotice(context)
-  const node = await startPersistentNode(context.transport)
+  const node = await startWorkspaceHostNode(context)
   if (run !== context.currentRun()) return void node.close("Replaced")
   context.setNode(node)
   await context.durableMesh?.ensureOwnerWorkspaces(workspaces.map(item => item.id), node.endpointId, profile)
@@ -207,7 +211,7 @@ export async function createKeeperWorkspaceHost(
   await context.stopNode("Starting Lighthouse invitation host")
   const run = context.nextRun()
   clearHostNotice(context)
-  const node = await startPersistentNode(context.transport)
+  const node = await startWorkspaceHostNode(context)
   if (run !== context.currentRun()) {
     await node.close("Keeper provisioning superseded")
     throw new Error("Keeper provisioning was cancelled.")
