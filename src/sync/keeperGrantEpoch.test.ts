@@ -29,6 +29,7 @@ describe("keeper owner grant generation", () => {
 
   it("Given an invalid epoch, when combining local and service history, then rejects it", () => {
     expect(() => nextKeeperGrantEpoch(0, 4)).toThrow("Keeper grant epoch floor is invalid.")
+    expect(() => nextKeeperGrantEpoch(2, Number.MAX_SAFE_INTEGER)).toThrow("Keeper grant epoch floor is invalid.")
     expect(() => nextKeeperGrantEpoch(2, Number.MAX_SAFE_INTEGER + 1)).toThrow("Keeper grant epoch floor is invalid.")
   })
 })
