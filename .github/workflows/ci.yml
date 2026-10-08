@@ -189,7 +189,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: bobishh/rusty
-          ref: 8d9a189bda6e181316bd99d137651e57e20b9693
+          ref: 4f94112eac27967bda77194eb4729f64ecbad540
           path: rusty-lifecycle
       - name: Move Rusty checkout outside Tincanban Cargo workspace
         run: cp -a "$GITHUB_WORKSPACE/rusty-lifecycle" "$RUNNER_TEMP/rusty-lifecycle"
