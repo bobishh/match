@@ -257,10 +257,45 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       sameSite: "Strict",
     }])
     const invalidSessionPage = await invalidSessionContext.newPage()
-    await invalidSessionPage.goto(serviceOrigin + "/admin/")
-    await expect(invalidSessionPage.getByRole("heading", { name: "Sign in" })).toBeVisible()
-    await expect(invalidSessionPage.locator(".keeper-card")).toHaveCount(0)
-    await expect(invalidSessionPage.locator(".approval-card")).toHaveCount(0)
+    const invalidPageConsole: string[] = []
+    const invalidPageErrors: string[] = []
+    const invalidPageFailedRequests: string[] = []
+    const invalidPageResponses: string[] = []
+    invalidSessionPage.on("console", message => {
+      if (message.type() === "error") invalidPageConsole.push(message.text().slice(0, 500))
+    })
+    invalidSessionPage.on("pageerror", error => invalidPageErrors.push(error.message.slice(0, 500)))
+    invalidSessionPage.on("requestfailed", request => {
+      if (request.url().startsWith(serviceOrigin + "/admin")) invalidPageFailedRequests.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "failed"}`)
+    })
+    invalidSessionPage.on("response", response => {
+      if (response.url().startsWith(serviceOrigin + "/admin")) invalidPageResponses.push(`${response.status()} ${response.url()}`)
+    })
+    try {
+      const invalidSessionResponsePromise = invalidSessionPage.waitForResponse(response => {
+        const url = new URL(response.url())
+        return url.origin === serviceOrigin && url.pathname === "/admin/api/session" && response.request().method() === "GET"
+      })
+      const invalidSessionDocument = await invalidSessionPage.goto(serviceOrigin + "/admin/")
+      expect(invalidSessionDocument?.status(), "Rusty must serve its local operator page").toBe(200)
+      expect(invalidSessionPage.url(), "Bad-cookie check must stay on Rusty's operator page").toBe(serviceOrigin + "/admin/")
+      const invalidSessionResponse = await invalidSessionResponsePromise
+      expect(invalidSessionResponse.status(), "Rusty must reject the invalid admin session cookie").toBe(403)
+      expect(invalidSessionResponse.request().headers().cookie).toContain("mesh_lighthouse_admin=invalid-session-cookie")
+      await expect(invalidSessionPage.getByRole("heading", { name: "Sign in" })).toBeVisible()
+      await expect(invalidSessionPage.locator(".keeper-card")).toHaveCount(0)
+      await expect(invalidSessionPage.locator(".approval-card")).toHaveCount(0)
+    } catch (cause) {
+      const diagnostic = {
+        url: invalidSessionPage.url(),
+        body: (await invalidSessionPage.locator("body").innerText().catch(() => "<body unavailable>")).slice(0, 1_000),
+        responses: invalidPageResponses.slice(-20),
+        failedRequests: invalidPageFailedRequests.slice(-20),
+        consoleErrors: invalidPageConsole.slice(-10),
+        pageErrors: invalidPageErrors.slice(-10),
+      }
+      throw new Error("Rusty invalid-session page diagnostics: " + JSON.stringify(diagnostic), { cause })
+    }
     await invalidSessionContext.close()
 
     const unavailableSessionContext = await browser.newContext()
