@@ -832,7 +832,9 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     }
     await readdDialog.getByRole("checkbox", { name: "Keeper board: Untitled" }).uncheck()
     await expect(readdDialog.getByRole("checkbox", { name: "Keeper board: Owner B private board" })).toHaveCount(0)
-    await expect(readdDialog.getByRole("checkbox", { name: "Also replicate my future boards" })).toBeChecked()
+    const futureBoards = readdDialog.getByRole("checkbox", { name: "Also replicate my future boards" })
+    await expect(futureBoards).not.toBeChecked()
+    await futureBoards.check()
     ownerAReaddRequested = true
     await readdDialog.getByRole("button", { name: "Request access" }).click()
     await expect(readdDialog.getByRole("status")).toContainText("Waiting for both approvals")
@@ -847,10 +849,11 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     await expect(readdDialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     expect(ownerAReaddProvisionBody).toBeTruthy()
     const readdRequest = JSON.parse(ownerAReaddProvisionBody!) as {
-      signed: { payload: { operationId: string; body: { pairingId: string; approvedScopes: { workspaceId: string }[] } } }
+      signed: { payload: { operationId: string; body: { pairingId: string; futureBoards: boolean; approvedScopes: { workspaceId: string }[] } } }
     }
     expect(readdRequest.signed.payload.operationId).toBeTruthy()
     expect(readdRequest.signed.payload.body.pairingId).not.toBe(ownerAPairingId)
+    expect(readdRequest.signed.payload.body.futureBoards).toBe(true)
     const readdedWorkspaceIds = readdRequest.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
     expect(readdedWorkspaceIds.sort()).toEqual([...ownerAWorkspaceIds].sort())
     const readdedStatus = await page.evaluate(async (origin) => {
