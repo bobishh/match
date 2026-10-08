@@ -16,7 +16,7 @@ tincanban SHALL discover a service by HTTPS hostname, negotiate protocol support
 - **THEN** tincanban preserves the current integrations and shows the specific error and retry/upgrade action.
 
 ### Requirement: Mutual scoped approval
-tincanban MUST activate only the exact integration and scopes approved by both controller and authenticated service operator; hostname knowledge or a display name SHALL NOT confer authority.
+tincanban MUST activate only the exact integration and scopes approved by the authenticated service; hostname knowledge or a display name SHALL NOT confer authority. Services without owner-origin admission support SHALL retain the separate operator and controller approvals.
 
 #### Scenario: Two approvals
 - **WHEN** both parties approve the same unexpired transcript and all initial scopes persist successfully
@@ -25,6 +25,18 @@ tincanban MUST activate only the exact integration and scopes approved by both c
 #### Scenario: One approval only
 - **WHEN** one party has not approved
 - **THEN** the integration stays pending and no usable workspace credentials or documents are released.
+
+#### Scenario: Owner-origin admission
+- **WHEN** a service advertises owner-origin admission and its authenticated owner reviews and approves exact owned-board scopes from an allowed Tincanban origin
+- **THEN** Tincanban signs that exact origin into the offer, omits the redundant operator step, and provisions only after Rusty returns signed approval for the same origin, controller, policy and board set.
+
+#### Scenario: Legacy service approval
+- **WHEN** discovery omits owner-origin admission support
+- **THEN** Tincanban omits the origin field and retains the operator approval link and controller decision.
+
+#### Scenario: Owner-origin mismatch
+- **WHEN** a service status reports a different origin, controller, policy or approved board set than the signed offer
+- **THEN** Tincanban rejects the status and releases no board access.
 
 #### Scenario: Tampered scope selection
 - **WHEN** a board, mode, key or revision changes after approval

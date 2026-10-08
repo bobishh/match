@@ -13,6 +13,7 @@ export type LighthouseDiscovery = {
     chatReplication: boolean
     blobReplication: boolean
     pairing: boolean
+    ownerOriginAdmission?: boolean
   }
 }
 
@@ -58,6 +59,7 @@ function parseDescriptor(value: unknown, origin: string): Omit<LighthouseDiscove
       chatReplication: rawCapabilities.chatReplication === true,
       blobReplication: rawCapabilities.blobReplication === true,
       pairing: rawCapabilities.pairing === true,
+      ownerOriginAdmission: rawCapabilities.ownerOriginAdmission === true,
     },
   }
 }

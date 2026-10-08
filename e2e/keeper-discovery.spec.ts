@@ -108,8 +108,9 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
   }))
   await page.route(`${origin}/v1/pairings`, async route => {
-    const request = route.request().postDataJSON() as { signed: { payload: { body: { policy: { futureBoards: boolean } } } } }
+    const request = route.request().postDataJSON() as { signed: { payload: { controllerOrigin?: string; body: { policy: { futureBoards: boolean } } } } }
     expect(request.signed.payload.body.policy.futureBoards).toBe(true)
+    expect(request.signed.payload.controllerOrigin).toBeUndefined()
     transcriptHash = keeper.hash(request.signed.payload)
     nonce = randomBytes(32).toString("base64url")
     const expiresAt = Math.floor(Date.now() / 1000) + 600
@@ -192,6 +193,122 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
   await dialog.getByRole("button", { name: "Retry board setup" }).click()
   await expect(dialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 10_000 })
   expect(provisionRequests).toBeGreaterThanOrEqual(2)
+})
+
+test("Given owner-origin admission support, when Rusty confirms the signed request, then one approval activates only its exact boards", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let transcriptHash = ""
+  let ownerPersonId = ""
+  let ownerDeviceId = ""
+  let challengeNonce = ""
+  let controllerOrigin = ""
+  let approvedWorkspaceIds: string[] = []
+  let baselineWorkspaceIds: string[] = []
+  let futureBoards = false
+  let statusMode: "pending" | "wrong-origin" | "wrong-source" | "wrong-controller" | "wrong-device" | "wrong-scope" | "wrong-policy" | "approved" = "pending"
+  let provisionRequests = 0
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true, ownerOriginAdmission: true }, publicOrigin: origin, managementPath: "/admin" }),
+  }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const integrations = provisionRequests === 0 ? [] : [{ integrationId: "integration-origin", revision: 1,
+      policy: { futureBoards, baselineWorkspaceIds },
+      scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-origin" })),
+      tombstones: [], pendingOperation: null }]
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId, controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: integrations.length ? 1 : 0,
+      capabilities: { integrationSettings: false }, integrations, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { controllerOrigin: string; controllerPersonId: string; controllerDeviceId: string; body: { scopes: { workspaceId: string }[]; policy: { futureBoards: boolean; baselineWorkspaceIds: string[] } } } } }
+    ownerPersonId = request.signed.payload.controllerPersonId
+    ownerDeviceId = request.signed.payload.controllerDeviceId
+    controllerOrigin = request.signed.payload.controllerOrigin
+    expect(controllerOrigin).toBe(new URL(page.url()).origin)
+    approvedWorkspaceIds = request.signed.payload.body.scopes.map(scope => scope.workspaceId).sort()
+    futureBoards = request.signed.payload.body.policy.futureBoards
+    baselineWorkspaceIds = request.signed.payload.body.policy.baselineWorkspaceIds.slice().sort()
+    transcriptHash = keeper.hash(request.signed.payload)
+    const nonce = randomBytes(32).toString("base64url")
+    challengeNonce = nonce
+    const expiresAt = Math.floor(Date.now() / 1000) + 600
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-origin", transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce,
+      integrationId: "integration-origin", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-origin", expiresAt,
+      operatorUrl: `${origin}/admin/?pairing=pairing-origin`, comparisonCode: "867530", transcriptHash, challenge }) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-origin/decision`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { pairingId: string; transcriptHash: string; challengeNonce: string; decision: string } } }
+    expect(request.signed.payload).toMatchObject({ pairingId: "pairing-origin", transcriptHash, challengeNonce, decision: "approve" })
+    statusMode = "wrong-origin"
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-origin" }) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-origin/status`, async route => {
+    const status = statusMode === "pending" ? "pending" : "approved"
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1,
+      pairingId: "pairing-origin", integrationId: "integration-origin", transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: statusMode === "wrong-controller" ? "another-owner" : ownerPersonId,
+      controllerDeviceId: statusMode === "wrong-device" ? "another-device" : ownerDeviceId,
+      controllerOrigin: statusMode === "wrong-origin" ? "https://foreign.example" : controllerOrigin,
+      ...(status === "pending" ? {} : { admissionSource: statusMode === "wrong-source" ? "operator" : "owner_origin" }),
+      approvedWorkspaceIds: statusMode === "wrong-scope" ? [] : approvedWorkspaceIds,
+      futureBoards: statusMode === "wrong-policy" ? !futureBoards : futureBoards, baselineWorkspaceIds,
+      operatorApproved: status !== "pending", controllerApproved: status !== "pending", status,
+      provisioning: false,
+      expiresAt: Math.floor(Date.now() / 1000) + 600, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-origin/provision`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { body: { approvedScopes: { workspaceId: string }[]; invitation: { workspaces: { id: string }[] } } } } }
+    const provisionedIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId).sort()
+    expect(provisionedIds).toEqual(approvedWorkspaceIds)
+    expect(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id).sort()).toEqual(approvedWorkspaceIds)
+    provisionRequests++
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1,
+      pairingId: "pairing-origin", integrationId: "integration-origin", transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: ownerPersonId, controllerDeviceId: ownerDeviceId, controllerOrigin,
+      admissionSource: "owner_origin", approvedWorkspaceIds, futureBoards, baselineWorkspaceIds,
+      operatorApproved: true, controllerApproved: true, status: "active",
+      provisioning: { status: "active", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active" })) },
+      expiresAt: Math.floor(Date.now() / 1000) + 600, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByText("Review the requested boards and policy, then approve. No access granted yet.")).toBeVisible()
+  await expect(dialog.getByText("Future boards: included.")).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Approve and connect" })).toBeVisible()
+  await expect(dialog.getByRole("link", { name: "Open operator approval" })).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Code matches · approve" })).toHaveCount(0)
+  expect(provisionRequests).toBe(0)
+  await dialog.getByRole("button", { name: "Approve and connect" }).click()
+  await expect(dialog.getByText("Owner approval sent. Waiting for Rusty to confirm this request. No access granted.")).toBeVisible()
+  await expect(dialog.getByRole("alert")).toContainText("did not confirm owner-origin approval", { timeout: 5000 })
+  for (const invalidMode of ["wrong-source", "wrong-controller", "wrong-device", "wrong-scope", "wrong-policy"] as const) {
+    statusMode = invalidMode
+    const alert = dialog.getByRole("alert")
+    await expect(alert).toContainText("did not confirm owner-origin approval", { timeout: 5000 })
+    expect(provisionRequests).toBe(0)
+    await alert.getByRole("button", { name: "Dismiss error" }).click()
+  }
+  statusMode = "approved"
+  await expect(dialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 10_000 })
+  expect(provisionRequests).toBe(1)
 })
 
 test("Given cancellation proof capture fails, when pairing expires and owner reloads, then saved intent stays retryable until signed cancellation", async ({ page }) => {

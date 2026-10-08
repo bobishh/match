@@ -12,6 +12,7 @@ import {
   type KeeperWithdrawalGrantProof,
   type KeeperWithdrawalScopeProof,
 } from "./lighthousePairing"
+import { assertOwnerOriginAdmission } from "./keeperOriginAdmission"
 
 type SignedPayload = Record<string, unknown>
 
@@ -40,12 +41,16 @@ function parseWithdrawal(value: unknown, expectedOperationId?: string): KeeperPa
     status: withdrawal.status as KeeperPairingWithdrawal["status"] }
 }
 
-function validateStatusPayload(payload: SignedPayload, pairing: KeeperPairing): KeeperPairingStatus {
+function validateStatusPayload(payload: SignedPayload, pairing: KeeperPairing, controllerPersonId: string, controllerDeviceId: string): KeeperPairingStatus {
   if (payload.pairingId !== pairing.pairingId || payload.integrationId !== pairing.integrationId
     || payload.transcriptHash !== pairing.transcriptHash || payload.serviceOrigin !== pairing.discovery.origin) {
     throw new Error("Keeper returned a status for another pairing or an unsupported state.")
   }
-  return statusValue(payload.status)
+  const status = statusValue(payload.status)
+  if (pairing.controllerOrigin && ["approved", "provisioning", "active"].includes(status)) {
+    assertOwnerOriginAdmission(payload, pairing, controllerPersonId, controllerDeviceId)
+  }
+  return status
 }
 
 function parseProvisioning(payload: SignedPayload, pairing: KeeperPairing, status: KeeperPairingStatus): KeeperProvisionedScope[] | undefined {
@@ -77,7 +82,7 @@ export async function getKeeperPairingStatusInfo(pairing: KeeperPairing, expecte
     method: "POST", body: JSON.stringify(signed),
   })
   const payload = await verifyKeeperServiceEnvelope(pairing.discovery, envelope, "lighthouse-pairing-status")
-  const status = validateStatusPayload(payload, pairing)
+  const status = validateStatusPayload(payload, pairing, profile.identity.personId, profile.device?.deviceId ?? "")
   const withdrawal = parseWithdrawal(payload.withdrawal, expectedWithdrawalOperationId)
   validateStatusConsistency(status, withdrawal)
   const provisioningScopes = parseProvisioning(payload, pairing, status)

@@ -12,6 +12,8 @@ import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type Keeper
   keeperIntegrationSettingsSupported, type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
 import { KeeperHttpError } from "./keeperHttpError"
+import { assertOwnerOriginAdmission, ownerOriginForDiscovery } from "./keeperOriginAdmission"
+import { validateKeeperPairingChallenge } from "./keeperPairingChallenge"
 export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 export type { KeeperSettingsReceipt, KeeperSettingsScope } from "./keeperIntegrationStatus"
 
@@ -24,6 +26,7 @@ export type KeeperPairing = {
   comparisonCode: string
   expiresAt: number
   transcriptHash: string
+  controllerOrigin?: string
   challengeNonce: string
   controllerFingerprint: string
   discovery: LighthouseDiscovery
@@ -338,36 +341,6 @@ async function keeperScope(workspace: KeeperWorkspace, profile: LocalProfile) {
   return { workspaceId: workspace.id, title: workspace.title, genesisAnchor: canonicalizeJson(snapshot.genesis), mode: "replicate" }
 }
 
-function validPairingResult(result: { pairingId: string; transcriptHash: string; expiresAt: number; comparisonCode: string }, transcriptHash: string) {
-  if (result.transcriptHash !== transcriptHash || !Number.isSafeInteger(result.expiresAt) || typeof result.comparisonCode !== "string") {
-    throw new Error("Keeper returned a pairing response that does not match this request.")
-  }
-}
-
-function validPairingChallenge(challenge: Record<string, unknown>, pairingId: string, discovery: LighthouseDiscovery,
-  expiresAt: number, transcriptHash: string) {
-  return challenge.kind === "lighthouse-pairing-challenge" && challenge.pairingId === pairingId
-    && typeof challenge.integrationId === "string" && !!challenge.integrationId && challenge.transcriptHash === transcriptHash
-    && challenge.servicePersonId === discovery.personId && challenge.serviceOrigin === discovery.origin
-    && challenge.expiresAt === expiresAt && typeof challenge.nonce === "string"
-}
-
-function validatePairingChallenge(result: { pairingId: string; transcriptHash: string; expiresAt: number; comparisonCode: string },
-  discovery: LighthouseDiscovery, envelope: Record<string, unknown>, transcriptHash: string) {
-  validPairingResult(result, transcriptHash)
-  const pairingId = result.pairingId
-  const challenge = record(envelope.payload)
-  if (!pairingId || !challenge || !validPairingChallenge(challenge, pairingId, discovery, result.expiresAt, transcriptHash)) {
-    throw new Error("Keeper challenge is not bound to this pairing, identity and origin.")
-  }
-  let operatorUrl: URL
-  try { operatorUrl = new URL(String(envelope.operatorUrl)) } catch (error) {
-    throw new Error("Keeper returned an invalid operator URL.", { cause: error })
-  }
-  if (operatorUrl.origin !== discovery.origin || operatorUrl.pathname !== "/admin/") throw new Error("Keeper returned an unsafe operator URL.")
-  return { pairingId, integrationId: challenge.integrationId as string, operatorUrl: operatorUrl.toString(), challengeNonce: challenge.nonce as string }
-}
-
 export function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: KeeperPairing, allowPendingFailure = false): KeeperProvisionedScope[] {
   const provisioned = payload.provisioning as { scopes?: unknown } | undefined
   if (!provisioned || !Array.isArray(provisioned.scopes)) throw new Error("Keeper omitted durable per-board provisioning state.")
@@ -458,9 +431,11 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   const current = await getKeeperIntegrationStatus(discovery)
   const existing = selectPairingIntegration(current, workspaces, options, baselineIds)
   const integrationUpdate = pairingIntegrationUpdate(existing, workspaces, options, baselineIds)
+  const controllerOrigin = ownerOriginForDiscovery(discovery)
   const signedRequestBody = await signKeeperControllerRequest(profile, discovery, "lighthouse-pairing-offer", {
     body: { scopes, policy: { futureBoards: options.futureBoards, baselineWorkspaceIds: baselineIds },
       ...(integrationUpdate ? { integrationUpdate } : {}) },
+    ...(controllerOrigin ? { controllerOrigin } : {}),
   })
   const transcriptHash = await sha256Base64Url(new TextEncoder().encode(canonicalizeJson(signedRequestBody.signed.payload)))
   const result = await request<{
@@ -469,10 +444,11 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   }>(`${discovery.origin}/v1/pairings`, { method: "POST", body: JSON.stringify(signedRequestBody) })
   const challengeEnvelope = result.challenge as Record<string, unknown>
   await verifyKeeperServiceEnvelope(discovery, challengeEnvelope, "lighthouse-pairing-challenge")
-  const verified = validatePairingChallenge({ pairingId: result.pairingId, transcriptHash: result.transcriptHash,
+  const verified = validateKeeperPairingChallenge({ pairingId: result.pairingId, transcriptHash: result.transcriptHash,
     expiresAt: result.expiresAt, comparisonCode: result.comparisonCode }, discovery,
   { ...challengeEnvelope, operatorUrl: result.operatorUrl }, transcriptHash)
   return { ...verified, comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash,
+    ...(controllerOrigin ? { controllerOrigin } : {}),
     controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery,
     integrationSettingsSupported: current.integrationSettingsSupported,
     workspaces: workspaces.map(workspace => ({ ...workspace })), futureBoards: options.futureBoards,
@@ -521,12 +497,16 @@ export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation
     body,
   })
   const payload = await verifyKeeperServiceEnvelope(pairing.discovery, result, "lighthouse-pairing-status")
+  const profile = await bootstrapIdentity()
   if (payload.pairingId !== pairing.pairingId
     || payload.integrationId !== pairing.integrationId
     || payload.transcriptHash !== pairing.transcriptHash
     || payload.serviceOrigin !== pairing.discovery.origin
     || !["provisioning", "active"].includes(String(payload.status))) {
     throw new Error("Keeper returned a provisioning state for another pairing or scope set.")
+  }
+  if (["provisioning", "active"].includes(String(payload.status))) {
+    assertOwnerOriginAdmission(payload, pairing, profile.identity.personId, profile.device.deviceId)
   }
   verifyProvisionedScopes(payload, pairing)
   return payload.status as KeeperPairingStatus
