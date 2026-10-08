@@ -9,7 +9,7 @@ import type { KeeperWorkspace, LighthouseDiscovery } from "./lighthouseDiscovery
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { rememberActivatedKeeper, saveKeeperIntegrationReference } from "./ownerKeeper"
 import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope,
-  keeperIntegrationSettingsSupported, type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
+  assertKeeperGrantFloorRefreshAllowed, keeperIntegrationSettingsSupported, type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
 import { KeeperHttpError } from "./keeperHttpError"
 import { assertOwnerOriginAdmission, ownerOriginForDiscovery } from "./keeperOriginAdmission"
@@ -179,9 +179,7 @@ export async function getKeeperIntegrationStatus(discovery: LighthouseDiscovery)
 export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, workspaceIds: string[], previous: Record<string, number> = {},
   excludeActiveIntegrationId?: string) {
   const { integrations } = await getKeeperIntegrationStatus(discovery)
-  if (integrations.some(integration => integration.pendingOperation)) {
-    throw new Error("Rusty has pending board cleanup. Finish cancellation before adding keeper access.")
-  }
+  assertKeeperGrantFloorRefreshAllowed(integrations, workspaceIds, excludeActiveIntegrationId)
   const current = keeperServiceGrantFloors(integrations, workspaceIds, excludeActiveIntegrationId)
   return Object.fromEntries(workspaceIds.map(workspaceId => [workspaceId,
     Math.max(previous[workspaceId] ?? 0, current[workspaceId] ?? 0)]))

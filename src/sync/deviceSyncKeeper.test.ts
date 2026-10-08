@@ -3,8 +3,8 @@ import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identi
 import { createPersonalRoot, registerWorkspaceInRoot } from "../domain/personalRoot"
 import { defaultStorage } from "../storage"
 import type { DurableMesh } from "./durableMesh"
-import { removeKeeperAccess, updateKeeperIntegrationAccess } from "./deviceSyncKeeper"
-import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
+import { createKeeperProvisioner, removeKeeperAccess, updateKeeperIntegrationAccess } from "./deviceSyncKeeper"
+import { ownerKeepers, saveKeeperIntegrationReference, saveOwnerKeeper } from "./ownerKeeper"
 import * as ownerKeeperStorage from "./ownerKeeper"
 import * as lighthousePairing from "./lighthousePairing"
 import * as integrationSettingsApi from "./keeperIntegrationSettingsApi"
@@ -55,6 +55,35 @@ describe("keeper removal", () => {
     }
   }
 
+  it("does not issue an approved policy-only update when target cleanup starts before provision", async () => {
+    const { discovery } = await setupOwnerKeeper(["board"])
+    const pendingError = new Error("Rusty has board cleanup pending for this integration or selected board.")
+    const refresh = vi.spyOn(lighthousePairing, "refreshKeeperGrantFloors").mockRejectedValue(pendingError)
+    const ensureDurableMesh = vi.fn(async () => {})
+    const hostContext = vi.fn(() => ({} as never))
+    const pairing = {
+      pairingId: "approved-pairing",
+      integrationId: "integration",
+      operatorUrl: "https://rusty.example/approve",
+      comparisonCode: "ABC-123",
+      expiresAt: Date.now() + 60_000,
+      transcriptHash: "transcript",
+      challengeNonce: "nonce",
+      controllerFingerprint: "controller",
+      discovery,
+      workspaces: [],
+      futureBoards: true,
+      integrationUpdate: { integrationId: "integration", expectedRevision: 3,
+        scopeWorkspaceIds: [], policy: { futureBoards: true, baselineWorkspaceIds: ["board"] }, policyOnly: true },
+    } as never
+
+    await expect(createKeeperProvisioner(ensureDurableMesh, hostContext)(pairing)).rejects.toBe(pendingError)
+
+    expect(refresh).toHaveBeenCalledWith(discovery, [], undefined, "integration")
+    expect(ensureDurableMesh).not.toHaveBeenCalled()
+    expect(hostContext).not.toHaveBeenCalled()
+  })
+
   it("revokes every owned board locally and keeps policy while Rusty confirmation is unavailable", async () => {
     const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["other", "active"])
     const revokePerson = vi.fn(async () => {})
@@ -103,6 +132,127 @@ describe("keeper removal", () => {
     await expect(ownerKeeperStorage.keeperIntegrationReferences()).resolves.toMatchObject({
       integrations: { integration: before },
     })
+  })
+
+  it("does not let a late removal receipt replace a newer active integration or delete its keeper row", async () => {
+    const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["board"])
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor" })
+    const active = { integrationId: "integration", revision: 1, futureBoards: false, scopes: [
+      { workspaceId: "board", grantEpoch: 1, state: "active" as const, activationOperationId: "activation" },
+    ], tombstones: [] }
+    vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus").mockResolvedValue({
+      integrations: [active], integrationSettingsSupported: true, signerKeyId: "rusty-device", signature: "signed", revision: 1,
+      signedStatus: { payload: {}, signerKeyId: "rusty-device", signature: "signed" },
+    })
+    vi.spyOn(lighthousePairing, "disconnectKeeperIntegration").mockImplementation(async () => {
+      const references = await ownerKeeperStorage.keeperIntegrationReferences()
+      const prior = references.integrations.integration!
+      await saveKeeperIntegrationReference({ ...prior, revision: 3, workspaceIds: ["new-board"],
+        scopeReceipts: [{ workspaceId: "new-board", grantEpoch: 4, activationOperationId: "new-activation" }],
+        state: "active", pendingRemoval: undefined })
+      return { integrationId: "integration", operationId: "old-removal", requestHash: "old-hash", revision: 2,
+        status: "removed", scopes: [{ workspaceId: "board", grantEpoch: 1, state: "removed", cleanup: "complete" }] }
+    })
+
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile,
+      workspaces: [{ id: "board" }], workspaceOwner: async () => owner,
+      mesh: async () => ({ revokePerson: vi.fn(async () => {}) }) as unknown as DurableMesh,
+      discovery,
+    })).rejects.toThrow("Rusty confirmed removal; local keeper cleanup is pending")
+
+    await expect(ownerKeeperStorage.keeperIntegrationReferences()).resolves.toMatchObject({ integrations: {
+      integration: { revision: 3, state: "active", workspaceIds: ["new-board"], scopeReceipts: [
+        { workspaceId: "new-board", grantEpoch: 4 },
+      ] },
+    } })
+    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "editor" }])
+  })
+
+  it("preserves same-revision removal intent against a late active status write", async () => {
+    await setupOwnerKeeper(["board"])
+    const { integrations } = await ownerKeeperStorage.keeperIntegrationReferences()
+    const reference = integrations.integration!
+    const pending = { ...reference, state: "removing" as const,
+      pendingRemoval: { operationId: "pending-remove", expectedRevision: reference.revision,
+        scopes: [{ workspaceId: "board", expectedGrantEpoch: 1 }] } }
+    await saveKeeperIntegrationReference(pending)
+
+    await expect(saveKeeperIntegrationReference(reference)).rejects.toThrow("Keeper removal intent changed")
+    await expect(ownerKeeperStorage.keeperIntegrationReferences()).resolves.toMatchObject({ integrations: {
+      integration: { state: "removing", pendingRemoval: { operationId: "pending-remove" } },
+    } })
+  })
+
+  it("does not let terminal cleanup delete a keeper cache row activated after its root receipt", async () => {
+    const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["board"])
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: {
+      integrationId: "integration", revision: 1, origin: discovery.origin, boardIds: ["board"], futureBoards: false,
+    } })
+    const active = { integrationId: "integration", revision: 1, futureBoards: false, scopes: [
+      { workspaceId: "board", grantEpoch: 1, state: "active" as const, activationOperationId: "activation" },
+    ], tombstones: [] }
+    vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus").mockResolvedValue({
+      integrations: [active], integrationSettingsSupported: true, signerKeyId: "rusty-device", signature: "signed", revision: 1,
+      signedStatus: { payload: {}, signerKeyId: "rusty-device", signature: "signed" },
+    })
+    vi.spyOn(lighthousePairing, "disconnectKeeperIntegration").mockResolvedValue({
+      integrationId: "integration", operationId: "old-removal", requestHash: "old-hash", revision: 2,
+      status: "removed", scopes: [{ workspaceId: "board", grantEpoch: 1, state: "removed", cleanup: "complete" }],
+    })
+    const removeCache = ownerKeeperStorage.removeOwnerKeeper
+    vi.spyOn(ownerKeeperStorage, "removeOwnerKeeper").mockImplementation(async (ownerPersonId, personId, expected) => {
+      const { integrations } = await ownerKeeperStorage.keeperIntegrationReferences()
+      const prior = integrations.integration!
+      await saveKeeperIntegrationReference({ ...prior, revision: 3, workspaceIds: ["new-board"],
+        scopeReceipts: [{ workspaceId: "new-board", grantEpoch: 4, activationOperationId: "new-activation" }],
+        state: "active", pendingRemoval: undefined })
+      await saveOwnerKeeper(ownerPersonId, { personId, role: "editor", details: {
+        integrationId: "integration", revision: 3, origin: discovery.origin, boardIds: ["new-board"], futureBoards: true,
+      } })
+      return removeCache(ownerPersonId, personId, expected)
+    })
+
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile,
+      workspaces: [{ id: "board" }], workspaceOwner: async () => owner,
+      mesh: async () => ({ revokePerson: vi.fn(async () => {}) }) as unknown as DurableMesh,
+      discovery,
+    })).resolves.toBe("removed")
+
+    await expect(ownerKeeperStorage.keeperIntegrationReferences()).resolves.toMatchObject({ integrations: {
+      integration: { revision: 3, state: "active", workspaceIds: ["new-board"] },
+    } })
+    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "editor", details: {
+      integrationId: "integration", revision: 3, origin: discovery.origin, boardIds: ["new-board"], futureBoards: true,
+    } }])
+  })
+
+  it("does not let a delayed partial-removal receipt replace a different canonical integration cache", async () => {
+    const { owner, keeper } = await setupOwnerKeeper(["old-board"])
+    const root = await defaultStorage.loadPersonalRoot()
+    const old = root!.keeperIntegrations!.integration!
+    root!.keeperIntegrations = {
+      integration: { ...old, state: "removed", workspaceIds: [], revision: 2 },
+      "new-integration": { ...old, integrationId: "new-integration", state: "active", workspaceIds: ["new-board"], revision: 1 },
+    }
+    await defaultStorage.savePersonalRoot(root!)
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: {
+      integrationId: "new-integration", revision: 1, boardIds: ["new-board"], futureBoards: true,
+    } })
+
+    await expect(saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: {
+      integrationId: "integration", revision: 2, boardIds: ["old-board"], futureBoards: false,
+    } })).rejects.toThrow("not the current canonical integration")
+    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "editor", details: {
+      integrationId: "new-integration", revision: 1, boardIds: ["new-board"], futureBoards: true,
+    } }])
+
+    await ownerKeeperStorage.removeOwnerKeeper(owner, keeper)
+    await expect(saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: {
+      integrationId: "integration", revision: 2, boardIds: ["old-board"], futureBoards: false,
+    } })).rejects.toThrow("not the current canonical integration")
+    await expect(ownerKeepers(owner)).resolves.toEqual([])
   })
 
   it("does not revoke a legacy descriptor locally when no saved grant generation exists", async () => {

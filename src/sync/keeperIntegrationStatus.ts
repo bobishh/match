@@ -39,6 +39,14 @@ export type KeeperIntegrationStatus = {
     status: "pending"
   }
 }
+
+export function assertKeeperGrantFloorRefreshAllowed(integrations: KeeperIntegrationStatus[], workspaceIds: string[],
+  targetIntegrationId?: string) {
+  const blocked = integrations.find(integration => integration.pendingOperation
+    && (integration.integrationId === targetIntegrationId
+      || integration.pendingOperation.scopes.some(scope => workspaceIds.includes(scope.workspaceId))))
+  if (blocked) throw new Error("Rusty has board cleanup pending for this integration or selected board. Finish it before requesting or provisioning access.")
+}
 export type KeeperDisconnectReceipt = {
   integrationId: string
   operationId: string

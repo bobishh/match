@@ -123,12 +123,11 @@ async function persistRemovalReceipt(profile: LocalProfile, personId: string, di
     }, verifiedAt: new Date().toISOString() }
   await saveKeeperIntegrationReference(nextDescriptor)
   if (!remaining.length) {
-    try {
-      await removeOwnerKeeper(profile.identity.personId, personId)
-    } catch (error) {
+    await removeOwnerKeeper(profile.identity.personId, personId, {
+      integrationId: nextDescriptor.integrationId, throughRevision: receipt.revision,
+    }).catch(error => {
       throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
-    }
-    await saveKeeperIntegrationReference({ ...nextDescriptor, scopeReceipts: [] })
+    })
     return
   }
   await saveOwnerKeeper(profile.identity.personId, { personId, role: "editor", details: {
@@ -257,13 +256,15 @@ async function removalIntentWithLocalError(discovery: LighthouseDiscovery, profi
 async function finishAlreadyRemoved(personId: string, profile: LocalProfile, reference: KeeperIntegrationReference | undefined,
   integration: KeeperIntegrationStatus, localPending: KeeperIntegrationReference["pendingRemoval"]): Promise<boolean> {
   if (!removalAlreadyCompleted(integration, reference, localPending)) return false
+  if (reference) await saveKeeperIntegrationReference({ ...reference, state: "removed", workspaceIds: [], scopeReceipts: [],
+    revision: integration.revision, pendingRemoval: undefined, verifiedAt: new Date().toISOString() })
   try {
-    await removeOwnerKeeper(profile.identity.personId, personId)
+    await removeOwnerKeeper(profile.identity.personId, personId, {
+      integrationId: reference?.integrationId ?? integration.integrationId, throughRevision: integration.revision,
+    })
   } catch (error) {
     throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
   }
-  if (reference) await saveKeeperIntegrationReference({ ...reference, state: "removed", workspaceIds: [], scopeReceipts: [],
-    revision: integration.revision, pendingRemoval: undefined, verifiedAt: new Date().toISOString() })
   return true
 }
 

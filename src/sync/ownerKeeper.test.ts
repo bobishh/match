@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest"
 import { writeLocal } from "../localDb"
+import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
+import { createPersonalRoot } from "../domain/personalRoot"
+import { defaultStorage } from "../storage"
 import { mayOfferFutureKeeperWorkspace, ownerKeepers, rememberActivatedKeeper, removeOwnerKeeper, saveOwnerKeeper } from "./ownerKeeper"
+
+async function installCanonicalKeeperRefs(references: Array<{ integrationId: string; personId: string; revision: number }>) {
+  resetIdentityStorageForTest()
+  const profile = await bootstrapIdentity("Keeper cache test")
+  const root = createPersonalRoot(profile, "keeper-cache-test")
+  root.keeperIntegrations = Object.fromEntries(references.map(({ integrationId, personId, revision }) => [integrationId, {
+    integrationId,
+    serviceOrigin: "https://keeper.example",
+    servicePersonId: personId,
+    serviceDeviceId: "keeper-device",
+    servicePublicKey: "keeper-key",
+    serviceCertificates: [],
+    workspaceIds: ["board"],
+    futureBoards: false,
+    revision,
+    state: "active" as const,
+    verifiedAt: new Date().toISOString(),
+  }]))
+  await defaultStorage.savePersonalRoot(root)
+  return profile.identity.personId
+}
 
 describe("identity-scoped owner-keeper policy", () => {
   it("reconciles repeated activation receipts without downgrading an existing editor", async () => {
@@ -59,5 +83,66 @@ describe("identity-scoped owner-keeper policy", () => {
     await removeOwnerKeeper(owner, "old")
     await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: "current", role: "editor" }])
     await expect(ownerKeepers(otherOwner)).resolves.toEqual([{ personId: "old", role: "visitor" }])
+  })
+
+  it("serializes concurrent keeper additions and removal on the owner cache key", async () => {
+    const owner = `owner-${crypto.randomUUID()}`
+    const first = `keeper-${crypto.randomUUID()}`
+    const second = `keeper-${crypto.randomUUID()}`
+    const third = `keeper-${crypto.randomUUID()}`
+
+    await Promise.all([
+      saveOwnerKeeper(owner, { personId: first, role: "editor" }),
+      saveOwnerKeeper(owner, { personId: second, role: "visitor" }),
+    ])
+    await Promise.all([
+      removeOwnerKeeper(owner, first),
+      saveOwnerKeeper(owner, { personId: third, role: "editor" }),
+    ])
+
+    await expect(ownerKeepers(owner)).resolves.toEqual([
+      { personId: second, role: "visitor" },
+      { personId: third, role: "editor" },
+    ])
+  })
+
+  it("preserves a newer same-integration cache row from stale activation and removal receipts", async () => {
+    const keeper = `keeper-${crypto.randomUUID()}`
+    const owner = await installCanonicalKeeperRefs([{ integrationId: "integration", personId: keeper, revision: 3 }])
+    const current = { integrationId: "integration", revision: 3, boardIds: ["new-board"], futureBoards: true }
+    await saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: current })
+
+    await expect(saveOwnerKeeper(owner, { personId: keeper, role: "editor", details: {
+      ...current, revision: 2, boardIds: ["old-board"],
+    } })).rejects.toThrow("Stale keeper cache write")
+    await removeOwnerKeeper(owner, keeper, { integrationId: "integration", throughRevision: 2 })
+
+    await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "editor", details: current }])
+    await removeOwnerKeeper(owner, keeper, { integrationId: "integration", throughRevision: 4 })
+    await expect(ownerKeepers(owner)).resolves.toEqual([])
+  })
+
+  it("clears equal-revision and legacy cache rows after a verified terminal receipt", async () => {
+    const equalRevision = `keeper-${crypto.randomUUID()}`
+    const legacy = `keeper-${crypto.randomUUID()}`
+    const owner = await installCanonicalKeeperRefs([
+      { integrationId: "integration", personId: equalRevision, revision: 4 },
+      { integrationId: "legacy-integration", personId: legacy, revision: 4 },
+    ])
+    await saveOwnerKeeper(owner, { personId: equalRevision, role: "editor", details: {
+      integrationId: "integration", revision: 4, boardIds: ["board"], futureBoards: false,
+    } })
+    const saved = await ownerKeepers(owner)
+    await writeLocal(`tincanban.owner-keepers.v1:${owner}`, JSON.stringify([
+      ...saved,
+      { personId: legacy, role: "editor", details: { integrationId: "legacy-integration", boardIds: ["board"], futureBoards: false } },
+    ]))
+
+    await Promise.all([
+      removeOwnerKeeper(owner, equalRevision, { integrationId: "integration", throughRevision: 4 }),
+      removeOwnerKeeper(owner, legacy, { integrationId: "legacy-integration", throughRevision: 4 }),
+    ])
+
+    await expect(ownerKeepers(owner)).resolves.toEqual([])
   })
 })
