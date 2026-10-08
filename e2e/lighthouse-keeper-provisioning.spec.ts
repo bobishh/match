@@ -876,17 +876,18 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     const futureBoards = readdDialog.getByRole("checkbox", { name: "Also replicate my future boards" })
     await expect(futureBoards).not.toBeChecked()
     await futureBoards.check()
+    const readdDecisionCount = ownerADecisionRequests
+    const readdProvisionCount = ownerAProvisionRequests
     ownerAReaddRequested = true
     await readdDialog.getByRole("button", { name: "Request access" }).click()
-    await expect(readdDialog.getByRole("status")).toContainText("Waiting for both approvals")
-    await operator.reload()
-    await signInOperator(operator, operatorToken)
-    await openApprovals(operator)
-    const readdApproval = operator.locator(".approvals-section article.approval-card")
-    await expect(readdApproval).toHaveCount(1)
-    await expect(readdApproval).toContainText("Keeper target A")
-    await readdApproval.getByRole("button", { name: "Approve exact boards" }).click()
-    await readdDialog.getByRole("button", { name: "Code matches · approve" }).click()
+    await expect(readdDialog.getByText("Review the requested boards and policy, then approve. No access granted yet.")).toBeVisible()
+    await expect(readdDialog.getByText("Future boards: included.")).toBeVisible()
+    await expect(readdDialog.getByRole("link", { name: "Open operator approval" })).toHaveCount(0)
+    await expect.poll(() => lastOwnerAStatus).toMatchObject({ httpStatus: 200, status: "pending" })
+    expect(ownerADecisionRequests).toBe(readdDecisionCount)
+    expect(ownerAProvisionRequests).toBe(readdProvisionCount)
+    await readdDialog.getByRole("button", { name: "Approve and connect" }).click()
+    await expect.poll(() => ownerADecisionRequests).toBe(readdDecisionCount + 1)
     await expect(readdDialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     expect(ownerAReaddProvisionBody).toBeTruthy()
     const readdRequest = JSON.parse(ownerAReaddProvisionBody!) as {
