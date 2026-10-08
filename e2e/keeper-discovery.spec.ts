@@ -195,6 +195,114 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
   expect(provisionRequests).toBeGreaterThanOrEqual(2)
 })
 
+for (const lateResponse of ["pending", "failure"] as const) {
+test(`Given an older status poll is still verifying, when provision confirms active, then a late ${lateResponse} cannot change that pairing`, async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let transcriptHash = ""
+  let nonce = ""
+  let controllerApproved = false
+  let statusPolls = 0
+  let provisionRequests = 0
+  let olderPendingSent = false
+  let approvedWorkspaceIds: string[] = []
+  let releaseOlderPending: (() => void) | undefined
+  let signalOlderPending: (() => void) | undefined
+  const olderPendingStarted = new Promise<void>(resolve => { signalOlderPending = resolve })
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey,
+      deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse",
+      capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true },
+      publicOrigin: origin, managementPath: "/admin" }),
+  }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const integrations = provisionRequests ? [{ integrationId: "integration-poll-race", revision: 2,
+      policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
+      scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-poll-race" })),
+      tombstones: [], pendingOperation: null }] : []
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId, controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: integrations.length ? 2 : 0, integrations, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: unknown } }
+    transcriptHash = keeper.hash(request.signed.payload)
+    const expiresAt = Math.floor(Date.now() / 1000) + 600
+    nonce = randomBytes(32).toString("base64url")
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "poll-race-test", transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce,
+      integrationId: "integration-poll-race", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "poll-race-test", expiresAt,
+      operatorUrl: `${origin}/admin/?pairing=poll-race-test`, comparisonCode: "520184", transcriptHash, challenge }) })
+  })
+  await page.route(`${origin}/v1/pairings/poll-race-test/decision`, async route => {
+    controllerApproved = true
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ pairingId: "poll-race-test" }) })
+  })
+  await page.route(`${origin}/v1/pairings/poll-race-test/status`, async route => {
+    statusPolls += 1
+    const requestNumber = statusPolls
+    const currentStatus = requestNumber >= 3 && controllerApproved ? "approved" : "pending"
+    const approvalSnapshot = controllerApproved
+    if (requestNumber === 2) {
+      await new Promise<void>(resolve => { releaseOlderPending = resolve; signalOlderPending?.() })
+    }
+    if (requestNumber === 2 && lateResponse === "failure") {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ message: "Temporary late status failure" }) })
+      olderPendingSent = true
+      return
+    }
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "poll-race-test",
+      integrationId: "integration-poll-race", transcriptHash, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600,
+      operatorApproved: approvalSnapshot, controllerApproved: approvalSnapshot, status: currentStatus, provisioning: false,
+      issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+    if (requestNumber === 2) olderPendingSent = true
+  })
+  await page.route(`${origin}/v1/pairings/poll-race-test/provision`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { body: { approvedScopes: { workspaceId: string }[] } } } }
+    approvedWorkspaceIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
+    provisionRequests += 1
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "poll-race-test",
+      integrationId: "integration-poll-race", transcriptHash, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600,
+      operatorApproved: true, controllerApproved: true, status: "active",
+      provisioning: { status: "active", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active" })) },
+      issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await olderPendingStarted
+  await expect(dialog.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  expect(provisionRequests).toBe(0)
+  await dialog.getByRole("button", { name: "Code matches · approve" }).click()
+  await expect(dialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 10_000 })
+  expect(provisionRequests).toBe(1)
+  releaseOlderPending?.()
+  await expect.poll(() => olderPendingSent).toBe(true)
+  if (lateResponse === "pending") await page.waitForTimeout(2100)
+  else await page.waitForLoadState("networkidle")
+  await expect(dialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible()
+  await expect(dialog.getByText("Waiting for operator approval. No access granted.")).toHaveCount(0)
+  await expect(dialog.getByRole("alert").getByText("Temporary late status failure")).toHaveCount(0)
+  expect(statusPolls).toBe(3)
+  expect(nonce).toBeTruthy()
+})
+}
+
 test("Given owner-origin admission support, when Rusty confirms the signed request, then one approval activates only its exact boards", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()

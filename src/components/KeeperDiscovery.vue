@@ -66,6 +66,7 @@ const pairing = ref<KeeperPairing | null>(null)
 const policyOnlyPairing = ref(false)
 const controllerApproved = ref(false)
 const flowEpoch = ref(0)
+let statusObservationGeneration = 0
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let provisioning = false
 let keeperDetailsRequest = 0
@@ -82,6 +83,10 @@ const currentPolicyBoardTitles = computed(() => (keeperDetails.value?.boardIds ?
   .map(id => props.ownedWorkspaces.find(workspace => workspace.id === id)?.title ?? id))
 const pendingPairing = () => pairing.value && ["pairing", "approved", "provisioning", "cancel_pending"].includes(status.value)
 const isCurrentPairing = (epoch: number, current: KeeperPairing) => epoch === flowEpoch.value && pairing.value === current
+const isCurrentStatusObservation = (epoch: number, current: KeeperPairing, generation: number) =>
+  epoch === flowEpoch.value && pairing.value === current && generation === statusObservationGeneration
+const isTerminalPairingStatus = (value: string) => ["active", "cancelled", "orphan_resolved", "rejected", "expired"].includes(value)
+const fenceStatusObservations = () => { statusObservationGeneration += 1 }
 
 async function openKeeper(personId: string) {
   const request = ++keeperDetailsRequest
@@ -174,6 +179,7 @@ async function removeSelectedKeeper() {
 
 function resetFlow() {
   flowEpoch.value += 1
+  fenceStatusObservations()
   status.value = "idle"
   error.value = ""
   discovery.value = null
@@ -259,7 +265,10 @@ async function decide(approve: boolean) {
     await keeperApi.decidePairing(currentPairing, approve)
     if (epoch !== flowEpoch.value) return
     controllerApproved.value = approve
-    if (!approve) status.value = "rejected"
+    if (!approve) {
+      status.value = "rejected"
+      fenceStatusObservations()
+    }
     else await checkStatus()
   } catch (cause) {
     if (epoch !== flowEpoch.value) return
@@ -285,6 +294,7 @@ async function provision() {
     if (epoch !== flowEpoch.value) return
     if (withdrawalOperationId.value) { status.value = "cancel_pending"; return }
     status.value = result === "active" ? "active" : result === "pending" ? "pairing" : "provisioning"
+    if (result === "active") fenceStatusObservations()
   } catch (cause) {
     if (epoch !== flowEpoch.value) return
     if (withdrawalOperationId.value) { status.value = "cancel_pending"; return }
@@ -310,6 +320,7 @@ async function cancelKeeperRequest() {
     const result = await props.cancelKeeper(currentPairing, operationId)
     if (!isCurrentPairing(epoch, currentPairing)) return
     status.value = result
+    if (isTerminalPairingStatus(result)) fenceStatusObservations()
     error.value = ""
   } catch (cause) {
     if (!isCurrentPairing(epoch, currentPairing)) return
@@ -321,7 +332,10 @@ async function cancelKeeperRequest() {
       if (latest.withdrawal) {
         withdrawalOperationId.value = latest.withdrawal.operationId
         status.value = latest.withdrawal.status
-        if (latest.withdrawal.status === "cancelled") error.value = ""
+        if (latest.withdrawal.status === "cancelled") {
+          fenceStatusObservations()
+          error.value = ""
+        }
       }
     }
   } finally {
@@ -340,17 +354,19 @@ function dismissPendingPairing() {
 async function checkStatus() {
   if (!pairing.value) return
   const epoch = flowEpoch.value
+  const observationGeneration = statusObservationGeneration
   const currentPairing = pairing.value
   try {
     const current = await keeperApi.pairingStatusInfo(currentPairing, withdrawalOperationId.value || undefined)
-    if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
+    if (!isCurrentStatusObservation(epoch, currentPairing, observationGeneration)) return
     const transition = pairingStatusTransition(current, Boolean(withdrawalOperationId.value))
     if (current.withdrawal) withdrawalOperationId.value = current.withdrawal.operationId
     if (transition.clearError) error.value = ""
     status.value = transition.status
+    if (isTerminalPairingStatus(transition.status)) fenceStatusObservations()
     if (transition.provision) await provision()
   } catch (cause) {
-    if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
+    if (!isCurrentStatusObservation(epoch, currentPairing, observationGeneration)) return
     if (withdrawalOperationId.value) {
       status.value = "cancel_pending"
       error.value = cause instanceof Error ? cause.message : "Cancellation status unavailable. Retry cancellation to verify cleanup."

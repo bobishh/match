@@ -34,6 +34,8 @@ MODELS = [
     ("KeeperIntegrationSettingsReaddRemoved", "KeeperIntegrationSettings", "Invariant RemovedBoardCannotAutoReadd is violated"),
     ("KeeperGrantRecovery", "KeeperGrantRecovery", None),
     ("KeeperGrantRecoveryTamperedStatus", "KeeperGrantRecovery", None),
+    ("KeeperPairingStatusOrdering", "KeeperPairingStatusOrdering", None),
+    ("KeeperPairingStatusOrderingIgnoreFence", "KeeperPairingStatusOrdering", "Invariant CommittedProvisionStaysActive is violated"),
     ("OwnerRevocationPersistence", "OwnerRevocationPersistence", None),
     ("OwnerRevocationPersistenceNonAtomic", "OwnerRevocationPersistence", "Invariant OwnerAccessSurvivesOtherKeeperRemoval is violated"),
     ("OwnerAuthorityRecovery", "OwnerAuthorityRecovery", None),
