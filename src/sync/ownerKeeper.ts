@@ -76,3 +76,47 @@ export async function saveKeeperIntegrationReference(reference: KeeperIntegratio
   root.keeperIntegrations = { ...integrations, [reference.integrationId]: serializable }
   await defaultStorage.savePersonalRoot(root)
 }
+
+function withdrawalKey(pairingId: string, operationId: string) {
+  return `${encodeURIComponent(pairingId)}.${encodeURIComponent(operationId)}`
+}
+
+export type PendingKeeperWithdrawal = {
+  pairingId: string
+  operationId: string
+  pairing: Record<string, unknown>
+  grantScopes: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>
+}
+
+export async function pendingKeeperWithdrawal(pairingId: string, operationId: string): Promise<PendingKeeperWithdrawal | undefined> {
+  const { root } = await keeperIntegrationReferences()
+  return root.pendingKeeperWithdrawals?.[withdrawalKey(pairingId, operationId)] as PendingKeeperWithdrawal | undefined
+}
+
+export async function pendingKeeperWithdrawals(): Promise<PendingKeeperWithdrawal[]> {
+  const { root } = await keeperIntegrationReferences()
+  return Object.values(root.pendingKeeperWithdrawals ?? {}) as PendingKeeperWithdrawal[]
+}
+
+export async function savePendingKeeperWithdrawal(pairingId: string, operationId: string, pairing: Record<string, unknown>,
+  grantScopes: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>): Promise<PendingKeeperWithdrawal> {
+  const { root } = await keeperIntegrationReferences()
+  const key = withdrawalKey(pairingId, operationId)
+  const previous = root.pendingKeeperWithdrawals?.[key]
+  if (previous) return previous as PendingKeeperWithdrawal
+  const serializable = JSON.parse(JSON.stringify({ pairingId, operationId, pairing, grantScopes })) as PendingKeeperWithdrawal
+  root.pendingKeeperWithdrawals = { ...root.pendingKeeperWithdrawals,
+    [key]: serializable }
+  await defaultStorage.savePersonalRoot(root)
+  return serializable
+}
+
+export async function clearPendingKeeperWithdrawalProofs(pairingId: string, operationId: string) {
+  const { root } = await keeperIntegrationReferences()
+  const key = withdrawalKey(pairingId, operationId)
+  if (!root.pendingKeeperWithdrawals?.[key]) return
+  const remaining = { ...root.pendingKeeperWithdrawals }
+  delete remaining[key]
+  root.pendingKeeperWithdrawals = remaining
+  await defaultStorage.savePersonalRoot(root)
+}

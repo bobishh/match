@@ -13,6 +13,7 @@ import { requestDeviceEnrollment, selectDeviceEnrollment } from "./deviceSyncEnr
 import { generateWorkspaceInvite as generateHostInvite, WorkspaceAdmissionFailure, type WorkspaceHostContext } from "./deviceSyncHost"
 import { createKeeperOperations } from "./keeperOperations"
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
+import type { KeeperPairing } from "./lighthousePairing"
 import type { BlobDescriptor } from "@meta-uber/mesh-blob"
 import { connectWorkspaceJoin, isWorkspacePairingLocation, reportWorkspaceJoinFailure } from "./workspaceJoinBrowserFlow"
 import { clearPairingLocation, copyInviteLink } from "./deviceSyncInviteView"
@@ -61,8 +62,7 @@ export class DeviceSyncController {
   private approveResolve: ((approved: boolean) => void) | undefined
   private durableMesh?: DurableMesh
   private durableMeshPromise?: Promise<DurableMesh | undefined>
-  private readonly authorityFingerprint = new AuthorityFingerprintTracker()
-  private readonly keeperOperations = createKeeperOperations(() => this.ensureDurableMesh(), () => this.workspaceHostContext())
+  private readonly authorityFingerprint = new AuthorityFingerprintTracker(); private readonly keeperOperations = createKeeperOperations(() => this.ensureDurableMesh(), () => this.workspaceHostContext())
 
   constructor(options: DeviceSyncOptions) {
     this.workspace = options.workspace
@@ -527,6 +527,7 @@ export class DeviceSyncController {
       invitationWorkspaces: state.invitationWorkspaces, availableWorkspaces: this.availableWorkspaces, open: () => this.open(),
       selectSyncAll: () => this.selectSyncAll(), selectSyncWorkspace: () => this.selectSyncWorkspace(), generateWorkspaceInvite: () => this.generateWorkspaceInvite(),
       provisionKeeperPairing: this.keeperOperations.provision,
+      cancelKeeperPairing: async (pairing: KeeperPairing, operationId: string) => (await import("./keeperPairingWithdrawal")).cancelKeeperPairing(pairing, operationId, () => this.ensureDurableMesh()),
       approveEnrollment: () => this.approveEnrollment(), declineEnrollment: () => this.declineEnrollment(), enrollmentDeviceName: state.enrollmentDeviceName, enrollmentConflict: state.enrollmentConflict,
       requestEnrollment: (replaceIdentity = false) => this.requestEnrollment(replaceIdentity), acceptWorkspaceJoin: () => this.acceptWorkspaceJoin(), prepareJoin: (raw: string) => this.prepareJoin(raw),
       canReconnectDevice: computed(() => canReconnectDevice(state)), reconnectDevice: () => reconnectWorkspaceDevice({ state,

@@ -71,6 +71,16 @@ This bounds review to one source change and two click attempts. It abstracts
 IndexedDB atomicity, command signatures, concurrent browser tabs, and the exact
 presentation store; implementation tests must cover those details.
 
+`ReviewedWorkspaceBootstrap` starts after a trusted review clone and its
+source-hash resolution are durable. Raw causal history still contains the
+quarantined source and admitted clone; bootstrap classifies that history into an
+admitted projection containing only the clone. The source remains available in
+history and unadmitted. `ReviewedWorkspaceBootstrapRejectsQuarantine.cfg` models
+rejecting the whole workspace merely because raw history contains the
+quarantined source and expects bootstrap availability to fail. This two-change
+abstraction does not model Automerge dependencies or the actual admission
+classifier; the browser regression must verify those.
+
 ## Run
 
 Requirements: Java, Python 3, official
@@ -137,6 +147,8 @@ workspace, ownership, and entitlement abstraction.
 | ReviewLifecycle | Safety holds | 115 / 32 |
 | ReviewLifecycleDuplicateApply | AtMostOneAuthorizedCommand violated | 143 / 42 |
 | ReviewLifecycleDismissErasesHistory | DismissalPreservesProof violated | 2 / 2 |
+| ReviewedWorkspaceBootstrap | Safety holds | 2 / 2 |
+| ReviewedWorkspaceBootstrapRejectsQuarantine | ResolvedWorkspaceCanBootstrap violated | 2 / 2 |
 
 ## Interpretation and code mapping
 

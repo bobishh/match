@@ -36,6 +36,8 @@ MODELS = [
     ("ReviewLifecycle", "ReviewLifecycle", None),
     ("ReviewLifecycleDuplicateApply", "ReviewLifecycle", "Invariant AtMostOneAuthorizedCommand is violated"),
     ("ReviewLifecycleDismissErasesHistory", "ReviewLifecycle", "Invariant DismissalPreservesProof is violated"),
+    ("ReviewedWorkspaceBootstrap", "ReviewedWorkspaceBootstrap", None),
+    ("ReviewedWorkspaceBootstrapRejectsQuarantine", "ReviewedWorkspaceBootstrap", "Invariant ResolvedWorkspaceCanBootstrap is violated"),
 ]
 
 

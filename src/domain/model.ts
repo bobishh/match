@@ -42,6 +42,12 @@ export type PersonalRootDocumentV1 = {
   devices: Record<DeviceId, RegisteredDevice>
   workspaces: Record<WorkspaceId, WorkspaceReference>
   keeperIntegrations?: Record<string, KeeperIntegrationReference>
+  pendingKeeperWithdrawals?: Record<string, {
+    pairingId: string
+    operationId: string
+    pairing: unknown
+    grantScopes: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown; grant: unknown }>
+  }>
 }
 
 /** Public, service-signed locator and policy cache; Rusty status remains authoritative. */

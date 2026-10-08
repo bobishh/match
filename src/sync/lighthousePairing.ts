@@ -28,7 +28,12 @@ export type KeeperPairing = {
   futureBoardBaselineIds?: string[]
 }
 
-export type KeeperPairingStatus = "pending" | "approved" | "provisioning" | "active" | "rejected" | "expired"
+export type KeeperPairingStatus = "pending" | "approved" | "provisioning" | "active" | "rejected" | "expired" | "cancel_pending" | "cancelled"
+export type KeeperPairingWithdrawal = { operationId: string; requestHash: string; status: "cancel_pending" | "cancelled" }
+export type KeeperProvisionedScope = { workspaceId: string; status: "pending" | "active"; grantEpoch?: number; error?: "join_failed" | "runtime_unavailable" }
+export type KeeperPairingStatusInfo = { status: KeeperPairingStatus; withdrawal?: KeeperPairingWithdrawal; provisioningScopes?: KeeperProvisionedScope[] }
+export type KeeperWithdrawalScopeProof = { workspaceId: string; document: string; authorizationBundle: unknown }
+export type KeeperWithdrawalGrantProof = KeeperWithdrawalScopeProof & { grant: unknown }
 const provisionRequests = new WeakMap<KeeperPairing, string>()
 
 function base64Url(bytes: Uint8Array): string {
@@ -38,6 +43,7 @@ function base64Url(bytes: Uint8Array): string {
 }
 
 function operationId(): string { return base64Url(crypto.getRandomValues(new Uint8Array(16))) }
+export function newKeeperOperationId(): string { return operationId() }
 function unixSeconds(): number { return Math.floor(Date.now() / 1000) }
 
 function checkedRequestBody(payload: Record<string, unknown>) {
@@ -113,6 +119,8 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
   if (!body) throw new Error("Keeper returned an invalid pairing response.")
   return body as T
 }
+
+export { request as requestKeeperJson }
 
 export async function verifyKeeperServiceEnvelope(discovery: LighthouseDiscovery, envelope: unknown, expectedKind: string) {
   if (!envelope || typeof envelope !== "object") throw new Error("Keeper returned an invalid signed challenge.")
@@ -335,28 +343,34 @@ function validatePairingChallenge(result: { pairingId: string; transcriptHash: s
   return { pairingId, integrationId: challenge.integrationId as string, operatorUrl: operatorUrl.toString(), challengeNonce: challenge.nonce as string }
 }
 
-function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: KeeperPairing) {
+export function verifyProvisionedScopes(payload: Record<string, unknown>, pairing: KeeperPairing, allowPendingFailure = false): KeeperProvisionedScope[] {
   const provisioned = payload.provisioning as { scopes?: unknown } | undefined
   if (!provisioned || !Array.isArray(provisioned.scopes)) throw new Error("Keeper omitted durable per-board provisioning state.")
   const expected = pairing.workspaces.map(workspace => workspace.id)
-  const actual = provisioned.scopes as { workspaceId?: unknown; status?: unknown; error?: unknown; errorDetail?: unknown }[]
-  if (actual.length !== expected.length || actual.some((scope, index) =>
-    scope.workspaceId !== expected[index]
-    || !["pending", "active"].includes(String(scope.status))
-    || (scope.error !== undefined && scope.error !== null && !["join_failed", "runtime_unavailable"].includes(String(scope.error))))) {
+  const actual = provisioned.scopes as { workspaceId?: unknown; status?: unknown; grantEpoch?: unknown; error?: unknown; errorDetail?: unknown }[]
+  if (actual.length !== expected.length || actual.some((scope, index) => {
+    const epochValid = scope.grantEpoch === undefined || (Number.isSafeInteger(scope.grantEpoch) && (scope.grantEpoch as number) > 0)
+    return scope.workspaceId !== expected[index]
+      || !["pending", "active"].includes(String(scope.status))
+      || !epochValid
+      || (scope.error !== undefined && scope.error !== null && !["join_failed", "runtime_unavailable"].includes(String(scope.error)))
+  })) {
     throw new Error("Keeper provisioning state does not match the approved board set.")
   }
   if (payload.status === "active" && actual.some(scope => scope.status !== "active" || scope.error !== undefined)) {
     throw new Error("Keeper reported active before every approved board was committed.")
   }
-  if (payload.status === "provisioning" && actual.some(scope => scope.error === "join_failed")) {
+  if (!allowPendingFailure && payload.status === "provisioning" && actual.some(scope => scope.error === "join_failed")) {
     const failed = actual.find(scope => scope.error === "join_failed")!
     const detail = typeof failed.errorDetail === "string" ? failed.errorDetail.slice(0, 1024) : "No error detail returned by Rusty"
     throw new Error(`Rusty could not join the selected boards: ${detail}. Keep this tab open and retry board setup.`)
   }
-  if (payload.status === "provisioning" && actual.some(scope => scope.error === "runtime_unavailable")) {
+  if (!allowPendingFailure && payload.status === "provisioning" && actual.some(scope => scope.error === "runtime_unavailable")) {
     throw new Error("Rusty replication runtime is unavailable. Retry board setup after the service recovers.")
   }
+  return actual.map(scope => ({ workspaceId: scope.workspaceId as string, status: scope.status as "pending" | "active",
+    ...(scope.grantEpoch === undefined ? {} : { grantEpoch: scope.grantEpoch as number }),
+    ...(scope.error === undefined || scope.error === null ? {} : { error: scope.error as KeeperProvisionedScope["error"] }) }))
 }
 
 export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspaces: KeeperWorkspace[], options: {
@@ -399,23 +413,6 @@ export async function decideKeeperPairing(pairing: KeeperPairing, approve: boole
     decision: approve ? "approve" : "decline",
   })
   await request(`${pairing.discovery.origin}/v1/pairings/${encodeURIComponent(pairing.pairingId)}/decision`, { method: "POST", body: JSON.stringify(signed) })
-}
-
-export async function getKeeperPairingStatus(pairing: KeeperPairing): Promise<KeeperPairingStatus> {
-  const profile = await bootstrapIdentity()
-  const signed = await signKeeperControllerRequest(profile, pairing.discovery, "lighthouse-pairing-status", {
-    pairingId: pairing.pairingId,
-    transcriptHash: pairing.transcriptHash,
-  })
-  const envelope = await request<unknown>(`${pairing.discovery.origin}/v1/pairings/${encodeURIComponent(pairing.pairingId)}/status`, { method: "POST", body: JSON.stringify(signed) })
-  const payload = await verifyKeeperServiceEnvelope(pairing.discovery, envelope, "lighthouse-pairing-status")
-  if (payload.pairingId !== pairing.pairingId || payload.integrationId !== pairing.integrationId
-    || payload.transcriptHash !== pairing.transcriptHash || payload.serviceOrigin !== pairing.discovery.origin
-    || !["pending", "approved", "provisioning", "active", "rejected", "expired"].includes(String(payload.status))) {
-    throw new Error("Keeper returned a status for another pairing or an unsupported state.")
-  }
-  if (payload.status === "provisioning" || payload.status === "active") verifyProvisionedScopes(payload, pairing)
-  return payload.status as KeeperPairingStatus
 }
 
 export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation: WorkspaceJoinInvitation): Promise<KeeperPairingStatus> {

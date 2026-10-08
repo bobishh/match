@@ -5,14 +5,16 @@ import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { createWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDeviceRevocation, type WorkspaceDeviceRevocation,
   createWorkspaceRevocation, verifyWorkspaceMemberBundle, createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
-  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation, type WorkspaceSuccessionPolicy,
+  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceSuccessionPolicy,
   type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, ownerAuthorities, isGrantRevoked, type MeshExport, type ScopeAuthoritySnapshot, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 import { workspaceSet } from "./workspaceSet"
 import { meshTrace } from "./meshTrace"
-import { emptyRevocationGeneration, inspectRevocationGeneration } from "./revocationGeneration"
+import { assertKeeperGrantGeneration, emptyRevocationGeneration, reconcilePriorPersonRevocation } from "./revocationGeneration"
+import { withWorkspaceMutation } from "../workspaceMutation"
+import { runKeeperRevocationActions } from "./keeperRevocationActions"
 import { awaitOwnerDelivery, confirmedOwnershipSnapshot, createOwnershipProposal, mergeSuccessionState as mergeSuccessionStateInScope,
   ownershipTransfersWithPending, persistScopeAuthoritySnapshot, planOwnershipMerge, preflightScopeAuthoritySnapshot, publishConfirmedToSessions,
   type OwnershipMergePlan } from "./durableMeshOwnershipScope"
@@ -98,6 +100,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
   protected async putVerifiedBundle(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle,
     batch?: { index: number; total: number }) {
+    return withWorkspaceMutation(credential.workspaceId, () => this.putVerifiedBundleLocked(credential, raw, batch))
+  }
+  private async putVerifiedBundleLocked(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle,
+    batch?: { index: number; total: number }) {
     const peer = { personId: raw.advertisement.payload.personId.slice(0, 8), deviceId: raw.advertisement.payload.deviceId.slice(0, 8),
       ...(batch ? { bundleIndex: batch.index, bundleCount: batch.total } : {}) }
     const phase = <T>(name: string, operation: () => T | Promise<T>) =>
@@ -143,8 +149,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       transportSecret: credential.transportSecret,
       role: verified.role,
       lastSeen: route.issuedAt,
-      // A grant at a newer generation is the owner's explicit re-approval;
-      // clear the old per-device tombstone so every device can reconnect.
+      // A newer grant is the owner's explicit re-approval; clear its old tombstone.
       revokedAt: null,
       advertisement: raw,
     }))
@@ -338,6 +343,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   async promotePerson(workspaceId: string, personId: string): Promise<void> {
+    await withWorkspaceMutation(workspaceId, () => this.promotePersonLocked(workspaceId, personId))
+    await this.reclassifyWorkspaceAuthority(workspaceId)
+  }
+  private async promotePersonLocked(workspaceId: string, personId: string): Promise<void> {
     const profile = await this.options.getProfile()
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     const peers = (await this.peerInstances(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt && peer.advertisement)
@@ -358,55 +367,48 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
         await this.store.putWorkspaceCredential(credential!)
         for (const peer of peers) {
           const bundle = { ...peer.advertisement as WorkspaceMemberBundle, grant, ownerPublicKey: credential!.ownerPublicKey, ownerCertificates: credential!.ownerCertificates as DeviceCertificate[] }
-          await this.putVerifiedBundle(credential!, bundle)
+          await this.putVerifiedBundleLocked(credential!, bundle)
         }
       }
       if (action === "refreshSuccessionPolicy") await this.refreshSuccessionPolicy(workspaceId)
       if (action === "notify") await this.notify()
       if (action === "publish") await this.publishAll()
     }
-    await this.reclassifyWorkspaceAuthority(workspaceId)
   }
-  async revokePerson(workspaceId: string, personId: string): Promise<void> {
-    const profile = await this.options.getProfile(); let current = await this.store.getWorkspaceCredential(workspaceId)
-    const prior = await this.reconcilePriorRevocation(workspaceId, personId, current)
-    if (prior.completed) return; const generation = prior.generation ?? emptyRevocationGeneration()
-    const actions = meshRustRuntime().state.planAuthorityCommand({ kind: "revoke", localPersonId: profile.identity.personId,
-      ownerPersonId: current?.ownerPersonId ?? null })
-    let record!: WorkspaceRevocation
-    for (const action of actions) {
-      if (action === "createRevocation") {
-        record = await createWorkspaceRevocation(profile, workspaceId, personId,
-          await this.nextAccessEpoch(workspaceId), await this.readAuthorityHeads(workspaceId))
-        meshTrace("authority.revoke.generation-created", { ...generation, newRevocationEpoch: record.payload.epoch })
+  async revokePerson(workspaceId: string, personId: string, expectedGrantEpoch?: number): Promise<void> {
+    await withWorkspaceMutation(workspaceId, async () => {
+      const profile = await this.options.getProfile(); let current = await this.store.getWorkspaceCredential(workspaceId)
+      if (expectedGrantEpoch !== undefined) {
+        const { verifiedKeeperGrantEpochs } = await import("./keeperGrantGeneration")
+        const verifiedEpochs = current ? await verifiedKeeperGrantEpochs(profile, current, workspaceId, personId) : []
+        assertKeeperGrantGeneration(current, await this.store.listPeers(workspaceId),
+          profile, personId, expectedGrantEpoch, verifiedEpochs)
       }
-      if (action === "mergeRevocation") await this.mergeRevocations(current!, [record], false)
-      if (action === "refreshSuccessionPolicy") await this.refreshSuccessionPolicy(workspaceId)
-      if (action === "publish") queueMicrotask(() => { void this.publishWorkspace(workspaceId).catch(error => this.report("Publish revocation", error)) })
-      if (action === "reloadCredential") current = await this.store.getWorkspaceCredential(workspaceId) ?? current
-      if (action === "disconnectRevoked") await this.mergeRevocations(current!, [record], true)
-      if (action === "notify") await this.notify()
-    }
+      const prior = await reconcilePriorPersonRevocation(current, personId, () => this.store.listPeers(workspaceId),
+        async () => { await this.mergeRevocations(current!, [], true) },
+        () => this.notify(), generation => meshTrace("authority.revoke.generation-check", generation as Record<string, unknown>))
+      if (prior.completed) return
+      const generation = prior.generation ?? emptyRevocationGeneration()
+      const actions = meshRustRuntime().state.planAuthorityCommand({ kind: "revoke", localPersonId: profile.identity.personId,
+        ownerPersonId: current?.ownerPersonId ?? null })
+      await runKeeperRevocationActions(actions, {
+        create: async () => {
+          const record = await createWorkspaceRevocation(profile, workspaceId, personId, await this.nextAccessEpoch(workspaceId), await this.readAuthorityHeads(workspaceId))
+          if (expectedGrantEpoch !== undefined && record.payload.epoch <= expectedGrantEpoch) throw new Error("Revocation did not advance beyond the issued keeper grant.")
+          meshTrace("authority.revoke.generation-created", { ...generation, newRevocationEpoch: record.payload.epoch })
+          return record
+        },
+        merge: (record, disconnect) => this.mergeRevocations(current!, [record], disconnect),
+        refresh: () => this.refreshSuccessionPolicy(workspaceId),
+        publish: () => queueMicrotask(() => { void this.publishWorkspace(workspaceId).catch(error => this.report("Publish revocation", error)) }),
+        reload: async () => { current = await this.store.getWorkspaceCredential(workspaceId) ?? current },
+        notify: () => this.notify(),
+      })
+    })
     await this.reclassifyWorkspaceAuthority(workspaceId)
   }
-  private async readAuthorityHeads(workspaceId: string): Promise<string[]> {
-    const readAdmittedHeads = this.options.workspaceStore.readAuthorityHeads
-    if (!readAdmittedHeads) throw new Error("Admitted workspace document unavailable for authority signing")
-    return readAdmittedHeads(workspaceId)
-  }
-  private async reconcilePriorRevocation(workspaceId: string, personId: string, credential: WorkspaceMeshCredential | null | undefined) {
-    if (!credential) return { completed: false as const }
-    const existing = revocations(credential).filter(item => item.payload.personId === personId)
-    if (!existing.length) return { completed: false as const }
-    const generation = inspectRevocationGeneration(credential, personId, await this.store.listPeers(workspaceId)); meshTrace("authority.revoke.generation-check", generation)
-    if (!generation.covered) return { completed: false as const, generation }; await this.mergeRevocations(credential, [], true)
-    await this.reclassifyWorkspaceAuthority(workspaceId)
-    await this.notify()
-    return { completed: true as const, generation }
-  }
-  async transferOwnership(workspaceId: string, personId: string): Promise<void> {
-    await this.transferOwnershipWithReceipt(workspaceId, personId)
-  }
+  private async readAuthorityHeads(workspaceId: string): Promise<string[]> { const read = this.options.workspaceStore.readAuthorityHeads; if (!read) throw new Error("Admitted workspace document unavailable for authority signing"); return read(workspaceId) }
+  async transferOwnership(workspaceId: string, personId: string): Promise<void> { return this.transferOwnershipWithReceipt(workspaceId, personId) }
 
   private async transferOwnershipWithReceipt(workspaceId: string, personId: string): Promise<void> {
     const [profile, credential, allPeers, pendingProposal] = await Promise.all([

@@ -27,6 +27,7 @@ const props = defineProps<{
   availableWorkspaces?: { id: string; title: string }[]
   keeperOwnedWorkspaces?: { id: string; title: string }[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
+  cancelKeeper: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled">
   removeKeeper?: (personId: string, discovery?: KeeperServiceDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
@@ -216,6 +217,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           :owned-workspaces="keeperOwnedWorkspaces ?? []"
           :keepers="keeperMembers"
           :provision-keeper="provisionKeeper"
+          :cancel-keeper="cancelKeeper"
           :remove-keeper="currentRole === 'owner' ? removeKeeper : undefined"
           @view-change="keeperView = $event"
         />

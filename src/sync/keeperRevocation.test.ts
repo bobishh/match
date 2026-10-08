@@ -4,11 +4,12 @@ import * as Automerge from "@automerge/automerge/slim"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
 import { createWorkspaceDoc } from "../domain/seeds"
 import { initializeAutomerge } from "../crdt"
-import { createWorkspaceGrant } from "../domain/proofs"
+import { createWorkspaceGrant, defaultProofStore } from "../domain/proofs"
 import { DurableMesh } from "./durableMesh"
 import type { WorkspaceMeshCredential, WorkspacePeerRecord } from "./peerStore"
 import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 import { decideAccess } from "./workspaceAccess"
+import { withWorkspaceMutation } from "../workspaceMutation"
 
 beforeAll(async () => {
   await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm"))
@@ -16,6 +17,50 @@ beforeAll(async () => {
 })
 
 describe("keeper revocation projection", () => {
+  it("revokes a verified issued grant when no peer row was persisted, but rejects a newer proof-store grant", async () => {
+    resetIdentityStorageForTest()
+    const owner = await bootstrapIdentity("Owner")
+    const keeperId = `keeper-${crypto.randomUUID()}`
+    const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Board", owner.identity.personId, "blank"))
+    const grant = await createWorkspaceGrant(owner, doc.id, keeperId, "editor", 2)
+    let credential: WorkspaceMeshCredential = {
+      workspaceId: doc.id, ownerPersonId: owner.identity.personId, ownerPublicKey: owner.identity.publicKey,
+      ownerCertificates: [owner.certificate], epoch: 1, catalog: {},
+    } as WorkspaceMeshCredential
+    const store = {
+      getWorkspaceCredential: async () => credential,
+      putWorkspaceCredential: async (next: WorkspaceMeshCredential) => { credential = next },
+      listWorkspaceCredentials: async () => [credential], listWorkspaceAuthorities: async () => [],
+      listPeers: async () => [], upsertPeer: async () => {},
+    }
+    const grants = vi.spyOn(defaultProofStore, "listGrants").mockResolvedValue([grant])
+    const reclassify = vi.fn(async (workspaceId: string) => withWorkspaceMutation(workspaceId, async () => {}))
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: { read: async () => Automerge.save(doc), readAuthorityHeads: async () => Automerge.getHeads(doc),
+        reclassify } as never,
+      getProfile: async () => owner, store: store as never })
+    vi.spyOn(mesh, "nextAccessEpoch").mockResolvedValue(3)
+    const internal = mesh as unknown as { refreshSuccessionPolicy: (id: string) => Promise<void>; publishWorkspace: (id: string) => Promise<void> }
+    vi.spyOn(internal, "refreshSuccessionPolicy").mockResolvedValue(undefined)
+    vi.spyOn(internal, "publishWorkspace").mockResolvedValue(undefined)
+
+    try {
+      await mesh.revokePerson(doc.id, keeperId, 2)
+      expect(credential.catalog).toMatchObject({ revocations: [{ payload: { personId: keeperId, epoch: 3 } }] })
+      await mesh.revokePerson(doc.id, keeperId, 2)
+      expect((credential.catalog as { revocations: unknown[] }).revocations).toHaveLength(1)
+      expect(reclassify).toHaveBeenCalledTimes(2)
+      const newerGrant = await createWorkspaceGrant(owner, doc.id, keeperId, "editor", 4)
+      grants.mockResolvedValue([grant, newerGrant])
+      await expect(mesh.revokePerson(doc.id, keeperId, 2)).rejects.toThrow("A newer keeper grant exists")
+      expect(credential.catalog).toMatchObject({ revocations: [{ payload: { personId: keeperId, epoch: 3 } }] })
+    } finally {
+      grants.mockRestore()
+      await mesh.dispose()
+      Automerge.free(doc)
+    }
+  })
+
   it("binds a keeper revocation to admitted heads when raw history contains a quarantined branch", async () => {
     resetIdentityStorageForTest()
     const owner = await bootstrapIdentity("Owner")
@@ -133,7 +178,9 @@ describe("keeper revocation projection", () => {
       const renewedGrant = await createWorkspaceGrant(owner, doc.id, keeperId, "editor", 3)
       peers = [{ ...peers[0]!, advertisement: { grant: renewedGrant }, revokedAt: null,
         lastSeen: new Date(Date.now() + 1_000).toISOString() }]
-      await mesh.revokePerson(doc.id, keeperId)
+      await expect(mesh.revokePerson(doc.id, keeperId, 2)).rejects.toThrow("A newer keeper grant exists")
+      expect(peers[0]?.revokedAt).toBeNull()
+      await mesh.revokePerson(doc.id, keeperId, 3)
 
       expect(credential.catalog).toMatchObject({ revocations: [
         { payload: { personId: keeperId, epoch: 2 } },

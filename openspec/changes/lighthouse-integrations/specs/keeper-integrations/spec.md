@@ -34,6 +34,10 @@ tincanban MUST activate only the exact integration and scopes approved by both c
 - **WHEN** transport fails after grants are issued
 - **THEN** tincanban shows pending provisioning, resumes idempotently, or revokes issued grants on cancellation; it does not report completion.
 
+#### Scenario: Withdraw a stuck pairing
+- **WHEN** an owner cancels a pairing whose provisioning outcome is uncertain
+- **THEN** tincanban fences the pairing with a signed withdrawal, durably revokes only its exact approved scopes, and keeps cancellation pending and retryable until Rusty confirms cleanup; dismissing it moves the request to restorable history without granting access or claiming cancellation.
+
 ### Requirement: Owner-approved keeper scope selection
 Tincanban SHALL offer only currently owned boards. Dedicated keeper integrations SHALL use an independently verified owner-signed Editor grant after both parties approve the exact scopes. Ordinary workspace invitations SHALL retain their selected role, including Visitor.
 
