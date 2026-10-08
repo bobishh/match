@@ -2,8 +2,10 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, type Component } from "vue"
 import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails, type KeeperServiceDiscovery } from "../app/keeperApi"
 import { pairingStatusTransition } from "../app/keeperWithdrawalUi"
+import { bootstrapIdentity } from "../domain/identity"
 import { keeperDisplayName, type MeshMemberView } from "../ui/deviceInfo"
 import { keeperDotState, keeperRowStatus } from "../ui/keeperStatus"
+import { canonicalKeeperIntegrationId, selectCanonicalServiceIntegration } from "../sync/keeperIntegrationSelection"
 import RustyMark from "./RustyMark.vue"
 const KeeperDetailPanel = defineAsyncComponent(() => import("./KeeperDetailPanel.vue") as Promise<{ default: Component }>)
 
@@ -207,8 +209,9 @@ async function discover() {
     const found = await keeperApi.discover(originInput.value)
     const eligible = await keeperApi.eligibleWorkspaces(props.ownedWorkspaces)
     const integrationStatus = await keeperApi.integrationStatus(found)
-    if (integrationStatus.integrations.length > 1) throw new Error("Rusty has conflicting keeper integrations. Resolve them before adding board access.")
-    const existingIntegration = integrationStatus.integrations[0]
+    const profile = await bootstrapIdentity()
+    const canonicalId = await canonicalKeeperIntegrationId(profile.identity.personId, found.personId)
+    const existingIntegration = selectCanonicalServiceIntegration(integrationStatus.integrations, canonicalId)
     if (epoch !== flowEpoch.value) return
     discovery.value = found
     eligibleWorkspaces.value = eligible

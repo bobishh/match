@@ -11,6 +11,40 @@ function canonical(value: unknown): string {
   return JSON.stringify(value)
 }
 
+function canonicalIntegrationId(controllerPersonId: string, servicePersonId: string): string {
+  return createHash("sha256").update(`MESH-LIGHTHOUSE-INTEGRATION/1\0${controllerPersonId}\0${servicePersonId}`).digest("base64url")
+}
+
+function retiredIntegration(integrationId: string, workspaceIds: string[], grantEpoch: number, revision = 1) {
+  return {
+    integrationId, revision,
+    policy: { futureBoards: false, baselineWorkspaceIds: [...workspaceIds].sort() },
+    scopes: [],
+    tombstones: workspaceIds.map(workspaceId => ({ workspaceId, grantEpoch, state: "removed", cleanup: "complete", operationId: `removed-${integrationId}` })),
+    pendingOperation: null,
+  }
+}
+
+function activeIntegration(integrationId: string) {
+  return {
+    integrationId, revision: 1,
+    policy: { futureBoards: false, baselineWorkspaceIds: [] },
+    scopes: [{ workspaceId: "unrelated-owned-board", grantEpoch: 4, state: "active", activationOperationId: "old-activation" }],
+    tombstones: [], pendingOperation: null,
+  }
+}
+
+function pendingIntegration(integrationId: string) {
+  return {
+    integrationId, revision: 2,
+    policy: { futureBoards: false, baselineWorkspaceIds: [] },
+    scopes: [],
+    tombstones: [{ workspaceId: "unrelated-owned-board", grantEpoch: 4, state: "pending", cleanup: "pending", operationId: "old-cleanup" }],
+    pendingOperation: { operationId: "old-cleanup", requestHash: "request-hash", expectedRevision: 1,
+      scopes: [{ workspaceId: "unrelated-owned-board", expectedGrantEpoch: 4 }], status: "pending" },
+  }
+}
+
 function testIdentity() {
   const privateKey = (seed: Buffer) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" })
   const publicKeyRaw = (key: ReturnType<typeof privateKey>) => createPublicKey(key).export({ format: "der", type: "spki" }).subarray(-32)
@@ -37,6 +71,59 @@ function testIdentity() {
     sign: (payload: Record<string, unknown>) => signPayload(deviceKey, payload, deviceId, "MESH-LIGHTHOUSE/1"),
     hash: (payload: unknown) => createHash("sha256").update(canonical(payload)).digest("base64url"),
   }
+}
+
+type TestKeeper = ReturnType<typeof testIdentity>
+
+async function installIntegrationSelectionService(page: import("@playwright/test").Page, origin: string, keeper: TestKeeper,
+  rows: (controllerPersonId: string) => unknown[], onOffer: (payload: Record<string, unknown>) => void) {
+  let transcriptHash = ""
+  let integrationId = ""
+  let offerCount = 0
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId,
+      publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates },
+      displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true,
+        chatReplication: true, blobReplication: false, pairing: true, provisioning: true },
+      publicOrigin: origin, managementPath: "/admin" }),
+  }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const integrations = rows(request.signed.payload.controllerPersonId)
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: integrations.length ? 99 : 0,
+      integrations, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> & { controllerPersonId: string } } }
+    offerCount++
+    onOffer(request.signed.payload)
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
+    transcriptHash = keeper.hash(request.signed.payload)
+    const now = Math.floor(Date.now() / 1000)
+    const expiresAt = now + 600
+    const pairingId = "integration-selection-test"
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId, transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      nonce: randomBytes(32).toString("base64url"), integrationId, issuedAt: now, expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId, expiresAt,
+      operatorUrl: `${origin}/admin/?pairing=${pairingId}`, comparisonCode: "483019", transcriptHash, challenge }) })
+  })
+  await page.route(`${origin}/v1/pairings/integration-selection-test/status`, async route => {
+    const now = Math.floor(Date.now() / 1000)
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1,
+      pairingId: "integration-selection-test", integrationId, transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      expiresAt: now + 600, operatorApproved: false, controllerApproved: false,
+      status: "pending", provisioning: false, issuedAt: now })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  return { get offerCount() { return offerCount } }
 }
 
 test("Given an owned board, when a Lighthouse origin is discovered, then tincanban shows identity, capabilities and pending-only boundary", async ({ page }) => {
@@ -99,6 +186,7 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
   const keeper = testIdentity()
   let transcriptHash = ""
   let nonce = ""
+  let integrationId = ""
   let controllerApproved = false
   let provisionRequests = 0
   let approvedWorkspaceIds: string[] = []
@@ -108,13 +196,14 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
   }))
   await page.route(`${origin}/v1/pairings`, async route => {
-    const request = route.request().postDataJSON() as { signed: { payload: { controllerOrigin?: string; body: { policy: { futureBoards: boolean } } } } }
+    const request = route.request().postDataJSON() as { signed: { payload: { controllerPersonId: string; controllerOrigin?: string; body: { policy: { futureBoards: boolean } } } } }
     expect(request.signed.payload.body.policy.futureBoards).toBe(true)
     expect(request.signed.payload.controllerOrigin).toBeUndefined()
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
     transcriptHash = keeper.hash(request.signed.payload)
     nonce = randomBytes(32).toString("base64url")
     const expiresAt = Math.floor(Date.now() / 1000) + 600
-    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce, integrationId: "integration-test", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce, integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test", expiresAt, operatorUrl: `${origin}/admin/?pairing=pairing-test`, comparisonCode: "314159", transcriptHash, challenge }) })
   })
   await page.route(`${origin}/v1/pairings/pairing-test/decision`, route => {
@@ -129,12 +218,12 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
     }
     const status = provisionRequests > 0 ? "provisioning" : controllerApproved ? "approved" : "pending"
     const provisioning = status === "provisioning" ? { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "pending" })) } : false
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId, transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
-    const integrations = provisionRequests === 0 ? [] : [{ integrationId: "integration-test", revision: 2,
+    const integrations = provisionRequests === 0 ? [] : [{ integrationId, revision: 2,
       policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
       scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
       tombstones: [], pendingOperation: null }]
@@ -163,7 +252,7 @@ test("Given a compatible discovered keeper, when Rusty activates a board but its
       await route.abort("failed")
       return
     }
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status: "active", provisioning: { status: "active", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active" })) }, issuedAt: Math.floor(Date.now() / 1000) })
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId, transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status: "active", provisioning: { status: "active", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active" })) }, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.goto("/")
@@ -201,6 +290,7 @@ test(`Given an older status poll is still verifying, when provision confirms act
   const keeper = testIdentity()
   let transcriptHash = ""
   let nonce = ""
+  let integrationId = ""
   let controllerApproved = false
   let statusPolls = 0
   let provisionRequests = 0
@@ -218,7 +308,7 @@ test(`Given an older status poll is still verifying, when provision confirms act
   }))
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
-    const integrations = provisionRequests ? [{ integrationId: "integration-poll-race", revision: 2,
+    const integrations = provisionRequests ? [{ integrationId, revision: 2,
       policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
       scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-poll-race" })),
       tombstones: [], pendingOperation: null }] : []
@@ -229,13 +319,14 @@ test(`Given an older status poll is still verifying, when provision confirms act
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.route(`${origin}/v1/pairings`, async route => {
-    const request = route.request().postDataJSON() as { signed: { payload: unknown } }
+    const request = route.request().postDataJSON() as { signed: { payload: { controllerPersonId: string } } }
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
     transcriptHash = keeper.hash(request.signed.payload)
     const expiresAt = Math.floor(Date.now() / 1000) + 600
     nonce = randomBytes(32).toString("base64url")
     const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "poll-race-test", transcriptHash,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce,
-      integrationId: "integration-poll-race", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+      integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "poll-race-test", expiresAt,
       operatorUrl: `${origin}/admin/?pairing=poll-race-test`, comparisonCode: "520184", transcriptHash, challenge }) })
   })
@@ -257,7 +348,7 @@ test(`Given an older status poll is still verifying, when provision confirms act
       return
     }
     const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "poll-race-test",
-      integrationId: "integration-poll-race", transcriptHash, servicePersonId: keeper.identity.personId,
+      integrationId, transcriptHash, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600,
       operatorApproved: approvalSnapshot, controllerApproved: approvalSnapshot, status: currentStatus, provisioning: false,
       issuedAt: Math.floor(Date.now() / 1000) })
@@ -269,7 +360,7 @@ test(`Given an older status poll is still verifying, when provision confirms act
     approvedWorkspaceIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
     provisionRequests += 1
     const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "poll-race-test",
-      integrationId: "integration-poll-race", transcriptHash, servicePersonId: keeper.identity.personId,
+      integrationId, transcriptHash, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600,
       operatorApproved: true, controllerApproved: true, status: "active",
       provisioning: { status: "active", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active" })) },
@@ -309,6 +400,7 @@ test("Given owner-origin admission support, when Rusty confirms the signed reque
   let transcriptHash = ""
   let ownerPersonId = ""
   let ownerDeviceId = ""
+  let integrationId = ""
   let challengeNonce = ""
   let controllerOrigin = ""
   let approvedWorkspaceIds: string[] = []
@@ -322,7 +414,8 @@ test("Given owner-origin admission support, when Rusty confirms the signed reque
   }))
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
-    const integrations = provisionRequests === 0 ? [] : [{ integrationId: "integration-origin", revision: 1,
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
+    const integrations = provisionRequests === 0 ? [] : [{ integrationId, revision: 1,
       policy: { futureBoards, baselineWorkspaceIds },
       scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-origin" })),
       tombstones: [], pendingOperation: null }]
@@ -348,7 +441,7 @@ test("Given owner-origin admission support, when Rusty confirms the signed reque
     const expiresAt = Math.floor(Date.now() / 1000) + 600
     const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-origin", transcriptHash,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce,
-      integrationId: "integration-origin", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+      integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-origin", expiresAt,
       operatorUrl: `${origin}/admin/?pairing=pairing-origin`, comparisonCode: "867530", transcriptHash, challenge }) })
   })
@@ -361,7 +454,7 @@ test("Given owner-origin admission support, when Rusty confirms the signed reque
   await page.route(`${origin}/v1/pairings/pairing-origin/status`, async route => {
     const status = statusMode === "pending" ? "pending" : "approved"
     const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1,
-      pairingId: "pairing-origin", integrationId: "integration-origin", transcriptHash,
+      pairingId: "pairing-origin", integrationId, transcriptHash,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       controllerPersonId: statusMode === "wrong-controller" ? "another-owner" : ownerPersonId,
       controllerDeviceId: statusMode === "wrong-device" ? "another-device" : ownerDeviceId,
@@ -381,7 +474,7 @@ test("Given owner-origin admission support, when Rusty confirms the signed reque
     expect(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id).sort()).toEqual(approvedWorkspaceIds)
     provisionRequests++
     const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1,
-      pairingId: "pairing-origin", integrationId: "integration-origin", transcriptHash,
+      pairingId: "pairing-origin", integrationId, transcriptHash,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       controllerPersonId: ownerPersonId, controllerDeviceId: ownerDeviceId, controllerOrigin,
       admissionSource: "owner_origin", approvedWorkspaceIds, futureBoards, baselineWorkspaceIds,
@@ -705,3 +798,107 @@ test("Given a failed status poll, when Rusty later reports expiry, then the stal
   await expect(dialog.getByText("Temporary status failure")).toHaveCount(0)
   await expect(dialog.getByRole("button", { name: "Start new request" })).toBeVisible()
 })
+
+test("Given only retired random integration history, when the owner requests a keeper, then Rusty receives a fresh canonical offer without an update", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let ownedWorkspaceIds: string[] = []
+  let offerPayload: Record<string, unknown> | undefined
+  const service = await installIntegrationSelectionService(page, origin, keeper, () => [
+    retiredIntegration("legacy-random-integration", ownedWorkspaceIds, 41, 99),
+  ], payload => { offerPayload = payload })
+
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  ownedWorkspaceIds = await page.evaluate(async () => {
+    const { listCommittedWorkspaces } = await import("/src/storageJournal.ts")
+    return (await listCommittedWorkspaces()).map(workspace => workspace.id).sort()
+  })
+  expect(ownedWorkspaceIds.length).toBeGreaterThan(0)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper", exact: true }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  await expect.poll(() => service.offerCount).toBe(1)
+
+  const payload = offerPayload as { controllerPersonId: string; body: { scopes: { workspaceId: string }[]; policy: { futureBoards: boolean; baselineWorkspaceIds: string[] }; integrationUpdate?: unknown } }
+  expect(payload.body.integrationUpdate).toBeUndefined()
+  expect(payload.body.policy.futureBoards).toBe(true)
+  expect(payload.body.policy.baselineWorkspaceIds).toEqual(ownedWorkspaceIds)
+  expect(payload.body.scopes.map(scope => scope.workspaceId).sort()).toEqual(ownedWorkspaceIds)
+  expect(await page.evaluate(async () => {
+    const { listCommittedWorkspaces } = await import("/src/storageJournal.ts")
+    return (await listCommittedWorkspaces()).length
+  })).toBeGreaterThan(0)
+})
+
+test("Given canonical and retired history with different revisions, when owner requests board access, then update binds canonical revision only", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let ownedWorkspaceIds: string[] = []
+  let canonicalId = ""
+  let offerPayload: Record<string, unknown> | undefined
+  const service = await installIntegrationSelectionService(page, origin, keeper, controllerPersonId => {
+    canonicalId = canonicalIntegrationId(controllerPersonId, keeper.identity.personId)
+    return [
+      { integrationId: canonicalId, revision: 7, policy: { futureBoards: false, baselineWorkspaceIds: ownedWorkspaceIds },
+        scopes: [], tombstones: [], pendingOperation: null },
+      retiredIntegration("legacy-random-integration", ownedWorkspaceIds, 41, 99),
+    ]
+  }, payload => { offerPayload = payload })
+
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  ownedWorkspaceIds = await page.evaluate(async () => {
+    const { listCommittedWorkspaces } = await import("/src/storageJournal.ts")
+    return (await listCommittedWorkspaces()).map(workspace => workspace.id).sort()
+  })
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper", exact: true }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  await expect.poll(() => service.offerCount).toBe(1)
+
+  const payload = offerPayload as { controllerPersonId: string; body: { scopes: { workspaceId: string }[];
+    policy: { futureBoards: boolean; baselineWorkspaceIds: string[] }; integrationUpdate?: {
+      integrationId: string; expectedRevision: number; scopeWorkspaceIds: string[];
+    } } }
+  expect(canonicalId).toBe(canonicalIntegrationId(payload.controllerPersonId, keeper.identity.personId))
+  expect(payload.body.integrationUpdate).toMatchObject({ integrationId: canonicalId, expectedRevision: 7 })
+  expect(payload.body.integrationUpdate?.scopeWorkspaceIds).toEqual(ownedWorkspaceIds)
+  expect(payload.body.policy.baselineWorkspaceIds).toEqual(ownedWorkspaceIds)
+  expect(payload.body.integrationUpdate?.expectedRevision).not.toBe(99)
+})
+
+for (const historyState of ["active", "pending"] as const) {
+  test(`Given a ${historyState} noncanonical integration, when owner discovers Rusty, then no pairing offer is sent`, async ({ page }) => {
+    const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+    const keeper = testIdentity()
+    let canonicalId = ""
+    const service = await installIntegrationSelectionService(page, origin, keeper, controllerPersonId => {
+      canonicalId = canonicalIntegrationId(controllerPersonId, keeper.identity.personId)
+      return [
+        { integrationId: canonicalId, revision: 7, policy: { futureBoards: false, baselineWorkspaceIds: [] },
+          scopes: [], tombstones: [], pendingOperation: null },
+        historyState === "active" ? activeIntegration("legacy-random-integration") : pendingIntegration("legacy-random-integration"),
+      ]
+    }, () => {})
+    await page.goto("/")
+    await ensureJobSearchWorkspace(page)
+    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("button", { name: "Add keeper", exact: true }).click()
+    await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+    await dialog.getByRole("button", { name: "Discover keeper" }).click()
+    await expect(dialog.getByRole("alert")).toContainText("conflicting active keeper integrations")
+    await expect(dialog.getByRole("button", { name: "Request access" })).toHaveCount(0)
+    expect(service.offerCount).toBe(0)
+    expect(canonicalId).toBeTruthy()
+  })
+}
