@@ -52,6 +52,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
 }
 
+export function keeperIntegrationSettingsSupported(payload: unknown): boolean {
+  return record(record(payload)?.capabilities)?.integrationSettings === true
+}
+
 function isAbsent(value: unknown): boolean {
   return value === undefined || value === null
 }

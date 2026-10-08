@@ -9,7 +9,7 @@ import type { KeeperWorkspace, LighthouseDiscovery } from "./lighthouseDiscovery
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { rememberActivatedKeeper, saveKeeperIntegrationReference } from "./ownerKeeper"
 import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope,
-  type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
+  keeperIntegrationSettingsSupported, type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
 export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 export type { KeeperSettingsReceipt, KeeperSettingsScope } from "./keeperIntegrationStatus"
@@ -166,8 +166,7 @@ export async function getKeeperIntegrationStatus(discovery: LighthouseDiscovery)
   }
   const integrations = parseKeeperIntegrationStatus(payload, discovery)
   const signedEnvelope = envelope as { signerKeyId: string; signature: string }
-  const capabilities = record(payload.capabilities)
-  return { integrations, integrationSettingsSupported: capabilities?.integrationSettings === true,
+  return { integrations, integrationSettingsSupported: keeperIntegrationSettingsSupported(payload),
     signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number }
 }
 

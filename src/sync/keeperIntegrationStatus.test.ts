@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
-import { parseKeeperIntegrationStatus } from "./keeperIntegrationStatus"
+import { keeperIntegrationSettingsSupported, parseKeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
 const discovery: LighthouseDiscovery = {
   origin: "https://rusty.example",
@@ -48,6 +48,14 @@ function status(pendingOperation: unknown): StatusPayload {
 }
 
 describe("keeper integration status", () => {
+  it("fails closed when a service omits or malforms signed settings capability", () => {
+    expect(keeperIntegrationSettingsSupported({ capabilities: { integrationSettings: true } })).toBe(true)
+    expect(keeperIntegrationSettingsSupported({ capabilities: { integrationSettings: false } })).toBe(false)
+    expect(keeperIntegrationSettingsSupported({ capabilities: {} })).toBe(false)
+    expect(keeperIntegrationSettingsSupported({ capabilities: null })).toBe(false)
+    expect(keeperIntegrationSettingsSupported({ capabilities: { integrationSettings: "true" } })).toBe(false)
+  })
+
   it("accepts Rusty's explicit null for an absent pending operation", () => {
     const [integration] = parseKeeperIntegrationStatus(status(null), discovery)
     expect(integration?.scopes.map(scope => scope.workspaceId)).toEqual(["board-1"])
