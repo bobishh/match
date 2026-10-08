@@ -2,7 +2,7 @@ import type { KeeperIntegrationReference } from "../domain/model"
 import { getKeeperIntegrationStatus, type KeeperIntegrationStatus } from "../sync/lighthousePairing"
 import type { LighthouseDiscovery } from "../sync/lighthouseDiscovery"
 
-export type KeeperIntegrationAvailability = "unknown" | "available" | "unavailable" | "needs-review"
+type KeeperIntegrationAvailability = "unknown" | "available" | "unavailable" | "needs-review"
 export type KeeperIntegrationAvailabilityResult = {
   state: Exclude<KeeperIntegrationAvailability, "unknown">
   reason?: string
@@ -47,7 +47,7 @@ function sameStrings(left: string[], right: string[]): boolean {
   return sortedLeft.every((value, index) => value === sortedRight[index])
 }
 
-export function matchesSavedKeeperIntegration(reference: KeeperIntegrationReference,
+function matchesSavedKeeperIntegration(reference: KeeperIntegrationReference,
   integration: KeeperIntegrationStatus): boolean {
   return integration.integrationId === reference.integrationId
     && integration.revision === reference.revision

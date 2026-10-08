@@ -8,7 +8,6 @@ import { keeperIntegrationReferences, ownerKeepers, pendingKeeperWithdrawals, ty
 export type { KeeperWorkspace } from "../sync/lighthouseDiscovery"
 export type { KeeperPairing, KeeperPairingStatus } from "../sync/lighthousePairing"
 export type { KeeperDetails } from "../sync/ownerKeeper"
-export type { PendingKeeperWithdrawal } from "../sync/ownerKeeper"
 export type KeeperServiceDiscovery = LighthouseDiscovery
 
 function withdrawalTargets(entry: PendingKeeperWithdrawal, discovery: LighthouseDiscovery, integrationId?: string) {
