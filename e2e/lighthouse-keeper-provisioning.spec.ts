@@ -15,10 +15,23 @@ if (process.env.TINCANBAN_REQUIRE_LIGHTHOUSE_E2E === "1" && !lifecycleBinaryRead
   throw new Error("Required Rusty lifecycle E2E needs a built binary and canonical checkout.")
 }
 test.skip(!lifecycleBinaryReady, "Built standalone Rusty binary and checkout are required")
-test.use({ trace: "off" })
+test.use({ trace: "retain-on-failure" })
 
 const processOutput = new WeakMap<ChildProcessWithoutNullStreams, string>()
 const execFileAsync = promisify(execFile)
+
+async function diagnoseStep<T>(label: string, action: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now()
+  console.log(`[keeper e2e] ${label} start`)
+  try {
+    const result = await action()
+    console.log(`[keeper e2e] ${label} done in ${Date.now() - startedAt}ms`)
+    return result
+  } catch (error) {
+    console.log(`[keeper e2e] ${label} failed after ${Date.now() - startedAt}ms: ${String(error)}`)
+    throw error
+  }
+}
 
 function native(args: string[], env?: NodeJS.ProcessEnv) {
   const child = spawn(binary!, args, { stdio: "pipe", env: { ...process.env, ...env } })
@@ -617,12 +630,12 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] remove active integration; preserve local board through pending and signed cleanup")
     expect(ownerAIntegrationId).toBeTruthy()
     expect(ownerAPairingId).toBeTruthy()
-    const localWorkspace = await page.evaluate(async () => {
+    const localWorkspace = await diagnoseStep("capture retained workspace before removal", () => page.evaluate(async () => {
       const state = (await import("/src/state.ts")).useTincanban()
       const id = state.activeWorkspace.id
       return { id, bytes: Array.from(await state.readWorkspaceBytes(id)) }
-    })
-    await page.evaluate(async ({ integrationId, servicePersonId }) => {
+    }))
+    await diagnoseStep("clear local keeper references for removal recovery", () => page.evaluate(async ({ integrationId, servicePersonId }) => {
       const { bootstrapIdentity } = await import("/src/domain/identity.ts")
       const { defaultStorage } = await import("/src/storage.ts")
       const { removeOwnerKeeper } = await import("/src/sync/ownerKeeper.ts")
@@ -631,7 +644,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       const root = await defaultStorage.loadPersonalRoot()
       if (root?.keeperIntegrations) delete root.keeperIntegrations[integrationId]
       if (root) await defaultStorage.savePersonalRoot(root)
-    }, { integrationId: ownerAIntegrationId!, servicePersonId: nativeIdentity.personId })
+    }, { integrationId: ownerAIntegrationId!, servicePersonId: nativeIdentity.personId }))
     let statusRequest: { signed?: { payload?: Record<string, unknown> } } | undefined
     let statusResponse: { signerKeyId?: string; signature?: string; payload?: Record<string, unknown> } | undefined
     let disconnectReceipt: { signerKeyId?: string; signature?: string; payload?: Record<string, unknown> } | undefined
@@ -665,25 +678,25 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       await route.fulfill({ response, body: JSON.stringify(descriptor) })
     })
 
-    await page.getByRole("button", { name: "Sync", exact: true }).click()
+    await diagnoseStep("open Sync after clearing keeper references", () => page.getByRole("button", { name: "Sync", exact: true }).click())
     const removalDialog = page.getByRole("dialog", { name: "Device sync" })
     const keeperRow = removalDialog.getByRole("list", { name: "Keeper services" }).getByRole("button").first()
-    await expect(keeperRow).toBeVisible()
-    await keeperRow.click()
+    await diagnoseStep("find keeper service row", () => expect(keeperRow).toBeVisible())
+    await diagnoseStep("open keeper service row", () => keeperRow.click())
     const addressInput = removalDialog.getByLabel("Rusty address")
-    await addressInput.fill(serviceOrigin)
-    await expect(addressInput).toHaveValue(serviceOrigin)
+    await diagnoseStep("fill Rusty address for identity check", () => addressInput.fill(serviceOrigin))
+    await diagnoseStep("confirm Rusty address", () => expect(addressInput).toHaveValue(serviceOrigin))
     const verifyRusty = removalDialog.getByRole("button", { name: "Verify Rusty" })
-    await expect(verifyRusty).toBeEnabled()
-    await verifyRusty.click()
-    await expect(removalDialog.getByRole("alert")).toContainText("different keeper identity")
+    await diagnoseStep("wait for Rusty identity verification control", () => expect(verifyRusty).toBeEnabled())
+    await diagnoseStep("verify spoofed Rusty identity", () => verifyRusty.click())
+    await diagnoseStep("reject mismatched Rusty identity", () => expect(removalDialog.getByRole("alert")).toContainText("different keeper identity"))
     expect(statusRequest).toBeUndefined()
     expect(disconnectRequests).toHaveLength(0)
     spoofDiscovery = false
-    await removalDialog.getByRole("button", { name: "Verify Rusty" }).click()
-    await expect(removalDialog.getByRole("button", { name: "Remove keeper" })).toBeVisible()
-    await removalDialog.getByRole("button", { name: "Remove keeper" }).click()
-    await removalDialog.getByRole("button", { name: "Remove access from all boards" }).click()
+    await diagnoseStep("verify matching Rusty identity", () => removalDialog.getByRole("button", { name: "Verify Rusty" }).click())
+    await diagnoseStep("wait for keeper removal action", () => expect(removalDialog.getByRole("button", { name: "Remove keeper" })).toBeVisible())
+    await diagnoseStep("open keeper removal confirmation", () => removalDialog.getByRole("button", { name: "Remove keeper" }).click())
+    await diagnoseStep("confirm removal from all boards", () => removalDialog.getByRole("button", { name: "Remove access from all boards" }).click())
     await expect.poll(() => disconnectRequests.length, { timeout: 10_000 }).toBe(1)
     await expect(removalDialog.getByRole("status", { name: "Keeper removal status" })).toContainText("not confirmed")
     await expect(removalDialog.getByRole("alert")).toContainText("Temporary Rusty outage")
