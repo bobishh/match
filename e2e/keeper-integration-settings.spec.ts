@@ -1,4 +1,13 @@
 import { expect, test } from "./support/coverage"
+test("Given signed Rusty status confirms settings support, when owner opens the editor, then no unavailable warning appears", async ({ page }) => {
+  await page.goto("/")
+  await page.evaluate(async () => (await import("/e2e/support/keeperSettings.ts")).mountKeeperSettings())
+  await page.getByRole("list", { name: "Keeper services" }).getByRole("button", { name: /Rusty keeper/ }).click()
+  await page.getByRole("button", { name: "Manage board access" }).click()
+  await expect(page.getByRole("region", { name: "Keeper board settings" })).toBeVisible()
+  await expect(page.getByText("Rusty status could not verify board settings support. Reconnect and try again.")).toHaveCount(0)
+})
+
 test("Given an active Rusty integration, when owner disables future boards, then current access remains active", async ({ page }) => {
   await page.goto("/")
   await page.evaluate(async () => (await import("/e2e/support/keeperSettings.ts")).mountKeeperSettings())
