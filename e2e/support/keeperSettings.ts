@@ -4,13 +4,15 @@ import KeeperDiscovery from "../../src/components/KeeperDiscovery.vue"
 export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "unsupported" | "pending" | "remove"
   | "availability-available" | "availability-unavailable" | "availability-needs-review", mount = true) {
   const profile = await (await import("../../src/domain/identity")).bootstrapIdentity()
+  const { canonicalKeeperIntegrationId } = await import("../../src/sync/keeperIntegrationSelection")
+  const integrationId = await canonicalKeeperIntegrationId(profile.identity.personId, "settings-rusty-person")
   const { saveKeeperIntegrationReference, saveOwnerKeeper } = await import("../../src/sync/ownerKeeper")
   const { keeperApi } = await import("../../src/app/keeperApi")
   const { defaultStorage } = await import("../../src/storage")
   const { initializePersonalRootCatalog } = await import("../../src/statePersonalRoot")
   await initializePersonalRootCatalog(defaultStorage, profile)
   await saveKeeperIntegrationReference({
-    integrationId: "integration-settings-test", serviceOrigin: "http://127.0.0.1:4244",
+    integrationId, serviceOrigin: "http://127.0.0.1:4244",
     servicePersonId: "settings-rusty-person", serviceDeviceId: "settings-rusty-device",
     servicePublicKey: "settings-test-public-key", serviceCertificates: [],
     workspaceIds: mode === "empty" ? [] : ["board-current"], integrationSettingsSupported: mode !== "unsupported",
@@ -20,7 +22,7 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
   })
   await saveOwnerKeeper(profile.identity.personId, { personId: "settings-rusty-person", role: "editor", details: {
     origin: "http://127.0.0.1:4244", boardIds: mode === "empty" ? [] : ["board-current"], futureBoards: mode !== "off" && mode !== "empty",
-    futureBoardBaselineIds: ["board-current", "board-unselected"], integrationId: "integration-settings-test",
+    futureBoardBaselineIds: ["board-current", "board-unselected"], integrationId,
     servicePersonId: "settings-rusty-person", serviceDeviceId: "settings-rusty-device",
     servicePublicKey: "settings-test-public-key", serviceCertificates: [], revision: 8,
     integrationSettingsSupported: true,
@@ -28,7 +30,7 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
   if (mode === "pending") {
     const { savePendingKeeperWithdrawal } = await import("../../src/sync/ownerKeeper")
     await savePendingKeeperWithdrawal("saved-cancel-pairing", "saved-cancel-operation", {
-      pairingId: "saved-cancel-pairing", integrationId: "integration-settings-test", operatorUrl: "http://127.0.0.1:4244/operator",
+      pairingId: "saved-cancel-pairing", integrationId, operatorUrl: "http://127.0.0.1:4244/operator",
       comparisonCode: "518407", expiresAt: Math.floor(Date.now() / 1000) + 300, transcriptHash: "saved-transcript",
       challengeNonce: "saved-nonce", controllerFingerprint: "fingerprint",
       discovery: { origin: "http://127.0.0.1:4244", displayName: "Rusty", personId: "settings-rusty-person",
@@ -39,7 +41,7 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
   }
   keeperApi.keeperDetails = async () => ({ origin: "http://127.0.0.1:4244", boardIds: mode === "empty" ? [] : ["board-current"],
     futureBoards: mode !== "off" && mode !== "empty", futureBoardBaselineIds: ["board-current", "board-unselected"],
-    integrationId: "integration-settings-test", servicePersonId: "settings-rusty-person",
+    integrationId, servicePersonId: "settings-rusty-person",
     serviceDeviceId: "settings-rusty-device", revision: 8, integrationSettingsSupported: mode !== "unsupported" })
   keeperApi.decidePairing = async () => {}
   keeperApi.pairingStatusInfo = async () => ({ status: "approved" as const })
@@ -55,7 +57,7 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
       const availability = mode?.startsWith("availability-")
       const integrationRevision = mode === "availability-needs-review" ? 9 : availability ? 8 : 9
       return { integrationSettingsSupported: mode !== "unsupported", signerKeyId: "settings-rusty-device",
-        signature: "signed", revision: integrationRevision, integrations: discovery.origin.endsWith(":4244") ? [{ integrationId: "integration-settings-test", revision: integrationRevision,
+        signature: "signed", revision: integrationRevision, integrations: discovery.origin.endsWith(":4244") ? [{ integrationId, revision: integrationRevision,
           futureBoards: availability, baselineWorkspaceIds: ["board-current", "board-unselected"],
           scopes: mode === "empty" ? [] : [{ workspaceId: "board-current", grantEpoch: 4, state: "active" as const,
             activationOperationId: "activation-current" }], tombstones: [] }] : [] }
@@ -65,11 +67,11 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
         origin: discovery.origin, workspaceIds: workspaces.map(workspace => workspace.id),
       }
       return {
-      pairingId: "add-board-pairing", integrationId: "integration-settings-test", operatorUrl: "http://127.0.0.1:4244/operator",
+      pairingId: "add-board-pairing", integrationId, operatorUrl: "http://127.0.0.1:4244/operator",
       comparisonCode: "611204", expiresAt: Math.floor(Date.now() / 1000) + 300, transcriptHash: "add-board-transcript",
       challengeNonce: "add-board-nonce", controllerFingerprint: "fingerprint", discovery: fakeDiscovery,
       workspaces, futureBoards: false, futureBoardBaselineIds: ["board-current", "board-unselected"],
-      expectedIntegrationRevision: 9, integrationUpdate: { integrationId: "integration-settings-test", expectedRevision: 9,
+      expectedIntegrationRevision: 9, integrationUpdate: { integrationId, expectedRevision: 9,
         scopeWorkspaceIds: workspaces.map(workspace => workspace.id),
         policy: { futureBoards: false, baselineWorkspaceIds: ["board-current", "board-unselected"] } },
       }
@@ -98,7 +100,7 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
   const beginPolicyUpdate = async (personId: string, baselineWorkspaceIds: string[]) => {
     ;(window as unknown as { keeperPolicyRequest?: unknown }).keeperPolicyRequest = { personId, baselineWorkspaceIds }
     return {
-      pairingId: "policy-only-pairing", integrationId: "integration-settings-test", operatorUrl: "http://127.0.0.1:4244/operator",
+      pairingId: "policy-only-pairing", integrationId, operatorUrl: "http://127.0.0.1:4244/operator",
       comparisonCode: "518407", expiresAt: Math.floor(Date.now() / 1000) + 300, transcriptHash: "policy-transcript",
       challengeNonce: "policy-nonce", controllerFingerprint: "fingerprint",
       discovery: { origin: "http://127.0.0.1:4244", displayName: "Rusty", personId: "settings-rusty-person",
@@ -106,7 +108,7 @@ export async function mountKeeperSettings(mode?: "error" | "off" | "empty" | "un
         capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true,
           blobReplication: true, pairing: true } },
       workspaces: [], futureBoards: true, futureBoardBaselineIds: baselineWorkspaceIds, expectedIntegrationRevision: 8,
-      integrationUpdate: { integrationId: "integration-settings-test", expectedRevision: 8,
+      integrationUpdate: { integrationId, expectedRevision: 8,
         scopeWorkspaceIds: [], policy: { futureBoards: true, baselineWorkspaceIds }, policyOnly: true },
     }
   }

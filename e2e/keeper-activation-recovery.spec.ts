@@ -11,6 +11,10 @@ function canonical(value: unknown): string {
   return JSON.stringify(value)
 }
 
+function canonicalIntegrationId(controllerPersonId: string, servicePersonId: string): string {
+  return createHash("sha256").update(`MESH-LIGHTHOUSE-INTEGRATION/1\0${controllerPersonId}\0${servicePersonId}`).digest("base64url")
+}
+
 function testIdentity() {
   const privateKey = (seed: Buffer) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" })
   const publicKeyRaw = (key: ReturnType<typeof privateKey>) => createPublicKey(key).export({ format: "der", type: "spki" }).subarray(-32)
@@ -71,6 +75,7 @@ async function seedMissingPairing(page: import("@playwright/test").Page, origin:
 test("Given board setup loses its response, when signed status confirms durable activation, then stale errors clear and keeper settings persist without another join", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()
+  let integrationId = ""
   let transcriptHash = ""
   let nonce = ""
   let controllerApproved = false
@@ -82,12 +87,13 @@ test("Given board setup loses its response, when signed status confirms durable 
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
   }))
   await page.route(`${origin}/v1/pairings`, async route => {
-    const request = route.request().postDataJSON() as { signed: { payload: { body: { policy: { futureBoards: boolean } } } } }
+    const request = route.request().postDataJSON() as { signed: { payload: { controllerPersonId: string; body: { policy: { futureBoards: boolean } } } } }
     expect(request.signed.payload.body.policy.futureBoards).toBe(true)
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
     transcriptHash = keeper.hash(request.signed.payload)
     nonce = randomBytes(32).toString("base64url")
     const expiresAt = Math.floor(Date.now() / 1000) + 600
-    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce, integrationId: "integration-test", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce, integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-test", expiresAt, operatorUrl: `${origin}/admin/?pairing=pairing-test`, comparisonCode: "314159", transcriptHash, challenge }) })
   })
   await page.route(`${origin}/v1/pairings/pairing-test/decision`, route => {
@@ -97,12 +103,12 @@ test("Given board setup loses its response, when signed status confirms durable 
   await page.route(`${origin}/v1/pairings/pairing-test/status`, async route => {
     const status = provisionRequests > 0 ? "active" : controllerApproved ? "approved" : "pending"
     const provisioning = ["provisioning", "active"].includes(status) ? { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "active" ? "active" : "pending" })) } : false
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId, transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved, status, provisioning, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
-    const integrations = durableActivation ? [{ integrationId: "integration-test", revision: 2,
+    const integrations = durableActivation ? [{ integrationId, revision: 2,
       policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
       scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
       tombstones: [], pendingOperation: null }] : []
@@ -129,7 +135,7 @@ test("Given board setup loses its response, when signed status confirms durable 
     expect(approvedWorkspaceIds).toEqual(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id))
     provisionRequests += 1
     const status = provisionRequests === 1 ? "provisioning" : "active"
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status, provisioning: { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "provisioning" ? "pending" : "active", ...(status === "provisioning" ? { error: "join_failed", errorDetail: "Mesh snapshot rejected: stale authorization epoch" } : {}) })) }, issuedAt: Math.floor(Date.now() / 1000) })
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId, transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status, provisioning: { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "provisioning" ? "pending" : "active", ...(status === "provisioning" ? { error: "join_failed", errorDetail: "Mesh snapshot rejected: stale authorization epoch" } : {}) })) }, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.goto("/")
@@ -171,6 +177,7 @@ test("Given Rusty pruned an unissued pairing, when owner starts another request,
   let newPairingRequests = 0
   let completionRequests = 0
   let transcriptHash = ""
+  let integrationId = ""
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId,
@@ -189,7 +196,8 @@ test("Given Rusty pruned an unissued pairing, when owner starts another request,
   await page.route(`${origin}/v1/pairings`, async route => {
     newPairingRequests += 1
     expect(newPairingRequests).toBe(1)
-    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> & { controllerPersonId: string } } }
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
     const body = request.signed.payload.body as { integrationUpdate?: { expectedRevision?: number } }
     expect(body.integrationUpdate?.expectedRevision).toBe(5)
     transcriptHash = keeper.hash(request.signed.payload)
@@ -197,7 +205,7 @@ test("Given Rusty pruned an unissued pairing, when owner starts another request,
     const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1,
       pairingId: "fresh-after-orphan", transcriptHash, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce: "fresh-orphan-nonce",
-      integrationId: "integration-orphan", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+      integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
       pairingId: "fresh-after-orphan", expiresAt, operatorUrl: `${origin}/admin/?pairing=fresh-after-orphan`,
       comparisonCode: "314159", transcriptHash, challenge,
@@ -205,7 +213,7 @@ test("Given Rusty pruned an unissued pairing, when owner starts another request,
   })
   await page.route(`${origin}/v1/pairings/fresh-after-orphan/status`, async route => {
     const payload = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "fresh-after-orphan",
-      integrationId: "integration-orphan", transcriptHash, servicePersonId: keeper.identity.personId,
+      integrationId, transcriptHash, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600,
       operatorApproved: false, controllerApproved: false, status: "pending", provisioning: false,
       issuedAt: Math.floor(Date.now() / 1000) })
@@ -219,15 +227,18 @@ test("Given Rusty pruned an unissued pairing, when owner starts another request,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       controllerPersonId: request.signed.payload.controllerPersonId,
       controllerDeviceId: request.signed.payload.controllerDeviceId, operationId: request.signed.payload.operationId,
-      revision: 5, integrations: [{ integrationId: "integration-orphan", revision: 5,
+      revision: 5, integrations: [{ integrationId, revision: 5,
         policy: { futureBoards: false, baselineWorkspaceIds: ["board-orphan"] }, scopes: [], tombstones: [] }],
       issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
+  const controllerPersonId = await page.evaluate(async () =>
+    (await import("/src/domain/identity.ts")).bootstrapIdentity().then(profile => profile.identity.personId))
+  integrationId = canonicalIntegrationId(controllerPersonId, keeper.identity.personId)
   await seedMissingPairing(page, origin, "pruned-pairing", { ...keeper.identity, deviceId: keeper.deviceId,
-    certificates: keeper.certificates })
+    certificates: keeper.certificates }, { integrationId })
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Device sync" })
   await expect(dialog.getByRole("region", { name: "Saved keeper cancellation history" })).toHaveCount(0)
@@ -249,7 +260,7 @@ test("Given Rusty pruned an unissued pairing, when owner starts another request,
 test("Given a saved owner grant at epoch 5, when owner starts another request, then exact tombstone proof resolves cleanup privately before rebind", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()
-  const integrationId = "Ey92iFPlOXnBBt9o83AMLAtQWNYTYlBA7Y2Yss5nFUI"
+  let integrationId = ""
   let workspaceId = ""
   let rebindUpdate: Record<string, unknown> | undefined
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
@@ -292,15 +303,17 @@ test("Given a saved owner grant at epoch 5, when owner starts another request, t
   })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
-  const { ownedWorkspaceIds, eligibleWorkspaceIds } = await page.evaluate(async () => {
-    const [{ defaultStorage }, { getEligibleKeeperWorkspaces }] = await Promise.all([
-      import("/src/storage.ts"), import("/src/sync/lighthousePairing.ts"),
+  const { controllerPersonId, ownedWorkspaceIds, eligibleWorkspaceIds } = await page.evaluate(async () => {
+    const [{ defaultStorage }, { getEligibleKeeperWorkspaces }, { bootstrapIdentity }] = await Promise.all([
+      import("/src/storage.ts"), import("/src/sync/lighthousePairing.ts"), import("/src/domain/identity.ts"),
     ])
+    const profile = await bootstrapIdentity()
     const workspaces = await defaultStorage.listWorkspaces()
     const eligible = await getEligibleKeeperWorkspaces(workspaces.map(workspace => ({ id: workspace.id, title: workspace.title })))
-    return { ownedWorkspaceIds: workspaces.map(workspace => workspace.id).sort(),
+    return { controllerPersonId: profile.identity.personId, ownedWorkspaceIds: workspaces.map(workspace => workspace.id).sort(),
       eligibleWorkspaceIds: eligible.map(workspace => workspace.id).sort() }
   })
+  integrationId = canonicalIntegrationId(controllerPersonId, keeper.identity.personId)
   workspaceId = eligibleWorkspaceIds[0] ?? ""
   expect(workspaceId).not.toBe("")
   await seedMissingPairing(page, origin, "pruned-granted-pairing", { ...keeper.identity, deviceId: keeper.deviceId,
@@ -404,6 +417,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
   let capturedGrantScopes: unknown
   let cancellationComplete = false
   let withdrawalOperationId = ""
+  let integrationId = ""
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true }, publicOrigin: origin, managementPath: "/admin" }),
@@ -414,13 +428,14 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
       expect(cancellationComplete).toBe(true)
       activePairingId = "pairing-after-cleanup"
     }
-    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> & { controllerPersonId: string } } }
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
     transcriptHash = keeper.hash(request.signed.payload)
     nonce = randomBytes(32).toString("base64url")
     const expiresAt = Math.floor(Date.now() / 1000) + 600
     const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: activePairingId, transcriptHash,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce,
-      integrationId: "integration-withdraw", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+      integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: activePairingId, expiresAt,
       operatorUrl: `${origin}/admin/?pairing=${activePairingId}`, comparisonCode: "271828", transcriptHash, challenge }) })
   })
@@ -432,7 +447,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
     const currentStatus = cancellationComplete ? "cancelled" : withdrawRequests > 0 ? "cancel_pending"
       : provisionRequests > 0 ? "provisioning" : controllerApproved ? "approved" : "pending"
     const payload: Record<string, unknown> = {
-      kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-withdraw", integrationId: "integration-withdraw",
+      kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-withdraw", integrationId,
       transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: controllerApproved, controllerApproved,
       status: currentStatus, provisioning: ["provisioning", "cancel_pending"].includes(currentStatus) ? { status: "provisioning", scopes: approvedWorkspaceIds.map(workspaceId => ({
@@ -445,7 +460,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
   })
   await page.route(`${origin}/v1/pairings/pairing-after-cleanup/status`, async route => {
     const payload = keeper.sign({ kind: "lighthouse-pairing-status", version: 1,
-      pairingId: "pairing-after-cleanup", integrationId: "integration-withdraw", transcriptHash,
+      pairingId: "pairing-after-cleanup", integrationId, transcriptHash,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: false, controllerApproved: false,
       status: "pending", provisioning: false, issuedAt: Math.floor(Date.now() / 1000) })
@@ -454,7 +469,8 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
     const pending = disconnectRequests <= 2
-    const integrations = approvedWorkspaceIds.length ? [{ integrationId: "integration-withdraw", revision: pending ? 2 : 3,
+    integrationId = canonicalIntegrationId(request.signed.payload.controllerPersonId, keeper.identity.personId)
+    const integrations = approvedWorkspaceIds.length ? [{ integrationId, revision: pending ? 2 : 3,
       policy: { futureBoards: false, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
       scopes: [],
       tombstones: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 2,
@@ -473,7 +489,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
     const request = route.request().postDataJSON() as { signed: { payload: { body: { approvedScopes: { workspaceId: string }[] } } } }
     approvedWorkspaceIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
     provisionRequests += 1
-    const payload = { kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-withdraw", integrationId: "integration-withdraw",
+    const payload = { kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-withdraw", integrationId,
       transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status: "provisioning",
       provisioning: { status: "provisioning", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "pending", grantEpoch: 2,
@@ -505,7 +521,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
     withdrawRequests += 1
     const currentStatus = "cancel_pending"
     const receipt = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-withdraw",
-      integrationId: "integration-withdraw", transcriptHash, servicePersonId: keeper.identity.personId,
+      integrationId, transcriptHash, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin, controllerPersonId: payload.controllerPersonId,
       controllerDeviceId: payload.controllerDeviceId, expiresAt: Math.floor(Date.now() / 1000) + 600,
       operatorApproved: true, controllerApproved: true, status: currentStatus,
@@ -515,10 +531,10 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
       issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(receipt) })
   })
-  await page.route(`${origin}/v1/integrations/integration-withdraw/disconnect`, async route => {
+  await page.route(`${origin}/v1/integrations/*/disconnect`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
     const payload = request.signed.payload
-    expect(payload).toMatchObject({ kind: "lighthouse-integration-disconnect", integrationId: "integration-withdraw",
+    expect(payload).toMatchObject({ kind: "lighthouse-integration-disconnect", integrationId,
       operationId: withdrawalOperationId, expectedRevision: 1 })
     expect(payload.scopes).toEqual(approvedWorkspaceIds.map(workspaceId => ({ workspaceId, expectedGrantEpoch: 2 })))
     const semanticPayload = { ...payload }
@@ -531,7 +547,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
     disconnectRequests += 1
     const scopeStatus = disconnectRequests <= 2 ? "pending" : "removed"
     const receipt = keeper.sign({ kind: "lighthouse-integration-disconnect-receipt", version: 1,
-      integrationId: "integration-withdraw", operationId: withdrawalOperationId, requestHash,
+      integrationId, operationId: withdrawalOperationId, requestHash,
       status: scopeStatus, revision: disconnectRequests <= 2 ? 2 : 3,
       controllerPersonId: payload.controllerPersonId, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
@@ -549,7 +565,7 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
     expect(payload.scopes).toHaveLength(approvedWorkspaceIds.length)
     cancellationComplete = true
     const receipt = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-withdraw",
-      integrationId: "integration-withdraw", transcriptHash, servicePersonId: keeper.identity.personId,
+      integrationId, transcriptHash, servicePersonId: keeper.identity.personId,
       serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       controllerPersonId: payload.controllerPersonId, controllerDeviceId: payload.controllerDeviceId,
       expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true,
