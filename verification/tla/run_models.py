@@ -36,6 +36,8 @@ MODELS = [
     ("KeeperGrantRecoveryTamperedStatus", "KeeperGrantRecovery", None),
     ("KeeperPairingStatusOrdering", "KeeperPairingStatusOrdering", None),
     ("KeeperPairingStatusOrderingIgnoreFence", "KeeperPairingStatusOrdering", "Invariant CommittedProvisionStaysActive is violated"),
+    ("KeeperHostInstanceNode", "KeeperHostInstanceNode", None),
+    ("KeeperHostInstanceNodeLegacyHost", "KeeperHostInstanceNode", "Invariant AdoptedHostUsesLeasedInstanceKey is violated"),
     ("OwnerRevocationPersistence", "OwnerRevocationPersistence", None),
     ("OwnerRevocationPersistenceNonAtomic", "OwnerRevocationPersistence", "Invariant OwnerAccessSurvivesOtherKeeperRemoval is violated"),
     ("OwnerAuthorityRecovery", "OwnerAuthorityRecovery", None),

@@ -51,6 +51,11 @@ reopen a dismissed request after reload/stale completion must produce
 counterexamples. The model abstracts signature, certificate-chain, revision,
 and browser-store checks; Playwright and unit tests cover those boundaries.
 
+`KeeperHostInstanceNode` checks that an invitation host uses its durable leased
+node-instance key before workspace adoption and keeps that same route after
+reload. `KeeperHostInstanceNodeLegacyHost` models the old unscoped host key and
+must violate the adopted-route invariant.
+
 `OwnerRevocationPersistence` models removing a different keeper while preserving
 the owner's role. A signed revocation boundary must exist in both the document
 history and stored authority before local removal completes; the boundary must

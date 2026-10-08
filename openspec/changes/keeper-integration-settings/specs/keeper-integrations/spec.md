@@ -61,6 +61,16 @@ When future-board access is enabled, the signed baseline SHALL include every boa
 ### Requirement: Update retries are fenced and durable
 Rusty SHALL compare the expected integration revision before changing policy or scopes. Identical operation retries SHALL return the same durable result; operation-ID reuse with a different payload SHALL conflict. Cleanup and activation failures SHALL preserve retryable intent without falsely reporting completion.
 
+Invitation hosts created while a durable mesh is available SHALL use its leased
+node-instance key before workspace authority is adopted and after reload. Host
+creation SHALL NOT register a legacy unscoped node route that changes on reload.
+
+#### Scenario: Keeper host route survives adoption and reload
+- **GIVEN** an owner creates a keeper invitation host with a durable mesh available
+- **WHEN** the host adopts the owner workspace and the app reloads
+- **THEN** both host starts use the same leased node-instance key
+- **AND** Rusty can continue dialing the registered route
+
 #### Scenario: Stale update
 - **WHEN** another integration update advances the revision first
 - **THEN** the stale operation changes no scopes or policy
