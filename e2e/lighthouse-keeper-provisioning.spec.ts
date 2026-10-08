@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
+import * as Automerge from "@automerge/automerge"
 import { expect, test, type Browser, type Page } from "./support/coverage"
 import { createJobSearchWorkspace } from "./support/workspaces"
 import type { KeeperPairing } from "../src/sync/lighthousePairing"
@@ -160,6 +161,33 @@ async function openKeeperDetails(page: Page) {
   await expect(page.getByRole("heading", { name: "Keepers", exact: true })).toBeVisible()
   await page.getByRole("link", { name: "Open keeper" }).click()
   await expect(page.getByRole("heading", { name: "Boards", exact: true })).toBeVisible()
+}
+
+async function storedScopeDocument(directory: string, workspaceId: string) {
+  try {
+    const config = JSON.parse(await readFile(join(directory, "config.json"), "utf8")) as {
+      workspaceId?: string; statePath?: string; additionalScopes?: { workspaceId: string; statePath: string }[]
+    }
+    const scope = [config, ...(config.additionalScopes ?? [])].find(item => item.workspaceId === workspaceId)
+    if (!scope?.statePath) return undefined
+    const state = JSON.parse(await readFile(scope.statePath, "utf8")) as { document: number[] }
+    const doc = Automerge.load(Uint8Array.from(state.document))
+    try { return JSON.stringify(Automerge.toJS(doc)) } finally { Automerge.free(doc) }
+  } catch { return undefined }
+}
+
+async function createKeeperProbeCard(page: Page, title: string) {
+  await page.getByRole("button", { name: /Add lead to/ }).first().click()
+  await page.getByLabel("Company *").fill(title)
+  await page.getByLabel("Role *").fill("Engineer")
+  await page.getByRole("button", { name: "Create item" }).click()
+  await page.getByRole("button", { name: "Close detail" }).click()
+}
+
+async function switchWorkspace(page: Page, title: string) {
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  await page.getByRole("dialog", { name: "Workspaces" }).getByRole("button", { name: new RegExp(`^${title}\\b`) }).click()
+  await page.getByRole("button", { name: /Add lead to/ }).first().waitFor()
 }
 
 test("Given native Rusty supports owner-origin approval, when owner approves once and re-adds removed scopes, then activation persists across restart with legacy approval compatibility", async ({ page, browser, baseURL }, testInfo) => {
@@ -967,6 +995,21 @@ test("Given native Rusty supports owner-origin approval, when owner approves onc
     expect(finalReaddStatus.status).toBe("active")
     expect(finalReaddStatus.provisioningScopes).toEqual(readdedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active", grantEpoch: expect.any(Number) })))
     await expect(readdDialog.getByRole("alert")).toHaveCount(0)
+
+    const targetAWorkspaceId = await page.evaluate(async () => {
+      const workspaces = await (await import("/src/storage.ts")).defaultStorage.listWorkspaces()
+      return workspaces.find(workspace => workspace.title === "Keeper target A")?.id ?? null
+    })
+    expect(targetAWorkspaceId).toBeTruthy()
+    await page.reload()
+    await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 30_000 })
+    await switchWorkspace(page, "Keeper target A")
+    await expect(page.getByLabel("Mesh connected", { exact: true })).toBeVisible({ timeout: 30_000 })
+    const reloadProbeTitle = "Keeper route after reload"
+    await createKeeperProbeCard(page, reloadProbeTitle)
+    await expect.poll(() => storedScopeDocument(baseDirectory, targetAWorkspaceId!), { timeout: 30_000 })
+      .toContain(reloadProbeTitle)
+
     expect(statusFetchFailure).toBeUndefined()
     completed = true
   } finally {
