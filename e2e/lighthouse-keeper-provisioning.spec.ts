@@ -281,12 +281,14 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       expect(invalidSessionPage.url(), "Bad-cookie check must stay on Rusty's operator page").toBe(serviceOrigin + "/admin/")
       const invalidSessionResponse = await invalidSessionResponsePromise
       expect(invalidSessionResponse.status(), "Rusty must reject the invalid admin session cookie").toBe(403)
-      expect(invalidSessionResponse.request().headers().cookie).toContain("mesh_lighthouse_admin=invalid-session-cookie")
+      const invalidSessionHeaders = await invalidSessionResponse.request().allHeaders()
+      expect(invalidSessionHeaders.cookie).toContain("mesh_lighthouse_admin=invalid-session-cookie")
       await expect(invalidSessionPage.getByRole("heading", { name: "Sign in" })).toBeVisible()
       await expect(invalidSessionPage.locator(".keeper-card")).toHaveCount(0)
       await expect(invalidSessionPage.locator(".approval-card")).toHaveCount(0)
     } catch (cause) {
       const diagnostic = {
+        cause: cause instanceof Error ? cause.message : String(cause),
         url: invalidSessionPage.url(),
         body: (await invalidSessionPage.locator("body").innerText().catch(() => "<body unavailable>")).slice(0, 1_000),
         responses: invalidPageResponses.slice(-20),
