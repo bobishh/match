@@ -629,7 +629,8 @@ test("Given native Rusty supports owner-origin approval, when owner approves onc
     await openKeeperDetails(humanB)
     await expect(humanB.getByText("Owner B private board", { exact: true })).toBeVisible()
     await openApprovals(humanB)
-    await expect(humanB.getByText("No pending keeper requests")).toBeVisible()
+    // The approval UI refreshes every five seconds and can show one cached provisioning snapshot after activation.
+    await expect(humanB.getByText("No pending keeper requests")).toBeVisible({ timeout: 15_000 })
     await expect(humanB.locator(".approval-card")).toHaveCount(0)
     await expect(humanB.getByText("Keeper target A", { exact: true })).toHaveCount(0)
     await expect(humanB.getByText("Keeper target B", { exact: true })).toHaveCount(0)
