@@ -62,7 +62,7 @@ describe("keeper removal", () => {
       JSON.stringify({ message: "offline Rusty" }), { status: 503, headers: { "Content-Type": "application/json" } },
     ))
     await saveOwnerKeeper(owner, { personId: keeper, role: "visitor" })
-    await expect(removeKeeperAccess(keeper, {
+    const options: Parameters<typeof removeKeeperAccess>[1] = {
       getProfile: async () => profile,
       workspaces: [{ id: "active" }, { id: "other" }, { id: "guest" }],
       workspaceOwner: async id => id === "guest" ? "someone-else" : owner,
@@ -70,10 +70,54 @@ describe("keeper removal", () => {
       activeWorkspaceId: "active",
       discovery,
       knownServiceDeviceIds: ["rusty-device"],
-    })).rejects.toThrow("Local access was revoked; Rusty confirmation is still pending")
-    expect(revokePerson.mock.calls).toEqual([["other", keeper], ["active", keeper]])
-    expect(fetchMock).toHaveBeenCalledOnce()
+    }
+    await expect(removeKeeperAccess(keeper, options))
+      .rejects.toThrow("Local access was revoked; Rusty confirmation is still pending")
+    await expect(removeKeeperAccess(keeper, options))
+      .rejects.toThrow("Local access was revoked; Rusty confirmation is still pending")
+    expect(revokePerson.mock.calls).toEqual([
+      ["other", keeper, 1], ["active", keeper, 1],
+      ["other", keeper, 1], ["active", keeper, 1],
+    ])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     await expect(ownerKeepers(owner)).resolves.toEqual([{ personId: keeper, role: "visitor" }])
+  })
+
+  it("rejects a stale saved grant epoch before changing access or contacting Rusty", async () => {
+    const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["board"])
+    const revokePerson = vi.fn(async (_workspaceId: string, _personId: string, expectedGrantEpoch?: number) => {
+      if (expectedGrantEpoch !== 2) throw new Error("A newer keeper grant exists; this removal cannot revoke it.")
+    })
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+    const before = (await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration
+
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile,
+      workspaces: [{ id: "board" }], workspaceOwner: async () => owner,
+      mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
+      discovery,
+    })).rejects.toThrow("A newer keeper grant exists; this removal cannot revoke it.")
+
+    expect(revokePerson.mock.calls).toEqual([["board", keeper, 1]])
+    expect(fetchMock).not.toHaveBeenCalled()
+    await expect(ownerKeeperStorage.keeperIntegrationReferences()).resolves.toMatchObject({
+      integrations: { integration: before },
+    })
+  })
+
+  it("does not revoke a legacy descriptor locally when no saved grant generation exists", async () => {
+    const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["board"])
+    const root = await defaultStorage.loadPersonalRoot()
+    root!.keeperIntegrations!.integration!.scopeReceipts = []
+    await defaultStorage.savePersonalRoot(root!)
+    const revokePerson = vi.fn(async () => {})
+    vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus").mockRejectedValue(new Error("Rusty offline"))
+
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile, workspaces: [{ id: "board" }], workspaceOwner: async () => owner,
+      mesh: async () => ({ revokePerson }) as unknown as DurableMesh, discovery,
+    })).rejects.toThrow("Rusty offline")
+    expect(revokePerson).not.toHaveBeenCalled()
   })
 
   it("keeps owner policy when any board cannot be revoked", async () => {
@@ -143,7 +187,8 @@ describe("keeper removal", () => {
   it("retries local keeper cleanup after a verified removal receipt survives restart", async () => {
     const { profile, owner, keeper } = await setupOwnerKeeper(["board"])
     await saveOwnerKeeper(owner, { personId: keeper, role: "editor" })
-    const mesh = { revokePerson: vi.fn(async () => {}), views: vi.fn(async () => []) } as unknown as DurableMesh
+    const revokePerson = vi.fn(async () => {})
+    const mesh = { revokePerson, views: vi.fn(async () => []) } as unknown as DurableMesh
     const active = { integrationId: "integration", revision: 1, futureBoards: false, scopes: [
       { workspaceId: "board", grantEpoch: 1, state: "active" as const, activationOperationId: "activation" },
     ], tombstones: [] }
@@ -173,9 +218,33 @@ describe("keeper removal", () => {
 
     await expect(removeKeeperAccess(keeper, options)).resolves.toBe("removed")
     expect(status).toHaveBeenCalledTimes(2)
-    expect(mesh.revokePerson).toHaveBeenCalledOnce()
+    expect(revokePerson.mock.calls).toEqual([["board", keeper, 1], ["board", keeper, 1]])
     await expect(ownerKeepers(owner)).resolves.toEqual([])
     expect((await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration?.scopeReceipts).toEqual([])
+  })
+
+  it("uses completed generation when active receipt list is empty during cleanup retry", async () => {
+    const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["board"])
+    const root = await defaultStorage.loadPersonalRoot()
+    root!.keeperIntegrations!.integration = {
+      ...root!.keeperIntegrations!.integration!, workspaceIds: [], scopeReceipts: [], state: "removed",
+      completedRemoval: { operationId: "remove-op", scopes: [{ workspaceId: "board", grantEpoch: 1 }] },
+    }
+    await defaultStorage.savePersonalRoot(root!)
+    const revokePerson = vi.fn(async () => {})
+    const mesh = { revokePerson, views: async () => [{ workspaceId: "board", personId: keeper }] } as unknown as DurableMesh
+    vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus").mockResolvedValue({
+      integrations: [{ integrationId: "integration", revision: 2, futureBoards: false, scopes: [], tombstones: [
+        { workspaceId: "board", grantEpoch: 1, operationId: "remove-op", state: "removed", cleanup: "complete" },
+      ] }], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 2,
+      signedStatus: { payload: {}, signerKeyId: "rusty-device", signature: "signed" },
+    } as never)
+
+    await expect(removeKeeperAccess(keeper, {
+      getProfile: async () => profile, workspaces: [{ id: "board" }], workspaceOwner: async () => owner,
+      mesh: async () => mesh, discovery,
+    })).resolves.toBe("removed")
+    expect(revokePerson.mock.calls).toEqual([["board", keeper, 1]])
   })
 
   it("retries every locally saved settings revocation with same signed request hash after a partial failure", async () => {

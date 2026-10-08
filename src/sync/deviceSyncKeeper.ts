@@ -71,18 +71,39 @@ function removalAlreadyCompleted(integration: KeeperIntegrationStatus, reference
       && item.state === "removed" && item.cleanup === "complete"))
 }
 
-async function revokeLocalScopes(mesh: DurableMesh, personId: string, scopes: string[], localOwners: Map<string, boolean>,
+async function revokeLocalScopes(mesh: DurableMesh, personId: string, scopes: KeeperDisconnectScope[], localOwners: Map<string, boolean>,
   alreadyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
-  for (const workspaceId of scopes) {
+  for (const scope of scopes) {
+    const { workspaceId, expectedGrantEpoch } = scope
     const owned = localOwners.get(workspaceId) === true
     traceRemoval(trace, "scope-check", { peerId: personId, workspaceId, outcome: owned ? "owner" : "not-owner" })
     if (owned && !alreadyRevoked.has(workspaceId)) {
-      traceRemoval(trace, "revoke-start", { peerId: personId, workspaceId, outcome: "requested" })
-      await mesh.revokePerson(workspaceId, personId)
+      if (!Number.isSafeInteger(expectedGrantEpoch) || expectedGrantEpoch < 1) {
+        throw new Error("Saved keeper grant generation is unavailable; local access was not changed.")
+      }
+      traceRemoval(trace, "revoke-start", { peerId: personId, workspaceId,
+        outcome: `generation:${expectedGrantEpoch}` })
+      await mesh.revokePerson(workspaceId, personId, expectedGrantEpoch)
       alreadyRevoked.add(workspaceId)
       traceRemoval(trace, "revoke-complete", { peerId: personId, workspaceId, outcome: "success" })
     }
   }
+}
+
+function cachedRemovalScopes(reference: KeeperIntegrationReference | undefined): KeeperDisconnectScope[] {
+  if (!reference) return []
+  const receiptScopes = reference.scopeReceipts?.filter(scope => reference.workspaceIds.includes(scope.workspaceId))
+    .map(scope => ({ workspaceId: scope.workspaceId, expectedGrantEpoch: scope.grantEpoch }))
+  const saved = reference.pendingRemoval?.scopes
+    ?? (receiptScopes?.length ? receiptScopes : undefined)
+    ?? reference.completedRemoval?.scopes.map(scope => ({ workspaceId: scope.workspaceId, expectedGrantEpoch: scope.grantEpoch }))
+  if (!saved) return []
+  const scopes = saved.map(scope => ({ workspaceId: scope.workspaceId, expectedGrantEpoch: scope.expectedGrantEpoch }))
+  if (new Set(scopes.map(scope => scope.workspaceId)).size !== scopes.length
+    || scopes.some(scope => !scope.workspaceId || !Number.isSafeInteger(scope.expectedGrantEpoch) || scope.expectedGrantEpoch < 1)) {
+    throw new Error("Saved keeper grant generations are invalid; local access was not changed.")
+  }
+  return scopes
 }
 
 async function persistRemovalReceipt(profile: LocalProfile, personId: string, discovery: LighthouseDiscovery,
@@ -203,17 +224,23 @@ async function localRemovalContext(personId: string, options: RemovalOptions, pr
   traceRemoval(options.trace, "scopes-loaded", { peerId: personId, recordId: integrationId ?? "none",
     outcome: removalSource(reference, legacyKeeper),
     phase: `owned:${[...localOwners.values()].filter(Boolean).length};available:${localOwners.size}` })
-  await revokeLocalScopes(mesh, personId, reference?.workspaceIds ?? legacyKeeper?.details?.boardIds ?? [], localOwners, locallyRevoked, options.trace)
+  await revokeLocalScopes(mesh, personId, cachedRemovalScopes(reference), localOwners, locallyRevoked, options.trace)
   traceRemoval(options.trace, "local-context-ready", { peerId: personId, recordId: integrationId ?? "none",
     outcome: `locally-revoked:${locallyRevoked.size}` })
   return { reference, discovery, mesh, localOwners, locallyRevoked, integrationId }
 }
 
 async function revokeVisibleOwnedPeerScopes(mesh: DurableMesh, personId: string, localOwners: Map<string, boolean>,
-  alreadyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
+  alreadyRevoked: Set<string>, reference: KeeperIntegrationReference | undefined, trace?: RemovalOptions["trace"]) {
   const workspaceIds = [...new Set((await mesh.views()).filter(peer => peer.personId === personId && !peer.revokedAt
     && localOwners.get(peer.workspaceId) === true).map(peer => peer.workspaceId))]
-  await revokeLocalScopes(mesh, personId, workspaceIds, localOwners, alreadyRevoked, trace)
+  const receipts = cachedRemovalScopes(reference)
+  const scopes = workspaceIds.map(workspaceId => {
+    const receipt = receipts.find(item => item.workspaceId === workspaceId)
+    if (!receipt) throw new Error("Visible keeper grant has no saved generation; local access was not changed.")
+    return receipt
+  })
+  await revokeLocalScopes(mesh, personId, scopes, localOwners, alreadyRevoked, trace)
   return workspaceIds
 }
 
@@ -243,7 +270,7 @@ async function finishAlreadyRemoved(personId: string, profile: LocalProfile, ref
 async function submitRemoval(personId: string, profile: LocalProfile, discovery: LighthouseDiscovery, intent: Awaited<ReturnType<typeof removalIntent>>,
   mesh: DurableMesh, localOwners: Map<string, boolean>, locallyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
   const { integration, scopes, operationId, expectedRevision, servicePending } = intent
-  await revokeLocalScopes(mesh, personId, scopes.map(scope => scope.workspaceId), localOwners, locallyRevoked, trace)
+  await revokeLocalScopes(mesh, personId, scopes, localOwners, locallyRevoked, trace)
   const descriptor: KeeperIntegrationReference = {
     integrationId: integration.integrationId,
     serviceOrigin: discovery.origin,
@@ -309,7 +336,8 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
     if (otherActiveOwnedIntegration) {
       throw new Error("Rusty has another active integration for this keeper. Remove that integration before retrying cleanup.")
     }
-    await revokeVisibleOwnedPeerScopes(context.mesh, personId, context.localOwners, context.locallyRevoked, options.trace)
+    await revokeVisibleOwnedPeerScopes(context.mesh, personId, context.localOwners, context.locallyRevoked,
+      context.reference, options.trace)
     if (await finishAlreadyRemoved(personId, profile, context.reference, integration, localPending)) {
       traceRemoval(options.trace, "complete", { peerId: personId, recordId: integration.integrationId, outcome: "already-removed" })
       return "removed"
