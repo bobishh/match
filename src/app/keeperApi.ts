@@ -1,8 +1,9 @@
-import { discoverLighthouse, type LighthouseDiscovery } from "../sync/lighthouseDiscovery"
+import { discoverLighthouse, type LighthouseDiscovery, type KeeperWorkspace } from "../sync/lighthouseDiscovery"
 import { beginKeeperPairing, decideKeeperPairing, getEligibleKeeperWorkspaces, getKeeperIntegrationStatus, newKeeperOperationId, rememberActiveKeeperIntegration, type KeeperPairing } from "../sync/lighthousePairing"
 import { completeKeeperPairingWithdrawal, getKeeperPairingStatusInfo, requestKeeperPairingWithdrawal } from "../sync/lighthousePairingWithdrawalApi"
+import { restoreKeeperPairing } from "./keeperWithdrawalUi"
 import { bootstrapIdentity } from "../domain/identity"
-import { keeperIntegrationReferences, ownerKeepers, pendingKeeperWithdrawals, type KeeperDetails } from "../sync/ownerKeeper"
+import { keeperIntegrationReferences, ownerKeepers, pendingKeeperWithdrawals, type KeeperDetails, type PendingKeeperWithdrawal } from "../sync/ownerKeeper"
 
 export type { KeeperWorkspace } from "../sync/lighthouseDiscovery"
 export type { KeeperPairing, KeeperPairingStatus } from "../sync/lighthousePairing"
@@ -10,12 +11,57 @@ export type { KeeperDetails } from "../sync/ownerKeeper"
 export type { PendingKeeperWithdrawal } from "../sync/ownerKeeper"
 export type KeeperServiceDiscovery = LighthouseDiscovery
 
+function withdrawalTargets(entry: PendingKeeperWithdrawal, discovery: LighthouseDiscovery, integrationId?: string) {
+  if (entry.orphanResolution) return false
+  const saved = entry.pairing as { integrationId?: unknown; discovery?: Partial<LighthouseDiscovery> } | undefined
+  const target = saved?.discovery
+  return target?.origin === discovery.origin && target.personId === discovery.personId
+    && target.deviceId === discovery.deviceId && (!integrationId || saved?.integrationId === integrationId)
+}
+
+async function reconcileTargetWithdrawals(discovery: LighthouseDiscovery, integrationId: string | undefined,
+  cancel: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled" | "orphan_resolved">,
+  shouldContinue: () => boolean) {
+  for (const entry of await pendingKeeperWithdrawals()) {
+    if (!shouldContinue()) return
+    if (!withdrawalTargets(entry, discovery, integrationId)) continue
+    const pairing = restoreKeeperPairing(entry)
+    if (!pairing) throw new Error("A previous request for this Rusty integration needs cleanup. No new access request was sent.")
+    let result: "cancel_pending" | "cancelled" | "orphan_resolved"
+    try {
+      result = await cancel(pairing, entry.operationId)
+    } catch (cause) {
+      throw new Error("A previous request for this Rusty integration still needs cleanup. No new access request was sent.", { cause })
+    }
+    if (!shouldContinue()) return
+    if (result === "cancel_pending") {
+      throw new Error("A previous request for this Rusty integration still needs cleanup. No new access request was sent.")
+    }
+  }
+}
+
 /** Application boundary used by keeper discovery and approval controls. */
 export const keeperApi = {
   discover: discoverLighthouse,
   integrationStatus: getKeeperIntegrationStatus,
   eligibleWorkspaces: getEligibleKeeperWorkspaces,
   beginPairing: beginKeeperPairing,
+  async beginPairingAfterWithdrawalReconciliation(
+    discovery: LighthouseDiscovery,
+    workspaces: KeeperWorkspace[],
+    options: Parameters<typeof beginKeeperPairing>[2],
+    cancel: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled" | "orphan_resolved">,
+    shouldContinue: () => boolean = () => true,
+  ): Promise<KeeperPairing | null> {
+    const { integrations } = await keeperApi.integrationStatus(discovery)
+    if (!shouldContinue()) return null
+    if (integrations.length > 1) {
+      throw new Error("Rusty has conflicting keeper integrations. Resolve them before adding board access.")
+    }
+    await reconcileTargetWithdrawals(discovery, integrations[0]?.integrationId, cancel, shouldContinue)
+    if (!shouldContinue()) return null
+    return keeperApi.beginPairing(discovery, workspaces, options)
+  },
   decidePairing: decideKeeperPairing,
   newOperationId: newKeeperOperationId,
   requestWithdrawal: requestKeeperPairingWithdrawal,

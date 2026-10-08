@@ -7,6 +7,7 @@ type PairingStatus = "idle" | "loading" | "found" | "error" | "creating" | "pair
 defineProps<{
   form: boolean; originInput: string; status: PairingStatus; error: string
   discovery: KeeperServiceDiscovery | null; selectedKeeper: MeshMemberView | undefined
+  selectedKeeperStatus: string; selectedKeeperStatusReason: string
   pairing: KeeperPairing | null; policyOnlyPairing: boolean; currentPolicyBoardTitles: string[]
   eligibleWorkspaces: KeeperWorkspace[]; selectedWorkspaceIds: string[]; activeIntegrationWorkspaceIds: string[]
   futureBoards: boolean; controllerApproved: boolean; provisioning: boolean; pendingPairing: boolean
@@ -65,13 +66,13 @@ const emit = defineEmits<{
         <div v-if="pairing.controllerOrigin && status === 'pairing' && !controllerApproved" class="dialog-actions"><button class="button button-primary" type="button" @click="emit('decide', true)">Approve and connect</button></div>
         <button v-if="status === 'provisioning' && error" class="button button-primary" type="button" :disabled="provisioning" @click="emit('provision')">Retry board setup</button>
         <button v-if="pendingPairing" class="button button-danger" type="button" :disabled="cancellingPairing" @click="emit('cancel')">{{ cancellingPairing ? 'Sending cancellation…' : status === 'cancel_pending' || withdrawalOperationId ? 'Retry cancellation' : 'Cancel keeper request' }}</button>
-        <button v-if="pendingPairing" class="button button-quiet" type="button" :disabled="cancellingPairing" @click="emit('dismiss')">Dismiss from list</button>
+        <button v-if="pendingPairing" class="button button-quiet" type="button" @click="emit('dismiss')">Dismiss from list</button>
         <button v-if="status === 'expired' || status === 'rejected' || status === 'cancelled' || status === 'orphan_resolved'" class="button button-primary" type="button" @click="emit('startAdd')">Start new request</button>
         <div v-if="error" class="sync-error" role="alert"><p>{{ error }}</p><button class="button button-quiet" type="button" @click="emit('clearError')">Dismiss error</button></div>
       </section>
     </template>
     <template v-else-if="selectedKeeper">
-      <p class="keeper-summary">Keeper · {{ selectedKeeper.online ? 'Connected' : selectedKeeper.reconnecting ? 'Reconnecting' : 'Offline' }}</p>
+      <p class="keeper-summary" :title="selectedKeeperStatusReason">Keeper · {{ selectedKeeperStatus }}</p>
       <p v-if="keeperDetails?.origin" class="keeper-summary">{{ keeperDetails.origin }}</p><p v-if="keeperDetails?.futureBoards" class="keeper-summary">Includes future boards</p>
       <p v-if="keeperDetails" class="sync-section-copy">Boards</p><ul v-if="keeperDetails" class="keeper-devices"><li v-for="board in ownedWorkspaces.filter(workspace => keeperDetails?.boardIds.includes(workspace.id))" :key="board.id">{{ board.title }}</li></ul>
       <p v-if="settingsStatus" class="dialog-copy" role="status" aria-label="Keeper settings status">{{ settingsStatus }}</p>
@@ -85,7 +86,7 @@ const emit = defineEmits<{
         <div class="dialog-actions"><button class="button button-primary" type="button" :disabled="settingsBusy || (!settingsPending && settingsFutureBoards === keeperDetails.futureBoards && !settingsRemoveWorkspaceIds.length)" @click="emit('saveSettings')">{{ settingsBusy ? 'Saving settings…' : settingsPending ? 'Retry settings update' : settingsFutureBoards && !keeperDetails.futureBoards ? 'Request future-board approval' : 'Save future-board setting' }}</button><button class="button button-quiet" type="button" :disabled="settingsBusy || settingsPending" @click="emit('update:editingSettings', false)">Cancel</button></div>
         <p v-if="settingsError" class="sync-error" role="alert" aria-label="Keeper settings error">{{ settingsError }}</p>
       </section>
-      <ul class="keeper-devices"><li v-for="device in selectedKeeper.deviceList" :key="device.deviceId"><RustyMark compact :online="device.online" :reconnecting="device.reconnecting" />{{ keeperDisplayName(device.name) }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
+      <ul v-if="!selectedKeeper.integrationId" class="keeper-devices"><li v-for="device in selectedKeeper.deviceList" :key="device.deviceId"><RustyMark compact :online="device.online" :reconnecting="device.reconnecting" />{{ keeperDisplayName(device.name) }} · {{ device.online ? 'Connected' : device.reconnecting ? 'Reconnecting' : 'Offline' }}</li></ul>
       <div v-if="removeKeeperAvailable" class="keeper-removal">
         <template v-if="!keeperDetails?.integrationId"><button v-if="!confirmRemoval && !removalPending" class="button button-danger" type="button" @click="emit('update:confirmRemoval', true)">Remove keeper</button><template v-else><p class="dialog-copy">Revoke this keeper’s access to your boards and remove it from the list.</p><p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">Removal did not finish. Retry to revoke remaining access and remove this keeper.</p><div class="dialog-actions"><button class="button button-danger" type="button" :disabled="removingKeeper" @click="emit('removeKeeper')">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove keeper now' }}</button><button class="button button-quiet" type="button" :disabled="removingKeeper" @click="emit('update:confirmRemoval', false)">Cancel</button></div></template></template>
         <template v-else><button v-if="!confirmRemoval && !removalPending" class="button button-danger" type="button" @click="emit('update:confirmRemoval', true)">Remove keeper</button><template v-if="confirmRemoval || removalPending"><p class="dialog-copy">{{ removalPending ? "Removal is still pending Rusty confirmation." : "Remove access from all boards still owned by this identity?" }}</p><p v-if="removalPending" class="dialog-copy" role="status" aria-label="Keeper removal status">Remote removal is not confirmed. Retry removal.</p><div class="dialog-actions"><button class="button button-danger" type="button" :disabled="removingKeeper" @click="emit('removeKeeper')">{{ removingKeeper ? 'Removing keeper…' : removalPending ? 'Retry removal' : 'Remove access from all boards' }}</button><button class="button button-quiet" type="button" :disabled="removingKeeper" @click="emit('update:confirmRemoval', false)">Cancel</button></div></template></template>
@@ -94,3 +95,5 @@ const emit = defineEmits<{
     </template>
   </div>
 </template>
+
+<style scoped src="./KeeperDetailPanel.css"></style>

@@ -8,11 +8,20 @@ The application SHALL display the verified active board scopes, integration revi
 - **THEN** the application displays only service-verified active scopes and the verified future-board policy
 - **AND** a status failure leaves cached settings visible with an explicit retry/error state
 
-### Requirement: Expanding access requires both approvals
-Adding a board or enabling future-board access SHALL require a comparison-code operation bound to the current integration ID, revision, exact additions, and policy baseline. The application SHALL preserve currently active scopes while approval is pending.
+### Requirement: Expanding access requires authenticated owner consent and Rusty admission
+Adding a board or enabling future-board access SHALL require a pairing operation bound to the current integration ID, revision, exact additions, and policy baseline. The application SHALL preserve currently active scopes while approval is pending. On a configured owner-origin lane, an explicit owner decision from the signed controller origin can satisfy Rusty's admission authority without a second manual operator step. Legacy services retain separate operator and controller approvals. Both lanes SHALL verify the exact signed decision and service status before provisioning.
 
-#### Scenario: Add a board after dual approval
+#### Scenario: Add a board through owner-origin admission
 - **GIVEN** an active integration and a newly selected owner board
+- **AND** Rusty advertises owner-origin admission for the configured Tincanban origin
+- **WHEN** the owner explicitly approves the exact signed request and Rusty commits the owner-signed grant
+- **THEN** Rusty adds only that board at a grant epoch greater than any tombstone
+- **AND** prior active scopes remain active
+- **AND** no separate operator approval is requested
+- **AND** the application updates its local reference only after verifying the service-signed completion
+
+#### Scenario: Add a board through legacy manual admission
+- **GIVEN** an active integration with a service that omits owner-origin admission support
 - **WHEN** controller and operator approve the same comparison code and Rusty commits the owner-signed grant
 - **THEN** Rusty adds only that board at a grant epoch greater than any tombstone
 - **AND** prior active scopes remain active
@@ -56,18 +65,40 @@ Rusty SHALL compare the expected integration revision before changing policy or 
 - **AND** the application keeps existing settings visible and offers refresh/retry
 
 ### Requirement: Missing pairing cleanup stays blocked until independently verified
-When a saved withdrawal targets a pairing record Rusty no longer retains, the application SHALL preserve its history and SHALL NOT create a cancellation receipt. It may resolve the orphan only from a fresh service-signed status bound to the exact owner, service, integration, and revision, with no pending operation or active target scopes. Every locally saved issued grant SHALL have a valid owner signature and explicit safe access epoch covered by a completed removed tombstone at an equal or newer epoch; local owner revocation SHALL also complete before unblocking.
+When a saved withdrawal targets a pairing record Rusty no longer retains, the application SHALL preserve its outbox and proofs internally and SHALL NOT create a cancellation receipt. It may resolve the orphan only from a fresh service-signed status bound to the exact owner, service, integration, and revision, with no pending operation or active target scopes. Every locally saved issued grant SHALL have a valid owner signature and explicit safe access epoch covered by a completed removed tombstone at an equal or newer epoch; local owner revocation SHALL also complete before unblocking. The application SHALL NOT project withdrawal outbox entries as active keepers, display cancellation history, or globally block discovery because an outbox entry exists.
 
 #### Scenario: Exact signed cleanup resolves a pruned pairing
 - **GIVEN** a saved withdrawal whose pairing endpoint returns not found
 - **AND** its cached grant and controller identity verify
 - **WHEN** current signed integration status proves no active target scope, no pending operation, and completed tombstones covering each saved grant epoch
 - **AND** the owner records exact local revocations
-- **THEN** the application stores signed status and local revocation proofs as orphan-resolution history
+- **THEN** the application stores signed status and local revocation proofs in the internal outbox record
 - **AND** the request is no longer treated as a pending cancellation
 - **AND** the application does not claim Rusty issued a cancellation receipt
+- **AND** no cancellation-history row appears in the keeper UI
+
+#### Scenario: Dismiss unresolved cancellation without deleting cleanup evidence
+- **GIVEN** a saved unresolved withdrawal outbox entry
+- **WHEN** the owner dismisses the visible request and reloads the keeper list
+- **THEN** the request and cancellation history stay hidden
+- **AND** the durable withdrawal proofs remain saved
+- **AND** keeper discovery remains available
+
+#### Scenario: Same integration remains fenced before a new request
+- **GIVEN** a saved unresolved withdrawal for the target integration
+- **WHEN** the owner starts a new request for that same integration
+- **THEN** the application retries exact orphan reconciliation before creating a pairing
+- **AND** unresolved cleanup prevents the pairing request from being sent
+- **AND** no owner grant or active integration state changes
+
+#### Scenario: Unrelated service outbox does not block discovery
+- **GIVEN** an unresolved withdrawal for another Rusty service
+- **WHEN** the owner discovers a different service
+- **THEN** discovery and request setup continue for the selected service
+- **AND** the unrelated outbox remains intact
 
 #### Scenario: Ambiguous orphan evidence remains blocked
 - **WHEN** owner proof, access epoch, service/integration binding, current revision, tombstone, or cleanup state is missing or mismatched
-- **THEN** the request remains pending and blocks a new keeper request
-- **AND** dismissing it from the visible list preserves its saved proof and history
+- **THEN** the request remains internally pending and blocks only a new request for the same integration
+- **AND** dismissing it hides the current request without deleting saved proof
+- **AND** a new discovery remains available

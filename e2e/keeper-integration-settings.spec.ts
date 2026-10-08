@@ -83,23 +83,71 @@ test("Given old Rusty lacks signed settings capability, when owner opens keeper,
   await expect(page.getByText("611204")).toBeVisible()
 })
 
-test("Given saved cancellation intent, when owner restores and retries, then original boards stay visible through pending state", async ({ page }) => {
+test("Given a saved unresolved cancellation outbox, when owner opens keeper list, then no history row resurfaces and adding remains available", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto("/")
   await page.evaluate(async () => (await import("/e2e/support/keeperSettings.ts")).mountKeeperSettings("pending"))
-  const history = page.getByRole("region", { name: "Saved keeper cancellation history" })
-  await expect(history.getByText("Cancellation pending · retry available")).toBeVisible()
-  await expect(history.getByRole("button", { name: "Restore request" })).toBeVisible()
-  const status = history.getByText("Cancellation pending · retry available")
-  const restore = history.getByRole("button", { name: "Restore request" })
-  const statusBox = await status.boundingBox()
-  const buttonBox = await restore.boundingBox()
-  expect(statusBox && buttonBox && (statusBox.x + statusBox.width <= buttonBox.x || statusBox.y + statusBox.height <= buttonBox.y)).toBe(true)
-  await restore.click()
-  await expect(page.getByText("Requested boards")).toBeVisible()
-  await expect(page.getByText("Current board", { exact: true })).toBeVisible()
-  await expect(page.getByText("No eligible owned boards found.")).toHaveCount(0)
-  await page.getByRole("button", { name: "Retry cancellation" }).click()
-  await expect(page.getByText("Rusty cancellation is still pending. Request stays blocked until cleanup is confirmed.")).toBeVisible()
-  await expect(page.getByText("Current board", { exact: true })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Saved keeper cancellation history" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+  const retained = await page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals())
+  expect(retained).toHaveLength(1)
+
+  await page.getByRole("button", { name: "Add keeper" }).click()
+  await page.getByRole("textbox", { name: "Keeper hostname" }).fill("http://127.0.0.1:4244")
+  await page.getByRole("button", { name: "Discover keeper" }).click()
+  await page.getByRole("button", { name: "Request access" }).click()
+  await expect(page.getByRole("alert")).toContainText("still needs cleanup")
+  expect(await page.evaluate(() => (window as unknown as { keeperPairingRequest?: unknown }).keeperPairingRequest)).toBeUndefined()
+
+  await page.getByRole("button", { name: "Back" }).click()
+  await page.getByRole("button", { name: "Add keeper" }).click()
+  await page.getByRole("textbox", { name: "Keeper hostname" }).fill("http://127.0.0.1:4245")
+  await page.getByRole("button", { name: "Discover keeper" }).click()
+  await page.getByRole("button", { name: "Request access" }).click()
+  await expect(page.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  expect(await page.evaluate(() => (window as unknown as { keeperPairingRequest?: { origin?: string } }).keeperPairingRequest?.origin))
+    .toBe("http://127.0.0.1:4245")
+  expect(await page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals())).toHaveLength(1)
 })
+
+test("Given a saved active keeper, when verified removal succeeds, then row stays absent after reload", async ({ page }) => {
+  await page.goto("/")
+  await page.evaluate(async () => (await import("/e2e/support/keeperSettings.ts")).mountKeeperSettings("remove"))
+  const list = page.getByRole("list", { name: "Keeper services" })
+  const keeper = list.getByRole("button", { name: /Rusty keeper/ })
+  await keeper.click()
+  await page.getByRole("button", { name: "Remove keeper" }).click()
+  await page.getByRole("button", { name: "Remove access from all boards" }).click()
+  await expect(list.getByRole("button", { name: /Rusty keeper/ })).toHaveCount(0)
+  await expect(page.getByText("No keepers connected to this board.")).toBeVisible()
+  await page.reload()
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  await expect(page.getByRole("list", { name: "Keeper services" })).toHaveCount(0)
+  await expect(page.getByText("No keepers connected to this board.")).toBeVisible()
+})
+
+for (const scenario of [
+  { mode: "availability-available" as const, expected: "Keeper · Service available", dot: "service-available", width: 1280, screenshot: "keeper-service-available-desktop.png" },
+  { mode: "availability-unavailable" as const, expected: "Keeper · Service unreachable", dot: "service-unavailable", width: 360, screenshot: "keeper-service-unreachable-mobile.png" },
+  { mode: "availability-needs-review" as const, expected: "Keeper · Status needs review", dot: "service-checking", width: 1280, screenshot: "keeper-service-review-desktop.png" },
+]) {
+  test(`Given saved Rusty integration, when signed status is ${scenario.mode}, then UI separates service state from P2P presence`, async ({ page }) => {
+    await page.setViewportSize({ width: scenario.width, height: 800 })
+    await page.goto("/")
+    await page.evaluate(async mode => (await import("/e2e/support/keeperSettings.ts")).mountKeeperSettings(mode, false), scenario.mode)
+    if (scenario.width <= 768) {
+      await page.getByRole("button", { name: "Menu" }).click()
+      await page.getByRole("button", { name: "Sync, import & export" }).click()
+    } else await page.getByRole("button", { name: "Sync", exact: true }).click()
+    const dialog = page.getByRole("dialog", { name: "Device sync" })
+    const list = dialog.getByRole("list", { name: "Keeper services" })
+    const keeper = list.getByRole("button", { name: /Rusty keeper/ })
+    await expect(keeper).toContainText(scenario.expected)
+    await expect(keeper.locator(".keeper-dot")).toHaveAttribute("data-state", scenario.dot)
+    await keeper.click()
+    const detailStatus = dialog.getByText(scenario.expected, { exact: false }).last()
+    await expect(detailStatus).toBeVisible()
+    await expect(dialog.locator(".keeper-panel-head h3")).toHaveText("Rusty keeper")
+    await dialog.screenshot({ path: test.info().outputPath(scenario.screenshot) })
+  })
+}

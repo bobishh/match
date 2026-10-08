@@ -19,3 +19,11 @@ Rusty records operation hash, expected revision, exact added/removed IDs, reques
 - Turning future access off cannot be undone by a stale future-board offer.
 - A revision conflict, invalid receipt, or unavailable service leaves local active scopes and policy unchanged and exposes retry/status.
 - Owner boundary records and device identity remain unchanged by integration settings.
+
+## Local state and recovery
+
+The latest service-signed integration status and revision are authoritative for keeper lifecycle state. Personal-root integration references cache that verified state and local pending intent; the owner-keeper list is a locator/projection and legacy fallback, not authority. Workspace access remains grounded in owner-signed grants and ownership proofs; Rusty status or removal never revokes the owner's membership. Withdrawal outbox records retain exact cleanup proofs privately and never project as active keepers or user-facing cancellation history. Visible dialogs and selections are ephemeral and may be dismissed without deleting durable cleanup evidence.
+
+Writes to the PersonalRoot map serialize read-current, mutate, and write under one shared storage-key lock, including enrollment's deliberate whole-root replacement. Owner-keeper cache updates use a separate per-owner lock. Every modern cache projection write requires the exact current integration ID and revision for the same owner root; same-integration writes also reject older revisions. Removal preserves a different or newer modern row. These keys are not an atomic transaction pair; signed service state and its revision fences remain the recovery source if a write fails between them. Keeper-grant revocation also stays generation-fenced: removing a grant cannot revoke a later owner-signed generation.
+
+Rusty publishes policy revisions and operation outcomes only after configuration files and their containing directory are durably persisted. The client retains intent on ambiguous persistence or transport outcomes and resolves it from fresh signed status; it does not infer completion from a local cache write.

@@ -311,15 +311,16 @@ test("Given owner-origin admission support, when Rusty confirms the signed reque
   expect(provisionRequests).toBe(1)
 })
 
-test("Given cancellation proof capture fails, when pairing expires and owner reloads, then saved intent stays retryable until signed cancellation", async ({ page }) => {
+test("Given a failed cancellation, when owner dismisses then starts a fresh request, then cleanup completes first and history stays hidden", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()
   let transcriptHash = ""
   let nonce = ""
-  let expiresAt = Math.floor(Date.now() / 1000) + 600
+  const expiresAt = Math.floor(Date.now() / 1000) + 600
   let statusFailure = false
   let pairingExpired = false
   let provisionRequests = 0
+  let pairingCreationRequests = 0
   let cancellationOperationId = ""
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
@@ -334,6 +335,7 @@ test("Given cancellation proof capture fails, when pairing expires and owner rel
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.route(`${origin}/v1/pairings`, async route => {
+    pairingCreationRequests += 1
     const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
     transcriptHash = keeper.hash(request.signed.payload)
     nonce = randomBytes(32).toString("base64url")
@@ -387,7 +389,7 @@ test("Given cancellation proof capture fails, when pairing expires and owner rel
     const { DurableMesh } = await import("/src/sync/durableMesh.ts")
     const prototype = DurableMesh.prototype as unknown as { captureKeeperGrantScopeProofs: (...args: unknown[]) => Promise<unknown> }
     const capture = prototype.captureKeeperGrantScopeProofs
-    prototype.captureKeeperGrantScopeProofs = async function (...args: unknown[]) {
+    prototype.captureKeeperGrantScopeProofs = async function () {
       prototype.captureKeeperGrantScopeProofs = capture
       throw new Error("Simulated owner proof capture failure")
     }
@@ -415,24 +417,126 @@ test("Given cancellation proof capture fails, when pairing expires and owner rel
   await expect(dialog.getByRole("button", { name: "Start new request" })).toHaveCount(0)
   expect(provisionRequests).toBe(0)
 
+  await dialog.getByRole("button", { name: "Dismiss from list" }).click()
+  await expect(dialog.getByRole("region", { name: "Pending keeper requests" })).toHaveCount(0)
+  await expect(dialog.getByRole("region", { name: "Saved keeper cancellation history" })).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+  const retainedBeforeReload = await page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals())
+  expect(retainedBeforeReload).toHaveLength(1)
+
   await page.reload()
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   dialog = page.getByRole("dialog", { name: "Device sync" })
-  const history = dialog.getByRole("region", { name: "Saved keeper cancellation history" })
-  await expect(history).toContainText("Cancellation pending · retry available")
-  await history.getByRole("button", { name: "Restore request" }).click()
-  await expect(dialog.getByRole("button", { name: "Retry cancellation" })).toBeVisible()
+  await expect(dialog.getByRole("region", { name: "Saved keeper cancellation history" })).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+  const stillPendingAfterReload = await page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals())
+  expect(stillPendingAfterReload).toHaveLength(1)
   await page.evaluate(async () => {
     const { DurableMesh } = await import("/src/sync/durableMesh.ts")
-    const prototype = DurableMesh.prototype as unknown as { captureKeeperGrantScopeProofs: (...args: unknown[]) => Promise<unknown> }
-    prototype.captureKeeperGrantScopeProofs = async () => []
+    ;(DurableMesh.prototype as unknown as { captureKeeperGrantScopeProofs: (...args: unknown[]) => Promise<unknown> })
+      .captureKeeperGrantScopeProofs = async () => []
   })
-  await dialog.getByRole("button", { name: "Retry cancellation" }).click()
-  await expect(dialog.getByText("Keeper request cancelled. No access granted.")).toBeVisible()
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await expect(dialog.getByRole("checkbox", { name: "Keeper board: Job search" })).toBeVisible()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  expect(pairingCreationRequests).toBe(2)
   expect(cancellationOperationId).toBe(savedOperationId)
   expect(provisionRequests).toBe(0)
   const remaining = await page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals())
-  expect(remaining).toEqual([])
+  expect(remaining).toHaveLength(0)
+})
+
+test("Given cancellation is in flight, when owner dismisses before response, then late response cannot reopen stale request", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  let transcriptHash = ""
+  let cancellationOperationId = ""
+  let creationCount = 0
+  let holdWithdrawal = false
+  let releaseWithdrawal: (() => void) | undefined
+  let signalWithdrawal: (() => void) | undefined
+  const withdrawalStarted = new Promise<void>(resolve => { signalWithdrawal = resolve })
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey,
+      deviceId: keeper.deviceId, certificates: keeper.certificates }, displayName: "Test Lighthouse",
+      capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true },
+      publicOrigin: origin, managementPath: "/admin" }),
+  }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId, operationId: request.signed.payload.operationId,
+      revision: 0, integrations: [], issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings`, async route => {
+    creationCount++
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
+    transcriptHash = keeper.hash(request.signed.payload)
+    const nonce = randomBytes(32).toString("base64url")
+    const expiresAt = Math.floor(Date.now() / 1000) + 600
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1, pairingId: "pairing-dismiss-test", transcriptHash,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce,
+      integrationId: "integration-dismiss-test", issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ pairingId: "pairing-dismiss-test", expiresAt,
+      operatorUrl: `${origin}/admin/?pairing=pairing-dismiss-test`, comparisonCode: "104209", transcriptHash, challenge }) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-dismiss-test/status`, async route => {
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-dismiss-test",
+      integrationId: "integration-dismiss-test", transcriptHash, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600,
+      operatorApproved: false, controllerApproved: false, status: "pending", provisioning: false, issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.route(`${origin}/v1/pairings/pairing-dismiss-test/withdraw`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
+    cancellationOperationId = String(request.signed.payload.operationId)
+    const semantic = { ...request.signed.payload }
+    delete semantic.issuedAt
+    delete semantic.expiresAt
+    const requestHash = keeper.hash(semantic)
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-dismiss-test",
+      integrationId: "integration-dismiss-test", transcriptHash, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, status: "cancelled",
+      withdrawal: { operationId: cancellationOperationId, requestHash, status: "cancelled" }, issuedAt: Math.floor(Date.now() / 1000) })
+    if (holdWithdrawal) {
+      await new Promise<void>(resolve => { releaseWithdrawal = resolve; signalWithdrawal?.() })
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByText("Waiting for both approvals. No access granted.")).toBeVisible()
+  await page.evaluate(async () => {
+    const { DurableMesh } = await import("/src/sync/durableMesh.ts")
+    ;(DurableMesh.prototype as unknown as { captureKeeperGrantScopeProofs: (...args: unknown[]) => Promise<unknown> })
+      .captureKeeperGrantScopeProofs = async () => []
+  })
+  holdWithdrawal = true
+  await dialog.getByRole("button", { name: "Cancel keeper request" }).click()
+  await withdrawalStarted
+  await expect(dialog.getByRole("button", { name: "Dismiss from list" })).toBeEnabled()
+  await dialog.getByRole("button", { name: "Dismiss from list" }).click()
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+  expect(await page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals())).toHaveLength(1)
+  releaseWithdrawal?.()
+  await expect.poll(async () => page.evaluate(async () => (await import("/src/sync/ownerKeeper.ts")).pendingKeeperWithdrawals().then(rows => rows.length)))
+    .toBe(0)
+  await expect(dialog.getByRole("region", { name: "Pending keeper requests" })).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+  expect(cancellationOperationId).toBeTruthy()
+  expect(creationCount).toBe(1)
 })
 
 test("Given a failed status poll, when Rusty later reports expiry, then the stale network error clears", async ({ page }) => {

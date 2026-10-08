@@ -6,7 +6,7 @@ Owners can inspect a Rusty keeper integration but cannot change its board scopes
 
 - Add an owner-visible settings view for one existing keeper integration, with exact active board scopes and the future-board policy.
 - Let owners remove one board or turn future access off through an owner-signed, revision-fenced update; retain every unrelated active board.
-- Require both owner and operator approval before adding a board or enabling future-board access. Reuse comparison-code pairing and owner-signed workspace admission.
+- Require authenticated owner authorization and Rusty admission before adding a board or enabling future-board access. On configured owner-origin admission, one explicit owner decision can satisfy both cryptographic authorities; legacy services retain the separate operator approval flow.
 - Capture all currently owned boards in the future-policy baseline. Only boards created after approval qualify for automatic offers; previously unselected boards require explicit addition.
 - Persist update intent and signed completion so retries are idempotent and reload can recover pending approval.
 - Keep current scopes active while expansion waits for approval. Reject stale revisions and grant epochs that do not advance tombstones.

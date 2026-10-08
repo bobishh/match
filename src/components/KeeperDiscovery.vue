@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, type Component } from "vue"
-import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails, type KeeperServiceDiscovery, type PendingKeeperWithdrawal } from "../app/keeperApi"
-import { restoreKeeperPairing, pairingStatusTransition } from "../app/keeperWithdrawalUi"
+import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails, type KeeperServiceDiscovery } from "../app/keeperApi"
+import { pairingStatusTransition } from "../app/keeperWithdrawalUi"
 import { keeperDisplayName, type MeshMemberView } from "../ui/deviceInfo"
+import { keeperDotState, keeperRowStatus } from "../ui/keeperStatus"
 import RustyMark from "./RustyMark.vue"
-import KeeperWithdrawalHistory from "./KeeperWithdrawalHistory.vue"
 const KeeperDetailPanel = defineAsyncComponent(() => import("./KeeperDetailPanel.vue") as Promise<{ default: Component }>)
 
 const props = defineProps<{
@@ -29,13 +29,14 @@ const displayedKeepers = computed(() => {
   const byPerson = new Map(props.keepers.map(keeper => [keeper.personId, keeper]))
   for (const saved of savedIntegrationKeepers.value) {
     const current = byPerson.get(saved.personId)
-    byPerson.set(saved.personId, current ? { ...current, integrationBoardIds: saved.integrationBoardIds } : saved)
+    byPerson.set(saved.personId, current ? { ...current, integrationId: saved.integrationId,
+      integrationRevision: saved.integrationRevision, integrationBoardIds: saved.integrationBoardIds,
+      integrationAvailability: saved.integrationAvailability, integrationAvailabilityReason: saved.integrationAvailabilityReason } : saved)
   }
   for (const pending of pendingIntegrationKeepers.value) {
     const current = byPerson.get(pending.personId)
     byPerson.set(pending.personId, current ? { ...current, pendingRemoval: true } : pending)
   }
-  if (retainedKeeper.value && !byPerson.has(retainedKeeper.value.personId)) byPerson.set(retainedKeeper.value.personId, retainedKeeper.value)
   return [...byPerson.values()]
 })
 const keeperDetails = ref<KeeperDetails | null>(null)
@@ -50,8 +51,6 @@ const settingsBusy = ref(false)
 const settingsPending = ref(false)
 const settingsStatus = ref("")
 const settingsError = ref("")
-const savedWithdrawalCount = ref(0)
-const withdrawalHistoryVersion = ref(0)
 const originInput = ref("")
 const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired" | "cancel_pending" | "cancelled" | "orphan_resolved">("idle")
 const error = ref("")
@@ -70,42 +69,17 @@ const flowEpoch = ref(0)
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let provisioning = false
 let keeperDetailsRequest = 0
-
-function restoreSavedWithdrawal(entry: PendingKeeperWithdrawal) {
-  if (entry.orphanResolution) {
-    status.value = "orphan_resolved"
-    pairingDismissed.value = true
-    error.value = "This missing request was reconciled from verified Rusty status. Signed status receipt remains in saved history."
-    showView("list")
-    return
-  }
-  const saved = restoreKeeperPairing(entry)
-  if (!saved) {
-    error.value = "Saved keeper request could not be restored safely. Its cleanup record remains in history."
-    return
-  }
-  pairing.value = saved
-  discovery.value = saved.discovery
-  selectedWorkspaceIds.value = saved.workspaces.map(workspace => workspace.id)
-  withdrawalOperationId.value = entry.operationId
-  status.value = "cancel_pending"
-  pairingDismissed.value = false
-  error.value = ""
-  setTimeout(() => showView("detail"), 0)
-}
+let keeperReferenceLoadGeneration = 0
+let keeperDiscoveryUnmounted = false
 
 const selectedWorkspaces = () => eligibleWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
 const selectedKeeper = () => displayedKeepers.value.find(keeper => keeper.personId === selectedKeeperId.value)
+const selectedKeeperStatus = computed(() => {
+  const keeper = selectedKeeper()
+  return keeper ? keeperRowStatus(keeper, props.activeWorkspaceId) : ""
+})
 const currentPolicyBoardTitles = computed(() => (keeperDetails.value?.boardIds ?? [])
   .map(id => props.ownedWorkspaces.find(workspace => workspace.id === id)?.title ?? id))
-const keeperRowStatus = (keeper: MeshMemberView) => {
-  if (keeper.pendingRemoval) return "Removal pending"
-  if (keeper.integrationBoardIds) {
-    if (!keeper.integrationBoardIds.length) return "No boards · not connected to this board"
-    if (props.activeWorkspaceId && !keeper.integrationBoardIds.includes(props.activeWorkspaceId)) return "Not connected to this board"
-  }
-  return keeper.online ? "Connected" : keeper.reconnecting ? "Reconnecting" : "Offline"
-}
 const pendingPairing = () => pairing.value && ["pairing", "approved", "provisioning", "cancel_pending"].includes(status.value)
 const isCurrentPairing = (epoch: number, current: KeeperPairing) => epoch === flowEpoch.value && pairing.value === current
 
@@ -179,6 +153,8 @@ async function removeSelectedKeeper() {
       return
     }
     const removedPersonId = selectedKeeperId.value
+    keeperReferenceLoadGeneration++
+    savedIntegrationKeepers.value = savedIntegrationKeepers.value.filter(keeper => keeper.personId !== removedPersonId)
     pendingIntegrationKeepers.value = pendingIntegrationKeepers.value
       .filter(keeper => keeper.personId !== removedPersonId)
     selectedKeeperId.value = ""
@@ -210,6 +186,7 @@ function resetFlow() {
   controllerApproved.value = false
   provisioning = false
   selectedKeeperId.value = ""
+  retainedKeeper.value = null
   keeperDetails.value = null
   removalPending.value = false
   clearTimeout(pollTimer)
@@ -226,7 +203,6 @@ async function discover() {
     const integrationStatus = await keeperApi.integrationStatus(found)
     if (integrationStatus.integrations.length > 1) throw new Error("Rusty has conflicting keeper integrations. Resolve them before adding board access.")
     const existingIntegration = integrationStatus.integrations[0]
-    if (existingIntegration?.pendingOperation) throw new Error("Rusty has board cleanup pending. Finish it before requesting settings changes.")
     if (epoch !== flowEpoch.value) return
     discovery.value = found
     eligibleWorkspaces.value = eligible
@@ -256,11 +232,12 @@ async function requestPairing() {
     if (selected.some(workspace => !baselineIds.includes(workspace.id))) {
       throw new Error("A selected board changed before approval. Discover Rusty again and choose current boards.")
     }
-    const created = await keeperApi.beginPairing(currentDiscovery, selected, {
+    const created = await keeperApi.beginPairingAfterWithdrawalReconciliation(currentDiscovery, selected, {
       futureBoards: futureBoards.value,
       futureBoardBaselineIds: baselineIds,
-    })
+    }, props.cancelKeeper, () => epoch === flowEpoch.value)
     if (epoch !== flowEpoch.value) return
+    if (!created) return
     pairing.value = created
     policyOnlyPairing.value = false
     pairingDismissed.value = false
@@ -334,7 +311,6 @@ async function cancelKeeperRequest() {
     if (!isCurrentPairing(epoch, currentPairing)) return
     status.value = result
     error.value = ""
-    if (result === "orphan_resolved") withdrawalHistoryVersion.value++
   } catch (cause) {
     if (!isCurrentPairing(epoch, currentPairing)) return
     error.value = cause instanceof Error ? cause.message : "Could not confirm keeper request cancellation. Retry to check Rusty cleanup."
@@ -357,13 +333,8 @@ async function cancelKeeperRequest() {
 }
 
 function dismissPendingPairing() {
-  pairingDismissed.value = true
+  resetFlow()
   showView("list")
-}
-
-function restorePendingPairing() {
-  pairingDismissed.value = false
-  showView("detail")
 }
 
 async function checkStatus() {
@@ -406,23 +377,43 @@ function startAddKeeper() {
 }
 
 async function loadPendingIntegrationKeepers() {
+  const generation = ++keeperReferenceLoadGeneration
   pendingIntegrationLoadError.value = ""
   try {
     const { loadKeeperReferenceViews } = await import("../app/keeperReferences")
-    const views = await loadKeeperReferenceViews()
+    const earlyAvailability: Array<{ personId: string; integrationId: string; revision: number;
+      state: "available" | "unavailable" | "needs-review"; reason?: string }> = []
+    let viewsReady = false
+    const applyAvailability = (personId: string, integrationId: string, revision: number,
+      result: { state: "available" | "unavailable" | "needs-review"; reason?: string }) => {
+      if (keeperDiscoveryUnmounted || generation !== keeperReferenceLoadGeneration) return
+      savedIntegrationKeepers.value = savedIntegrationKeepers.value.map(keeper =>
+        keeper.personId === personId && keeper.integrationId === integrationId && keeper.integrationRevision === revision
+          ? { ...keeper, integrationAvailability: result.state, integrationAvailabilityReason: result.reason }
+          : keeper)
+    }
+    const views = await loadKeeperReferenceViews((personId: string, integrationId: string, revision: number,
+      result: { state: "available" | "unavailable" | "needs-review"; reason?: string }) => {
+      if (!viewsReady) earlyAvailability.push({ personId, integrationId, revision, ...result })
+      else applyAvailability(personId, integrationId, revision, result)
+    })
+    if (keeperDiscoveryUnmounted || generation !== keeperReferenceLoadGeneration) return
     savedIntegrationKeepers.value = views.saved
     pendingIntegrationKeepers.value = views.pending
+    viewsReady = true
+    for (const update of earlyAvailability) applyAvailability(update.personId, update.integrationId, update.revision, update)
   } catch (cause) {
+    if (keeperDiscoveryUnmounted || generation !== keeperReferenceLoadGeneration) return
     pendingIntegrationKeepers.value = []
     savedIntegrationKeepers.value = []
     pendingIntegrationLoadError.value = cause instanceof Error ? cause.message : "Could not load saved keeper status."
   } finally {
-    pendingIntegrationsLoaded.value = true
+    if (!keeperDiscoveryUnmounted && generation === keeperReferenceLoadGeneration) pendingIntegrationsLoaded.value = true
   }
 }
 
 onMounted(() => { void loadPendingIntegrationKeepers() })
-onBeforeUnmount(() => clearTimeout(pollTimer))
+onBeforeUnmount(() => { keeperDiscoveryUnmounted = true; keeperReferenceLoadGeneration++; clearTimeout(pollTimer) })
 </script>
 
 <template>
@@ -431,8 +422,8 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
       <p class="sync-section-copy">Keepers</p>
       <div v-if="displayedKeepers.length" class="keeper-list" role="list" aria-label="Keeper services">
         <button v-for="keeper in displayedKeepers" :key="keeper.personId" class="keeper-row" type="button" @click="openKeeper(keeper.personId)">
-          <span class="keeper-dot" :data-state="keeper.online ? 'online' : keeper.reconnecting ? 'reconnecting' : 'offline'" aria-hidden="true"></span>
-          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small>Keeper · {{ keeperRowStatus(keeper) }}</small></span>
+          <span class="keeper-dot" :data-state="keeperDotState(keeper)" aria-hidden="true"></span>
+          <span class="keeper-row-copy"><strong>{{ keeperDisplayName(keeper.name) }}</strong><small :title="keeper.integrationAvailabilityReason">Keeper · {{ keeperRowStatus(keeper, activeWorkspaceId) }}</small></span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
@@ -443,21 +434,12 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <span aria-hidden="true">›</span>
         </button>
       </div>
-      <section v-if="pairing && (pairingDismissed || status === 'cancelled' || status === 'orphan_resolved')" class="keeper-list" aria-label="Keeper request history">
-        <p class="sync-section-copy">Keeper request history</p>
-        <p class="dialog-copy" role="status">{{ status === 'orphan_resolved' ? 'Missing keeper request reconciled from verified Rusty status. No cancellation receipt was issued.' : status === 'cancelled' ? 'Keeper request cancelled. No access granted.' : status === 'cancel_pending' ? 'Cancellation pending. Access remains blocked until Rusty confirms cleanup.' : withdrawalOperationId && error ? 'Cancellation needs attention. Retry remains available.' : 'Keeper request remains pending. Restore it to review or cancel.' }}</p>
-        <div v-if="status !== 'orphan_resolved'" class="dialog-actions">
-          <button class="button button-primary" type="button" @click="restorePendingPairing">{{ status === 'cancelled' ? 'View request' : 'Restore request' }}</button>
-          <button v-if="pendingPairing()" class="button button-danger" type="button" :disabled="cancellingPairing" @click="cancelKeeperRequest">{{ cancellingPairing ? 'Sending cancellation…' : status === 'cancel_pending' || withdrawalOperationId ? 'Retry cancellation' : 'Cancel keeper request' }}</button>
-        </div>
-      </section>
-      <KeeperWithdrawalHistory :refresh-key="withdrawalHistoryVersion" @restore="restoreSavedWithdrawal" @count="savedWithdrawalCount = $event" />
       <div v-if="pendingIntegrationLoadError" class="sync-error" role="alert" aria-label="Keeper integrations unavailable">
         <p>Saved keeper status could not be loaded: {{ pendingIntegrationLoadError }}</p>
         <button class="button" type="button" @click="loadPendingIntegrationKeepers">Retry loading keeper status</button>
       </div>
-      <p v-else-if="pendingIntegrationsLoaded && !displayedKeepers.length && !pendingPairing() && !savedWithdrawalCount && !pairingDismissed && status !== 'cancelled'" class="keeper-empty">No keepers connected to this board.</p>
-      <button class="button button-primary keeper-add" type="button" :disabled="Boolean(pendingPairing()) || savedWithdrawalCount > 0" @click="startAddKeeper"><RustyMark compact aria-hidden="true" />Add keeper</button>
+      <p v-else-if="pendingIntegrationsLoaded && !displayedKeepers.length && !pendingPairing() && !pairingDismissed && status !== 'cancelled'" class="keeper-empty">No keepers connected to this board.</p>
+      <button class="button button-primary keeper-add" type="button" :disabled="status === 'creating' || cancellingPairing || Boolean(pendingPairing())" @click="startAddKeeper"><RustyMark compact aria-hidden="true" />Add keeper</button>
     </template>
 
     <KeeperDetailPanel
@@ -468,6 +450,8 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
       :error="error"
       :discovery="discovery"
       :selected-keeper="selectedKeeper()"
+      :selected-keeper-status="selectedKeeperStatus"
+      :selected-keeper-status-reason="selectedKeeper()?.integrationAvailabilityReason ?? ''"
       :pairing="pairing"
       :policy-only-pairing="policyOnlyPairing"
       :current-policy-board-titles="currentPolicyBoardTitles"

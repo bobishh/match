@@ -31,7 +31,7 @@ export async function loadKeeperReferenceViews(
   if (onAvailability) {
     const uniqueReferences = [...referencesByPerson.values()].filter(group => group.length === 1).map(group => group[0]!)
     for (const reference of uniqueReferences) {
-      void keeperIntegrationAvailability(reference, probe).then(result => {
+      void keeperIntegrationAvailability(reference, probe ?? keeperApi.integrationStatus).then(result => {
         try { onAvailability(reference.servicePersonId, reference.integrationId, reference.revision, result) }
         catch { /* caller may have unloaded */ }
       })

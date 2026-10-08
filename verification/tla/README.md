@@ -40,12 +40,16 @@ the signed status parser.
 
 `KeeperOrphanResolution` distinguishes a pruned pairing from a signed
 cancellation. It resolves only after exact signed status, complete tombstones
-for saved grant epochs, and local owner revocation; dismissing the row preserves
-history. The no-grant configuration permits resolution only when Rusty has no
-target tombstone to link. Mutants that skip local revocation, ignore tombstone
-epochs, or erase history on dismiss must produce counterexamples. The model
-abstracts signature, certificate-chain, revision, and browser-store checks;
-Playwright and unit tests cover those boundaries.
+for saved grant epochs, and local keeper-grant revocation; dismissing the
+visible request leaves durable cleanup evidence private. Reload does not
+reproject an outbox entry as a keeper request. Discovery stays independent of
+outbox state, while a new request for the same service requires verified status
+and completed cleanup. The no-grant configuration permits resolution only when
+Rusty has no target tombstone to link. Mutants that skip local grant revocation,
+ignore tombstone epochs, erase evidence on dismiss, globally gate discovery, or
+reopen a dismissed request after reload/stale completion must produce
+counterexamples. The model abstracts signature, certificate-chain, revision,
+and browser-store checks; Playwright and unit tests cover those boundaries.
 
 `OwnerRevocationPersistence` models removing a different keeper while preserving
 the owner's role. A signed revocation boundary must exist in both the document
