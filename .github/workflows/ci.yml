@@ -101,37 +101,16 @@ jobs:
           retention-days: 3
 
   browser-network:
-    name: Browser (${{ matrix.project }})
+    name: Browser (serial network projects)
     # Run after the Rusty lifecycle contract to keep real Iroh relay traffic
     # isolated, while still collecting network results when earlier browser
     # work fails.
     needs: [verify, formal-models, browser-core, browser-keeper-lifecycle]
     if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' && (needs.browser-keeper-lifecycle.result == 'success' || needs.browser-keeper-lifecycle.result == 'failure') }}
     runs-on: ubuntu-24.04
-    # Twenty serial durable scenarios take seven minutes locally, before CI
-    # setup and the single retry. Keep individual test deadlines unchanged.
-    timeout-minutes: ${{ matrix.project == 'durable-mesh' && 20 || 10 }}
-    strategy:
-      # Run every serial project after failures so CI reports full matrix status.
-      fail-fast: false
-      # Iroh relay sessions can linger after Chromium exits. Serial projects keep
-      # remote relay traffic isolated; each project still gets a fresh runner.
-      max-parallel: 1
-      matrix:
-        project:
-          - scoped-delegated-owner
-          - chat
-          - durable-mesh
-          - member-access
-          - sync
-          - workspace-roles
-          - workspace-sync-data
-          - scoped-sync
-          - scoped-enrollment
-          - scoped-existing-board
-          - scoped-existing-identity
-          - succession-named
-          - succession-quorum
+    # Run each project in order in one runner. Keep the per-project timeout;
+    # Playwright starts a fresh browser and web server for every invocation.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v7
         with:
@@ -145,11 +124,45 @@ jobs:
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
         run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --reporter=list --project=${{ matrix.project }}
+      - name: Run network browser projects serially
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p test-results
+          failed=0
+          for project in \
+            scoped-delegated-owner \
+            chat \
+            durable-mesh \
+            member-access \
+            sync \
+            workspace-roles \
+            workspace-sync-data \
+            scoped-sync \
+            scoped-enrollment \
+            scoped-existing-board \
+            scoped-existing-identity \
+            succession-named \
+            succession-quorum; do
+            project_timeout=10m
+            if [[ "$project" == durable-mesh ]]; then project_timeout=20m; fi
+            echo "::group::Browser ($project)"
+            if timeout --signal=INT --kill-after=30s "$project_timeout" \
+              npx playwright test --reporter=list --project="$project" \
+                --output="test-results/$project"; then
+              echo "$project: passed" | tee -a test-results/network-summary.txt
+            else
+              result=$?
+              echo "$project: failed (exit $result)" | tee -a test-results/network-summary.txt
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
-          name: browser-${{ matrix.project }}-failure
+          name: browser-network-failure
           path: test-results/
           retention-days: 3
 
@@ -181,6 +194,13 @@ jobs:
       - name: Move Rusty checkout outside Tincanban Cargo workspace
         run: cp -a "$GITHUB_WORKSPACE/rusty-lifecycle" "$RUNNER_TEMP/rusty-lifecycle"
       - uses: dtolnay/rust-toolchain@stable
+      - name: Build pinned Rusty admin frontend
+        working-directory: ${{ runner.temp }}/rusty-lifecycle/frontend
+        env:
+          MATCH_UI_SOURCE: ${{ github.workspace }}/src
+        run: |
+          npm ci
+          npm run build
       - name: Build pinned Rusty lifecycle fixture binary
         run: cargo build --locked --features e2e-fixture --manifest-path "$RUNNER_TEMP/rusty-lifecycle/Cargo.toml" --bin mesh-lighthouse
       - name: Require canonical Rusty test binary
