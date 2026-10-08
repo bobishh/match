@@ -36,7 +36,11 @@ export type MeshMemberView = {
     devices: number
     self: boolean
     pendingRemoval?: boolean
+    integrationId?: string
+    integrationRevision?: number
     integrationBoardIds?: string[]
+    integrationAvailability?: "unknown" | "available" | "unavailable" | "needs-review"
+    integrationAvailabilityReason?: string
     deviceList: Array<{
       deviceId: string
       name: string
