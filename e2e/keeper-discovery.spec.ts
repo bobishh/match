@@ -81,7 +81,7 @@ test("Given discovery reports another origin, when tincanban checks it, then it 
   await expect(dialog.getByRole("heading", { name: "Wrong origin" })).toHaveCount(0)
 })
 
-test("Given a compatible discovered keeper, when the owner starts a pairing, then tincanban stays pending until both approvals", async ({ page }) => {
+test("Given a compatible discovered keeper, when Rusty activates a board but its reply is lost, then retry reuses the approved pairing", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()
   let transcriptHash = ""
@@ -120,15 +120,15 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   })
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const integrations = provisionRequests === 0 ? [] : [{ integrationId: "integration-test", revision: 2,
+      policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
+      scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
+      tombstones: [], pendingOperation: null }]
     const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       controllerPersonId: request.signed.payload.controllerPersonId,
       controllerDeviceId: request.signed.payload.controllerDeviceId,
-      operationId: request.signed.payload.operationId, revision: 1,
-      integrations: [{ integrationId: "integration-test", revision: 1,
-        policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
-        scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
-        tombstones: [], pendingOperation: null }],
+      operationId: request.signed.payload.operationId, revision: integrations.length ? 2 : 0, integrations,
       issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
@@ -144,8 +144,12 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
     expect(request.signed.payload.body.approvedScopes.every(scope => scope.mode === "replicate")).toBe(true)
     expect(approvedWorkspaceIds).toEqual(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id))
     provisionRequests += 1
-    const status = provisionRequests === 1 ? "provisioning" : "active"
-    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status, provisioning: { status, scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: status === "provisioning" ? "pending" : "active", ...(status === "provisioning" ? { error: "join_failed", errorDetail: "Mesh snapshot rejected: stale authorization epoch" } : {}) })) }, issuedAt: Math.floor(Date.now() / 1000) })
+    if (provisionRequests === 1) {
+      // Rusty activated the scope, but the owner lost the response.
+      await route.abort("failed")
+      return
+    }
+    const envelope = keeper.sign({ kind: "lighthouse-pairing-status", version: 1, pairingId: "pairing-test", integrationId: "integration-test", transcriptHash, servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin, expiresAt: Math.floor(Date.now() / 1000) + 600, operatorApproved: true, controllerApproved: true, status: "active", provisioning: { status: "active", scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active" })) }, issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
   await page.goto("/")
@@ -171,9 +175,7 @@ test("Given a compatible discovered keeper, when the owner starts a pairing, the
   await expect(dialog.getByText("314159")).toBeVisible()
   await expect(dialog.getByRole("link", { name: "Open operator approval" })).toHaveAttribute("href", /\/admin/)
   await dialog.getByRole("button", { name: "Code matches · approve" }).click()
-  await expect(dialog.getByText("Both sides approved. Rusty is saving boards; access remains pending.")).toBeVisible({ timeout: 5000 })
-  await expect(dialog.getByRole("alert")).toContainText("Rusty could not join the selected boards")
-  await expect(dialog.getByRole("alert")).toContainText("Mesh snapshot rejected: stale authorization epoch")
+  await expect(dialog.getByRole("alert")).toBeVisible({ timeout: 5000 })
   await dialog.getByRole("button", { name: "Retry board setup" }).click()
   await expect(dialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 10_000 })
   expect(provisionRequests).toBeGreaterThanOrEqual(2)

@@ -7,6 +7,7 @@ import type { LocalProfile } from "../domain/identity"
 import type { KeeperIntegrationReference } from "../domain/model"
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 import type { DurableMesh } from "./durableMesh"
+import { assertKeeperGrantFloorsUnchanged } from "./keeperGrantEpoch"
 
 function cachedDiscovery(details: KeeperDetails): LighthouseDiscovery | undefined {
   if (!details.origin || !details.servicePersonId || !details.serviceDeviceId || !details.servicePublicKey || !details.serviceCertificates) return undefined
@@ -328,13 +329,10 @@ export function createKeeperProvisioner(
   return async (pairing: KeeperPairing): Promise<KeeperPairingStatus> => {
     const pairingApi = await import("./lighthousePairing")
     const currentFloors = await pairingApi.refreshKeeperGrantFloors(pairing.discovery,
-      pairing.workspaces.map(workspace => workspace.id), pairing.serviceGrantFloors)
+      pairing.workspaces.map(workspace => workspace.id), pairing.serviceGrantFloors, pairing.integrationId)
     let invitationTask = invitationHosts.get(pairing.pairingId)
     const usedFloors = invitationGrantFloors.get(pairing.pairingId)
-    if (usedFloors && pairing.workspaces.some(workspace =>
-      usedFloors[workspace.id] !== currentFloors[workspace.id])) {
-      throw new Error("Rusty's removal history advanced after this invitation was created. Cancel this request and start a fresh one.")
-    }
+    if (usedFloors) assertKeeperGrantFloorsUnchanged(usedFloors, currentFloors, pairing.workspaces.map(workspace => workspace.id))
     if (!invitationTask) {
       pairing.serviceGrantFloors = currentFloors
       await ensureDurableMesh()

@@ -164,12 +164,13 @@ export async function getKeeperIntegrationStatus(discovery: LighthouseDiscovery)
   return { integrations, signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number }
 }
 
-export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, workspaceIds: string[], previous: Record<string, number> = {}) {
+export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, workspaceIds: string[], previous: Record<string, number> = {},
+  excludeActiveIntegrationId?: string) {
   const { integrations } = await getKeeperIntegrationStatus(discovery)
   if (integrations.some(integration => integration.pendingOperation)) {
     throw new Error("Rusty has pending board cleanup. Finish cancellation before adding keeper access.")
   }
-  const current = keeperServiceGrantFloors(integrations, workspaceIds)
+  const current = keeperServiceGrantFloors(integrations, workspaceIds, excludeActiveIntegrationId)
   return Object.fromEntries(workspaceIds.map(workspaceId => [workspaceId,
     Math.max(previous[workspaceId] ?? 0, current[workspaceId] ?? 0)]))
 }
