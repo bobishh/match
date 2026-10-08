@@ -151,8 +151,10 @@ describe("keeper removal", () => {
       { workspaceId: "board", grantEpoch: 1, operationId: "remove-op", state: "removed" as const, cleanup: "complete" as const },
     ] }
     const status = vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus")
-      .mockResolvedValueOnce({ integrations: [active], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 1 })
-      .mockResolvedValue({ integrations: [removed], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 2 })
+      .mockResolvedValueOnce({ integrations: [active], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 1,
+        signedStatus: { payload: {}, signerKeyId: "rusty-device", signature: "signed" } })
+      .mockResolvedValue({ integrations: [removed], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 2,
+        signedStatus: { payload: {}, signerKeyId: "rusty-device", signature: "signed" } })
     vi.spyOn(lighthousePairing, "disconnectKeeperIntegration").mockResolvedValue({
       integrationId: "integration", operationId: "remove-op", requestHash: "request-hash", revision: 2,
       status: "removed", scopes: [{ workspaceId: "board", grantEpoch: 1, state: "removed", cleanup: "complete" }],

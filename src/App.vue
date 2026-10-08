@@ -18,11 +18,12 @@ import LeadFilters from "./components/LeadFilters.vue"
 import { useObjectConversations } from "./app/useObjectConversations"
 import ObjectConversationLayer from "./components/ObjectConversationLayer.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
-import QuickNoteForm from "./components/QuickNoteForm.vue"
 import AutosaveTextarea from "./components/AutosaveTextarea.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import { LazyItemDocuments as ItemDocuments } from "./app/lazyItemDocuments"
+import { ItemFormDialog } from "./app/lazyItemFormDialog"
+import QuickNoteForm from "./components/QuickNoteForm.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
 import { onBeforeUnmount, ref } from "vue"
@@ -32,8 +33,6 @@ import { useColumnCollapse } from "./app/useColumnCollapse"
 import { useAppViewState } from "./app/useAppViewState"
 import { useMemberAvatars } from "./app/useMemberAvatars"
 import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, startOfflineDetailPreload, WorkspaceFileActions, WorkspaceParticipants, WorkspacesDialog } from "./app/lazyUiComponents"
-import ItemFormDialog from "./components/ItemFormDialog.vue"
-
 const app = useAppController()
 const { SyncDialog, reviewCausalChange, dismissCausalChange, restoreCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)

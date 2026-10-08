@@ -46,9 +46,22 @@ function confirmedIssuedScopes(pairing: KeeperPairing,
   return scopes.filter(scope => scope.grantEpoch !== undefined)
 }
 
+async function resolvePrunedPairing(pairing: KeeperPairing, operationId: string,
+  ensureMesh: () => Promise<DurableMesh | undefined>, cause: unknown): Promise<"cancel_pending" | "orphan_resolved"> {
+  const expectedPath = `/v1/pairings/${encodeURIComponent(pairing.pairingId)}/withdraw`
+  const httpFailure = cause as { status?: unknown; url?: unknown }
+  if (httpFailure?.status !== 404 || typeof httpFailure.url !== "string") throw cause
+  const failedUrl = new URL(httpFailure.url)
+  if (failedUrl.origin !== pairing.discovery.origin || failedUrl.pathname !== expectedPath) throw cause
+  const saved = await pendingKeeperWithdrawal(pairing.pairingId, operationId)
+  if (!saved) return "cancel_pending"
+  const { resolveMissingKeeperPairing } = await import("./keeperOrphanResolution")
+  return await resolveMissingKeeperPairing(pairing, saved, ensureMesh) ? "orphan_resolved" : "cancel_pending"
+}
+
 /** Withdraw a keeper request, revoke the exact approved scopes, and prove cleanup. */
 export async function cancelKeeperPairing(pairing: KeeperPairing, operationId: string,
-  ensureMesh: () => Promise<DurableMesh | undefined>): Promise<"cancel_pending" | "cancelled"> {
+  ensureMesh: () => Promise<DurableMesh | undefined>): Promise<"cancel_pending" | "cancelled" | "orphan_resolved"> {
   const pairingApi = await import("./lighthousePairing")
   const previous = await pendingKeeperWithdrawal(pairing.pairingId, operationId)
   let mesh: DurableMesh | undefined
@@ -66,7 +79,12 @@ export async function cancelKeeperPairing(pairing: KeeperPairing, operationId: s
     const saved = await savePendingKeeperWithdrawalProofs(pairing.pairingId, operationId, grantScopes)
     grantScopes = saved.grantScopes
   }
-  const withdrawal = await requestKeeperPairingWithdrawal(pairing, operationId, grantScopes)
+  let withdrawal
+  try {
+    withdrawal = await requestKeeperPairingWithdrawal(pairing, operationId, grantScopes)
+  } catch (cause) {
+    return await resolvePrunedPairing(pairing, operationId, ensureMesh, cause)
+  }
   if (withdrawal.status === "cancelled") {
     await clearPendingKeeperWithdrawalProofs(pairing.pairingId, operationId)
     return "cancelled"

@@ -28,7 +28,7 @@ const props = defineProps<{
   availableWorkspaces?: { id: string; title: string }[]
   keeperOwnedWorkspaces?: { id: string; title: string }[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
-  cancelKeeper: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled">
+  cancelKeeper: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled" | "orphan_resolved">
   removeKeeper?: (personId: string, discovery?: KeeperServiceDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
   beginPolicyUpdate?: (personId: string, baselineWorkspaceIds: string[]) => Promise<KeeperPairing>
   selectedWorkspaceIds?: string[]

@@ -11,6 +11,7 @@ import { rememberActivatedKeeper, saveKeeperIntegrationReference } from "./owner
 import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope,
   keeperIntegrationSettingsSupported, type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
+import { KeeperHttpError } from "./keeperHttpError"
 export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 export type { KeeperSettingsReceipt, KeeperSettingsScope } from "./keeperIntegrationStatus"
 
@@ -121,7 +122,7 @@ async function request<T>(url: string, init: RequestInit): Promise<T> {
     if (response.status === 503 && new URL(url).pathname === "/v1/integrations/status") {
       throw new Error("Rusty could not verify its saved board access (HTTP 503). Local access can still be revoked; Rusty confirmation remains pending.")
     }
-    throw new Error(body?.message || `Keeper pairing failed (${response.status}).`)
+    throw new KeeperHttpError(response.status, url, body?.message || `Keeper pairing failed (${response.status}).`)
   }
   if (!body) throw new Error("Keeper returned an invalid pairing response.")
   return body as T
@@ -167,7 +168,9 @@ export async function getKeeperIntegrationStatus(discovery: LighthouseDiscovery)
   const integrations = parseKeeperIntegrationStatus(payload, discovery)
   const signedEnvelope = envelope as { signerKeyId: string; signature: string }
   return { integrations, integrationSettingsSupported: keeperIntegrationSettingsSupported(payload),
-    signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number }
+    signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number,
+    signedStatus: JSON.parse(JSON.stringify({ payload, signerKeyId: signedEnvelope.signerKeyId,
+      signature: signedEnvelope.signature })) as { payload: Record<string, unknown>; signerKeyId: string; signature: string } }
 }
 
 export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, workspaceIds: string[], previous: Record<string, number> = {},

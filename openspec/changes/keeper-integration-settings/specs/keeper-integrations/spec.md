@@ -54,3 +54,20 @@ Rusty SHALL compare the expected integration revision before changing policy or 
 - **WHEN** another integration update advances the revision first
 - **THEN** the stale operation changes no scopes or policy
 - **AND** the application keeps existing settings visible and offers refresh/retry
+
+### Requirement: Missing pairing cleanup stays blocked until independently verified
+When a saved withdrawal targets a pairing record Rusty no longer retains, the application SHALL preserve its history and SHALL NOT create a cancellation receipt. It may resolve the orphan only from a fresh service-signed status bound to the exact owner, service, integration, and revision, with no pending operation or active target scopes. Every locally saved issued grant SHALL have a valid owner signature and explicit safe access epoch covered by a completed removed tombstone at an equal or newer epoch; local owner revocation SHALL also complete before unblocking.
+
+#### Scenario: Exact signed cleanup resolves a pruned pairing
+- **GIVEN** a saved withdrawal whose pairing endpoint returns not found
+- **AND** its cached grant and controller identity verify
+- **WHEN** current signed integration status proves no active target scope, no pending operation, and completed tombstones covering each saved grant epoch
+- **AND** the owner records exact local revocations
+- **THEN** the application stores signed status and local revocation proofs as orphan-resolution history
+- **AND** the request is no longer treated as a pending cancellation
+- **AND** the application does not claim Rusty issued a cancellation receipt
+
+#### Scenario: Ambiguous orphan evidence remains blocked
+- **WHEN** owner proof, access epoch, service/integration binding, current revision, tombstone, or cleanup state is missing or mismatched
+- **THEN** the request remains pending and blocks a new keeper request
+- **AND** dismissing it from the visible list preserves its saved proof and history

@@ -11,7 +11,7 @@ const props = defineProps<{
   ownedWorkspaces: KeeperWorkspace[]
   keepers: MeshMemberView[]
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
-  cancelKeeper: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled">
+  cancelKeeper: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled" | "orphan_resolved">
   removeKeeper?: (personId: string, discovery?: KeeperServiceDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
   updateKeeperSettings?: (personId: string, futureBoards: boolean, removeWorkspaceIds: string[]) => Promise<"updated" | "pending">
   beginPolicyUpdate?: (personId: string, baselineWorkspaceIds: string[]) => Promise<KeeperPairing>
@@ -51,8 +51,9 @@ const settingsPending = ref(false)
 const settingsStatus = ref("")
 const settingsError = ref("")
 const savedWithdrawalCount = ref(0)
+const withdrawalHistoryVersion = ref(0)
 const originInput = ref("")
-const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired" | "cancel_pending" | "cancelled">("idle")
+const status = ref<"idle" | "loading" | "found" | "error" | "creating" | "pairing" | "approved" | "provisioning" | "active" | "rejected" | "expired" | "cancel_pending" | "cancelled" | "orphan_resolved">("idle")
 const error = ref("")
 const withdrawalOperationId = ref("")
 const cancellingPairing = ref(false)
@@ -71,6 +72,13 @@ let provisioning = false
 let keeperDetailsRequest = 0
 
 function restoreSavedWithdrawal(entry: PendingKeeperWithdrawal) {
+  if (entry.orphanResolution) {
+    status.value = "orphan_resolved"
+    pairingDismissed.value = true
+    error.value = "This missing request was reconciled from verified Rusty status. Signed status receipt remains in saved history."
+    showView("list")
+    return
+  }
   const saved = restoreKeeperPairing(entry)
   if (!saved) {
     error.value = "Saved keeper request could not be restored safely. Its cleanup record remains in history."
@@ -326,6 +334,7 @@ async function cancelKeeperRequest() {
     if (!isCurrentPairing(epoch, currentPairing)) return
     status.value = result
     error.value = ""
+    if (result === "orphan_resolved") withdrawalHistoryVersion.value++
   } catch (cause) {
     if (!isCurrentPairing(epoch, currentPairing)) return
     error.value = cause instanceof Error ? cause.message : "Could not confirm keeper request cancellation. Retry to check Rusty cleanup."
@@ -434,15 +443,15 @@ onBeforeUnmount(() => clearTimeout(pollTimer))
           <span aria-hidden="true">›</span>
         </button>
       </div>
-      <section v-if="pairing && (pairingDismissed || status === 'cancelled')" class="keeper-list" aria-label="Keeper request history">
+      <section v-if="pairing && (pairingDismissed || status === 'cancelled' || status === 'orphan_resolved')" class="keeper-list" aria-label="Keeper request history">
         <p class="sync-section-copy">Keeper request history</p>
-        <p class="dialog-copy" role="status">{{ status === 'cancelled' ? 'Keeper request cancelled. No access granted.' : status === 'cancel_pending' ? 'Cancellation pending. Access remains blocked until Rusty confirms cleanup.' : withdrawalOperationId && error ? 'Cancellation needs attention. Retry remains available.' : 'Keeper request remains pending. Restore it to review or cancel.' }}</p>
-        <div class="dialog-actions">
+        <p class="dialog-copy" role="status">{{ status === 'orphan_resolved' ? 'Missing keeper request reconciled from verified Rusty status. No cancellation receipt was issued.' : status === 'cancelled' ? 'Keeper request cancelled. No access granted.' : status === 'cancel_pending' ? 'Cancellation pending. Access remains blocked until Rusty confirms cleanup.' : withdrawalOperationId && error ? 'Cancellation needs attention. Retry remains available.' : 'Keeper request remains pending. Restore it to review or cancel.' }}</p>
+        <div v-if="status !== 'orphan_resolved'" class="dialog-actions">
           <button class="button button-primary" type="button" @click="restorePendingPairing">{{ status === 'cancelled' ? 'View request' : 'Restore request' }}</button>
           <button v-if="pendingPairing()" class="button button-danger" type="button" :disabled="cancellingPairing" @click="cancelKeeperRequest">{{ cancellingPairing ? 'Sending cancellation…' : status === 'cancel_pending' || withdrawalOperationId ? 'Retry cancellation' : 'Cancel keeper request' }}</button>
         </div>
       </section>
-      <KeeperWithdrawalHistory @restore="restoreSavedWithdrawal" @count="savedWithdrawalCount = $event" />
+      <KeeperWithdrawalHistory :refresh-key="withdrawalHistoryVersion" @restore="restoreSavedWithdrawal" @count="savedWithdrawalCount = $event" />
       <div v-if="pendingIntegrationLoadError" class="sync-error" role="alert" aria-label="Keeper integrations unavailable">
         <p>Saved keeper status could not be loaded: {{ pendingIntegrationLoadError }}</p>
         <button class="button" type="button" @click="loadPendingIntegrationKeepers">Retry loading keeper status</button>

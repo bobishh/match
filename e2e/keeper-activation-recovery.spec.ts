@@ -39,6 +39,35 @@ function testIdentity() {
   }
 }
 
+async function seedMissingPairing(page: import("@playwright/test").Page, origin: string, pairingId: string,
+  service: { personId: string; publicKey: string; deviceId: string; certificates: unknown[] },
+  options: { integrationId?: string; workspaceId?: string; grantEpoch?: number } = {}) {
+  return page.evaluate(async ({ origin, pairingId, service, options }) => {
+    const { bootstrapIdentity } = await import("/src/domain/identity.ts")
+    const { createWorkspaceGrant, defaultProofStore } = await import("/src/domain/proofs.ts")
+    const { savePendingKeeperWithdrawal } = await import("/src/sync/ownerKeeper.ts")
+    const profile = await bootstrapIdentity()
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(profile.identity.publicKey)))
+    const fingerprint = [...digest].slice(0, 12).map(byte => byte.toString(16).padStart(2, "0")).join("")
+      .match(/.{1,4}/g)?.join(":") ?? "unavailable"
+    const workspaceId = options.workspaceId ?? "board-orphan"
+    const integrationId = options.integrationId ?? "integration-orphan"
+    const grant = options.grantEpoch === undefined ? undefined
+      : await createWorkspaceGrant(profile, workspaceId, service.personId, "editor", options.grantEpoch)
+    if (grant) await defaultProofStore.putGrant(grant.payload.grantId, grant)
+    await savePendingKeeperWithdrawal(pairingId, "orphan-withdrawal", {
+      pairingId, integrationId, operatorUrl: `${origin}/admin`, comparisonCode: "418203",
+      expiresAt: Math.floor(Date.now() / 1000) - 60, transcriptHash: "saved-transcript", challengeNonce: "saved-nonce",
+      controllerFingerprint: fingerprint,
+      discovery: { origin, displayName: "Test Lighthouse", personId: service.personId, publicKey: service.publicKey,
+        deviceId: service.deviceId, certificates: service.certificates, fingerprint: "service-fingerprint",
+        capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true,
+          blobReplication: false, pairing: true } },
+      workspaces: [{ id: workspaceId, title: "Orphan board" }],
+    }, grant ? [{ workspaceId, document: "saved-document-proof", authorizationBundle: { saved: true }, grant }] : [])
+  }, { origin, pairingId, service, options })
+}
+
 test("Given board setup loses its response, when signed status confirms durable activation, then stale errors clear and keeper settings persist without another join", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const keeper = testIdentity()
@@ -134,6 +163,164 @@ test("Given board setup loses its response, when signed status confirms durable 
     return keeperApi.keeperDetails(personId)
   }, keeper.identity.personId)
   expect(details).toMatchObject({ origin, boardIds: approvedWorkspaceIds, futureBoards: true })
+})
+
+test("Given Rusty pruned an unissued pairing, when exact signed integration status proves no access, then history resolves without a fake cancellation receipt", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId,
+      publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates },
+      displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true,
+        chatReplication: true, blobReplication: false, pairing: true }, publicOrigin: origin }),
+  }))
+  await page.route(`${origin}/v1/pairings/pruned-pairing/withdraw`, route =>
+    route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "pairing not found" }) }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, string> } }
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId, operationId: request.signed.payload.operationId,
+      revision: 5, integrations: [{ integrationId: "integration-orphan", revision: 5,
+        policy: { futureBoards: false, baselineWorkspaceIds: ["board-orphan"] }, scopes: [], tombstones: [] }],
+      issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await seedMissingPairing(page, origin, "pruned-pairing", { ...keeper.identity, deviceId: keeper.deviceId,
+    certificates: keeper.certificates })
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  const history = dialog.getByRole("region", { name: "Saved keeper cancellation history" })
+  await expect(history).toContainText("Cancellation pending")
+  await history.getByRole("button", { name: "Restore request" }).click()
+  await dialog.getByRole("button", { name: "Retry cancellation" }).click()
+  await expect(dialog.getByText("Missing request reconciled from verified Rusty status. No cancellation receipt was issued.")).toBeVisible()
+  await dialog.getByRole("button", { name: "Back" }).click()
+  await expect(history).toContainText("Orphan resolved from signed Rusty status · revision 5")
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+})
+
+test("Given a saved owner grant at epoch 5, when matching signed Rusty tombstone confirms cleanup, then orphan history resolves", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  const integrationId = "Ey92iFPlOXnBBt9o83AMLAtQWNYTYlBA7Y2Yss5nFUI"
+  let workspaceId = ""
+  let rebindUpdate: Record<string, unknown> | undefined
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId,
+      publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates },
+      displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true,
+        chatReplication: true, blobReplication: false, pairing: true }, publicOrigin: origin }),
+  }))
+  await page.route(`${origin}/v1/pairings/pruned-granted-pairing/withdraw`, route =>
+    route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "pairing not found" }) }))
+  await page.route(`${origin}/v1/pairings/pruned-granted-pairing/status`, route =>
+    route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "pairing not found" }) }))
+  await page.route(`${origin}/v1/pairings`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, unknown> } }
+    const body = request.signed.payload.body as Record<string, unknown>
+    rebindUpdate = body.integrationUpdate as Record<string, unknown>
+    const transcriptHash = keeper.hash(request.signed.payload)
+    const expiresAt = Math.floor(Date.now() / 1000) + 600
+    const challenge = keeper.sign({ kind: "lighthouse-pairing-challenge", version: 1,
+      pairingId: "fresh-rebind", transcriptHash, servicePersonId: keeper.identity.personId,
+      serviceDeviceId: keeper.deviceId, serviceOrigin: origin, nonce: "fresh-nonce",
+      integrationId, issuedAt: Math.floor(Date.now() / 1000), expiresAt })
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({
+      pairingId: "fresh-rebind", expiresAt, operatorUrl: `${origin}/admin/?pairing=fresh-rebind`,
+      comparisonCode: "418204", transcriptHash, challenge,
+    }) })
+  })
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, string> } }
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId, operationId: request.signed.payload.operationId,
+      revision: 3, integrations: [{ integrationId, revision: 3,
+        policy: { futureBoards: false, baselineWorkspaceIds: [workspaceId] }, scopes: [],
+        tombstones: [{ workspaceId, grantEpoch: 5, state: "removed", cleanup: "complete", operationId: "verified-cleanup" }] }],
+      issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  const { ownedWorkspaceIds, eligibleWorkspaceIds } = await page.evaluate(async () => {
+    const [{ defaultStorage }, { getEligibleKeeperWorkspaces }] = await Promise.all([
+      import("/src/storage.ts"), import("/src/sync/lighthousePairing.ts"),
+    ])
+    const workspaces = await defaultStorage.listWorkspaces()
+    const eligible = await getEligibleKeeperWorkspaces(workspaces.map(workspace => ({ id: workspace.id, title: workspace.title })))
+    return { ownedWorkspaceIds: workspaces.map(workspace => workspace.id).sort(),
+      eligibleWorkspaceIds: eligible.map(workspace => workspace.id).sort() }
+  })
+  workspaceId = eligibleWorkspaceIds[0] ?? ""
+  expect(workspaceId).not.toBe("")
+  await seedMissingPairing(page, origin, "pruned-granted-pairing", { ...keeper.identity, deviceId: keeper.deviceId,
+    certificates: keeper.certificates }, { integrationId, workspaceId, grantEpoch: 5 })
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  const history = dialog.getByRole("region", { name: "Saved keeper cancellation history" })
+  await history.getByRole("button", { name: "Restore request" }).click()
+  await dialog.getByRole("button", { name: "Retry cancellation" }).click()
+  await expect(dialog.getByText("Missing request reconciled from verified Rusty status. No cancellation receipt was issued.")).toBeVisible()
+  await dialog.getByRole("button", { name: "Back" }).click()
+  await expect(history).toContainText("Orphan resolved from signed Rusty status · revision 3")
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeEnabled()
+  await dialog.getByRole("button", { name: "Add keeper" }).click()
+  await dialog.getByRole("textbox", { name: "Keeper hostname" }).fill(origin)
+  await dialog.getByRole("button", { name: "Discover keeper" }).click()
+  await dialog.getByRole("checkbox", { name: "Also replicate my future boards" }).check()
+  await dialog.getByRole("button", { name: "Request access" }).click()
+  await expect(dialog.getByText("418204")).toBeVisible()
+  expect(rebindUpdate).toMatchObject({ integrationId, expectedRevision: 3 })
+  expect(rebindUpdate?.scopeWorkspaceIds).toEqual(eligibleWorkspaceIds)
+  expect(rebindUpdate?.policy).toEqual({ futureBoards: true, baselineWorkspaceIds: ownedWorkspaceIds })
+})
+
+test("Given a missing pairing receives status signed for another controller device, when retried, then cancellation stays pending and dismissal preserves the block", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const keeper = testIdentity()
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1], service: { personId: keeper.identity.personId,
+      publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates },
+      displayName: "Test Lighthouse", capabilities: { modes: ["replicate"], documentReplication: true,
+        chatReplication: true, blobReplication: false, pairing: true }, publicOrigin: origin }),
+  }))
+  await page.route(`${origin}/v1/pairings/pruned-pairing/withdraw`, route =>
+    route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "pairing not found" }) }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: Record<string, string> } }
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: "another-controller-device", operationId: request.signed.payload.operationId,
+      revision: 5, integrations: [{ integrationId: "integration-orphan", revision: 5,
+        policy: { futureBoards: false, baselineWorkspaceIds: ["board-orphan"] }, scopes: [],
+        tombstones: [{ workspaceId: "board-orphan", grantEpoch: 5, state: "removed", cleanup: "complete", operationId: "unrelated-cleanup" }] }],
+      issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+  await page.goto("/")
+  await ensureJobSearchWorkspace(page)
+  await seedMissingPairing(page, origin, "pruned-pairing", { ...keeper.identity, deviceId: keeper.deviceId,
+    certificates: keeper.certificates })
+  await page.getByRole("button", { name: "Sync", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Device sync" })
+  const history = dialog.getByRole("region", { name: "Saved keeper cancellation history" })
+  await history.getByRole("button", { name: "Restore request" }).click()
+  await dialog.getByRole("button", { name: "Retry cancellation" }).click()
+  await expect(dialog.getByRole("button", { name: "Retry cancellation" })).toBeVisible()
+  await dialog.getByRole("button", { name: "Dismiss from list" }).click()
+  await expect(dialog.getByRole("region", { name: "Keeper request history" })).toContainText("Cancellation pending")
+  await expect(history).toContainText("Cancellation pending")
+  await expect(dialog.getByRole("button", { name: "Add keeper" })).toBeDisabled()
 })
 
 test("Given approved keeper setup is stuck, when the owner withdraws and Rusty cleanup is pending, then request stays visible until signed cancellation completes", async ({ page }) => {

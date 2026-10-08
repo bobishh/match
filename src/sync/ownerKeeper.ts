@@ -87,6 +87,9 @@ export type PendingKeeperWithdrawal = {
   operationId: string
   pairing: Record<string, unknown>
   grantScopes?: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>
+  orphanResolution?: { verifiedAt: string; serviceRevision: number; integrationRevision: number;
+    signedStatus: { payload: Record<string, unknown>; signerKeyId: string; signature: string };
+    localRevocationScopes: Array<{ workspaceId: string; document: string; authorizationBundle: unknown }> }
 }
 
 export async function pendingKeeperWithdrawal(pairingId: string, operationId: string): Promise<PendingKeeperWithdrawal | undefined> {
@@ -97,6 +100,18 @@ export async function pendingKeeperWithdrawal(pairingId: string, operationId: st
 export async function pendingKeeperWithdrawals(): Promise<PendingKeeperWithdrawal[]> {
   const { root } = await keeperIntegrationReferences()
   return Object.values(root.pendingKeeperWithdrawals ?? {}) as PendingKeeperWithdrawal[]
+}
+
+export async function saveKeeperOrphanResolution(pairingId: string, operationId: string,
+  resolution: NonNullable<PendingKeeperWithdrawal["orphanResolution"]>) {
+  const { root } = await keeperIntegrationReferences()
+  const key = withdrawalKey(pairingId, operationId)
+  const previous = root.pendingKeeperWithdrawals?.[key] as PendingKeeperWithdrawal | undefined
+  if (!previous) throw new Error("Keeper cancellation history was not saved; verified status remains available for retry.")
+  const saved = JSON.parse(JSON.stringify({ ...previous, orphanResolution: resolution })) as PendingKeeperWithdrawal
+  root.pendingKeeperWithdrawals = { ...root.pendingKeeperWithdrawals, [key]: saved }
+  await defaultStorage.savePersonalRoot(root)
+  return saved
 }
 
 export async function savePendingKeeperWithdrawal(pairingId: string, operationId: string, pairing: Record<string, unknown>,

@@ -14,3 +14,9 @@
 ## 3. Formal model and validation
 - [x] Add normal TLA+ lifecycle configuration and mutants for stale CAS, missing dual approval, and removed-board auto-readd.
 - [x] Run OpenSpec validation, focused Rusty tests, Tincanban type/unit checks, Playwright BDD, and TLA+ expected-result suite.
+
+## 4. Orphaned withdrawal recovery
+- [x] Preserve a missing-pairing state separately from signed cancellation and resolve only from exact verified Rusty status plus owner-signed local revocation evidence.
+- [x] Add Playwright happy, ambiguous-tombstone, and same-integration revision-CAS rebind scenarios; retain dismissal history.
+- [x] Verify saved grant signatures and owner certificate chains; reject stale or missing grant epochs and rely on exact-epoch local revocation fences.
+- [x] Add finite TLA+ normal no-grant/grant models and mutants for skipped local revocation, stale tombstone epoch, and erased history.

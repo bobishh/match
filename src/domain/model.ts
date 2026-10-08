@@ -47,6 +47,9 @@ export type PersonalRootDocumentV1 = {
     operationId: string
     pairing: unknown
     grantScopes?: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown; grant: unknown }>
+    orphanResolution?: { verifiedAt: IsoTime; serviceRevision: number; integrationRevision: number;
+      signedStatus: { payload: Record<string, unknown>; signerKeyId: string; signature: string };
+      localRevocationScopes: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown }> }
   }>
 }
 
