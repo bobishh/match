@@ -102,10 +102,11 @@ jobs:
 
   browser-network:
     name: Browser (${{ matrix.project }})
-    # Run after core browser shards to keep real Iroh relay traffic isolated,
-    # while still collecting network results when a core shard fails.
-    needs: [verify, formal-models, browser-core]
-    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
+    # Run after the Rusty lifecycle contract to keep real Iroh relay traffic
+    # isolated, while still collecting network results when earlier browser
+    # work fails.
+    needs: [verify, formal-models, browser-core, browser-keeper-lifecycle]
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' && (needs.browser-keeper-lifecycle.result == 'success' || needs.browser-keeper-lifecycle.result == 'failure') }}
     runs-on: ubuntu-24.04
     # Twenty serial durable scenarios take seven minutes locally, before CI
     # setup and the single retry. Keep individual test deadlines unchanged.
@@ -154,10 +155,10 @@ jobs:
 
   browser-keeper-lifecycle:
     name: Browser (Rusty keeper lifecycle)
-    # Run after every Iroh-backed project. Rusty and browser-network share relay
-    # infrastructure, so this real-process contract test must not overlap them.
-    needs: [verify, formal-models, browser-core, browser-network]
-    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' && (needs.browser-network.result == 'success' || needs.browser-network.result == 'failure') }}
+    # Run before Iroh-backed projects for fast feedback. Rusty and browser-
+    # network share relay infrastructure, so the network matrix waits for this.
+    needs: [verify, formal-models, browser-core]
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:

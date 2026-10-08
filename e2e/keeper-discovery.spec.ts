@@ -317,6 +317,14 @@ test("Given a failed status poll, when Rusty later reports expiry, then the stal
       capabilities: { modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: true, provisioning: true },
       publicOrigin: origin, managementPath: "/admin" }),
   }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId, controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: 0, integrations: [], issuedAt: Math.floor(Date.now() / 1000) })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
   await page.route(`${origin}/v1/pairings`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: unknown } }
     transcriptHash = keeper.hash(request.signed.payload)
