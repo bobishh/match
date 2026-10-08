@@ -518,7 +518,26 @@ test("Given approved keeper setup is stuck, when the owner withdraws and Rusty c
     .toBe(approvedWorkspaceIds.length)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const restoredDialog = page.getByRole("dialog", { name: "Device sync" })
-  await expect(restoredDialog.getByRole("region", { name: "Saved keeper cancellation history" })).toContainText("Cancellation pending")
+  const savedHistory = restoredDialog.getByRole("region", { name: "Saved keeper cancellation history" })
+  await expect(savedHistory).toContainText("Cancellation pending")
+  const savedRow = savedHistory.locator(".keeper-history-row")
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport)
+    await expect(savedRow).toBeVisible()
+    const layout = await savedRow.evaluate(row => {
+      const status = row.querySelector("small")!
+      const action = row.querySelector("button")!
+      const statusBox = status.getBoundingClientRect()
+      const actionBox = action.getBoundingClientRect()
+      return { statusText: status.textContent, rowWidth: row.clientWidth, rowScrollWidth: row.scrollWidth,
+        disjoint: statusBox.right <= actionBox.left || actionBox.right <= statusBox.left
+          || statusBox.bottom <= actionBox.top || actionBox.bottom <= statusBox.top }
+    })
+    expect(layout.statusText).toContain("Cancellation pending")
+    expect(layout.rowScrollWidth).toBeLessThanOrEqual(layout.rowWidth)
+    expect(layout.disjoint).toBe(true)
+  }
+  await page.setViewportSize({ width: 1280, height: 900 })
   await restoredDialog.getByRole("region", { name: "Saved keeper cancellation history" }).getByRole("button", { name: "Restore request" }).click()
   await expect(restoredDialog.getByRole("button", { name: "Retry cancellation" })).toBeVisible()
   await restoredDialog.getByRole("button", { name: "Dismiss from list" }).click()
