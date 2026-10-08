@@ -155,9 +155,10 @@ jobs:
 
   browser-keeper-lifecycle:
     name: Browser (Rusty keeper lifecycle)
-    # Run before Iroh-backed projects for fast feedback. Rusty and browser-
-    # network share relay infrastructure, so the network matrix waits for this.
-    needs: [verify, formal-models, browser-core]
+    # Run before Iroh-backed projects for fast feedback. Rusty, native-peer,
+    # and browser-network share relay infrastructure, so wait for both other
+    # relay users before starting Rusty; the network matrix waits for Rusty.
+    needs: [verify, formal-models, browser-core, browser-native]
     if: ${{ !cancelled() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
