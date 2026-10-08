@@ -225,7 +225,7 @@ function scheduleStatusCheck() {
 }
 
 async function provision() {
-  if (!pairing.value || provisioning) return
+  if (!pairing.value || provisioning || withdrawalOperationId.value) return
   const epoch = flowEpoch.value
   const currentPairing = pairing.value
   provisioning = true
@@ -234,9 +234,11 @@ async function provision() {
   try {
     const result = await props.provisionKeeper(currentPairing)
     if (epoch !== flowEpoch.value) return
+    if (withdrawalOperationId.value) { status.value = "cancel_pending"; return }
     status.value = result === "active" ? "active" : result === "pending" ? "pairing" : "provisioning"
   } catch (cause) {
     if (epoch !== flowEpoch.value) return
+    if (withdrawalOperationId.value) { status.value = "cancel_pending"; return }
     error.value = cause instanceof Error ? cause.message : "Provisioning is pending. Retry after checking service state."
     status.value = "provisioning"
   } finally {
@@ -298,14 +300,17 @@ async function checkStatus() {
   try {
     const current = await keeperApi.pairingStatusInfo(currentPairing, withdrawalOperationId.value || undefined)
     if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
-    const transition = pairingStatusTransition(current)
+    const transition = pairingStatusTransition(current, Boolean(withdrawalOperationId.value))
     if (current.withdrawal) withdrawalOperationId.value = current.withdrawal.operationId
     if (transition.clearError) error.value = ""
     status.value = transition.status
     if (transition.provision) await provision()
   } catch (cause) {
     if (epoch !== flowEpoch.value || pairing.value !== currentPairing) return
-    if (currentPairing.expiresAt <= Math.floor(Date.now() / 1000)) { error.value = ""; status.value = "expired" }
+    if (withdrawalOperationId.value) {
+      status.value = "cancel_pending"
+      error.value = cause instanceof Error ? cause.message : "Cancellation status unavailable. Retry cancellation to verify cleanup."
+    } else if (currentPairing.expiresAt <= Math.floor(Date.now() / 1000)) { error.value = ""; status.value = "expired" }
     else error.value = cause instanceof Error ? cause.message : "Could not verify keeper pairing status."
   }
   scheduleStatusCheck()

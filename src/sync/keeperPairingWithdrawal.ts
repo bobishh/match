@@ -1,7 +1,8 @@
 import type { KeeperPairing } from "./lighthousePairing"
 import type { DurableMesh } from "./durableMesh"
 import type { KeeperIntegrationStatus } from "./keeperIntegrationStatus"
-import { clearPendingKeeperWithdrawalProofs, pendingKeeperWithdrawal, savePendingKeeperWithdrawal } from "./ownerKeeper"
+import { clearPendingKeeperWithdrawalProofs, pendingKeeperWithdrawal, savePendingKeeperWithdrawal,
+  savePendingKeeperWithdrawalProofs } from "./ownerKeeper"
 import { getKeeperPairingStatusInfo } from "./lighthousePairingWithdrawalApi"
 import { completeKeeperPairingWithdrawal, requestKeeperPairingWithdrawal } from "./lighthousePairingWithdrawalApi"
 
@@ -53,11 +54,16 @@ export async function cancelKeeperPairing(pairing: KeeperPairing, operationId: s
   let mesh: DurableMesh | undefined
   let grantScopes = previous?.grantScopes
   if (!previous) {
+    // Persist cancellation intent before any mesh/proof work. If capture fails
+    // or the page closes, reload can still retry this exact operation.
+    await savePendingKeeperWithdrawal(pairing.pairingId, operationId,
+      JSON.parse(JSON.stringify(pairing)) as Record<string, unknown>)
+  }
+  if (!grantScopes) {
     mesh = await ensureMesh()
     if (!mesh) throw new Error("Workspace mesh is unavailable; keeper cancellation remains pending.")
     grantScopes = await mesh.captureKeeperGrantScopeProofs(pairing.workspaces.map(workspace => workspace.id), pairing.discovery.personId)
-    const saved = await savePendingKeeperWithdrawal(pairing.pairingId, operationId,
-      JSON.parse(JSON.stringify(pairing)) as Record<string, unknown>, grantScopes)
+    const saved = await savePendingKeeperWithdrawalProofs(pairing.pairingId, operationId, grantScopes)
     grantScopes = saved.grantScopes
   }
   const withdrawal = await requestKeeperPairingWithdrawal(pairing, operationId, grantScopes)

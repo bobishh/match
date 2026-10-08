@@ -46,7 +46,7 @@ export type PersonalRootDocumentV1 = {
     pairingId: string
     operationId: string
     pairing: unknown
-    grantScopes: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown; grant: unknown }>
+    grantScopes?: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown; grant: unknown }>
   }>
 }
 

@@ -85,7 +85,7 @@ export type PendingKeeperWithdrawal = {
   pairingId: string
   operationId: string
   pairing: Record<string, unknown>
-  grantScopes: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>
+  grantScopes?: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>
 }
 
 export async function pendingKeeperWithdrawal(pairingId: string, operationId: string): Promise<PendingKeeperWithdrawal | undefined> {
@@ -99,7 +99,7 @@ export async function pendingKeeperWithdrawals(): Promise<PendingKeeperWithdrawa
 }
 
 export async function savePendingKeeperWithdrawal(pairingId: string, operationId: string, pairing: Record<string, unknown>,
-  grantScopes: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>): Promise<PendingKeeperWithdrawal> {
+  grantScopes?: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>): Promise<PendingKeeperWithdrawal> {
   const { root } = await keeperIntegrationReferences()
   const key = withdrawalKey(pairingId, operationId)
   const previous = root.pendingKeeperWithdrawals?.[key]
@@ -109,6 +109,19 @@ export async function savePendingKeeperWithdrawal(pairingId: string, operationId
     [key]: serializable }
   await defaultStorage.savePersonalRoot(root)
   return serializable
+}
+
+export async function savePendingKeeperWithdrawalProofs(pairingId: string, operationId: string,
+  grantScopes: Array<{ workspaceId: string; document: string; authorizationBundle: unknown; grant: unknown }>) {
+  const { root } = await keeperIntegrationReferences()
+  const key = withdrawalKey(pairingId, operationId)
+  const previous = root.pendingKeeperWithdrawals?.[key] as PendingKeeperWithdrawal | undefined
+  if (!previous) throw new Error("Keeper cancellation intent was not saved. Retry cancellation.")
+  if (previous.grantScopes) return previous
+  const updated = JSON.parse(JSON.stringify({ ...previous, grantScopes })) as PendingKeeperWithdrawal
+  root.pendingKeeperWithdrawals = { ...root.pendingKeeperWithdrawals, [key]: updated }
+  await defaultStorage.savePersonalRoot(root)
+  return updated
 }
 
 export async function clearPendingKeeperWithdrawalProofs(pairingId: string, operationId: string) {
