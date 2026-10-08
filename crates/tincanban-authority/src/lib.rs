@@ -34,6 +34,16 @@ pub struct VerifiedRevocationCompletion {
     pub revocation: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedKeeperGrant {
+    pub workspace_id: String,
+    pub owner_person_id: String,
+    pub member_person_id: String,
+    pub role: String,
+    pub grant_epoch: u64,
+    pub grant: Value,
+}
+
 /// Merge incoming signed authority with the trusted local genesis anchor,
 /// then verify the resulting ownership and revocation history in Rust.
 pub fn prepare_tincanban_write_authority(
@@ -268,6 +278,63 @@ pub fn verify_revocation_completion(
         revoked_person_id: revocation.payload.person_id.clone(),
         revocation_epoch: revocation.payload.epoch,
         revocation: serde_json::to_value(revocation).map_err(|error| error.to_string())?,
+    })
+}
+
+/// Verify original owner-signed keeper grant against current workspace authority.
+/// Rusty uses result epoch to fence a withdrawal before its first response.
+pub fn verify_keeper_grant(
+    raw_document: &[u8],
+    authorization_bundle: &Value,
+    grant_value: &Value,
+    expected_owner_person_id: &str,
+    target_person_id: &str,
+    now_ms: i128,
+) -> Result<VerifiedKeeperGrant, String> {
+    let genesis_person_id = authorization_bundle
+        .pointer("/authority/genesisOwner/personId")
+        .and_then(Value::as_str)
+        .ok_or("Missing workspace genesis owner")?;
+    let incoming_authority = authorization_bundle
+        .get("authority")
+        .ok_or("Missing workspace authority evidence")?;
+    let records = meta_mesh_core::authorization_records(authorization_bundle)?;
+    let (snapshot, _) = prepare_tincanban_write_authority(
+        raw_document,
+        incoming_authority,
+        None,
+        &records,
+        genesis_person_id,
+        now_ms,
+    )?;
+    let owner = &snapshot.expected_current_owner;
+    if owner.person_id != expected_owner_person_id {
+        return Err("Keeper grant owner does not match the pairing controller".into());
+    }
+    let grant = serde_json::from_value::<meta_mesh_core::WorkspaceGrant>(grant_value.clone())
+        .map_err(|_| "Invalid signed keeper grant".to_string())?;
+    let identity = meta_mesh_core::PublicIdentity {
+        person_id: owner.person_id.clone(),
+        public_key: owner.public_key.clone(),
+        display_name: String::new(),
+    };
+    let role = meta_mesh_core::verify_workspace_grant(
+        &grant,
+        &snapshot.workspace_id,
+        target_person_id,
+        &identity,
+        &owner.certificates,
+    )?;
+    if role != WorkspaceRole::Editor {
+        return Err("Keeper grant must authorize editor access".into());
+    }
+    Ok(VerifiedKeeperGrant {
+        workspace_id: snapshot.workspace_id,
+        owner_person_id: owner.person_id.clone(),
+        member_person_id: grant.payload.person_id.clone(),
+        role: "editor".into(),
+        grant_epoch: grant.payload.effective_access_epoch(),
+        grant: serde_json::to_value(grant).map_err(|error| error.to_string())?,
     })
 }
 
@@ -524,6 +591,67 @@ mod tests {
         assert_eq!(snapshot.workspace_id, "board");
         assert_eq!(snapshot.expected_current_owner.person_id, person_id);
         assert_eq!(merged, evidence);
+    }
+
+    #[test]
+    fn verifies_original_owner_signed_editor_grant_and_rejects_foreign_scope() {
+        let owner_key = public_key_from_seed(&[1; 32]).unwrap();
+        let owner_id = public_key_id(&owner_key).unwrap();
+        let device_key = public_key_from_seed(&[2; 32]).unwrap();
+        let device_id = public_key_id(&device_key).unwrap();
+        let certificate = sign_device_certificate(
+            &[1; 32],
+            DeviceCertificatePayload {
+                kind: "device-certificate".into(),
+                version: 1,
+                person_id: owner_id.clone(),
+                device_id: device_id.clone(),
+                device_public_key: device_key,
+                issuer_certificate_hash: None,
+                can_enroll_devices: true,
+            },
+            &owner_id,
+            DEFAULT_SIGNATURE_DOMAIN,
+        )
+        .unwrap();
+        let owner = WorkspaceAuthority {
+            person_id: owner_id.clone(),
+            public_key: owner_key,
+            certificates: vec![certificate],
+        };
+        let mut document = AutoCommit::new();
+        document.put(ROOT, "id", "board").unwrap();
+        document
+            .put(ROOT, "ownerPersonId", owner_id.clone())
+            .unwrap();
+        let bytes = document.save();
+        let authority = json!({ "genesisOwner": owner, "genesisEpoch": 1, "currentOwner": owner,
+            "currentEpoch": 1, "ownershipTransfers": [], "successionClaims": [], "revocations": [],
+            "deviceRevocations": [], "departures": [] });
+        let bundle = json!({ "version": 1, "records": [], "authority": authority });
+        let grant = serde_json::to_value(
+            sign_json_envelope(
+                &[2; 32],
+                json!({ "kind": "workspace-grant", "version": 1,
+            "grantId": "grant-1", "workspaceId": "board", "personId": "keeper", "role": "editor",
+            "accessEpoch": 7 }),
+                &device_id,
+                DEFAULT_SIGNATURE_DOMAIN,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let verified =
+            verify_keeper_grant(&bytes, &bundle, &grant, &owner_id, "keeper", 0).unwrap();
+        assert_eq!(verified.grant_epoch, 7);
+        assert_eq!(verified.workspace_id, "board");
+        assert_eq!(verified.role, "editor");
+        assert!(
+            verify_keeper_grant(&bytes, &bundle, &grant, &owner_id, "other-keeper", 0).is_err()
+        );
+        assert!(
+            verify_keeper_grant(&bytes, &bundle, &grant, "foreign-owner", "keeper", 0).is_err()
+        );
     }
 
     #[test]
