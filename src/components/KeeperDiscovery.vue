@@ -2,10 +2,8 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, type Component } from "vue"
 import { keeperApi, type KeeperWorkspace, type KeeperPairing, type KeeperPairingStatus, type KeeperDetails, type KeeperServiceDiscovery } from "../app/keeperApi"
 import { pairingStatusTransition } from "../app/keeperWithdrawalUi"
-import { bootstrapIdentity } from "../domain/identity"
 import { keeperDisplayName, type MeshMemberView } from "../ui/deviceInfo"
 import { keeperDotState, keeperRowStatus } from "../ui/keeperStatus"
-import { canonicalKeeperIntegrationId, selectCanonicalServiceIntegration } from "../sync/keeperIntegrationSelection"
 import RustyMark from "./RustyMark.vue"
 const KeeperDetailPanel = defineAsyncComponent(() => import("./KeeperDetailPanel.vue") as Promise<{ default: Component }>)
 
@@ -209,9 +207,7 @@ async function discover() {
     const found = await keeperApi.discover(originInput.value)
     const eligible = await keeperApi.eligibleWorkspaces(props.ownedWorkspaces)
     const integrationStatus = await keeperApi.integrationStatus(found)
-    const profile = await bootstrapIdentity()
-    const canonicalId = await canonicalKeeperIntegrationId(profile.identity.personId, found.personId)
-    const existingIntegration = selectCanonicalServiceIntegration(integrationStatus.integrations, canonicalId)
+    const existingIntegration = await keeperApi.selectCanonicalIntegration(found, integrationStatus.integrations)
     if (epoch !== flowEpoch.value) return
     discovery.value = found
     eligibleWorkspaces.value = eligible

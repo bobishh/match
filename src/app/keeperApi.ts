@@ -44,6 +44,12 @@ async function reconcileTargetWithdrawals(discovery: LighthouseDiscovery, integr
 export const keeperApi = {
   discover: discoverLighthouse,
   integrationStatus: getKeeperIntegrationStatus,
+  async selectCanonicalIntegration(discovery: LighthouseDiscovery,
+    integrations: Awaited<ReturnType<typeof getKeeperIntegrationStatus>>["integrations"]) {
+    const profile = await bootstrapIdentity()
+    const canonicalId = await canonicalKeeperIntegrationId(profile.identity.personId, discovery.personId)
+    return selectCanonicalServiceIntegration(integrations, canonicalId)
+  },
   eligibleWorkspaces: getEligibleKeeperWorkspaces,
   beginPairing: beginKeeperPairing,
   async beginPairingAfterWithdrawalReconciliation(
