@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
+import { canonicalKeeperIntegrationId } from "./keeperIntegrationSelection"
 
 const mocks = vi.hoisted(() => ({
   keeperIntegrationReferences: vi.fn(),
@@ -16,17 +18,22 @@ vi.mock("./lighthousePairing", () => ({
 
 import { beginKeeperPolicyUpdate } from "./keeperPolicyUpdate"
 
-const reference = { integrationId: "integration-a", serviceOrigin: "https://rusty.example",
+const reference = { integrationId: "", serviceOrigin: "https://rusty.example",
   servicePersonId: "rusty-person", state: "active" }
 const discovery = { origin: "https://rusty.example", personId: "rusty-person" }
-const active = { integrationId: "integration-a", futureBoards: false, scopes: [
+const active = { integrationId: "", futureBoards: false, scopes: [
   { workspaceId: "active-board", grantEpoch: 3, state: "active" as const },
 ], tombstones: [{ workspaceId: "removed-board", grantEpoch: 2, state: "removed" as const }] }
 const pairing = { pairingId: "settings-pairing" }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
-  mocks.keeperIntegrationReferences.mockResolvedValue({ integrations: { "integration-a": reference } })
+  resetIdentityStorageForTest()
+  const profile = await bootstrapIdentity("Policy owner")
+  const integrationId = await canonicalKeeperIntegrationId(profile.identity.personId, discovery.personId)
+  reference.integrationId = integrationId
+  active.integrationId = integrationId
+  mocks.keeperIntegrationReferences.mockResolvedValue({ integrations: { [integrationId]: reference } })
   mocks.discoverLighthouse.mockResolvedValue(discovery)
   mocks.getKeeperIntegrationStatus.mockResolvedValue({ integrations: [active] })
   mocks.beginKeeperPairing.mockResolvedValue(pairing)
@@ -51,5 +58,23 @@ describe("future-board policy approval", () => {
     mocks.getKeeperIntegrationStatus.mockResolvedValueOnce({ integrations: [{ ...active, futureBoards: true }] })
     await expect(beginKeeperPolicyUpdate("rusty-person", [])).rejects.toThrow("changed or has cleanup pending")
     expect(mocks.beginKeeperPairing).not.toHaveBeenCalled()
+  })
+
+  it("rejects multiple live saved references before discovering or changing settings", async () => {
+    mocks.keeperIntegrationReferences.mockResolvedValueOnce({ integrations: {
+      [reference.integrationId]: reference,
+      duplicate: { ...reference, integrationId: "duplicate" },
+    } })
+    await expect(beginKeeperPolicyUpdate("rusty-person", [])).rejects.toThrow("Multiple saved Rusty integrations need review")
+    expect(mocks.discoverLighthouse).not.toHaveBeenCalled()
+    expect(mocks.beginKeeperPairing).not.toHaveBeenCalled()
+  })
+
+  it("uses canonical live row when signed status also contains terminal legacy history", async () => {
+    mocks.getKeeperIntegrationStatus.mockResolvedValueOnce({ integrations: [active, {
+      integrationId: "random-legacy-id", revision: 99, futureBoards: false, scopes: [],
+      tombstones: [{ workspaceId: "old-board", grantEpoch: 8, state: "removed", cleanup: "complete", operationId: "old-remove" }],
+    }] })
+    await expect(beginKeeperPolicyUpdate("rusty-person", [])).resolves.toBe(pairing)
   })
 })

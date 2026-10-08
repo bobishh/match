@@ -14,6 +14,7 @@ import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
 import { KeeperHttpError } from "./keeperHttpError"
 import { assertOwnerOriginAdmission, ownerOriginForDiscovery } from "./keeperOriginAdmission"
 import { validateKeeperPairingChallenge } from "./keeperPairingChallenge"
+import { canonicalKeeperIntegrationId, selectCanonicalServiceIntegration } from "./keeperIntegrationSelection"
 export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 export type { KeeperSettingsReceipt, KeeperSettingsScope } from "./keeperIntegrationStatus"
 
@@ -384,10 +385,11 @@ function validatePairingBaseline(workspaces: KeeperWorkspace[], values: string[]
   return baselineIds
 }
 
-function selectPairingIntegration(current: Awaited<ReturnType<typeof getKeeperIntegrationStatus>>,
-  workspaces: KeeperWorkspace[], options: KeeperPairingOptions, baselineIds: string[]) {
-  if (current.integrations.length > 1) throw new Error("Rusty has conflicting keeper integrations. Resolve them before adding board access.")
-  const existing = current.integrations[0]
+async function selectPairingIntegration(current: Awaited<ReturnType<typeof getKeeperIntegrationStatus>>,
+  controllerPersonId: string, servicePersonId: string, workspaces: KeeperWorkspace[],
+  options: KeeperPairingOptions, baselineIds: string[]) {
+  const canonicalId = await canonicalKeeperIntegrationId(controllerPersonId, servicePersonId)
+  const existing = selectCanonicalServiceIntegration(current.integrations, canonicalId)
   if (existing?.pendingOperation) throw new Error("Rusty has board cleanup pending. Finish it before requesting settings changes.")
   if (options.policyOnly) validatePolicyOnlySelection(current, existing, options, baselineIds)
   if (existing && workspaces.some(workspace => existing.scopes.some(scope => scope.workspaceId === workspace.id))) {
@@ -427,7 +429,8 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   const scopes = await Promise.all(workspaces.map(workspace => keeperScope(workspace, profile)))
   const serviceGrantFloors = await refreshKeeperGrantFloors(discovery, workspaces.map(workspace => workspace.id))
   const current = await getKeeperIntegrationStatus(discovery)
-  const existing = selectPairingIntegration(current, workspaces, options, baselineIds)
+  const existing = await selectPairingIntegration(current, profile.identity.personId, discovery.personId,
+    workspaces, options, baselineIds)
   const integrationUpdate = pairingIntegrationUpdate(existing, workspaces, options, baselineIds)
   const controllerOrigin = ownerOriginForDiscovery(discovery)
   const signedRequestBody = await signKeeperControllerRequest(profile, discovery, "lighthouse-pairing-offer", {

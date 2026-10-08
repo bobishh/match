@@ -10,6 +10,7 @@ import type { KeeperIntegrationReference } from "../domain/model"
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 import type { DurableMesh } from "./durableMesh"
 import { assertKeeperGrantFloorsUnchanged } from "./keeperGrantEpoch"
+import { selectKeeperReference } from "./keeperIntegrationSelection"
 
 function cachedDiscovery(details: KeeperDetails): LighthouseDiscovery | undefined {
   if (!details.origin || !details.servicePersonId || !details.serviceDeviceId || !details.servicePublicKey || !details.serviceCertificates) return undefined
@@ -160,10 +161,9 @@ function removalSource(reference: KeeperIntegrationReference | undefined, legacy
   return "legacy-current-workspaces"
 }
 
-function keeperReferenceForPerson(integrations: Record<string, KeeperIntegrationReference>, personId: string) {
-  const priority = (state: KeeperIntegrationReference["state"]) => state === "active" ? 0 : state === "removing" ? 1 : 2
-  return Object.values(integrations).filter(item => item.servicePersonId === personId)
-    .sort((left, right) => priority(left.state) - priority(right.state) || right.revision - left.revision)[0]
+function keeperReferenceForPerson(integrations: Record<string, KeeperIntegrationReference>, personId: string,
+  allowRemovalRetry = false) {
+  return selectKeeperReference(integrations, personId, { allowRemovalRetry })
 }
 
 function resolveRemovalDiscovery(personId: string, reference: KeeperIntegrationReference | undefined,
@@ -212,7 +212,7 @@ async function removalIntent(discovery: LighthouseDiscovery, profile: LocalProfi
 
 async function localRemovalContext(personId: string, options: RemovalOptions, profile: LocalProfile) {
   const { integrations } = await keeperIntegrationReferences()
-  const reference = keeperReferenceForPerson(integrations, personId)
+  const reference = keeperReferenceForPerson(integrations, personId, true)
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
   const integrationId = reference?.integrationId ?? legacyKeeper?.details?.integrationId
   const discovery = resolveRemovalDiscovery(personId, reference, legacyKeeper, options)
@@ -317,7 +317,7 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   if (personId === profile.identity.personId) throw new Error("Cannot remove this identity")
   if (!options.workspaceOwner) throw new Error("Workspace ownership is unavailable")
   const { integrations } = await keeperIntegrationReferences()
-  const reference = keeperReferenceForPerson(integrations, personId)
+  const reference = keeperReferenceForPerson(integrations, personId, true)
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
   if (!reference && !legacyKeeper?.details?.integrationId) {
     const { beginLegacyLocalRemoval } = await import("./legacyKeeperRemoval")

@@ -30,7 +30,7 @@ async function disconnectSelectedScopes(pairing: KeeperPairing, operationId: str
   }
   if (!scopes.length) return true
   const receipt = await pairingApi.disconnectKeeperIntegration(pairing.discovery, pairing.integrationId,
-    pendingOperation?.expectedRevision ?? status.revision, operationId, scopes, pendingOperation?.requestHash)
+    pendingOperation?.expectedRevision ?? integration.revision, operationId, scopes, pendingOperation?.requestHash)
   return receipt.status === "removed"
 }
 

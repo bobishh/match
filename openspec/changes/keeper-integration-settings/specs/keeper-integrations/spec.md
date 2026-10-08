@@ -3,6 +3,8 @@
 ### Requirement: Owner can inspect and update an existing integration
 The application SHALL display the verified active board scopes, integration revision, and future-board policy for a saved Rusty integration. Owner settings SHALL target the saved integration ID and SHALL NOT remove and recreate or rebind that integration.
 
+Client mutations SHALL use the canonical controller/service integration ID and that integration's revision. Aggregate service revisions SHALL NOT be used as per-integration compare-and-swap values. Terminal noncanonical history MAY remain in signed status and grant-floor calculations, but SHALL NOT be selected as a mutation target. Noncanonical history with active scopes, future-board consent, pending operation, or incomplete cleanup, and duplicate canonical rows, SHALL block automatic selection.
+
 #### Scenario: Current settings load
 - **WHEN** an owner opens an active Rusty integration
 - **THEN** the application displays only service-verified active scopes and the verified future-board policy

@@ -4,6 +4,7 @@ import { completeKeeperPairingWithdrawal, getKeeperPairingStatusInfo, requestKee
 import { restoreKeeperPairing } from "./keeperWithdrawalUi"
 import { bootstrapIdentity } from "../domain/identity"
 import { keeperIntegrationReferences, ownerKeepers, pendingKeeperWithdrawals, type KeeperDetails, type PendingKeeperWithdrawal } from "../sync/ownerKeeper"
+import { canonicalKeeperIntegrationId, selectCanonicalServiceIntegration, selectKeeperReference } from "../sync/keeperIntegrationSelection"
 
 export type { KeeperWorkspace } from "../sync/lighthouseDiscovery"
 export type { KeeperPairing, KeeperPairingStatus } from "../sync/lighthousePairing"
@@ -52,12 +53,12 @@ export const keeperApi = {
     cancel: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled" | "orphan_resolved">,
     shouldContinue: () => boolean = () => true,
   ): Promise<KeeperPairing | null> {
+    const profile = await bootstrapIdentity()
     const { integrations } = await keeperApi.integrationStatus(discovery)
     if (!shouldContinue()) return null
-    if (integrations.length > 1) {
-      throw new Error("Rusty has conflicting keeper integrations. Resolve them before adding board access.")
-    }
-    await reconcileTargetWithdrawals(discovery, integrations[0]?.integrationId, cancel, shouldContinue)
+    const canonicalId = await canonicalKeeperIntegrationId(profile.identity.personId, discovery.personId)
+    selectCanonicalServiceIntegration(integrations, canonicalId)
+    await reconcileTargetWithdrawals(discovery, undefined, cancel, shouldContinue)
     if (!shouldContinue()) return null
     return keeperApi.beginPairing(discovery, workspaces, options)
   },
@@ -84,7 +85,7 @@ export const keeperApi = {
     const profile = await bootstrapIdentity()
     const details = (await ownerKeepers(profile.identity.personId)).find(record => record.personId === personId)?.details
     const { integrations } = await keeperIntegrationReferences()
-    const reference = Object.values(integrations).find(item => item.servicePersonId === personId && item.state !== "removed")
+    const reference = selectKeeperReference(integrations, personId)
     if (!reference) return details ?? null
     let integrationSettingsSupported = reference.integrationSettingsSupported
     if (integrationSettingsSupported !== true) {

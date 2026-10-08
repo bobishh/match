@@ -63,7 +63,7 @@ beforeEach(() => {
     { workspaceId: "board-a", status: "active", grantEpoch: 9 },
   ] })
   mocks.getKeeperIntegrationStatus.mockResolvedValue({ revision: 4, integrations: [{ integrationId: "integration-a",
-    revision: 4, scopes: [{ workspaceId: "board-a", grantEpoch: 9 }], tombstones: [] }] })
+    revision: 2, scopes: [{ workspaceId: "board-a", grantEpoch: 9 }], tombstones: [] }] })
   mocks.disconnectKeeperIntegration.mockResolvedValue({ status: "removed" })
   mocks.completeKeeperPairingWithdrawal.mockResolvedValue({ status: "cancelled" })
 })
@@ -79,10 +79,21 @@ describe("keeper pairing cancellation", () => {
     expect(boardMesh.captureKeeperGrantScopeProofs).toHaveBeenCalledWith(["board-a"], "rusty-person")
     expect(mocks.savePendingKeeperWithdrawalProofs).toHaveBeenCalledWith("pairing-a", "withdraw-op", [proof])
     expect(boardMesh.revokePerson).toHaveBeenCalledWith("board-a", "rusty-person", 9)
-    expect(mocks.disconnectKeeperIntegration).toHaveBeenCalledWith(discovery, "integration-a", 4, "withdraw-op",
+    expect(mocks.disconnectKeeperIntegration).toHaveBeenCalledWith(discovery, "integration-a", 2, "withdraw-op",
       [{ workspaceId: "board-a", expectedGrantEpoch: 9 }], undefined)
     expect(mocks.completeKeeperPairingWithdrawal).toHaveBeenCalledWith(pairing, "withdraw-op", expect.any(Array), "withdrawal-hash")
     expect(mocks.clearPendingKeeperWithdrawalProofs).toHaveBeenCalledWith("pairing-a", "withdraw-op")
+  })
+
+  it("uses the target integration revision, not max revision from unrelated history", async () => {
+    const boardMesh = mesh()
+    mocks.getKeeperIntegrationStatus.mockResolvedValueOnce({ revision: 7, integrations: [
+      { integrationId: "integration-a", revision: 2, scopes: [{ workspaceId: "board-a", grantEpoch: 9 }], tombstones: [] },
+      { integrationId: "other-integration", revision: 7, scopes: [], tombstones: [] },
+    ] })
+    await cancelKeeperPairing(pairing, "withdraw-op", async () => boardMesh)
+    expect(mocks.disconnectKeeperIntegration).toHaveBeenCalledWith(discovery, "integration-a", 2, "withdraw-op",
+      [{ workspaceId: "board-a", expectedGrantEpoch: 9 }], undefined)
   })
 
   it("keeps intent pending when Rusty has not proved a grant epoch or cleanup", async () => {
