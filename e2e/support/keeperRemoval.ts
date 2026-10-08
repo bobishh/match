@@ -9,21 +9,23 @@ export async function mountKeeperRemoval(options: {
   completedRemovalZombie?: boolean
   zombieRevokeFails?: boolean
   canonicalService?: { origin: string; personId: string; deviceId: string; publicKey: string; certificates: unknown[] }
+  verifiedService?: { origin: string; personId: string; deviceId: string; publicKey: string; certificates: unknown[] }
 } = {}) {
   const profile = await (await import("../../src/domain/identity")).bootstrapIdentity()
-  const keeperPersonId = options.canonicalService?.personId ?? "old-keeper"
-  const keeperDeviceId = options.canonicalService?.deviceId ?? "old-device"
+  const service = options.canonicalService ?? options.verifiedService
+  const keeperPersonId = service?.personId ?? "old-keeper"
+  const keeperDeviceId = service?.deviceId ?? "old-device"
   const { ownerKeepers, saveKeeperIntegrationReference, saveOwnerKeeper } = await import("../../src/sync/ownerKeeper")
   const { defaultStorage } = await import("../../src/storage")
   const { initializePersonalRootCatalog } = await import("../../src/statePersonalRoot")
   if (!options.reopenPersistedLegacyPending) await initializePersonalRootCatalog(defaultStorage, profile)
   if (!options.reopenPersistedLegacyPending) await saveKeeperIntegrationReference({
     integrationId: "integration-old",
-    serviceOrigin: options.canonicalService?.origin ?? "https://rusty.example",
+    serviceOrigin: service?.origin ?? "https://rusty.example",
     servicePersonId: keeperPersonId,
     serviceDeviceId: keeperDeviceId,
-    servicePublicKey: options.canonicalService?.publicKey ?? "verified-test-key",
-    serviceCertificates: options.canonicalService?.certificates ?? [],
+    servicePublicKey: service?.publicKey ?? "verified-test-key",
+    serviceCertificates: service?.certificates ?? [],
     workspaceIds: options.completedRemovalZombie ? [] : ["board"],
     scopeReceipts: options.completedRemovalZombie ? [] : [{ workspaceId: "board", grantEpoch: 1, activationOperationId: "activation-test" }],
     futureBoards: false,
@@ -46,10 +48,10 @@ export async function mountKeeperRemoval(options: {
     await saveOwnerKeeper(profile.identity.personId, {
       personId: keeperPersonId,
       role: "editor",
-      ...(options.canonicalService ? { details: {
-        origin: options.canonicalService.origin, boardIds: ["board"], futureBoards: false, futureBoardBaselineIds: ["board"],
+      ...(service ? { details: {
+        origin: service.origin, boardIds: ["board"], futureBoards: false, futureBoardBaselineIds: ["board"],
         integrationId: "integration-old", servicePersonId: keeperPersonId, serviceDeviceId: keeperDeviceId,
-        servicePublicKey: options.canonicalService.publicKey, serviceCertificates: options.canonicalService.certificates, revision: 1,
+        servicePublicKey: service.publicKey, serviceCertificates: service.certificates, revision: 1,
       } } : options.legacyWithoutServiceDescriptor && !options.legacyMissingBoardList ? { details: { boardIds: ["board"], futureBoards: false } } : {}),
     })
   }

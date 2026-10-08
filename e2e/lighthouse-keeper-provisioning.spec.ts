@@ -635,16 +635,6 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       const id = state.activeWorkspace.id
       return { id, bytes: Array.from(await state.readWorkspaceBytes(id)) }
     }))
-    await diagnoseStep("clear local keeper references for removal recovery", () => page.evaluate(async ({ integrationId, servicePersonId }) => {
-      const { bootstrapIdentity } = await import("/src/domain/identity.ts")
-      const { defaultStorage } = await import("/src/storage.ts")
-      const { removeOwnerKeeper } = await import("/src/sync/ownerKeeper.ts")
-      const profile = await bootstrapIdentity()
-      await removeOwnerKeeper(profile.identity.personId, servicePersonId)
-      const root = await defaultStorage.loadPersonalRoot()
-      if (root?.keeperIntegrations) delete root.keeperIntegrations[integrationId]
-      if (root) await defaultStorage.savePersonalRoot(root)
-    }, { integrationId: ownerAIntegrationId!, servicePersonId: nativeIdentity.personId }))
     let statusRequest: { signed?: { payload?: Record<string, unknown> } } | undefined
     let statusResponse: { signerKeyId?: string; signature?: string; payload?: Record<string, unknown> } | undefined
     let disconnectReceipt: { signerKeyId?: string; signature?: string; payload?: Record<string, unknown> } | undefined
@@ -669,32 +659,11 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       disconnectReceipt = JSON.parse(responseBody) as typeof disconnectReceipt
       await route.fulfill({ response, body: responseBody })
     })
-    let spoofDiscovery = true
-    await page.route(serviceOrigin + "/.well-known/mesh-lighthouse", async route => {
-      const response = await route.fetch()
-      if (!spoofDiscovery) { await route.fulfill({ response }); return }
-      const descriptor = await response.json() as { service?: { personId?: string } }
-      if (descriptor.service) descriptor.service.personId = "different-service-identity"
-      await route.fulfill({ response, body: JSON.stringify(descriptor) })
-    })
-
-    await diagnoseStep("open Sync after clearing keeper references", () => page.getByRole("button", { name: "Sync", exact: true }).click())
+    await diagnoseStep("open Sync to remove active Rusty integration", () => page.getByRole("button", { name: "Sync", exact: true }).click())
     const removalDialog = page.getByRole("dialog", { name: "Device sync" })
     const keeperRow = removalDialog.getByRole("list", { name: "Keeper services" }).getByRole("button").first()
     await diagnoseStep("find keeper service row", () => expect(keeperRow).toBeVisible())
     await diagnoseStep("open keeper service row", () => keeperRow.click())
-    const addressInput = removalDialog.getByLabel("Rusty address")
-    await diagnoseStep("fill Rusty address for identity check", () => addressInput.fill(serviceOrigin))
-    await diagnoseStep("confirm Rusty address", () => expect(addressInput).toHaveValue(serviceOrigin))
-    const verifyRusty = removalDialog.getByRole("button", { name: "Verify Rusty" })
-    await diagnoseStep("wait for Rusty identity verification control", () => expect(verifyRusty).toBeEnabled())
-    await diagnoseStep("verify spoofed Rusty identity", () => verifyRusty.click())
-    await diagnoseStep("reject mismatched Rusty identity", () => expect(removalDialog.getByRole("alert")).toContainText("different keeper identity"))
-    expect(statusRequest).toBeUndefined()
-    expect(disconnectRequests).toHaveLength(0)
-    spoofDiscovery = false
-    await diagnoseStep("verify matching Rusty identity", () => removalDialog.getByRole("button", { name: "Verify Rusty" }).click())
-    await diagnoseStep("wait for keeper removal action", () => expect(removalDialog.getByRole("button", { name: "Remove keeper" })).toBeVisible())
     await diagnoseStep("open keeper removal confirmation", () => removalDialog.getByRole("button", { name: "Remove keeper" }).click())
     await diagnoseStep("confirm removal from all boards", () => removalDialog.getByRole("button", { name: "Remove access from all boards" }).click())
     await expect.poll(() => disconnectRequests.length, { timeout: 10_000 }).toBe(1)

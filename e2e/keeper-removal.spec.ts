@@ -33,6 +33,40 @@ function keeperSigner() {
   }
 }
 
+async function routeSettingsCapableKeeper(page: import("@playwright/test").Page, origin: string, service: ReturnType<typeof keeperSigner>) {
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
+    contentType: "application/json",
+    body: JSON.stringify({ protocolVersions: [1],
+      service: { personId: service.personId, publicKey: service.publicKey, deviceId: service.deviceId, certificates: service.certificates },
+      displayName: "Old Lighthouse",
+      capabilities: { products: ["match"], modes: ["replicate"], documentReplication: true, chatReplication: true,
+        blobReplication: false, pairing: true, provisioning: true },
+      publicOrigin: origin, managementPath: "/admin",
+    }),
+  }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const envelope = service.sign({ kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: service.personId, serviceDeviceId: service.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: 1,
+      capabilities: { integrationSettings: true },
+      integrations: [{ integrationId: "integration-old", revision: 1,
+        policy: { futureBoards: false, baselineWorkspaceIds: ["board"] },
+        scopes: [{ workspaceId: "board", grantEpoch: 1, state: "active", activationOperationId: "activation-test" }],
+        tombstones: [], pendingOperation: null }],
+      issuedAt: Math.floor(Date.now() / 1000),
+    })
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
+  })
+}
+
+function verifiedServiceFixture(origin: string, service: ReturnType<typeof keeperSigner>) {
+  return { origin, personId: service.personId, deviceId: service.deviceId,
+    publicKey: service.publicKey, certificates: service.certificates }
+}
+
 test("Given Rusty confirms removal but local keeper cleanup fails, when owner retries after reload, then saved receipt finishes cleanup", async ({ page }) => {
   const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
   const service = keeperSigner()
@@ -210,8 +244,11 @@ test("Given local revocation fails for a legacy keeper, when owner retries, then
 })
 
 test("Given a connected keeper, when owner removes it, then access removal waits for completion and keeper leaves the list", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const service = keeperSigner()
+  await routeSettingsCapableKeeper(page, origin, service)
   await page.goto("/")
-  await page.evaluate(async () => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval())
+  await page.evaluate(async fixture => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval({ verifiedService: fixture }), verifiedServiceFixture(origin, service))
 
   const keepers = page.getByRole("list", { name: "Keeper services" })
   await keepers.getByRole("button", { name: /Old Lighthouse/ }).click()
@@ -224,8 +261,11 @@ test("Given a connected keeper, when owner removes it, then access removal waits
 })
 
 test("Given keeper removal fails, when owner retries, then error stays visible and successful retry removes the keeper", async ({ page }) => {
+  const origin = `http://127.0.0.1:${process.env.TINCANBAN_E2E_PORT ?? "4244"}`
+  const service = keeperSigner()
+  await routeSettingsCapableKeeper(page, origin, service)
   await page.goto("/")
-  await page.evaluate(async () => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval())
+  await page.evaluate(async fixture => (await import("/e2e/support/keeperRemoval.ts")).mountKeeperRemoval({ verifiedService: fixture }), verifiedServiceFixture(origin, service))
 
   const keepers = page.getByRole("list", { name: "Keeper services" })
   await keepers.getByRole("button", { name: /Old Lighthouse/ }).click()

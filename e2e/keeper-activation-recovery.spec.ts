@@ -46,6 +46,7 @@ test("Given board setup loses its response, when signed status confirms durable 
   let nonce = ""
   let controllerApproved = false
   let provisionRequests = 0
+  let durableActivation = false
   let approvedWorkspaceIds: string[] = []
   await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
@@ -72,15 +73,16 @@ test("Given board setup loses its response, when signed status confirms durable 
   })
   await page.route(`${origin}/v1/integrations/status`, async route => {
     const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    const integrations = durableActivation ? [{ integrationId: "integration-test", revision: 2,
+      policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
+      scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
+      tombstones: [], pendingOperation: null }] : []
     const envelope = keeper.sign({ kind: "lighthouse-integration-status", version: 1,
       servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
       controllerPersonId: request.signed.payload.controllerPersonId,
       controllerDeviceId: request.signed.payload.controllerDeviceId,
-      operationId: request.signed.payload.operationId, revision: 1,
-      integrations: [{ integrationId: "integration-test", revision: 1,
-        policy: { futureBoards: true, baselineWorkspaceIds: approvedWorkspaceIds.slice().sort() },
-        scopes: approvedWorkspaceIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, state: "active", activationOperationId: "activation-test" })),
-        tombstones: [], pendingOperation: null }],
+      operationId: request.signed.payload.operationId, revision: durableActivation ? 2 : 0,
+      capabilities: { integrationSettings: true }, integrations,
       issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(envelope) })
   })
@@ -93,6 +95,7 @@ test("Given board setup loses its response, when signed status confirms durable 
     expect(request.signed.payload.body.invitation.kind).toBe("workspace-join")
     expect(request.signed.payload.body.invitation.role).toBe("editor")
     approvedWorkspaceIds = request.signed.payload.body.approvedScopes.map(scope => scope.workspaceId)
+    durableActivation = true
     expect(request.signed.payload.body.approvedScopes.every(scope => scope.mode === "replicate")).toBe(true)
     expect(approvedWorkspaceIds).toEqual(request.signed.payload.body.invitation.workspaces.map(workspace => workspace.id))
     provisionRequests += 1

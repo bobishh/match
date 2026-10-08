@@ -40,17 +40,30 @@ function testIdentity() {
 }
 
 test("Given an owned board, when a Lighthouse origin is discovered, then tincanban shows identity, capabilities and pending-only boundary", async ({ page }) => {
-  await page.route("http://127.0.0.1:8080/.well-known/mesh-lighthouse", route => route.fulfill({
+  const origin = "http://127.0.0.1:8080"
+  const keeper = testIdentity()
+  await page.route(`${origin}/.well-known/mesh-lighthouse`, route => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({
       protocolVersions: [1],
-      service: { personId: "keeper-person", publicKey: "keeper-public-key", deviceId: "keeper-device", certificates: [] },
+      service: { personId: keeper.identity.personId, publicKey: keeper.identity.publicKey, deviceId: keeper.deviceId, certificates: keeper.certificates },
       displayName: "Test Lighthouse",
       capabilities: { products: ["match"], modes: ["replicate"], documentReplication: true, chatReplication: true, blobReplication: false, pairing: false, provisioning: false },
-      publicOrigin: "http://127.0.0.1:8080",
+      publicOrigin: origin,
       managementPath: "/admin",
     }),
   }))
+  await page.route(`${origin}/v1/integrations/status`, async route => {
+    const request = route.request().postDataJSON() as { signed: { payload: { operationId: string; controllerPersonId: string; controllerDeviceId: string } } }
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(keeper.sign({
+      kind: "lighthouse-integration-status", version: 1,
+      servicePersonId: keeper.identity.personId, serviceDeviceId: keeper.deviceId, serviceOrigin: origin,
+      controllerPersonId: request.signed.payload.controllerPersonId,
+      controllerDeviceId: request.signed.payload.controllerDeviceId,
+      operationId: request.signed.payload.operationId, revision: 0,
+      capabilities: { integrationSettings: true }, integrations: [], issuedAt: Math.floor(Date.now() / 1000),
+    })) })
+  })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
