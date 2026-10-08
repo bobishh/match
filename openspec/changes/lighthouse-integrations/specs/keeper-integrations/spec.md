@@ -65,6 +65,10 @@ Tincanban SHALL offer only currently owned boards. Dedicated keeper integrations
 - **WHEN** ownership changes before grant issuance
 - **THEN** that scope is rejected with a visible reason and other existing integrations keep working.
 
+#### Scenario: Ambiguous or pending keeper policy
+- **WHEN** multiple non-removed integrations identify the same keeper, or its settings update is unresolved
+- **THEN** Tincanban issues no automatic owner grant until one unambiguous active integration has verified policy.
+
 #### Scenario: Automation upgrade
 - **WHEN** the owner explicitly enables a writer on one board
 - **THEN** only that board receives a new editor authorization after confirmation.
