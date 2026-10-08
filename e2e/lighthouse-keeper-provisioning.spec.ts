@@ -707,8 +707,31 @@ test("Given native Rusty supports owner-origin approval, when owner approves onc
     await diagnoseStep("find keeper service row", () => expect(keeperRow).toBeVisible())
     await diagnoseStep("open keeper service row", () => keeperRow.click())
     await diagnoseStep("open keeper removal confirmation", () => removalDialog.getByRole("button", { name: "Remove keeper" }).click())
+    const removalStateBeforeConfirm = await page.evaluate(async ({ integrationId, servicePersonId }) => {
+      const root = await (await import("/src/storage.ts")).defaultStorage.loadPersonalRoot()
+      const refs = Object.values(root?.keeperIntegrations ?? {}).filter(reference => reference.integrationId === integrationId)
+      const { ownerKeepers } = await import("/src/sync/ownerKeeper.ts")
+      const cached = root ? (await ownerKeepers(root.identity.personId)).find(item => item.personId === servicePersonId) : undefined
+      return {
+        references: refs.map(reference => ({ integrationId: reference.integrationId, servicePersonId: reference.servicePersonId,
+          state: reference.state, revision: reference.revision, workspaceIds: [...reference.workspaceIds].sort(),
+          pendingRemoval: Boolean(reference.pendingRemoval) })),
+        ownerCache: cached ? { personId: cached.personId, integrationId: cached.details?.integrationId,
+          boardIds: [...(cached.details?.boardIds ?? [])].sort(), removalPending: Boolean(cached.details?.removalPending) } : null,
+      }
+    }, { integrationId: ownerAIntegrationId!, servicePersonId: nativeIdentity.personId })
     await diagnoseStep("confirm removal from all boards", () => removalDialog.getByRole("button", { name: "Remove access from all boards" }).click())
-    await expect.poll(() => disconnectRequests.length, { timeout: 10_000 }).toBe(1)
+    try {
+      await expect.poll(() => disconnectRequests.length, { timeout: 10_000 }).toBe(1)
+    } catch (cause) {
+      const failureContext = {
+        removalStateBeforeConfirm,
+        disconnectRequests: disconnectRequests.length,
+        removalAlert: await removalDialog.getByRole("alert").allInnerTexts().catch(() => []),
+        removalStatus: await removalDialog.getByRole("status", { name: "Keeper removal status" }).allInnerTexts().catch(() => []),
+      }
+      throw new Error(`Removal did not reach Rusty disconnect. ${JSON.stringify(failureContext)}`, { cause })
+    }
     await expect(removalDialog.getByRole("status", { name: "Keeper removal status" })).toContainText("not confirmed")
     await expect(removalDialog.getByRole("alert")).toContainText("Temporary Rusty outage")
     await removalDialog.getByRole("button", { name: "Close" }).click()

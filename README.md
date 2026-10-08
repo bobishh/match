@@ -63,10 +63,16 @@ starts. This preference is currently local to that browser; settings synchroniza
 between enrolled devices is not implemented yet.
 
 For a standalone Lighthouse keeper, tincanban discovers the configured HTTPS origin,
-shows its identity and capabilities, and requires controller and authenticated
-operator approval for the same transcript. tincanban then sends a short-lived visitor
-invitation for the exact selected boards. Pairing stays pending until Lighthouse
-returns signed evidence that every selected board committed durably.
+shows its identity and capabilities, and binds approval to the exact selected boards
+and future-board policy. An owner using an allowed, signed controller origin can
+approve and connect once: Rusty accepts that consent as scoped operator admission
+for the owner's proven boards. Legacy requests use a separate operator approval.
+tincanban sends a short-lived Editor invitation and independent owner-signed Editor
+grants. Pairing stays pending until Rusty returns signed evidence that every selected
+board committed durably.
+Cancelled-request cleanup remains in an internal durable outbox; dismissing its UI
+does not erase proofs or block discovery of other services. Saved integration status
+and native service availability are separate from browser P2P presence.
 See [mesh-lighthouse](../mesh-lighthouse/README.md) for provisioning and durable
 state setup.
 
