@@ -303,18 +303,22 @@ test("Given a saved owner grant at epoch 5, when owner starts another request, t
   })
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
-  const { controllerPersonId, ownedWorkspaceIds, eligibleWorkspaceIds } = await page.evaluate(async () => {
-    const [{ defaultStorage }, { getEligibleKeeperWorkspaces }, { bootstrapIdentity }] = await Promise.all([
+  const { controllerPersonId, ownedWorkspaceIds, eligibleWorkspaceIds, meshOwnedWorkspaceIds } = await page.evaluate(async () => {
+    const [{ defaultStorage }, { getEligibleKeeperWorkspaces }, { bootstrapIdentity }, { peerStore }] = await Promise.all([
       import("/src/storage.ts"), import("/src/sync/lighthousePairing.ts"), import("/src/domain/identity.ts"),
+      import("/src/sync/peerStore.ts"),
     ])
     const profile = await bootstrapIdentity()
     const workspaces = await defaultStorage.listWorkspaces()
     const eligible = await getEligibleKeeperWorkspaces(workspaces.map(workspace => ({ id: workspace.id, title: workspace.title })))
+    const meshOwnedWorkspaceIds = (await Promise.all(workspaces.map(async workspace =>
+      (await peerStore.getWorkspaceCredential(workspace.id))?.ownerPersonId === profile.identity.personId ? workspace.id : undefined)))
+      .filter((id): id is string => id !== undefined)
     return { controllerPersonId: profile.identity.personId, ownedWorkspaceIds: workspaces.map(workspace => workspace.id).sort(),
-      eligibleWorkspaceIds: eligible.map(workspace => workspace.id).sort() }
+      eligibleWorkspaceIds: eligible.map(workspace => workspace.id).sort(), meshOwnedWorkspaceIds }
   })
   integrationId = canonicalIntegrationId(controllerPersonId, keeper.identity.personId)
-  workspaceId = eligibleWorkspaceIds[0] ?? ""
+  workspaceId = eligibleWorkspaceIds.find(id => meshOwnedWorkspaceIds.includes(id)) ?? ""
   expect(workspaceId).not.toBe("")
   await seedMissingPairing(page, origin, "pruned-granted-pairing", { ...keeper.identity, deviceId: keeper.deviceId,
     certificates: keeper.certificates }, { integrationId, workspaceId, grantEpoch: 5 })
