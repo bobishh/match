@@ -91,7 +91,7 @@ test("Given Rusty confirms removal but local keeper cleanup fails, when owner re
       controllerDeviceId: request.signed.payload.controllerDeviceId, operationId: request.signed.payload.operationId,
       revision: removed ? 2 : 1, integrations: [{ integrationId: "integration-old", revision: removed ? 2 : 1,
         policy: { futureBoards: false, baselineWorkspaceIds: ["board"] },
-        scopes: removed ? [] : [{ workspaceId: "board", grantEpoch: 1, state: "active", activationOperationId: "activation" }],
+        scopes: removed ? [] : [{ workspaceId: "board", grantEpoch: 1, state: "active", activationOperationId: "activation-test" }],
         tombstones, pendingOperation: null }], issuedAt: Math.floor(Date.now() / 1000) })
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) })
   })
