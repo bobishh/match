@@ -917,7 +917,8 @@ test("Given native Rusty supports owner-origin approval, when owner approves onc
     await expect(readdDialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible({ timeout: 90_000 })
     expect(ownerAReaddProvisionBody).toBeTruthy()
     const readdRequest = JSON.parse(ownerAReaddProvisionBody!) as {
-      signed: { payload: { operationId: string; body: { pairingId: string; transcriptHash: string; futureBoards: boolean; approvedScopes: { workspaceId: string }[] } } }
+      signed: { payload: { operationId: string; body: { pairingId: string; transcriptHash: string; futureBoards: boolean;
+        baselineWorkspaceIds: string[]; approvedScopes: { workspaceId: string }[] } } }
     }
     expect(readdRequest.signed.payload.operationId).toBeTruthy()
     expect(readdRequest.signed.payload.body.pairingId).not.toBe(ownerAPairingId)
@@ -946,19 +947,23 @@ test("Given native Rusty supports owner-origin approval, when owner approves onc
     expect(staleDisconnect.status()).toBe(409)
     await expect(readdDialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible()
     const finalReaddStatus = await page.evaluate(async ({ origin, pairingId, transcriptHash, integrationId,
-      workspaceIds, controllerOrigin }) => {
+      workspaceIds, controllerOrigin, futureBoards, baselineWorkspaceIds }) => {
       const { discoverLighthouse } = await import("/src/sync/lighthouseDiscovery.ts")
       const { getKeeperPairingStatusInfo } = await import("/src/sync/lighthousePairingWithdrawalApi.ts")
       const discovery = await discoverLighthouse(origin, { allowLoopbackHttp: true })
       const pairing = {
         pairingId, integrationId, transcriptHash, controllerOrigin, discovery,
         workspaces: workspaceIds.map(id => ({ id })),
+        futureBoards,
+        futureBoardBaselineIds: baselineWorkspaceIds,
       } as KeeperPairing
       const status = await getKeeperPairingStatusInfo(pairing)
       return { status: status.status, provisioningScopes: status.provisioningScopes ?? [] }
     }, { origin: serviceOrigin, pairingId: readdRequest.signed.payload.body.pairingId,
       transcriptHash: readdRequest.signed.payload.body.transcriptHash, integrationId: ownerAIntegrationId!,
-      workspaceIds: readdedWorkspaceIds, controllerOrigin: appOrigin })
+      workspaceIds: readdedWorkspaceIds, controllerOrigin: appOrigin,
+      futureBoards: readdRequest.signed.payload.body.futureBoards,
+      baselineWorkspaceIds: readdRequest.signed.payload.body.baselineWorkspaceIds })
     expect(finalReaddStatus.status).toBe("active")
     expect(finalReaddStatus.provisioningScopes).toEqual(readdedWorkspaceIds.map(workspaceId => ({ workspaceId, status: "active", grantEpoch: expect.any(Number) })))
     await expect(readdDialog.getByRole("alert")).toHaveCount(0)
