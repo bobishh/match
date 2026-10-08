@@ -161,7 +161,7 @@ async function openKeeperDetails(page: Page) {
   await expect(page.getByRole("heading", { name: "Boards", exact: true })).toBeVisible()
 }
 
-test("Given a running Lighthouse identity, when both controllers approve all owned boards, then durable join resumes after lost response and restart", async ({ page, browser, baseURL }, testInfo) => {
+test("Given native Rusty supports owner-origin approval, when owner approves once and re-adds removed scopes, then activation persists across restart with legacy approval compatibility", async ({ page, browser, baseURL }, testInfo) => {
   test.setTimeout(Number(process.env.TINCANBAN_E2E_TIMEOUT ?? 300_000))
   const directory = await mkdtemp(join(tmpdir(), "tincanban-lighthouse-provision-"))
   const baseDirectory = join(directory, "service")
@@ -541,6 +541,7 @@ test("Given a running Lighthouse identity, when both controllers approve all own
     console.log("[keeper e2e] second owner requests a separate static board")
     ownerBContext = await browser.newContext()
     ownerBPage = await ownerBContext.newPage()
+    // Exercise backward compatibility for a client that does not advertise owner-origin admission.
     await useLegacyKeeperDiscovery(ownerBPage, serviceOrigin)
     await ownerBPage.goto(appOrigin)
     await createJobSearchWorkspace(ownerBPage, "Owner B private board")
@@ -918,7 +919,14 @@ test("Given a running Lighthouse identity, when both controllers approve all own
       headers: { Origin: appOrigin, "Content-Type": "application/json" },
     })
     expect(staleDisconnect.status()).toBe(409)
-    await expect(readdDialog.getByRole("status")).toContainText("All selected boards activated and saved by Rusty.")
+    await expect(readdDialog.getByText("All selected boards activated and saved by Rusty.")).toBeVisible()
+    await expect.poll(() => lastOwnerAStatus, { timeout: 90_000 }).toMatchObject({
+      httpStatus: 200,
+      status: "active",
+      provisioningStatus: "active",
+      admissionSource: "owner_origin",
+      controllerOrigin: appOrigin,
+    })
     await expect(readdDialog.getByRole("alert")).toHaveCount(0)
     expect(statusFetchFailure).toBeUndefined()
     completed = true
