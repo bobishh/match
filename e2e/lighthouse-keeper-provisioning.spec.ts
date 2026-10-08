@@ -166,9 +166,11 @@ async function openKeeperDetails(page: Page) {
 async function storedScopeDocument(directory: string, workspaceId: string) {
   try {
     const config = JSON.parse(await readFile(join(directory, "config.json"), "utf8")) as {
-      workspaceId?: string; statePath?: string; additionalScopes?: { workspaceId: string; statePath: string }[]
+      workspaceId?: string; statePath?: string; primaryDetached?: boolean
+      additionalScopes?: { workspaceId: string; statePath: string; primaryDetached?: boolean }[]
     }
-    const scope = [config, ...(config.additionalScopes ?? [])].find(item => item.workspaceId === workspaceId)
+    const scope = [config, ...(config.additionalScopes ?? [])]
+      .find(item => item.workspaceId === workspaceId && item.primaryDetached !== true)
     if (!scope?.statePath) return undefined
     const state = JSON.parse(await readFile(scope.statePath, "utf8")) as { document: number[] }
     const doc = Automerge.load(Uint8Array.from(state.document))
