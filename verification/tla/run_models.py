@@ -28,6 +28,8 @@ MODELS = [
     ("WorkerLifecycleQueuedTimeout", "WorkerLifecycle", "Invariant QueuedTimeoutIsolated is violated"),
     ("RevocationGeneration", "RevocationGeneration", None),
     ("RevocationGenerationPersonOnly", "RevocationGeneration", "Invariant CompletedRevokeCoversCurrentGrant is violated"),
+    ("KeeperGrantRecovery", "KeeperGrantRecovery", None),
+    ("KeeperGrantRecoveryTamperedStatus", "KeeperGrantRecovery", None),
     ("OwnerRevocationPersistence", "OwnerRevocationPersistence", None),
     ("OwnerRevocationPersistenceNonAtomic", "OwnerRevocationPersistence", "Invariant OwnerAccessSurvivesOtherKeeperRemoval is violated"),
     ("OwnerAuthorityRecovery", "OwnerAuthorityRecovery", None),

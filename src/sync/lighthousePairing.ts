@@ -9,6 +9,7 @@ import type { KeeperWorkspace, LighthouseDiscovery } from "./lighthouseDiscovery
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { rememberActivatedKeeper, saveKeeperIntegrationReference } from "./ownerKeeper"
 import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope } from "./keeperIntegrationStatus"
+import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
 export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
 const CONTROL_DOMAIN = "MESH-LIGHTHOUSE/1"
@@ -24,6 +25,7 @@ export type KeeperPairing = {
   controllerFingerprint: string
   discovery: LighthouseDiscovery
   workspaces: KeeperWorkspace[]
+  serviceGrantFloors?: Record<string, number>
   futureBoards?: boolean
   futureBoardBaselineIds?: string[]
 }
@@ -160,6 +162,16 @@ export async function getKeeperIntegrationStatus(discovery: LighthouseDiscovery)
   const integrations = parseKeeperIntegrationStatus(payload, discovery)
   const signedEnvelope = envelope as { signerKeyId: string; signature: string }
   return { integrations, signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number }
+}
+
+export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, workspaceIds: string[], previous: Record<string, number> = {}) {
+  const { integrations } = await getKeeperIntegrationStatus(discovery)
+  if (integrations.some(integration => integration.pendingOperation)) {
+    throw new Error("Rusty has pending board cleanup. Finish cancellation before adding keeper access.")
+  }
+  const current = keeperServiceGrantFloors(integrations, workspaceIds)
+  return Object.fromEntries(workspaceIds.map(workspaceId => [workspaceId,
+    Math.max(previous[workspaceId] ?? 0, current[workspaceId] ?? 0)]))
 }
 
 export async function rememberActiveKeeperIntegration(pairing: KeeperPairing) {
@@ -363,6 +375,9 @@ export function verifyProvisionedScopes(payload: Record<string, unknown>, pairin
   if (!allowPendingFailure && payload.status === "provisioning" && actual.some(scope => scope.error === "join_failed")) {
     const failed = actual.find(scope => scope.error === "join_failed")!
     const detail = typeof failed.errorDetail === "string" ? failed.errorDetail.slice(0, 1024) : "No error detail returned by Rusty"
+    if (detail.includes("Re-added scope requires a newer signed owner grant")) {
+      throw new Error("Rusty retained a newer removal generation. Cancel this request, then start a fresh one to issue a newer owner grant.")
+    }
     throw new Error(`Rusty could not join the selected boards: ${detail}. Keep this tab open and retry board setup.`)
   }
   if (!allowPendingFailure && payload.status === "provisioning" && actual.some(scope => scope.error === "runtime_unavailable")) {
@@ -384,7 +399,10 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
     || workspaces.some(workspace => !baselineIds.includes(workspace.id))) {
     throw new Error("Future-board baseline must include every selected owner board exactly once.")
   }
+  // Rusty retains signed removal tombstones even after its active registry is
+  // empty. Read that authenticated floor before issuing another owner grant.
   const scopes = await Promise.all(workspaces.map(workspace => keeperScope(workspace, profile)))
+  const serviceGrantFloors = await refreshKeeperGrantFloors(discovery, workspaces.map(workspace => workspace.id))
   const signedRequestBody = await signKeeperControllerRequest(profile, discovery, "lighthouse-pairing-offer", {
     body: { scopes, policy: { futureBoards: options.futureBoards, baselineWorkspaceIds: baselineIds } },
   })
@@ -401,7 +419,7 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   return { ...verified, comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash,
     controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery,
     workspaces: workspaces.map(workspace => ({ ...workspace })), futureBoards: options.futureBoards,
-    futureBoardBaselineIds: baselineIds }
+    futureBoardBaselineIds: baselineIds, serviceGrantFloors }
 }
 
 export async function decideKeeperPairing(pairing: KeeperPairing, approve: boolean): Promise<void> {

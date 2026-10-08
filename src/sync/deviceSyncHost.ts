@@ -22,9 +22,10 @@ import { showInviteQr } from "./deviceSyncInviteView"
 import type { PairingContext } from "./deviceSyncContext"
 import type { JoinDecision } from "./deviceSyncJoinApproval"
 import { keeperCommitReceiptVerifier, type KeeperCommitReceiptVerifier } from "./keeperCommitReceipt"
+import { nextKeeperGrantEpoch } from "./keeperGrantEpoch"
 
 type WorkspaceOption = { id: string; title: string }
-type KeeperAdmission = { servicePersonId: string; workspaceIds: string[]; followOwner: boolean }
+type KeeperAdmission = { servicePersonId: string; workspaceIds: string[]; followOwner: boolean; serviceGrantFloors?: Record<string, number> }
 
 /** A non-network failure before a join completes needs a terminal cause on the host. */
 export class WorkspaceAdmissionFailure extends Error {
@@ -197,6 +198,7 @@ export async function createKeeperWorkspaceHost(
   workspaces: WorkspaceOption[],
   servicePersonId: string,
   followOwner = false,
+  serviceGrantFloors?: Record<string, number>,
 ) {
   if (!workspaces.length || !servicePersonId) throw new Error("Keeper scopes and service identity are required.")
   const profile = await context.getProfile()
@@ -218,7 +220,7 @@ export async function createKeeperWorkspaceHost(
   context.state.liveWorkspaceIds.value = workspaces.map(item => item.id)
   await startWorkspaceHostController({
     context, run, node, profile, invite, owners, workspaces, replica,
-    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id), followOwner },
+    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id), followOwner, serviceGrantFloors },
   })
   return invite
 }
@@ -364,7 +366,8 @@ async function decideWorkspaceJoin(runtime: HostRuntime, guest: WorkspaceGuest):
 async function issueWorkspaceGrants(runtime: HostRuntime, personId: string, role: JoinDecision["role"]) {
   const accessEpochs = new Map(await Promise.all(runtime.workspaces.map(async item => [
     item.id,
-    await runtime.context.durableMesh?.nextAccessEpoch(item.id) ?? 1,
+    nextKeeperGrantEpoch(await runtime.context.durableMesh?.nextAccessEpoch(item.id) ?? 1,
+      runtime.keeperAdmission?.serviceGrantFloors?.[item.id] ?? 0),
   ] as const)))
   const result = await defaultInvitationService.approveWorkspaceJoinSet(
     runtime.invite.invitationId,

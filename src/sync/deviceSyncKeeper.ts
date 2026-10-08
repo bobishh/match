@@ -324,20 +324,34 @@ export function createKeeperProvisioner(
   hostContext: () => WorkspaceHostContext,
 ) {
   const invitationHosts = new Map<string, Promise<WorkspaceJoinInvitation>>()
+  const invitationGrantFloors = new Map<string, Record<string, number>>()
   return async (pairing: KeeperPairing): Promise<KeeperPairingStatus> => {
-    await ensureDurableMesh()
+    const pairingApi = await import("./lighthousePairing")
+    const currentFloors = await pairingApi.refreshKeeperGrantFloors(pairing.discovery,
+      pairing.workspaces.map(workspace => workspace.id), pairing.serviceGrantFloors)
     let invitationTask = invitationHosts.get(pairing.pairingId)
+    const usedFloors = invitationGrantFloors.get(pairing.pairingId)
+    if (usedFloors && pairing.workspaces.some(workspace =>
+      usedFloors[workspace.id] !== currentFloors[workspace.id])) {
+      throw new Error("Rusty's removal history advanced after this invitation was created. Cancel this request and start a fresh one.")
+    }
     if (!invitationTask) {
-      invitationTask = createKeeperWorkspaceHost(hostContext(), pairing.workspaces, pairing.discovery.personId, pairing.futureBoards === true)
+      pairing.serviceGrantFloors = currentFloors
+      await ensureDurableMesh()
+      invitationTask = createKeeperWorkspaceHost(hostContext(), pairing.workspaces, pairing.discovery.personId,
+        pairing.futureBoards === true, pairing.serviceGrantFloors)
       invitationHosts.set(pairing.pairingId, invitationTask)
+      invitationGrantFloors.set(pairing.pairingId, currentFloors)
       void invitationTask.catch(() => {
-        if (invitationHosts.get(pairing.pairingId) === invitationTask) invitationHosts.delete(pairing.pairingId)
+        if (invitationHosts.get(pairing.pairingId) === invitationTask) {
+          invitationHosts.delete(pairing.pairingId)
+          invitationGrantFloors.delete(pairing.pairingId)
+        }
       })
     }
     const invitation = await invitationTask
-    const { deliverKeeperInvitation, rememberActiveKeeperIntegration } = await import("./lighthousePairing")
-    const status = await deliverKeeperInvitation(pairing, invitation)
-    if (status === "active") await rememberActiveKeeperIntegration(pairing)
+    const status = await pairingApi.deliverKeeperInvitation(pairing, invitation)
+    if (status === "active") await pairingApi.rememberActiveKeeperIntegration(pairing)
     return status
   }
 }

@@ -29,6 +29,15 @@ violating `CompletedRevokeCoversCurrentGrant`. This abstracts the revocation
 list to its maximum epoch; signatures, peer-store persistence, and Rusty's
 separate signed disconnect receipt remain implementation-test obligations.
 
+`KeeperGrantRecovery` models a restored owner device whose local grant history
+is behind Rusty's retained signed tombstone. The old approved grant cannot
+reactivate; the owner reads the authenticated floor, issues a grant above both
+local and service history, and activates only after a fresh approval.
+`KeeperGrantRecoveryTamperedStatus` makes the status signature invalid and checks
+that no grant can be issued from that floor. The finite model abstracts actual
+signatures and board identity; implementation tests cover workspace scoping and
+the signed status parser.
+
 `OwnerRevocationPersistence` models removing a different keeper while preserving
 the owner's role. A signed revocation boundary must exist in both the document
 history and stored authority before local removal completes; the boundary must
