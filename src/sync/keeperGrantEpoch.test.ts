@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest"
 import type { KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 import { keeperServiceGrantFloors, nextKeeperGrantEpoch } from "./keeperGrantEpoch"
 
-const integration = (tombstones: KeeperIntegrationStatus["tombstones"]): KeeperIntegrationStatus => ({
+const integration = (tombstones: KeeperIntegrationStatus["tombstones"], scopes: KeeperIntegrationStatus["scopes"] = []): KeeperIntegrationStatus => ({
   integrationId: "rusty-integration",
   revision: 4,
   futureBoards: false,
-  scopes: [],
+  scopes,
   tombstones,
 })
 
@@ -20,11 +20,12 @@ describe("keeper owner grant generation", () => {
       integration([
         { workspaceId: "job-search", grantEpoch: 7, state: "removed", cleanup: "complete", operationId: "remove-3" },
       ]),
+      integration([], [{ workspaceId: "job-search", grantEpoch: 9, state: "active", activationOperationId: "activate-4" }]),
     ], ["job-search", "new-board"])
 
-    expect(floors).toEqual({ "job-search": 7, "new-board": 0 })
-    expect(nextKeeperGrantEpoch(5, floors["job-search"]!)).toBe(8)
-    expect(nextKeeperGrantEpoch(10, floors["job-search"]!)).toBe(10)
+    expect(floors).toEqual({ "job-search": 9, "new-board": 0 })
+    expect(nextKeeperGrantEpoch(5, floors["job-search"]!)).toBe(10)
+    expect(nextKeeperGrantEpoch(11, floors["job-search"]!)).toBe(11)
   })
 
   it("Given an invalid epoch, when combining local and service history, then rejects it", () => {

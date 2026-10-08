@@ -375,9 +375,6 @@ export function verifyProvisionedScopes(payload: Record<string, unknown>, pairin
   if (!allowPendingFailure && payload.status === "provisioning" && actual.some(scope => scope.error === "join_failed")) {
     const failed = actual.find(scope => scope.error === "join_failed")!
     const detail = typeof failed.errorDetail === "string" ? failed.errorDetail.slice(0, 1024) : "No error detail returned by Rusty"
-    if (detail.includes("Re-added scope requires a newer signed owner grant")) {
-      throw new Error("Rusty retained a newer removal generation. Cancel this request, then start a fresh one to issue a newer owner grant.")
-    }
     throw new Error(`Rusty could not join the selected boards: ${detail}. Keep this tab open and retry board setup.`)
   }
   if (!allowPendingFailure && payload.status === "provisioning" && actual.some(scope => scope.error === "runtime_unavailable")) {

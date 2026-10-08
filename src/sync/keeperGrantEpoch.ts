@@ -1,12 +1,12 @@
 import type { KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
-/** Highest signed service tombstone epoch for each selected workspace. */
+/** Highest signed service grant epoch, active or removed, for each selected workspace. */
 export function keeperServiceGrantFloors(integrations: KeeperIntegrationStatus[], workspaceIds: string[]) {
   const floors: Record<string, number> = {}
   for (const workspaceId of workspaceIds) {
     floors[workspaceId] = Math.max(0, ...integrations.flatMap(integration =>
-      integration.tombstones.filter(tombstone => tombstone.workspaceId === workspaceId)
-        .map(tombstone => tombstone.grantEpoch)))
+      [...integration.scopes, ...integration.tombstones]
+        .filter(scope => scope.workspaceId === workspaceId).map(scope => scope.grantEpoch)))
   }
   return floors
 }
