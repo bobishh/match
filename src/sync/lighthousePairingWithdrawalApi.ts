@@ -125,7 +125,7 @@ export async function requestKeeperPairingWithdrawal(pairing: KeeperPairing, ope
   const withdrawal = parseWithdrawal(payload.withdrawal, operationId)
   if (!withdrawal || withdrawal.requestHash !== requestHash || payload.pairingId !== pairing.pairingId
     || payload.integrationId !== pairing.integrationId || payload.transcriptHash !== pairing.transcriptHash
-    || !["cancel_pending", "cancelled"].includes(String(payload.status))) {
+    || payload.status !== withdrawal.status) {
     throw new Error("Keeper returned a cancellation receipt for another request.")
   }
   return withdrawal
