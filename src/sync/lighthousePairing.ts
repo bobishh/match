@@ -8,9 +8,11 @@ import type { KeeperIntegrationReference } from "../domain/model"
 import type { KeeperWorkspace, LighthouseDiscovery } from "./lighthouseDiscovery"
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { rememberActivatedKeeper, saveKeeperIntegrationReference } from "./ownerKeeper"
-import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope } from "./keeperIntegrationStatus"
+import { parseKeeperIntegrationStatus, type KeeperDisconnectReceipt, type KeeperDisconnectScope,
+  type KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 import { keeperServiceGrantFloors } from "./keeperGrantEpoch"
 export type { KeeperDisconnectReceipt, KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperIntegrationStatus"
+export type { KeeperSettingsReceipt, KeeperSettingsScope } from "./keeperIntegrationStatus"
 
 const CONTROL_DOMAIN = "MESH-LIGHTHOUSE/1"
 
@@ -24,10 +26,13 @@ export type KeeperPairing = {
   challengeNonce: string
   controllerFingerprint: string
   discovery: LighthouseDiscovery
+  integrationSettingsSupported?: boolean
   workspaces: KeeperWorkspace[]
   serviceGrantFloors?: Record<string, number>
   futureBoards?: boolean
   futureBoardBaselineIds?: string[]
+  expectedIntegrationRevision?: number
+  integrationUpdate?: { integrationId: string; expectedRevision: number; scopeWorkspaceIds: string[]; policy: { futureBoards: boolean; baselineWorkspaceIds: string[] }; policyOnly?: boolean }
 }
 
 export type KeeperPairingStatus = "pending" | "approved" | "provisioning" | "active" | "rejected" | "expired" | "cancel_pending" | "cancelled"
@@ -161,7 +166,9 @@ export async function getKeeperIntegrationStatus(discovery: LighthouseDiscovery)
   }
   const integrations = parseKeeperIntegrationStatus(payload, discovery)
   const signedEnvelope = envelope as { signerKeyId: string; signature: string }
-  return { integrations, signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number }
+  const capabilities = record(payload.capabilities)
+  return { integrations, integrationSettingsSupported: capabilities?.integrationSettings === true,
+    signerKeyId: signedEnvelope.signerKeyId, signature: signedEnvelope.signature, revision: payload.revision as number }
 }
 
 export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, workspaceIds: string[], previous: Record<string, number> = {},
@@ -176,12 +183,14 @@ export async function refreshKeeperGrantFloors(discovery: LighthouseDiscovery, w
 }
 
 export async function rememberActiveKeeperIntegration(pairing: KeeperPairing) {
-  const { integrations } = await getKeeperIntegrationStatus(pairing.discovery)
+  const status = await getKeeperIntegrationStatus(pairing.discovery)
+  const { integrations } = status
   const integration = integrations.find(candidate => candidate.integrationId === pairing.integrationId)
   const approvedBaseline = [...(pairing.futureBoardBaselineIds ?? [])].sort()
   const confirmedBaseline = [...(integration?.baselineWorkspaceIds ?? [])].sort()
-  if (!integration || integration.scopes.length !== pairing.workspaces.length
+  if (!integration
     || pairing.workspaces.some(workspace => !integration.scopes.some(scope => scope.workspaceId === workspace.id))
+    || (pairing.expectedIntegrationRevision !== undefined && integration.revision <= pairing.expectedIntegrationRevision)
     || !integration.baselineWorkspaceIds || JSON.stringify(confirmedBaseline) !== JSON.stringify(approvedBaseline)
     || integration.futureBoards !== (pairing.futureBoards === true)) {
     throw new Error("Rusty has not confirmed every approved board as active.")
@@ -199,6 +208,7 @@ export async function rememberActiveKeeperIntegration(pairing: KeeperPairing) {
     scopeReceipts: integration.scopes.map(scope => ({ workspaceId: scope.workspaceId,
       grantEpoch: scope.grantEpoch, activationOperationId: scope.activationOperationId })),
     futureBoards: integration.futureBoards,
+    integrationSettingsSupported: status.integrationSettingsSupported,
     futureBoardBaselineIds: integration.baselineWorkspaceIds,
     revision: integration.revision,
     state: "active",
@@ -386,23 +396,69 @@ export function verifyProvisionedScopes(payload: Record<string, unknown>, pairin
     ...(scope.error === undefined || scope.error === null ? {} : { error: scope.error as KeeperProvisionedScope["error"] }) }))
 }
 
-export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspaces: KeeperWorkspace[], options: {
+type KeeperPairingOptions = {
   futureBoards: boolean
   futureBoardBaselineIds: string[]
-}): Promise<KeeperPairing> {
-  const profile = await bootstrapIdentity()
-  if (!workspaces.length) throw new Error("Choose at least one owner board.")
-  const baselineIds = [...options.futureBoardBaselineIds].sort()
+  policyOnly?: boolean
+}
+
+function validatePairingBaseline(workspaces: KeeperWorkspace[], values: string[]) {
+  const baselineIds = [...values].sort()
   if (baselineIds.length > 512 || new Set(baselineIds).size !== baselineIds.length || baselineIds.some(id => !id)
     || workspaces.some(workspace => !baselineIds.includes(workspace.id))) {
     throw new Error("Future-board baseline must include every selected owner board exactly once.")
   }
-  // Rusty retains signed removal tombstones even after its active registry is
-  // empty. Read that authenticated floor before issuing another owner grant.
+  return baselineIds
+}
+
+function selectPairingIntegration(current: Awaited<ReturnType<typeof getKeeperIntegrationStatus>>,
+  workspaces: KeeperWorkspace[], options: KeeperPairingOptions, baselineIds: string[]) {
+  if (current.integrations.length > 1) throw new Error("Rusty has conflicting keeper integrations. Resolve them before adding board access.")
+  const existing = current.integrations[0]
+  if (existing?.pendingOperation) throw new Error("Rusty has board cleanup pending. Finish it before requesting settings changes.")
+  if (options.policyOnly) validatePolicyOnlySelection(current, existing, options, baselineIds)
+  if (existing && workspaces.some(workspace => existing.scopes.some(scope => scope.workspaceId === workspace.id))) {
+    throw new Error("Select only boards that are not already active for this keeper.")
+  }
+  return existing
+}
+
+function validatePolicyOnlySelection(current: Awaited<ReturnType<typeof getKeeperIntegrationStatus>>,
+  existing: KeeperIntegrationStatus | undefined, options: KeeperPairingOptions, baselineIds: string[]) {
+  if (!current.integrationSettingsSupported || !existing || existing.futureBoards || !options.futureBoards) {
+    throw new Error("Policy-only approval requires an existing integration with future boards currently off.")
+  }
+  const known = new Set([...existing.scopes.map(scope => scope.workspaceId),
+    ...existing.tombstones.map(scope => scope.workspaceId)])
+  if ([...known].some(id => !baselineIds.includes(id))) {
+    throw new Error("Future-board baseline must include every active and previously removed board.")
+  }
+}
+
+function pairingIntegrationUpdate(existing: KeeperIntegrationStatus | undefined, workspaces: KeeperWorkspace[],
+  options: KeeperPairingOptions, baselineIds: string[]) {
+  if (!existing) return undefined
+  return {
+    integrationId: existing.integrationId, expectedRevision: existing.revision,
+    scopeWorkspaceIds: workspaces.map(workspace => workspace.id).sort(),
+    policy: { futureBoards: options.futureBoards, baselineWorkspaceIds: baselineIds },
+    ...(options.policyOnly ? { policyOnly: true } : {}),
+  }
+}
+
+export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspaces: KeeperWorkspace[],
+  options: KeeperPairingOptions): Promise<KeeperPairing> {
+  const profile = await bootstrapIdentity()
+  if (!workspaces.length && options.policyOnly !== true) throw new Error("Choose at least one owner board.")
+  const baselineIds = validatePairingBaseline(workspaces, options.futureBoardBaselineIds)
   const scopes = await Promise.all(workspaces.map(workspace => keeperScope(workspace, profile)))
   const serviceGrantFloors = await refreshKeeperGrantFloors(discovery, workspaces.map(workspace => workspace.id))
+  const current = await getKeeperIntegrationStatus(discovery)
+  const existing = selectPairingIntegration(current, workspaces, options, baselineIds)
+  const integrationUpdate = pairingIntegrationUpdate(existing, workspaces, options, baselineIds)
   const signedRequestBody = await signKeeperControllerRequest(profile, discovery, "lighthouse-pairing-offer", {
-    body: { scopes, policy: { futureBoards: options.futureBoards, baselineWorkspaceIds: baselineIds } },
+    body: { scopes, policy: { futureBoards: options.futureBoards, baselineWorkspaceIds: baselineIds },
+      ...(integrationUpdate ? { integrationUpdate } : {}) },
   })
   const transcriptHash = await sha256Base64Url(new TextEncoder().encode(canonicalizeJson(signedRequestBody.signed.payload)))
   const result = await request<{
@@ -416,8 +472,10 @@ export async function beginKeeperPairing(discovery: LighthouseDiscovery, workspa
   { ...challengeEnvelope, operatorUrl: result.operatorUrl }, transcriptHash)
   return { ...verified, comparisonCode: result.comparisonCode, expiresAt: result.expiresAt, transcriptHash,
     controllerFingerprint: await publicKeyFingerprint(profile.identity.publicKey), discovery,
+    integrationSettingsSupported: current.integrationSettingsSupported,
     workspaces: workspaces.map(workspace => ({ ...workspace })), futureBoards: options.futureBoards,
-    futureBoardBaselineIds: baselineIds, serviceGrantFloors }
+    futureBoardBaselineIds: baselineIds, expectedIntegrationRevision: existing?.revision,
+    integrationUpdate, serviceGrantFloors }
 }
 
 export async function decideKeeperPairing(pairing: KeeperPairing, approve: boolean): Promise<void> {
@@ -431,9 +489,13 @@ export async function decideKeeperPairing(pairing: KeeperPairing, approve: boole
   await request(`${pairing.discovery.origin}/v1/pairings/${encodeURIComponent(pairing.pairingId)}/decision`, { method: "POST", body: JSON.stringify(signed) })
 }
 
-export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation: WorkspaceJoinInvitation): Promise<KeeperPairingStatus> {
+export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation?: WorkspaceJoinInvitation): Promise<KeeperPairingStatus> {
   let body = provisionRequests.get(pairing)
   if (!body) {
+    const policyOnly = pairing.integrationUpdate?.policyOnly === true
+    if (policyOnly !== (pairing.workspaces.length === 0) || (policyOnly && invitation)) {
+      throw new Error("Policy-only approval cannot include workspace invitations.")
+    }
     const profile = await bootstrapIdentity()
     const approvedScopes = pairing.workspaces.map(workspace => ({ workspaceId: workspace.id, mode: "replicate" }))
     const signed = await signKeeperControllerRequest(profile, pairing.discovery, "lighthouse-pairing-provision", {
@@ -444,7 +506,9 @@ export async function deliverKeeperInvitation(pairing: KeeperPairing, invitation
         approvedScopes,
         futureBoards: pairing.futureBoards === true,
         baselineWorkspaceIds: pairing.futureBoardBaselineIds,
-        invitation,
+        ...(pairing.integrationUpdate ? { integrationUpdate: pairing.integrationUpdate } : {}),
+        ...(policyOnly ? { policyOnly: true } : {}),
+        ...(invitation ? { invitation } : {}),
       },
     })
     body = JSON.stringify(signed)

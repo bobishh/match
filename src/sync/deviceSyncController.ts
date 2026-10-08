@@ -187,10 +187,6 @@ export class DeviceSyncController {
     await (await this.ensureDurableMesh())?.addOwnerWorkspace(workspaceId)
   }
 
-  private async fetchBlob(workspaceId: string, descriptor: BlobDescriptor): Promise<Uint8Array | undefined> {
-    return (await this.ensureDurableMesh())?.fetchBlob(workspaceId, descriptor)
-  }
-
   private async shutdown() {
     this.run += 1
     this.wakeRetry?.()
@@ -212,11 +208,7 @@ export class DeviceSyncController {
     await direct?.close()
   }
 
-  private removeKeeper(personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]): Promise<"removed" | "pending"> {
-    return this.keeperOperations.remove(personId, { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value,
-      workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.(),
-      discovery, knownServiceDeviceIds, peers: () => this.state.meshPeers.value, changed: () => { this.state.ownershipRevision.value++ } })
-  }
+  private keeperOperationOptions() { return { getProfile: () => this.getProfile(), workspaces: this.availableWorkspaces.value, workspaceOwner: this.workspaceOwner, mesh: () => this.ensureDurableMesh(), activeWorkspaceId: this.activeWorkspaceId?.(), changed: () => { this.state.ownershipRevision.value++ }, peers: () => this.state.meshPeers.value } }
 
   private async withActiveWorkspace(action: (workspaceId: string, mesh: DurableMesh) => Promise<void>, changeOwnership = false) {
     const workspaceId = this.activeWorkspaceId?.()
@@ -534,11 +526,16 @@ export class DeviceSyncController {
         stop: () => this.stopLiveSync(), resetMesh: async () => { await (this.durableMesh ?? await this.durableMeshPromise)?.dispose(); this.durableMesh = undefined; this.durableMeshPromise = undefined },
         identityChanged: this.identityChanged, refreshProfile: () => this.getProfile(), join: () => this.acceptWorkspaceJoin() }),
       joinFromLocation: (raw: string) => isWorkspacePairingLocation(raw, url => { void this.prepareJoin(url) }), startDurableMesh: () => this.startDurableMesh(), stopLiveSync: () => this.stopLiveSync(), addOwnerWorkspace: (id: string) => this.addOwnerWorkspace(id),
-      fetchBlob: (workspaceId: string, descriptor: BlobDescriptor) => this.fetchBlob(workspaceId, descriptor),
+      fetchBlob: async (workspaceId: string, descriptor: BlobDescriptor) => (await this.ensureDurableMesh())?.fetchBlob(workspaceId, descriptor),
       ...deviceManagementActions(() => this.ensureDurableMesh(), this.availableWorkspaces, this.state.ownershipRevision),
       promotePeer: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.promotePerson(id, personId), true),
       shutdown: () => this.shutdown(), revokePeer: (personId: string) => this.revokePeer(personId),
-      removeKeeper: (personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]) => this.removeKeeper(personId, discovery, knownServiceDeviceIds),
+      removeKeeper: (personId: string, discovery?: LighthouseDiscovery, knownServiceDeviceIds?: string[]) =>
+        this.keeperOperations.remove(personId, { ...this.keeperOperationOptions(), discovery, knownServiceDeviceIds }),
+      updateKeeperSettings: (personId: string, futureBoards: boolean, removeWorkspaceIds: string[]) =>
+        this.keeperOperations.updateSettings(personId, futureBoards, removeWorkspaceIds, this.keeperOperationOptions()),
+      beginPolicyUpdate: async (personId: string, baselineWorkspaceIds: string[]) =>
+        (await import("./keeperPolicyUpdate")).beginKeeperPolicyUpdate(personId, baselineWorkspaceIds),
       transferOwnership: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.transferOwnership(id, personId), true),
       setSuccessor: (personId: string | null) => this.withActiveWorkspace((id, mesh) => mesh.setSuccessor(id, personId)), voteForSuccessor: (personId: string) => this.withActiveWorkspace((id, mesh) => mesh.voteForSuccessor(id, personId)),
       claimSuccession: () => this.withActiveWorkspace((id, mesh) => mesh.claimSuccession(id), true),

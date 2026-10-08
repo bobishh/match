@@ -1,6 +1,8 @@
 import { createKeeperWorkspaceHost, type WorkspaceHostContext } from "./deviceSyncHost"
-import type { KeeperDisconnectScope, KeeperIntegrationStatus, KeeperPairing, KeeperPairingStatus } from "./lighthousePairing"
+import type { KeeperDisconnectScope, KeeperPairing, KeeperPairingStatus } from "./lighthousePairing"
 import type { KeeperDisconnectReceipt } from "./keeperIntegrationStatus"
+import type { KeeperIntegrationStatus, KeeperSettingsScope, KeeperSettingsReceipt } from "./keeperIntegrationStatus"
+import type { updateKeeperIntegrationSettings } from "./keeperIntegrationSettingsApi"
 import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { keeperIntegrationReferences, ownerKeepers, removeOwnerKeeper, saveKeeperIntegrationReference, saveOwnerKeeper, type KeeperDetails } from "./ownerKeeper"
 import type { LocalProfile } from "../domain/identity"
@@ -320,6 +322,113 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   return result
 }
 
+export async function updateKeeperIntegrationAccess(personId: string, futureBoards: boolean,
+  removeWorkspaceIds: string[], options: RemovalOptions): Promise<"updated" | "pending"> {
+  const context = await integrationSettingsContext(personId, options)
+  const { profile, reference, discovery, integration, pending } = context
+  const { scopes, liveScopes } = integrationSettingsScopes(integration, pending, removeWorkspaceIds)
+  const desiredFutureBoards = pending?.futureBoards ?? futureBoards
+  const operationId = pending?.operationId ?? (await import("./lighthousePairing")).newKeeperOperationId()
+  const expectedRevision = pending?.expectedRevision ?? integration.revision
+  if (!pending) await assertOwnedIntegrationSettings(liveScopes, profile.identity.personId, options)
+  const { keeperIntegrationSettingsRequestHash, updateKeeperIntegrationSettings } = await import("./keeperIntegrationSettingsApi")
+  const requestHash = pending?.requestHash ?? await keeperIntegrationSettingsRequestHash(discovery,
+    reference.integrationId, expectedRevision, operationId, scopes, desiredFutureBoards)
+  const intent = pending ?? { operationId, expectedRevision, requestHash, futureBoards: desiredFutureBoards, scopes }
+  if (!pending) await saveKeeperIntegrationReference({ ...reference, pendingSettings: intent })
+  const receipt = await revokeAndSubmitSettings(personId, options, discovery, reference.integrationId,
+    expectedRevision, operationId, scopes, desiredFutureBoards, requestHash, updateKeeperIntegrationSettings)
+  if (receipt.status === "pending") return "pending"
+  await persistSettingsReceipt(profile, personId, discovery, reference, receipt)
+  return "updated"
+}
+
+async function integrationSettingsContext(personId: string, options: RemovalOptions) {
+  const profile = await options.getProfile()
+  const { integrations } = await keeperIntegrationReferences()
+  const reference = keeperReferenceForPerson(integrations, personId)
+  if (!reference || reference.state !== "active") throw new Error("Keeper integration is not active.")
+  const discovery = options.discovery ?? cachedDiscovery({
+    origin: reference.serviceOrigin, boardIds: reference.workspaceIds, futureBoards: reference.futureBoards,
+    servicePersonId: reference.servicePersonId, serviceDeviceId: reference.serviceDeviceId,
+    servicePublicKey: reference.servicePublicKey, serviceCertificates: reference.serviceCertificates,
+  })
+  if (!discovery) throw new Error("Saved Rusty identity is unavailable. Reconnect before changing settings.")
+  const { getKeeperIntegrationStatus } = await import("./lighthousePairing")
+  const service = await getKeeperIntegrationStatus(discovery)
+  if (!service.integrationSettingsSupported) throw new Error("Rusty does not support signed integration settings.")
+  const integration = service.integrations.find(item => item.integrationId === reference.integrationId)
+  if (!integration) throw new Error("Rusty integration is missing from signed status.")
+  const pending = reference.pendingSettings
+  if (!pending && integration.revision !== reference.revision) throw new Error("Rusty settings changed. Reload and review the current boards.")
+  return { profile, reference, discovery, integration, pending }
+}
+
+function integrationSettingsScopes(integration: KeeperIntegrationStatus, pending: KeeperIntegrationReference["pendingSettings"],
+  removeWorkspaceIds: string[]): { scopes: KeeperSettingsScope[]; liveScopes: (KeeperIntegrationStatus["scopes"][number] | undefined)[] } {
+  const scopes = pending?.scopes ?? removeWorkspaceIds.map(workspaceId => {
+    const scope = integration.scopes.find(item => item.workspaceId === workspaceId)
+    if (!scope) throw new Error("Selected board is no longer active for this keeper.")
+    return { workspaceId, expectedGrantEpoch: scope.grantEpoch }
+  })
+  const liveScopes = scopes.map(requested => {
+    const scope = integration.scopes.find(item => item.workspaceId === requested.workspaceId)
+    if (scope?.grantEpoch === requested.expectedGrantEpoch) return scope
+    const tombstone = integration.tombstones.find(item => item.workspaceId === requested.workspaceId
+      && item.grantEpoch === requested.expectedGrantEpoch)
+    if (pending && tombstone?.operationId === pending.operationId) return undefined
+    throw new Error("A selected board grant changed. Reload settings.")
+  })
+  return { scopes, liveScopes }
+}
+
+async function assertOwnedIntegrationSettings(
+  liveScopes: (KeeperIntegrationStatus["scopes"][number] | undefined)[], ownerPersonId: string, options: RemovalOptions,
+) {
+  for (const scope of liveScopes.filter((item): item is NonNullable<typeof item> => !!item)) {
+    const owner = await options.workspaceOwner?.(scope.workspaceId)
+    if (owner !== ownerPersonId) throw new Error("Cannot change keeper access for a board you do not own.")
+  }
+}
+
+async function revokeAndSubmitSettings(personId: string, options: RemovalOptions, discovery: LighthouseDiscovery,
+  integrationId: string, expectedRevision: number, operationId: string, scopes: KeeperSettingsScope[],
+  futureBoards: boolean, requestHash: string,
+  update: typeof updateKeeperIntegrationSettings): Promise<KeeperSettingsReceipt> {
+  const mesh = await options.mesh()
+  if (!mesh && scopes.length) throw new Error("Workspace mesh unavailable. Keeper settings remain pending.")
+  for (const scope of scopes) await mesh!.revokePerson(scope.workspaceId, personId, scope.expectedGrantEpoch)
+  return update(discovery, integrationId,
+    expectedRevision, operationId, scopes, futureBoards, requestHash)
+}
+
+async function persistSettingsReceipt(profile: LocalProfile, personId: string, discovery: LighthouseDiscovery,
+  reference: KeeperIntegrationReference, receipt: KeeperSettingsReceipt) {
+  const { getKeeperIntegrationStatus } = await import("./lighthousePairing")
+  const currentStatus = await getKeeperIntegrationStatus(discovery)
+  const current = currentStatus.integrations.find(item => item.integrationId === reference.integrationId)
+  if (!current || current.revision < receipt.revision) throw new Error("Rusty settings status is older than the signed update receipt.")
+  const { integrations: latestReferences } = await keeperIntegrationReferences()
+  const latestLocal = latestReferences[reference.integrationId]
+  if (latestLocal && latestLocal.revision > current.revision) throw new Error("Rusty integration revision moved backwards. Local settings were preserved.")
+  const remaining = current.scopes
+  const nextReference: KeeperIntegrationReference = { ...(latestLocal ?? reference),
+    workspaceIds: remaining.map(scope => scope.workspaceId),
+    scopeReceipts: remaining.map(scope => ({ workspaceId: scope.workspaceId,
+      grantEpoch: scope.grantEpoch, activationOperationId: scope.activationOperationId })),
+    futureBoards: current.futureBoards, futureBoardBaselineIds: current.baselineWorkspaceIds,
+    integrationSettingsSupported: currentStatus.integrationSettingsSupported,
+    revision: current.revision, pendingSettings: undefined, verifiedAt: new Date().toISOString() }
+  await saveKeeperIntegrationReference(nextReference)
+  await saveOwnerKeeper(profile.identity.personId, { personId, role: "editor", details: {
+    origin: discovery.origin, boardIds: nextReference.workspaceIds, futureBoards: nextReference.futureBoards,
+    futureBoardBaselineIds: nextReference.futureBoardBaselineIds, integrationId: nextReference.integrationId,
+    servicePersonId: nextReference.servicePersonId, serviceDeviceId: nextReference.serviceDeviceId,
+    servicePublicKey: nextReference.servicePublicKey, serviceCertificates: nextReference.serviceCertificates,
+    revision: nextReference.revision,
+  } })
+}
+
 export function createKeeperProvisioner(
   ensureDurableMesh: () => Promise<unknown>,
   hostContext: () => WorkspaceHostContext,
@@ -329,7 +438,15 @@ export function createKeeperProvisioner(
   return async (pairing: KeeperPairing): Promise<KeeperPairingStatus> => {
     const pairingApi = await import("./lighthousePairing")
     const currentFloors = await pairingApi.refreshKeeperGrantFloors(pairing.discovery,
-      pairing.workspaces.map(workspace => workspace.id), pairing.serviceGrantFloors, pairing.integrationId)
+      pairing.workspaces.map(workspace => workspace.id), pairing.serviceGrantFloors,
+      pairing.integrationId)
+    if (pairing.integrationUpdate?.policyOnly === true) {
+      if (pairing.workspaces.length !== 0 || pairing.futureBoards !== true) {
+        throw new Error("Policy-only approval contains an unexpected scope or policy.")
+      }
+      pairing.serviceGrantFloors = currentFloors
+      return pairingApi.deliverKeeperInvitation(pairing)
+    }
     let invitationTask = invitationHosts.get(pairing.pairingId)
     const usedFloors = invitationGrantFloors.get(pairing.pairingId)
     if (usedFloors) assertKeeperGrantFloorsUnchanged(usedFloors, currentFloors, pairing.workspaces.map(workspace => workspace.id))

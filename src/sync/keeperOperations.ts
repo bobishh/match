@@ -8,6 +8,7 @@ type KeeperRemovalActionOptions = Omit<RemovalOptions, "workspaces"> & {
   peers: () => MeshPeerView[]
   changed: () => void
 }
+type KeeperSettingsActionOptions = KeeperRemovalActionOptions
 
 export function createKeeperOperations(ensureDurableMesh: () => Promise<unknown>, hostContext: () => WorkspaceHostContext) {
   let provisioner: ((pairing: KeeperPairing) => Promise<KeeperPairingStatus>) | undefined
@@ -42,6 +43,12 @@ export function createKeeperOperations(ensureDurableMesh: () => Promise<unknown>
       } finally {
         removalPersonId = ""
       }
+    },
+    async updateSettings(personId: string, futureBoards: boolean, removeWorkspaceIds: string[], options: KeeperSettingsActionOptions) {
+      const { updateKeeperIntegrationAccess } = await import("./deviceSyncKeeper")
+      const result = await updateKeeperIntegrationAccess(personId, futureBoards, removeWorkspaceIds, options)
+      options.changed()
+      return result
     },
   }
 }

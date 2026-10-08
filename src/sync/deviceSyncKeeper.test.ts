@@ -3,10 +3,11 @@ import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identi
 import { createPersonalRoot, registerWorkspaceInRoot } from "../domain/personalRoot"
 import { defaultStorage } from "../storage"
 import type { DurableMesh } from "./durableMesh"
-import { removeKeeperAccess } from "./deviceSyncKeeper"
+import { removeKeeperAccess, updateKeeperIntegrationAccess } from "./deviceSyncKeeper"
 import { ownerKeepers, saveOwnerKeeper } from "./ownerKeeper"
 import * as ownerKeeperStorage from "./ownerKeeper"
 import * as lighthousePairing from "./lighthousePairing"
+import * as integrationSettingsApi from "./keeperIntegrationSettingsApi"
 
 describe("keeper removal", () => {
   beforeEach(() => resetIdentityStorageForTest())
@@ -29,6 +30,7 @@ describe("keeper removal", () => {
         workspaceIds: scopeIds,
         scopeReceipts: scopeIds.map(workspaceId => ({ workspaceId, grantEpoch: 1, activationOperationId: "activation" })),
         futureBoards: false,
+        integrationSettingsSupported: true,
         futureBoardBaselineIds: scopeIds,
         revision: 1,
         state: "active",
@@ -149,8 +151,8 @@ describe("keeper removal", () => {
       { workspaceId: "board", grantEpoch: 1, operationId: "remove-op", state: "removed" as const, cleanup: "complete" as const },
     ] }
     const status = vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus")
-      .mockResolvedValueOnce({ integrations: [active], signerKeyId: "rusty-device", signature: "signed", revision: 1 })
-      .mockResolvedValue({ integrations: [removed], signerKeyId: "rusty-device", signature: "signed", revision: 2 })
+      .mockResolvedValueOnce({ integrations: [active], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 1 })
+      .mockResolvedValue({ integrations: [removed], integrationSettingsSupported: false, signerKeyId: "rusty-device", signature: "signed", revision: 2 })
     vi.spyOn(lighthousePairing, "disconnectKeeperIntegration").mockResolvedValue({
       integrationId: "integration", operationId: "remove-op", requestHash: "request-hash", revision: 2,
       status: "removed", scopes: [{ workspaceId: "board", grantEpoch: 1, state: "removed", cleanup: "complete" }],
@@ -172,6 +174,65 @@ describe("keeper removal", () => {
     expect(mesh.revokePerson).toHaveBeenCalledOnce()
     await expect(ownerKeepers(owner)).resolves.toEqual([])
     expect((await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration?.scopeReceipts).toEqual([])
+  })
+
+  it("retries every locally saved settings revocation with same signed request hash after a partial failure", async () => {
+    const { profile, owner, keeper, discovery } = await setupOwnerKeeper(["board-a", "board-b"])
+    const active = {
+      integrationId: "integration", revision: 1, futureBoards: true, baselineWorkspaceIds: ["board-a", "board-b"],
+      scopes: ["board-a", "board-b"].map(workspaceId => ({ workspaceId, grantEpoch: 9, state: "active" as const,
+        activationOperationId: `activation-${workspaceId}` })), tombstones: [],
+    }
+    const removed = { ...active, revision: 2, futureBoards: false, scopes: [], tombstones: [
+      { workspaceId: "board-a", grantEpoch: 9, operationId: "settings-op", state: "removed" as const, cleanup: "complete" as const },
+      { workspaceId: "board-b", grantEpoch: 9, operationId: "settings-op", state: "removed" as const, cleanup: "complete" as const },
+    ] }
+    const signedStatus = (integration: typeof active | typeof removed) => ({ integrations: [integration],
+      integrationSettingsSupported: true, signerKeyId: "rusty-device", signature: "signed", revision: integration.revision })
+    const status = vi.spyOn(lighthousePairing, "getKeeperIntegrationStatus")
+      .mockResolvedValueOnce(signedStatus(active) as never)
+      .mockResolvedValueOnce(signedStatus(active) as never)
+      .mockResolvedValueOnce(signedStatus(removed) as never)
+    const hash = vi.spyOn(integrationSettingsApi, "keeperIntegrationSettingsRequestHash").mockResolvedValue("stable-request-hash")
+    const update = vi.spyOn(integrationSettingsApi, "updateKeeperIntegrationSettings").mockResolvedValue({
+      integrationId: "integration", operationId: "settings-op", requestHash: "stable-request-hash", revision: 2,
+      status: "updated", futureBoards: false, baselineWorkspaceIds: [], scopes: [
+        { workspaceId: "board-a", grantEpoch: 9, state: "removed", cleanup: "complete" },
+        { workspaceId: "board-b", grantEpoch: 9, state: "removed", cleanup: "complete" },
+      ],
+    })
+    const revokePerson = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("board-b is temporarily unavailable"))
+      .mockResolvedValue(undefined)
+    const options = {
+      getProfile: async () => profile,
+      workspaces: [{ id: "board-a" }, { id: "board-b" }],
+      workspaceOwner: async () => owner,
+      mesh: async () => ({ revokePerson }) as unknown as DurableMesh,
+      discovery,
+    }
+
+    await expect(updateKeeperIntegrationAccess(keeper, false, ["board-a", "board-b"], options))
+      .rejects.toThrow("board-b is temporarily unavailable")
+    const pending = (await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration?.pendingSettings
+    expect(pending).toMatchObject({ requestHash: "stable-request-hash", futureBoards: false, scopes: [
+      { workspaceId: "board-a", expectedGrantEpoch: 9 }, { workspaceId: "board-b", expectedGrantEpoch: 9 },
+    ] })
+    expect(update).not.toHaveBeenCalled()
+
+    await expect(updateKeeperIntegrationAccess(keeper, false, ["board-a", "board-b"], options)).resolves.toBe("updated")
+    expect(revokePerson.mock.calls).toEqual([
+      ["board-a", keeper, 9], ["board-b", keeper, 9],
+      ["board-a", keeper, 9], ["board-b", keeper, 9],
+    ])
+    expect(hash).toHaveBeenCalledOnce()
+    expect(update.mock.calls[0]?.[3]).toBe(pending?.operationId)
+    expect(update.mock.calls[0]?.[6]).toBe("stable-request-hash")
+    expect(status).toHaveBeenCalledTimes(3)
+    const saved = (await ownerKeeperStorage.keeperIntegrationReferences()).integrations.integration
+    expect(saved).toMatchObject({ state: "active", workspaceIds: [], futureBoards: false, revision: 2 })
+    expect(saved?.pendingSettings).toBeUndefined()
   })
 
 })

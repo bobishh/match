@@ -15,6 +15,7 @@ import { meshTrace } from "./meshTrace"
 import { assertKeeperGrantGeneration, emptyRevocationGeneration, reconcilePriorPersonRevocation } from "./revocationGeneration"
 import { withWorkspaceMutation } from "../workspaceMutation"
 import { runKeeperRevocationActions } from "./keeperRevocationActions"
+import { nextKeeperRevocationEpoch } from "./keeperGrantEpoch"
 import { awaitOwnerDelivery, confirmedOwnershipSnapshot, createOwnershipProposal, mergeSuccessionState as mergeSuccessionStateInScope,
   ownershipTransfersWithPending, persistScopeAuthoritySnapshot, planOwnershipMerge, preflightScopeAuthoritySnapshot, publishConfirmedToSessions,
   type OwnershipMergePlan } from "./durableMeshOwnershipScope"
@@ -393,10 +394,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
         ownerPersonId: current?.ownerPersonId ?? null })
       await runKeeperRevocationActions(actions, {
         create: async () => {
-          const record = await createWorkspaceRevocation(profile, workspaceId, personId, await this.nextAccessEpoch(workspaceId), await this.readAuthorityHeads(workspaceId))
+          const revocationEpoch = nextKeeperRevocationEpoch(await this.nextAccessEpoch(workspaceId), expectedGrantEpoch)
+          const record = await createWorkspaceRevocation(profile, workspaceId, personId, revocationEpoch, await this.readAuthorityHeads(workspaceId))
           if (expectedGrantEpoch !== undefined && record.payload.epoch <= expectedGrantEpoch) throw new Error("Revocation did not advance beyond the issued keeper grant.")
-          meshTrace("authority.revoke.generation-created", { ...generation, newRevocationEpoch: record.payload.epoch })
-          return record
+          meshTrace("authority.revoke.generation-created", { ...generation, newRevocationEpoch: record.payload.epoch }); return record
         },
         merge: (record, disconnect) => this.mergeRevocations(current!, [record], disconnect),
         refresh: () => this.refreshSuccessionPolicy(workspaceId),

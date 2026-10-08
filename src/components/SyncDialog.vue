@@ -3,12 +3,13 @@ import RustyMark from "./RustyMark.vue"
 import { keeperDisplayName, isLighthouse, type MeshMemberView } from "../ui/deviceInfo"
 import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
-import KeeperDiscovery from "./KeeperDiscovery.vue"
 import type { KeeperPairing, KeeperPairingStatus, KeeperServiceDiscovery } from "../app/keeperApi"
 import ModalLayer from "./ModalLayer.vue"
 import WorkspaceFileActions from "./WorkspaceFileActions.vue"
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue"
 import type { SyncStep } from "../app/syncTypes"
+
+const KeeperDiscovery = defineAsyncComponent(() => import("./KeeperDiscovery.vue") as Promise<{ default: Component }>)
 
 const props = defineProps<{
   pendingJoins?: { id: string; name: string; personId: string; role: "visitor" | "editor"; ownerConnectionRequested?: boolean; followOwner?: boolean }[]
@@ -29,6 +30,7 @@ const props = defineProps<{
   provisionKeeper: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
   cancelKeeper: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled">
   removeKeeper?: (personId: string, discovery?: KeeperServiceDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
+  beginPolicyUpdate?: (personId: string, baselineWorkspaceIds: string[]) => Promise<KeeperPairing>
   selectedWorkspaceIds?: string[]
   selectedWorkspaceId?: string
   meshMembers?: MeshMemberView[]
@@ -219,6 +221,8 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
           :provision-keeper="provisionKeeper"
           :cancel-keeper="cancelKeeper"
           :remove-keeper="currentRole === 'owner' ? removeKeeper : undefined"
+          :begin-policy-update="currentRole === 'owner' ? beginPolicyUpdate : undefined"
+          :active-workspace-id="activeWorkspaceId"
           @view-change="keeperView = $event"
         />
         <template v-if="keeperView === 'list'">

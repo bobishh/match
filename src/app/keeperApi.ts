@@ -41,6 +41,19 @@ export const keeperApi = {
     const { integrations } = await keeperIntegrationReferences()
     const reference = Object.values(integrations).find(item => item.servicePersonId === personId && item.state !== "removed")
     if (!reference) return details ?? null
+    let integrationSettingsSupported = reference.integrationSettingsSupported
+    if (integrationSettingsSupported !== true) {
+      try {
+        const discovery = await discoverLighthouse(reference.serviceOrigin)
+        const status = await getKeeperIntegrationStatus(discovery)
+        integrationSettingsSupported = status.integrationSettingsSupported
+          && status.integrations.some(integration => integration.integrationId === reference.integrationId)
+        await import("../sync/ownerKeeper").then(({ saveKeeperIntegrationReference }) =>
+          saveKeeperIntegrationReference({ ...reference, integrationSettingsSupported }))
+      } catch {
+        // A saved integration remains viewable while its service is unavailable.
+      }
+    }
     const fromRoot: KeeperDetails = {
       origin: reference.serviceOrigin,
       boardIds: reference.workspaceIds,
@@ -52,6 +65,7 @@ export const keeperApi = {
       servicePublicKey: reference.servicePublicKey,
       serviceCertificates: reference.serviceCertificates,
       revision: reference.revision,
+      integrationSettingsSupported,
       removalPending: reference.state === "removing" || Boolean(reference.pendingRemoval),
     }
     return { ...details, ...fromRoot }
@@ -71,5 +85,9 @@ export const keeperApi = {
         verifiedAt: new Date().toISOString(),
       }))
     return [...descriptors, ...legacy]
+  },
+  async activeIntegrationReferences() {
+    const { integrations } = await keeperIntegrationReferences()
+    return Object.values(integrations).filter(reference => reference.state === "active" && !reference.pendingRemoval)
   },
 }

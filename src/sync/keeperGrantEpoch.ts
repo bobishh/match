@@ -1,8 +1,11 @@
 import type { KeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
 /** Highest signed service grant epoch, active or removed, for each selected workspace. */
-export function keeperServiceGrantFloors(integrations: KeeperIntegrationStatus[], workspaceIds: string[],
-  excludeActiveIntegrationId?: string) {
+export function keeperServiceGrantFloors(
+  integrations: KeeperIntegrationStatus[],
+  workspaceIds: string[],
+  excludeActiveIntegrationId?: string,
+) {
   const floors: Record<string, number> = {}
   for (const workspaceId of workspaceIds) {
     floors[workspaceId] = Math.max(0, ...integrations.flatMap(integration => {
@@ -27,4 +30,10 @@ export function nextKeeperGrantEpoch(localNextEpoch: number, serviceFloor: numbe
     throw new Error("Keeper grant epoch floor is invalid.")
   }
   return Math.max(localNextEpoch, serviceFloor + 1)
+}
+
+export function nextKeeperRevocationEpoch(localNextEpoch: number, serviceFloor?: number): number {
+  if (serviceFloor !== undefined) return nextKeeperGrantEpoch(localNextEpoch, serviceFloor)
+  if (!Number.isSafeInteger(localNextEpoch) || localNextEpoch < 1) throw new Error("Keeper revocation epoch is invalid.")
+  return localNextEpoch
 }

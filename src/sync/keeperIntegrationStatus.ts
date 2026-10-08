@@ -1,6 +1,17 @@
 import type { LighthouseDiscovery } from "./lighthouseDiscovery"
 
 export type KeeperDisconnectScope = { workspaceId: string; expectedGrantEpoch: number }
+export type KeeperSettingsScope = KeeperDisconnectScope
+export type KeeperSettingsReceipt = {
+  integrationId: string
+  operationId: string
+  requestHash: string
+  revision: number
+  status: "updated" | "pending"
+  futureBoards: boolean
+  baselineWorkspaceIds: string[]
+  scopes: Array<{ workspaceId: string; grantEpoch: number; state: "removed" | "pending"; cleanup: "complete" | "pending" }>
+}
 type KeeperIntegrationScope = {
   workspaceId: string
   grantEpoch: number

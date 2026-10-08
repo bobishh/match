@@ -49,5 +49,25 @@ describe("keeper owner grant generation", () => {
     expect(() => nextKeeperGrantEpoch(0, 4)).toThrow("Keeper grant epoch floor is invalid.")
     expect(() => nextKeeperGrantEpoch(2, Number.MAX_SAFE_INTEGER)).toThrow("Keeper grant epoch floor is invalid.")
     expect(() => nextKeeperGrantEpoch(2, Number.MAX_SAFE_INTEGER + 1)).toThrow("Keeper grant epoch floor is invalid.")
+    expect(() => nextKeeperGrantEpoch(2, Number.MAX_SAFE_INTEGER)).toThrow("Keeper grant epoch floor is invalid.")
+  })
+
+  it("Given an approved update to same integration, when rechecking its floor, then omits only its active scopes", () => {
+    const same: KeeperIntegrationStatus = {
+      integrationId: "same",
+      revision: 8,
+      futureBoards: true,
+      scopes: [{ workspaceId: "job-search", grantEpoch: 19, state: "active", activationOperationId: "active-19" }],
+      tombstones: [{ workspaceId: "job-search", grantEpoch: 12, state: "removed", cleanup: "complete", operationId: "removed-12" }],
+    }
+    const other: KeeperIntegrationStatus = {
+      ...same,
+      integrationId: "other",
+      scopes: [{ workspaceId: "job-search", grantEpoch: 14, state: "active", activationOperationId: "active-14" }],
+      tombstones: [{ workspaceId: "job-search", grantEpoch: 11, state: "removed", cleanup: "complete", operationId: "removed-11" }],
+    }
+
+    expect(keeperServiceGrantFloors([same, other], ["job-search"])).toEqual({ "job-search": 19 })
+    expect(keeperServiceGrantFloors([same, other], ["job-search"], "same")).toEqual({ "job-search": 14 })
   })
 })

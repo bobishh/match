@@ -61,6 +61,7 @@ export type KeeperIntegrationReference = {
   workspaceIds: WorkspaceId[]
   scopeReceipts?: Array<{ workspaceId: WorkspaceId; grantEpoch: number; activationOperationId: string }>
   futureBoards: boolean
+  integrationSettingsSupported?: boolean
   /** Owner scopes present before this integration was approved; never auto-offer these later. */
   futureBoardBaselineIds?: WorkspaceId[]
   revision: number
@@ -69,6 +70,13 @@ export type KeeperIntegrationReference = {
   pendingRemoval?: {
     operationId: string
     expectedRevision: number
+    scopes: Array<{ workspaceId: WorkspaceId; expectedGrantEpoch: number }>
+  }
+  pendingSettings?: {
+    operationId: string
+    expectedRevision: number
+    requestHash?: string
+    futureBoards: boolean
     scopes: Array<{ workspaceId: WorkspaceId; expectedGrantEpoch: number }>
   }
   completedRemoval?: {

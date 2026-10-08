@@ -15,6 +15,7 @@ export type KeeperDetails = {
   servicePublicKey?: string
   serviceCertificates?: unknown[]
   revision?: number
+  integrationSettingsSupported?: boolean
   removalPending?: boolean
   localRevocationComplete?: boolean
 }
