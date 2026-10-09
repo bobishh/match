@@ -10,6 +10,8 @@ import { sha256Base64Url } from "../domain/identity"
 import * as Automerge from "@automerge/automerge/slim"
 import { createLiveWorkspaceSession } from "@meta-uber/mesh-runtime"
 import { initializeAutomerge } from "../crdt"
+import { MeshNetworkError } from "@meta-uber/mesh-transport"
+import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -331,6 +333,26 @@ describe("incremental workspace control plane", () => {
 
 
 describe("rejected document isolation", () => {
+  it("Given an interrupted incoming stream, When the frame fails, Then its trace identifies a network failure", async () => {
+    clearMeshTrace()
+    const stream = { read: async () => { throw new MeshNetworkError("private peer endpoint") },
+      send: vi.fn(), closeSend: vi.fn(async () => {}) }
+    let accepted = false
+    const connection = { acceptStream: async () => {
+      if (accepted) return new Promise<never>(() => {})
+      accepted = true
+      return stream
+    }, close: vi.fn(), openStream: vi.fn() }
+    const session = liveAutomergeWorkspaceSync(connection, "secret", {
+      read: async () => new Uint8Array(), merge: vi.fn(), activate: vi.fn(),
+    }, "workspace", "local", "remote")
+    try {
+      await vi.waitFor(() => expect(meshTraceSnapshot()).toContainEqual(expect.objectContaining({
+        event: "workspace.frame.rejected", errorCode: "MeshNetworkError",
+      })))
+    } finally { await session.close() }
+  })
+
   it("Given blocked persistence, when authenticated heartbeat arrives, then liveness replies before any durable receipt", async () => {
     let saved!: () => void
     const pending = new Promise<void>(resolve => { saved = resolve })

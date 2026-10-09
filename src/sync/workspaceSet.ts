@@ -7,7 +7,7 @@ import { WorkspaceChangeRejected } from "./changeAuthorization"
 import { fromBase64Url, toBase64Url } from "../domain/identity"
 import { MeshNetworkError as SyncNetworkError } from "@meta-uber/mesh-transport"
 import { meshTrace } from "./meshTrace"
-import { safeDiagnostic } from "./safeDiagnostic"
+import { diagnosticErrorCode, safeDiagnostic } from "./safeDiagnostic"
 import { readProofPage, writeProofPage, clearProofPages } from "./proofPageCache"
 import { workspaceProofTransfer, exportWorkspaceProofs } from "./workspaceProofTransfer"
 import { serveOwnerOfferProofs } from "./ownerOfferProofs"
@@ -418,6 +418,7 @@ export function liveAutomergeWorkspaceSync(
       if (!stopped && frame.length > 0) await receive(responseStream, frame)
     } catch (error) {
       if (!stopped) meshTrace("document.response.failed", {
+        errorCode: diagnosticErrorCode(error),
         workspaceId: workspaceId, peerId: remoteDeviceId,
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
@@ -513,6 +514,7 @@ async function handleLiveWorkspaceStream(stream: DuplexStream, context: {
       } else await receive(stream, frame)
     } catch (error) {
       if (!context.isStopped()) meshTrace("workspace.frame.rejected", {
+        errorCode: diagnosticErrorCode(error),
         workspaceId: workspaceId, peerId: remoteDeviceId,
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
