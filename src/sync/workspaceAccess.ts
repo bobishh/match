@@ -4,9 +4,10 @@ import { canonicalizeJson } from "../domain/identity"
 import type { WorkspaceDocumentV2 } from "../domain/model"
 import type { WorkspaceRole } from "../domain/permissions"
 import { diagnoseStartupStep } from "./startupDiagnostics"
+import { telemetryConfig } from "./telemetryConfig"
 
 type Entry = { evidence: string; result: Promise<WorkspaceRole>; expires: number }
-export type AccessWorkerRequest = { id: number; input: Record<string, unknown> & { snapshot: Record<string, unknown> & { document: Uint8Array } } }
+export type AccessWorkerRequest = { id: number; diagnosticsEnabled?: boolean; input: Record<string, unknown> & { snapshot: Record<string, unknown> & { document: Uint8Array } } }
 const cache = new Map<string, Entry>()
 const jobs = new Map<number, { resolve(role: WorkspaceRole): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>()
 let worker: Worker | undefined
@@ -75,7 +76,7 @@ function offThread(input: AccessWorkerRequest["input"]): Promise<WorkspaceRole> 
         worker.onmessageerror = () => fail(new Error("Workspace access response unavailable"))
       }
       jobs.set(id, { resolve, reject, timer: setTimeout(() => fail(new Error("Workspace access worker timed out")), 60_000) })
-      worker.postMessage({ id, input } satisfies AccessWorkerRequest, [input.snapshot.document.buffer as ArrayBuffer])
+      worker.postMessage({ id, input, diagnosticsEnabled: telemetryConfig().enabled } satisfies AccessWorkerRequest, [input.snapshot.document.buffer as ArrayBuffer])
     } catch (error) { fail(error instanceof Error ? error : new Error(String(error))); reject(error) }
   })
 }

@@ -105,21 +105,7 @@ export type IrohBrowserNodeOptions = {
 }
 
 export async function startIrohBrowserNode(secret?: Uint8Array, options: IrohBrowserNodeOptions = {}): Promise<IrohNode> {
-  if (secret !== undefined && secret.byteLength !== 32) {
-    throw new Error("Iroh node secret must be exactly 32 bytes")
-  }
+  if (secret !== undefined && secret.byteLength !== 32) throw new Error("Iroh node secret must be exactly 32 bytes")
   await initializePolicyBrowserRuntime()
-  const { default: transportInit, BrowserNode, WasmGossipEngine, setBrowserTransportDebugLogging } =
-    await import("@meta-uber/mesh-transport/transport-wasm")
-  await transportInit()
-  setBrowserTransportDebugLogging(options.verboseTransportLogging === true)
-  const node = await BrowserNode.start(secret)
-  return {
-    endpointId: node.endpointId,
-    createGossipEngine: () => new WasmGossipEngine(node.endpointId) as GossipStateMachine,
-    dial: endpoint => node.dial(endpoint),
-    dialRelay: endpoint => node.dialRelay(endpoint),
-    accept: () => node.accept(),
-    close: reason => node.close(reason),
-  }
+  return (await import("./irohNode")).startIrohBrowserNode(secret, options)
 }

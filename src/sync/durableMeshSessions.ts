@@ -6,7 +6,6 @@ import { BrowserMeshDialScheduler, BrowserMeshOutgoingHandshake, BrowserMeshSess
 import { adaptVerifiedWorkspaceAdvertisement, connectToDevice, type DeviceRoute } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { defaultProofStore } from "../domain/proofs"
-import { diagnosticErrorCode } from "./safeDiagnostic"
 import { requestBlob, respondToBlobRequest, type BlobDescriptor } from "@meta-uber/mesh-blob"
 import { verifyWorkspaceMemberBundle, type WorkspaceMemberBundle } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
@@ -151,12 +150,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         return
       }
       this.trace("dial.device.failed", {
-        errorCode: diagnosticErrorCode(error),
         peerId: peer.deviceId,
         workspaceId: peer.workspaceId,
         routes: peers.length,
         reason: error instanceof Error ? error.message : String(error),
-      }, "warn")
+      }, "warn", error)
       this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
       await this.notify()
     } finally {
@@ -239,8 +237,8 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       throw new MeshDialCancelled()
     }
     this.recordRouteFailure(key, error)
-    this.trace("dial.failed", { connectionId, peerId: peer.deviceId, errorCode: diagnosticErrorCode(error),
-      reason: error instanceof Error ? error.message : String(error) }, "warn")
+    this.trace("dial.failed", { connectionId, peerId: peer.deviceId,
+      reason: error instanceof Error ? error.message : String(error) }, "warn", error)
     if (!this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
     else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId })
     await connection?.close().catch(() => {})
@@ -261,8 +259,8 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       const session = liveAutomergeWorkspaceSync(input.connection, credential.transportSecret, this.options.workspaceStore,
         input.workspaceId, input.profile.device.deviceId, input.deviceId, error => {
           if (error) {
-            this.trace("document.rejected", { connectionId: input.connectionId, workspaceId: input.workspaceId, errorCode: diagnosticErrorCode(error),
-              peerId: input.deviceId, instanceId: input.instanceId, reason: error.message }, "warn")
+            this.trace("document.rejected", { connectionId: input.connectionId, workspaceId: input.workspaceId,
+              peerId: input.deviceId, instanceId: input.instanceId, reason: error.message }, "warn", error)
             this.report(stage, error)
           } else if (this.lastDiagnostic.startsWith(`${stage}:`)) {
             this.lastDiagnostic = ""

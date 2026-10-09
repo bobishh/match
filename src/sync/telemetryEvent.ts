@@ -1,4 +1,5 @@
 /* global __TINCANBAN_BUILD_COMMIT__ */
+import { diagnosticErrorCode } from "./failureDiagnostic"
 type TelemetryAttrs = Record<string, string | number | string[]>
 export type TelemetryEvent = {
   event_id: string; occurred_at: string; event: string; build: string
@@ -19,6 +20,7 @@ const numberAttrs: Record<string, string> = { attempt: "attempt", bytes: "bytes"
   previousEpoch: "previous_epoch", currentEpoch: "current_epoch", admitted: "admitted", pending: "pending", quarantined: "quarantined", operationCount: "operation_count" }
 function attributes(detail: Record<string, unknown>): TelemetryAttrs {
   const attrs: TelemetryAttrs = {}
+  if (detail.error !== undefined) attrs.error_code = diagnosticErrorCode(detail.error)
   for (const [key, [target, limit]] of Object.entries(stringAttrs)) { const value = diagnosticId(detail[key], limit); if (value) attrs[target] = value }
   for (const [key, target] of Object.entries(numberAttrs)) {
     const value = detail[key]

@@ -15,10 +15,11 @@ for (const status of [202, 503]) test(`Given startup debug and intake ${status},
   await page.reload()
   await expect(page.getByRole("button", { name: "Open workspaces", exact: true })).toBeEnabled({ timeout: 30000 })
   await expect.poll(() => events.slice(before).some(event => event.event === "startup.phase.completed" && event.attrs.stage === "start-sync")).toBe(true)
-  for (const stage of ["entry", "policy-wasm", "admission-worker-init", "automerge-wasm", "identity-load", "initial-workspace-load", "history-reclassification", "reclassify-admit-history", "workspace-projection", "personal-root-load", "start-sync", "access-active-workspace", "access-serialize", "access-policy", "access-current-owner", "access-ui-commit"]) {
+  for (const stage of ["entry", "policy-wasm", "admission-worker-init", "automerge-wasm", "identity-load", "initial-workspace-load", "history-reclassification", "reclassify-admit-history", "workspace-projection", "personal-root-load", "start-sync", "access-active-workspace", "access-serialize", "access-policy", "access-worker-wasm", "access-worker-decode", "access-worker-decide", "access-current-owner", "access-ui-commit"]) {
     expect(events.slice(before).some(event => event.event === "startup.phase.started" && event.operation === stage)).toBe(true)
   }
   expect(events.slice(before).find(event => event.event === "startup.phase.completed" && event.operation === "access-serialize")?.attrs.bytes).toBeGreaterThan(0)
+  expect(events.slice(before).find(event => event.event === "startup.phase.completed" && event.operation === "access-worker-wasm")?.attrs.bytes).toBeGreaterThan(0)
   expect(events.slice(before).find(event => event.attrs.stage === "entry")?.device_id).toBeTruthy()
   expect(JSON.stringify(events)).not.toContain("Safari/")
 })

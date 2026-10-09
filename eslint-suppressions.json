@@ -168,11 +168,6 @@
       "count": 5
     }
   },
-  "src/sync/workspaceAccessWorker.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
   "src/sync/workspaceAdmissionGuard.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1

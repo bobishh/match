@@ -249,8 +249,8 @@ export abstract class DurableMeshBase {
     return { workspaceId, deviceId, instanceId }
   }
 
-  protected trace(event: string, detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info") {
-    meshTrace(event, { runtimeId: this.runtimeId.slice(0, 8), runId: this.currentRunId, ...detail }, level)
+  protected trace(event: string, detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info", error?: unknown) {
+    meshTrace(event, { runtimeId: this.runtimeId.slice(0, 8), runId: this.currentRunId, ...detail }, level, error)
   }
 
   protected async traceSlowPhase<T>(phase: string, workspaceId: string,

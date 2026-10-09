@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { MeshNetworkError, MeshTerminalError } from "@meta-uber/mesh-transport"
-import { diagnosticErrorCode } from "./safeDiagnostic"
+import { diagnosticErrorCode } from "./failureDiagnostic"
 import { diagnosticEvent } from "./telemetryEvent"
 
 const context = { project: "tincanban", sessionId: "session", deviceId: "device", timestamp: Date.now(), level: "warn" }
@@ -15,7 +15,7 @@ describe("safe failure diagnostics", () => {
     [new AggregateError([new MeshNetworkError("private route"), new MeshTerminalError("private authority")]), "AggregateError"],
   ])("Given a typed failure, When telemetry encodes it, Then its code survives without private error content", async (error, code) => {
     const event = await diagnosticEvent("workspace.frame.rejected", {
-      errorCode: diagnosticErrorCode(error), reason: String(error),
+      error, reason: String(error),
     }, context)
     expect(event.attrs.error_code).toBe(code)
     expect(JSON.stringify(event)).not.toContain("private")
