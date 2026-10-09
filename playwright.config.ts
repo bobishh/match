@@ -33,7 +33,7 @@ export default defineConfig({
   workers: 1,
   retries: process.env.CI ? 1 : 0,
   projects: [
-    { name: "core", testIgnore: [...networkSpecs, "**/telemetry.spec.ts", "**/automation-production.spec.ts", "**/automation-worker.spec.ts", "**/rusty-connection.spec.ts"] },
+    { name: "core", testIgnore: [...networkSpecs, "**/telemetry.spec.ts", "**/startup-diagnostics.spec.ts", "**/automation-production.spec.ts", "**/automation-worker.spec.ts", "**/rusty-connection.spec.ts"] },
     { name: "mobile-webkit", testMatch: ["**/mobile-overlay-safe-area.spec.ts", "**/brand-layout.spec.ts", "**/mobile-large-history.spec.ts", "**/card-discuss-layout.spec.ts"], use: { browserName: "webkit" } },
     ...groupedNetworkSpecs.map(spec => ({
       name: spec.match(/([^/]+)\.spec\.ts$/)?.[1] ?? spec,

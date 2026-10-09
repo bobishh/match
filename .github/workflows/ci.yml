@@ -52,6 +52,7 @@ jobs:
           VITE_SYNC_TELEMETRY_LEVEL: ${{ vars.VITE_SYNC_TELEMETRY_LEVEL || 'all' }}
           VITE_SYNC_TELEMETRY_SAMPLE_RATE: ${{ vars.VITE_SYNC_TELEMETRY_SAMPLE_RATE || '1' }}
           VITE_SYNC_TELEMETRY_BATCH_SIZE: ${{ vars.VITE_SYNC_TELEMETRY_BATCH_SIZE || '50' }}
+          VITE_STARTUP_DIAGNOSTICS: ${{ vars.VITE_STARTUP_DIAGNOSTICS || '0' }}
         run: npm run quality:size
       - run: npm audit --audit-level=moderate
       - name: Seal checked build
@@ -197,6 +198,7 @@ jobs:
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e:policy
       - run: npx playwright test --reporter=list --project=mobile-webkit
+      - run: npx playwright test --reporter=list --config=playwright.startup.config.ts
       - uses: actions/upload-artifact@v6
         if: failure()
         with:

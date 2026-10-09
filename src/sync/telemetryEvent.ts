@@ -13,9 +13,10 @@ const stringAttrs: Record<string, [string, number]> = {
   phase: ["phase", 64], transport: ["transport", 64], mode: ["mode", 64], connectionId: ["connection_id", 160], peerId: ["peer_id", 160],
   kind: ["frame_kind", 64], recovery: ["recovery", 64], errorCode: ["error_code", 64], changeId: ["change_id", 160],
   stage: ["stage", 64],
+  browser: ["browser", 32], platform: ["platform", 32],
 }
 const numberAttrs: Record<string, string> = { attempt: "attempt", bytes: "bytes", peerCount: "peer_count", changeCount: "change_count",
-  previousEpoch: "previous_epoch", currentEpoch: "current_epoch", admitted: "admitted", pending: "pending", quarantined: "quarantined" }
+  previousEpoch: "previous_epoch", currentEpoch: "current_epoch", admitted: "admitted", pending: "pending", quarantined: "quarantined", operationCount: "operation_count" }
 function attributes(detail: Record<string, unknown>): TelemetryAttrs {
   const attrs: TelemetryAttrs = {}
   for (const [key, [target, limit]] of Object.entries(stringAttrs)) { const value = diagnosticId(detail[key], limit); if (value) attrs[target] = value }

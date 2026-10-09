@@ -1,0 +1,53 @@
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import type { TelemetryEvent } from "./telemetryEvent"
+
+type Batch = { events: TelemetryEvent[] }
+
+beforeEach(() => {
+  vi.resetModules()
+  vi.stubEnv("VITE_STARTUP_DIAGNOSTICS", "1")
+  vi.stubEnv("VITE_SYNC_TELEMETRY_URL", "https://collector.invalid/events")
+  vi.stubEnv("VITE_SYNC_TELEMETRY_BROWSER_KEY", "public-browser-fixture-key-0123456789")
+  vi.stubEnv("VITE_SYNC_TELEMETRY_LEVEL", "errors")
+  const values = new Map<string, string>()
+  vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) })
+  vi.stubGlobal("sessionStorage", { getItem: () => null, setItem: vi.fn() })
+  vi.stubGlobal("navigator", { onLine: true, userAgent: "iPhone Version/18.0 Mobile Safari/604.1" })
+})
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
+
+it("Given errors-only telemetry and a heavy startup step, When debug is enabled, Then the start checkpoint is acknowledged before computation and typed counts survive", async () => {
+  const order: string[] = []
+  const bodies: Batch[] = []
+  vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+    const body = JSON.parse(options.body)
+    bodies.push(body)
+    order.push(body.events[0].event)
+    return Response.json({ accepted: 1 })
+  }))
+  const { diagnoseStartupStep, setStartupDiagnosticDevice } = await import("./startupDiagnostics")
+  setStartupDiagnosticDevice("device-a")
+  expect(await diagnoseStartupStep("history-load", async () => { order.push("compute"); return 42 }, { operationCount: 312613, bytes: 135109, body: "private-body" })).toBe(42)
+  expect(order).toEqual(["startup.phase.started", "compute", "startup.phase.completed"])
+  expect(bodies[0].events[0]).toMatchObject({ device_id: "device-a", component: "startup", attrs: { stage: "history-load", operation_count: 312613, bytes: 135109, browser: "safari", platform: "ios" } })
+  expect(JSON.stringify(bodies)).not.toContain("private-body")
+})
+
+it("Given a startup failure, When the stage throws, Then diagnostics identify the stage and error type without transmitting raw error content", async () => {
+  const bodies: Batch[] = []
+  vi.stubGlobal("fetch", vi.fn(async (_url, options) => { bodies.push(JSON.parse(options.body)); return Response.json({ accepted: 1 }) }))
+  const { diagnoseStartupStep } = await import("./startupDiagnostics")
+  await expect(diagnoseStartupStep("policy-wasm", () => { throw new TypeError("private-token-in-message") })).rejects.toThrow("private-token-in-message")
+  expect(bodies.at(-1).events[0]).toMatchObject({ event: "startup.phase.failed", status: "error", attrs: { stage: "policy-wasm", error_code: "TypeError" } })
+  expect(JSON.stringify(bodies)).not.toContain("private-token")
+})
+
+it.each(["disabled", "opted-out", "collector-down"])("Given %s diagnostics, When startup runs, Then diagnostics cannot prevent local work", async mode => {
+  if (mode === "disabled") vi.stubEnv("VITE_STARTUP_DIAGNOSTICS", "0")
+  if (mode === "opted-out") localStorage.setItem("tincanban.telemetry.enabled.v1", "false")
+  const fetch = vi.fn().mockRejectedValue(new Error("offline"))
+  vi.stubGlobal("fetch", fetch)
+  const { diagnoseStartupStep } = await import("./startupDiagnostics")
+  await expect(diagnoseStartupStep("history-load", async () => "usable")).resolves.toBe("usable")
+  if (mode !== "collector-down") expect(fetch).not.toHaveBeenCalled()
+})

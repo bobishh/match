@@ -8,6 +8,7 @@ import { defaultStorage } from "./storage"
 import { withWorkspaceMutation } from "./workspaceMutation"
 import { stateRuntime } from "./stateContext"
 import { meshTrace } from "./sync/meshTrace"
+import { diagnoseStartupStep } from "./sync/startupDiagnostics"
 
 export async function assertWorkspaceWritesAllowed(workspaceId?: string): Promise<void> {
   if (!workspaceId) return
@@ -26,7 +27,7 @@ export async function reclassifyStoredWorkspace(workspaceId: string, storage = d
   const phase = async <T>(name: string, operation: () => Promise<T>): Promise<T> => {
     stage = name
     const phaseStartedAt = performance.now()
-    const result = await operation()
+    const result = await diagnoseStartupStep(`reclassify-${name}`, operation, { workspaceId })
     meshTrace("workspace.reclassify.phase", { workspaceId, stage: name,
       elapsedMs: Math.round(performance.now() - phaseStartedAt) })
     return result

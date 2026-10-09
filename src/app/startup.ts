@@ -1,3 +1,5 @@
+import { diagnoseStartupStep } from "../sync/startupDiagnostics"
+
 export type AppStartupStage = "runtime" | "storage" | "local-ui"
 
 export type AppStartupResult =
@@ -47,7 +49,7 @@ export async function runAppStartup(steps: AppStartupSteps): Promise<AppStartupR
   if (localUiFailure) return localUiFailure
 
   try {
-    if (!pairingOpened) await steps.startSync()
+    if (!pairingOpened) await diagnoseStartupStep("start-sync", steps.startSync)
     return { status: "ready" }
   } catch (syncError) {
     return { status: "ready", syncError }
@@ -77,7 +79,7 @@ async function runRequiredStage(stage: AppStartupStage, step: () => Promise<void
   const started = Date.now()
   console.info("[tincanban.startup]", stage, "start")
   try {
-    await step()
+    await diagnoseStartupStep(stage, step)
     console.info("[tincanban.startup]", stage, "done", Date.now() - started)
   } catch (error) {
     console.error("[tincanban.startup]", stage, "failed", error)

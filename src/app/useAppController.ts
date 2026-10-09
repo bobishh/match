@@ -8,6 +8,7 @@ import { useAppCore } from "./useAppCore"
 import { useMeshFavicon } from "../ui/useMeshFavicon"
 import { useWorkspaceWindowSelection } from "./useWorkspaceWindowSelection"
 import { warmWorkspaceAdmissionWorker } from "../sync/workspaceAdmissionClient"
+import { diagnoseStartupStep } from "../sync/startupDiagnostics"
 
 export function useAppController() {
   const core = useAppCore()
@@ -93,8 +94,8 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
     const startup = await runAppStartup({
       loadRuntime: async () => {
         const { initializePolicyBrowserRuntime } = await import("../iroh")
-        await initializePolicyBrowserRuntime()
-        if (navigator.onLine) await warmWorkspaceAdmissionWorker().catch(() => {})
+        await diagnoseStartupStep("policy-wasm", initializePolicyBrowserRuntime)
+        if (navigator.onLine) await diagnoseStartupStep("admission-worker-init", warmWorkspaceAdmissionWorker).catch(() => {})
       },
       prepareLocalState,
       openPairing: () => core.sync.joinFromLocation(window.location.href),

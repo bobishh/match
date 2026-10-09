@@ -38,6 +38,7 @@ import type { CausalReviewCallbacks } from "./stateCausalReviewLoader";
 import { assertWorkspaceWritesAllowed, reclassifyStoredWorkspace } from "./stateCausalAdmission";
 import { applyInjectedFixture } from "./stateInjectedFixture";
 import { canReuseAdmittedDocument } from "./sync/localAdmissionReuse";
+import { diagnoseStartupStep, setStartupDiagnosticDevice } from "./sync/startupDiagnostics";
 
 type ReadinessWaiter = {
   resolve: () => void;
@@ -92,9 +93,10 @@ export function updateReactiveState(
 export async function prepareLocalState(storage = defaultStorage): Promise<void> {
   try {
     console.info("[tincanban.startup] prepare", "automerge")
-    await initializeAutomerge();
+    await diagnoseStartupStep("automerge-wasm", initializeAutomerge);
     console.info("[tincanban.startup] prepare", "identity")
-    stateRuntime.currentProfile = await bootstrapIdentity();
+    stateRuntime.currentProfile = await diagnoseStartupStep("identity-load", bootstrapIdentity);
+    setStartupDiagnosticDevice(stateRuntime.currentProfile.device.deviceId);
     console.info("[tincanban.startup] prepare", "catalog")
     await refreshAvailableWorkspaces(storage);
   } catch (error) {
@@ -112,15 +114,15 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
   try {
     const profile = stateRuntime.currentProfile;
     if (!profile) throw new Error("Local identity is unavailable");
-    await migrateOwnedWorkspaces(storage, profile);
+    await diagnoseStartupStep("workspace-migrations", () => migrateOwnedWorkspaces(storage, profile));
     console.info("[tincanban.startup] hydrate", "workspace")
-    let doc = await loadInitialWorkspace(storage, profile);
-    const reclassified = await reclassifyStoredWorkspace(doc.id, storage);
+    let doc = await diagnoseStartupStep("initial-workspace-load", () => loadInitialWorkspace(storage, profile));
+    const reclassified = await diagnoseStartupStep("history-reclassification", () => reclassifyStoredWorkspace(doc.id, storage), { workspaceId: doc.id, operationCount: Automerge.stats(doc).numOps });
     doc = reclassified.doc ?? (await storage.loadWorkspaceDoc(doc.id))?.doc ?? doc;
-    updateReactiveState(doc);
-    await refreshCausalReview(storage, doc.id);
+    await diagnoseStartupStep("workspace-projection", () => updateReactiveState(doc), { workspaceId: doc.id });
+    await diagnoseStartupStep("causal-review", () => refreshCausalReview(storage, doc.id), { workspaceId: doc.id });
     console.info("[tincanban.startup] hydrate", "personal-root")
-    await initializePersonalRootCatalog(storage, profile);
+    await diagnoseStartupStep("personal-root-load", () => initializePersonalRootCatalog(storage, profile));
     applyInjectedFixture(updateReactiveState);
     console.info("[tincanban.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
