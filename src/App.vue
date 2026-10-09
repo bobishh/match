@@ -71,7 +71,7 @@ const {
   selectedItemHistory, editingItem, candidateParentsForMove,
 } = app.board
 const { sync, chat } = app.collaboration.device
-const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
+const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
 const { devicePresence, meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, activeSuccession,
   canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
@@ -251,6 +251,7 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
                 :search-query="cardNoteSearchMatch(item)?.query"
                 :search-match-index="cardNoteSearchMatch(item)?.index"
                 :can-edit-items="canEditItems"
+                :discussion="conversations.cardDiscussions.value.get(item.id)"
                 :moved="movedItemId === item.id"
                 :age-level="cardAgeFor(item, column)?.level"
                 :age-label="cardAgeFor(item, column)?.label"
@@ -477,8 +478,7 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
       :selected-workspace-id="sync.selectedWorkspaceId.value"
       :mesh-members="meshMembers"
       v-bind="{ activeWorkspaceId: activeWorkspace.id, localDeviceId: sync.localDeviceId.value,
-        removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value,
-         keeperOwnedWorkspaces, provisionKeeper: sync.provisionKeeperPairing, cancelKeeper: sync.cancelKeeperPairing, removeKeeper: sync.removeKeeper, beginPolicyUpdate: sync.beginPolicyUpdate }"
+        removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value }"
       :has-mesh="sync.meshPeers.value.some(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)" :current-person-id="chat.personId.value"
       :current-role="currentRole"
       :succession="activeSuccession"

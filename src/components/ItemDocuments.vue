@@ -81,7 +81,7 @@ async function openPreview(document: Document) {
   }
   if (!document.file) {
     previewError.value = document.localPath
-      ? "This legacy local path cannot be opened by the browser. Attach the file again."
+      ? "This local path cannot be opened by the browser. Attach the file again."
       : "No preview content is attached."
     return
   }

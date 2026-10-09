@@ -133,17 +133,16 @@ test("Given a saved active keeper, when verified removal succeeds, then row stay
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync" })
   await sync.getByRole("tab", { name: "Rusty", exact: true }).click()
-  await sync.getByText("Legacy Rusty connections", { exact: true }).click()
   await expect(sync.getByRole("button", { name: /Rusty keeper/ })).toHaveCount(0)
-  await expect(sync.getByText("No keepers connected to this board.")).toBeVisible()
+  await expect(sync.getByRole("button", { name: "Add Rusty", exact: true })).toBeVisible()
 })
 
 for (const scenario of [
-  { mode: "availability-available" as const, expected: "Keeper · Service available", dot: "service-available", width: 1280, screenshot: "keeper-service-available-desktop.png" },
-  { mode: "availability-unavailable" as const, expected: "Keeper · Service unreachable", dot: "service-unavailable", width: 360, screenshot: "keeper-service-unreachable-mobile.png" },
-  { mode: "availability-needs-review" as const, expected: "Keeper · Status needs review", dot: "service-checking", width: 1280, screenshot: "keeper-service-review-desktop.png" },
+  { mode: "availability-available" as const, width: 1280 },
+  { mode: "availability-unavailable" as const, width: 360 },
+  { mode: "availability-needs-review" as const, width: 1280 },
 ]) {
-  test(`Given saved Rusty integration, when signed status is ${scenario.mode}, then UI separates service state from P2P presence`, async ({ page }) => {
+  test(`Given saved protocol 1 integration ${scenario.mode}, when Sync opens, then current Rusty settings remain usable`, async ({ page }) => {
     await page.setViewportSize({ width: scenario.width, height: 800 })
     await page.goto("/")
     await page.evaluate(async mode => (await import("/e2e/support/keeperSettings.ts")).mountKeeperSettings(mode, false), scenario.mode)
@@ -153,15 +152,8 @@ for (const scenario of [
     } else await page.getByRole("button", { name: "Sync", exact: true }).click()
     const dialog = page.getByRole("dialog", { name: "Device sync" })
     await dialog.getByRole("tab", { name: "Rusty", exact: true }).click()
-    await dialog.getByText("Legacy Rusty connections", { exact: true }).click()
-    const list = dialog.getByRole("list", { name: "Keeper services" })
-    const keeper = list.getByRole("button", { name: /Rusty keeper/ })
-    await expect(keeper).toContainText(scenario.expected)
-    await expect(keeper.locator(".keeper-dot")).toHaveAttribute("data-state", scenario.dot)
-    await keeper.click()
-    const detailStatus = dialog.getByText(scenario.expected, { exact: false }).last()
-    await expect(detailStatus).toBeVisible()
-    await expect(dialog.locator(".keeper-panel-head h3")).toHaveText("Rusty keeper")
-    await dialog.screenshot({ path: test.info().outputPath(scenario.screenshot) })
+    await expect(dialog.getByRole("button", { name: "Add Rusty", exact: true })).toBeVisible()
+    await expect(dialog.getByRole("list", { name: "Keeper services" })).toHaveCount(0)
+    await dialog.screenshot({ path: test.info().outputPath(`rusty-settings-${scenario.width}-${scenario.mode}.png`) })
   })
 }

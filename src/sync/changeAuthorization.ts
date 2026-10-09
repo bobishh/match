@@ -7,6 +7,7 @@ import { type WorkspaceAuthority, type WorkspaceDeviceRevocation, type Workspace
   type WorkspaceSuccessionClaim } from "./meshRecords"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { mergeAuthorizationRecords, putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
+import { rememberWorkspaceAdmission, reusedWorkspaceAdmission } from "./workspaceAdmissionReuse"
 import { runWorkspaceAdmission } from "./workspaceAdmissionClient"
 import type { IncomingAuthorizationBundle, WorkspaceAdmissionResult, WorkspaceWriteAuthorityEvidence } from "./workspaceAdmissionCore"
 import { readWorkspaceSnapshot } from "../storageJournal"
@@ -296,7 +297,7 @@ function workspaceWriteAuthorityEvidence(doc: WorkspaceDocumentV2, authority: St
 }
 
 function assertSupportedAuthorityCatalog(catalog: { breakGlassClaims?: unknown[] } | undefined): void {
-  if ((catalog?.breakGlassClaims ?? []).length) throw new Error("Legacy break-glass authority is unsupported")
+  if ((catalog?.breakGlassClaims ?? []).length) throw new Error("Break-glass authority is unsupported")
 }
 
 async function incomingCredential(workspaceId: string): Promise<StoredWorkspaceAuthority | null> {
@@ -347,22 +348,34 @@ export async function evaluateIncomingWorkspaceAdmission(local: Automerge.Doc<Wo
   const rawRecords = (bundle.version === 1 ? bundle.records : bundle.pages.flat()) as Authorization[]
   const allRecords = mergeAuthorizationRecords([...await records(remote.id), ...priorEvidenceRecords], rawRecords)
   const combinedBundle: IncomingAuthorizationBundle = { version: 1, records: allRecords, authority: bundle.authority }
-  const rawDoc = local ? Automerge.merge(Automerge.clone(local), remote) : remote
-  const rawBytes = Automerge.save(rawDoc)
-  if (local) Automerge.free(rawDoc)
-  const plan = await runWorkspaceAdmission({ workspaceId: remote.id,
+  const { bytes: rawBytes, heads } = rawAdmissionSnapshot(local, remote)
+  // Causal admission uses signed change-time authority, not receiver wall time
+  // (meta-mesh causal_admission.rs). Include complete evidence and current rights.
+  const reuseKey = canonicalizeJson({ heads,
+    authorization: combinedBundle, knownAuthority, credential: frozenCredential })
+  const reused = reusedWorkspaceAdmission(remote.id, reuseKey)
+  const plan = reused ?? await runWorkspaceAdmission({ workspaceId: remote.id,
     // Admission workers transfer input buffers. Keep the original raw union
     // alive for atomic persistence and replication after the worker returns.
     local: undefined, remote: rawBytes.slice(),
     authorization: combinedBundle, knownAuthority,
     now: Date.now(),
   })
-  if (plan.profile) meshTrace("workspace.admission.profile", { workspaceId: remote.id, ...plan.profile })
+  if (reused) meshTrace("workspace.admission.reused", { workspaceId: remote.id, elapsedMs: Math.round(performance.now() - startedAt) })
+  else if (plan.profile) meshTrace("workspace.admission.profile", { workspaceId: remote.id, ...plan.profile })
   // Off-thread validation yields while control evidence can change. A result
   // verified against earlier rights cannot authorize a commit under new rights.
   const currentCredential = await incomingCredential(remote.id)
   traceAdmissionAuthority(remote.id, credential, currentCredential, frozenCredential, startedAt, plan)
-  return { ...plan, rawBytes, authorizationEvidence: plan.verifiedAuthorizations }
+  if (!reused) rememberWorkspaceAdmission(remote.id, reuseKey, plan)
+  return { ...structuredClone(plan), rawBytes, authorizationEvidence: structuredClone(plan.verifiedAuthorizations) }
+}
+
+function rawAdmissionSnapshot(local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>) {
+  if (!local || local === remote) return { bytes: Automerge.save(remote), heads: Automerge.getHeads(remote).sort() }
+  const merged = Automerge.merge(Automerge.clone(local), remote)
+  try { return { bytes: Automerge.save(merged), heads: Automerge.getHeads(merged).sort() } }
+  finally { Automerge.free(merged) }
 }
 
 function traceAdmissionAuthority(workspaceId: string, credential: StoredWorkspaceAuthority | null,

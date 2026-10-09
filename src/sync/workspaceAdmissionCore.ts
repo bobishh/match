@@ -105,9 +105,7 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   const policyMs = performance.now() - phaseStarted
   phaseStarted = performance.now()
   const changesByHash = new Map(Automerge.getChangesMetaSince(merged, []).map(change => [change.hash, change]))
-  const decodedChanges = Automerge.getAllChanges(merged).map(bytes => Automerge.decodeChange(bytes))
-  const operationsByHash = new Map(decodedChanges.map(decoded => [decoded.hash, decoded.ops]))
-  const objectParents = indexOperationParents(decodedChanges)
+  const { targetsByHash, objectParents, operationCount } = indexAdmissionOperations(Automerge.getAllChanges(merged))
   const actorByHash = new Map<string, string>()
   for (const authorization of plan.verifiedAuthorizations) {
     for (const hash of authorization.signed.payload.hashes) actorByHash.set(hash, authorization.signed.payload.personId)
@@ -118,7 +116,7 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
     if (decision.status.type !== "admitted") continue
     const change = changesByHash.get(decision.hash)
     if (change) {
-      const operations = operationsByHash.get(change.hash)
+      const operations = targetsByHash.get(change.hash)
       assertAdmittedTransition(merged, change, decision.status.role, actorByHash.get(change.hash), operations, objectParents)
     }
   }
@@ -144,7 +142,7 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   finally { Automerge.free(authorized) }
   return { profile: { loadMs, prepareMs, policyMs, indexMs, transitionsMs, resultMs: performance.now() - phaseStarted,
       changeCount: changesByHash.size, proofCount: incomingRecords.length, snapshotBytes: rawBytes.byteLength,
-      operationCount: decodedChanges.reduce((count, change) => count + change.ops.length, 0) },
+      operationCount },
     neededHashes: [...changesByHash.keys()],
     admittedHashes: plan.decisions.filter(decision => decision.status.type === "admitted").map(decision => decision.hash),
     // Only proofs the Rust verifier matched to a real raw change may enter the
@@ -161,7 +159,7 @@ function assertAdmittedTransition(
   change: ReturnType<typeof Automerge.getChangesMetaSince>[number],
   role: "owner" | "editor" | "visitor" | "automation",
   actorPersonId: string | undefined,
-  operations: ReturnType<typeof Automerge.decodeChange>["ops"] | undefined,
+  operations: readonly OperationTarget[] | undefined,
   objectParents: ReadonlyMap<string, { parentId: string; key: string }>,
 ): void {
   // Rust admission has already verified the owner-signed automation scope and
@@ -184,8 +182,33 @@ function assertAdmittedTransition(
   assertFullTransition(document, change, role, actorPersonId)
 }
 
+type OperationTarget = Pick<ReturnType<typeof Automerge.decodeChange>["ops"][number], "obj" | "key">
+
+/** Decode one change at a time; transition checks need targets, not text payloads. */
+export function indexAdmissionOperations(changes: Iterable<Uint8Array>) {
+  const objectParents = new Map<string, { parentId: string; key: string }>()
+  const targetsByHash = new Map<string, OperationTarget[]>()
+  let operationCount = 0
+  for (const bytes of changes) {
+    const decoded = Automerge.decodeChange(bytes)
+    operationCount += decoded.ops.length
+    for (const [id, parent] of indexOperationParents([decoded])) objectParents.set(id, parent)
+    const objects = new Map<string, Set<string>>()
+    const targets: OperationTarget[] = []
+    for (const { obj, key } of decoded.ops) {
+      let keys = objects.get(obj)
+      if (!keys) objects.set(obj, keys = new Set())
+      if (keys.has(key)) continue
+      keys.add(key)
+      targets.push({ obj, key })
+    }
+    targetsByHash.set(decoded.hash, targets)
+  }
+  return { objectParents, targetsByHash, operationCount }
+}
+
 export function touchedPathsForChange(
-  operations: ReturnType<typeof Automerge.decodeChange>["ops"] | undefined,
+  operations: readonly OperationTarget[] | undefined,
   objectParents: ReadonlyMap<string, { parentId: string; key: string }>,
 ): { rootKeys: Set<string>; entityIds: Set<string> } | undefined {
   if (!operations?.length) return undefined

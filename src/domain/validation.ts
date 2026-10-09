@@ -78,9 +78,9 @@ function validateArchiveReferences(doc: WorkspaceDocumentV2): CommandResult<neve
     if (board.archiveColumnId && (!archive || !("kind" in archive) || archive.kind !== "column" || archive.archivedAt || archive.placement.parentId !== board.id))
       return invalid(`entities.${board.id}.archiveColumnId`, "Archive column must identify an active column on this board")
     const legacy = Object.values(doc.entities).filter(entity => "kind" in entity && entity.kind === "column" && entity.archive === true && entity.placement.parentId === board.id && !entity.archivedAt)
-    if (legacy.length > 1) return invalid(`entities.${board.id}.archiveColumnId`, "Board has multiple legacy archive columns")
+    if (legacy.length > 1) return invalid(`entities.${board.id}.archiveColumnId`, "Board has multiple archive columns")
     if (board.archiveColumnId !== undefined && legacy.some(column => column.id !== board.archiveColumnId))
-      return invalid(`entities.${board.id}.archiveColumnId`, "Legacy archive marker conflicts with board archive reference")
+      return invalid(`entities.${board.id}.archiveColumnId`, "Archive marker conflicts with board archive reference")
   }
 }
 

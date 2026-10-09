@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises"
 import { beforeAll, describe, expect, it, vi } from "vitest"
 import { createWorkspaceDoc } from "../domain/seeds"
 import type { WorkspaceDocumentV2 } from "../domain/model"
-import { indexOperationParents, touchedPathsForChange } from "./workspaceAdmissionCore"
+import { indexOperationParents, touchedPathsForChange, indexAdmissionOperations } from "./workspaceAdmissionCore"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -12,6 +12,25 @@ beforeAll(async () => {
 })
 
 describe("workspace admission operation paths", () => {
+  it("Given long text history, When indexing admission, Then retain distinct object targets instead of character operations and preserve exact paths", () => {
+    let doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("compact-index", "Board", "owner", "blank"))
+    doc = Automerge.change(doc, draft => { draft.title = "x".repeat(10_000) })
+    const bytes = Automerge.getAllChanges(doc)
+    const decoded = bytes.map(change => Automerge.decodeChange(change))
+    const expectedParents = indexOperationParents(decoded)
+    const indexed = indexAdmissionOperations(bytes)
+    expect(indexed.objectParents).toEqual(expectedParents)
+    expect(indexed.operationCount).toBe(decoded.reduce((count, change) => count + change.ops.length, 0))
+    for (const change of decoded) {
+      const targets = indexed.targetsByHash.get(change.hash)!
+      expect(targets.length).toBeLessThanOrEqual(change.ops.length)
+      expect(targets.every(target => Object.keys(target).every(key => key === "obj" || key === "key"))).toBe(true)
+      expect(touchedPathsForChange(targets, indexed.objectParents)).toEqual(touchedPathsForChange(change.ops, expectedParents))
+    }
+    // Replacing Text touches its root property and its new Text object.
+    expect(indexed.targetsByHash.get(decoded.at(-1)!.hash)).toHaveLength(2)
+    Automerge.free(doc)
+  })
   it("attributes root Text updates and entity edits to exact paths", () => {
     let doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("path-test", "Board", "owner", "job-search"))
     const column = Object.values(doc.entities).find(entity => entity.kind === "column")!

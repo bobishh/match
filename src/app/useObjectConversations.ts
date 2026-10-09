@@ -1,5 +1,6 @@
+import { itemDiscussions } from "../chat/itemDiscussions"
 import { itemReferenceChoices } from "../chat/referenceChoices"
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue"
 import type { useAppController } from "./useAppController"
 import { conversationMessages, conversationRoot, type Anchor, type MessageContext } from "../chat/context"
 import { getChatScope } from "../chat/service"
@@ -24,15 +25,13 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
   const { navigate, dismiss: dismissLink } = createMessageNavigation(app, discussions, navigationState, linkedMessageId)
   const workspaceId = computed(() => app.workspace.activeWorkspace.id)
   const currentDiscussions = computed(() => discussions.value.filter(view => view.workspaceId === workspaceId.value))
+  const cardDiscussions = computed(() => itemDiscussions(app.collaboration.device.chat.messages.value,
+    scope.value, app.workspace.activeBoard.value?.id ?? ""))
   const fieldTitles = computed(() => Object.fromEntries<string>([
     ["title", "Title"], ["narrative", "Description"], ["overview", "Overview"],
     ...app.workspace.boardFields.value.map(field => [field.id, field.title] as const),
   ]))
-  const referenceChoices = computed(() => itemReferenceChoices(
-    Object.values(app.workspace.getActiveDoc()?.entities ?? {}).filter((entity): entity is Item => isItem(entity) && !isItemArchived(entity)),
-    app.workspace.boardFields.value, scope.value, app.workspace.activeBoard.value?.id ?? "",
-    app.workspace.activeBoard.value?.preset?.bindings["field.notes"],
-  ))
+  const referenceChoices = createReferenceChoices(app, scope)
 
   async function discuss(itemId: string, fieldId?: string, selected?: Anchor["selection"]) {
     const requestedWorkspace = workspaceId.value
@@ -134,7 +133,15 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
     try { const next = await getChatScope(id); if (id === workspaceId.value) scope.value = next } catch { /* workspace not available yet */ }
   }, { immediate: true })
   registerConversationListeners({ navigate: () => { void navigate() }, captureSelection, contextual, dismissContext, menuKey, clear: () => highlighter.clear() })
-  return { scope, currentDiscussions, fieldTitles, referenceChoices, selection, contextMenu, sourceState, navigationState, linkedMessageId, discuss, selectedDiscuss, contextualDiscuss, messages, close, openReference, openThread, openCard, navigate, dismissLink }
+  return { scope, currentDiscussions, cardDiscussions, fieldTitles, referenceChoices, selection, contextMenu, sourceState, navigationState, linkedMessageId, discuss, selectedDiscuss, contextualDiscuss, messages, close, openReference, openThread, openCard, navigate, dismissLink }
+}
+
+function createReferenceChoices(app: ReturnType<typeof useAppController>, scope: Ref<string>) {
+  return computed(() => itemReferenceChoices(
+    Object.values(app.workspace.getActiveDoc()?.entities ?? {}).filter((entity): entity is Item => isItem(entity) && !isItemArchived(entity)),
+    app.workspace.boardFields.value, scope.value, app.workspace.activeBoard.value?.id ?? "",
+    app.workspace.activeBoard.value?.preset?.bindings["field.notes"],
+  ))
 }
 
 function registerConversationListeners(handlers: {

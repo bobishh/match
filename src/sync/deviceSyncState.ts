@@ -84,7 +84,7 @@ export function formatSyncError(err: unknown, fallback: string) {
 
 export function userMessage(err: unknown, fallback: string) {
   const message = formatSyncError(err, fallback)
-  if (/break-glass authority|legacy workspace authority/i.test(message)) return `This board has unsupported legacy ownership. Invite only an independent imported copy of the board. Details: ${message}`
+  if (/break-glass authority|legacy workspace authority/i.test(message)) return `This board has unsupported ownership. Invite only an independent imported copy of the board. Details: ${message}`
   if (/Workspace was archived in another tab/i.test(message)) return `This board was archived on this device. Rejoining cannot restore that local copy yet. Use a new board or a fresh browser profile. Details: ${message}`
   if (message === "Invalid pairing link" || message === "This pairing link is invalid.") return "This pairing link is invalid."
   if (/This invitation has expired/i.test(message)) return "This invitation has expired."

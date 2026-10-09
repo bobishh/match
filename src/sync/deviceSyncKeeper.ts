@@ -157,8 +157,8 @@ function traceRemoval(trace: RemovalOptions["trace"], event: string, detail: Rec
 
 function removalSource(reference: KeeperIntegrationReference | undefined, legacyKeeper: Awaited<ReturnType<typeof ownerKeepers>>[number] | undefined) {
   if (reference) return "integration-reference"
-  if (legacyKeeper?.details?.boardIds?.length) return "legacy-saved"
-  return "legacy-current-workspaces"
+  if (legacyKeeper?.details?.boardIds?.length) return "saved"
+  return "current-workspaces"
 }
 
 function keeperReferenceForPerson(integrations: Record<string, KeeperIntegrationReference>, personId: string,

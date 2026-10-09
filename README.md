@@ -17,7 +17,8 @@ second device and keep working across both.
 - Work locally, then synchronize with another online device.
 - Share selected boards with an editor or a read-only visitor.
 - Inspect item history and restore an earlier version without erasing history.
-- Discuss a card from its chat icon on hover/focus, select text for a quoted
+- Cards with saved messages show a count on their permanent chat icon. Open the
+  discussion from the icon; empty cards offer it on hover/focus. Select text for a quoted
   discussion, or right-click a card/field for the app's context menu. References
   return to their source. Reply opens a thread; workspace chat shows reply counts
   and collapsed read-only previews with Open controls. Item, discussion, and chat
@@ -59,17 +60,16 @@ The header tooltip reports devices and Rusty separately. **Sync → Rusty** show
 each server's actual state and last successful sync in this tab. Saved settings
 alone never count as connected. Reduced motion disables reconnecting animation.
 
-Standalone Rusty now uses **Sync → Blind Rusty** and protocol 2 encrypted object
+Standalone Rusty now uses **Sync → Rusty** and protocol 2 encrypted object
 storage. Its service key signs storage receipts; it receives no readable board
 invitation, content key, or Editor/Visitor application grant. Board history and
 chat are encrypted by clients, which still verify authorizations before merging.
 See [keeper service](../mesh-lighthouse/README.md) for setup and migration.
 
-The old **Add keeper** flow remains for legacy readable protocol 1 services.
-Those services use board invitations and application roles; they must not be
-presented as blind replicas. Existing deployments and grants require explicit
-migration to a fresh storage volume. Private keys and attachment replication are
-not automatically transferred to the new service.
+Readable protocol 1 services are no longer configurable in the application UI.
+Existing deployments and grants require explicit migration to a fresh storage
+volume. Private keys and attachment replication are not automatically transferred
+to the new service.
 
 The [demo guide](docs/demo.md) covers offline edits, attachments, and what to explain
 when showing the project.
@@ -308,7 +308,7 @@ contains the detailed feature and tool catalog.
 
 ### Blind Rusty storage
 
-The standalone `../mesh-lighthouse` service now runs protocol 2 opaque storage. In **Sync → Blind Rusty**, a board owner supplies the HTTPS origin and operator token. The browser generates the reading key locally and replicates encrypted board history, authorization proofs, and chat. Rusty receives no readable board invitation or application grant. Receivers still enforce signed causal admission. Attachments use existing device sync.
+The standalone `../mesh-lighthouse` service now runs protocol 2 opaque storage. In **Sync → Rusty**, a board owner supplies the HTTPS origin and operator token. The browser generates the reading key locally and replicates encrypted board history, authorization proofs, and chat. Rusty receives no readable board invitation or application grant. Receivers still enforce signed causal admission. Attachments use existing device sync.
 
 Private access files contain reading keys and storage tokens; transfer them privately to devices already authorized for the board. Settings are local to the identity on this device. Local disconnection does not revoke other storage credentials. Old plaintext Keeper volumes fail closed and require a fresh storage directory plus explicit client migration; old Keeper board grants must be revoked separately. Setup, quotas, storage-token revocation, and container configuration: [Rusty README](../mesh-lighthouse/README.md).
 

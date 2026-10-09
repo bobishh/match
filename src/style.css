@@ -108,8 +108,9 @@
 .card-main, .card-context, .card-activity-age { position: relative; z-index: 2; pointer-events: none; }
 .card-chat-action { position: absolute; right: 8px; bottom: 8px; z-index: 3; display: grid; place-items: center; width: 36px; height: 36px; padding: 6px; border: 2px solid var(--line); background: var(--panel); cursor: pointer; opacity: 0; pointer-events: none; }
 .card-chat-action svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.lead-card:hover .card-chat-action, .lead-card:focus-within .card-chat-action { opacity: 1; pointer-events: auto; }
+.card-chat-action.has-discussion, .lead-card:hover .card-chat-action, .lead-card:focus-within .card-chat-action { opacity: 1; pointer-events: auto; }
 @media (hover: none) { .card-chat-action { opacity: 1; pointer-events: auto; } }
+.card-discussion-count { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 3px; border: 1px solid var(--line); border-radius: 50%; background: var(--yellow); color: var(--ink); font: 700 .65rem/1 var(--site-font-sans); pointer-events: none; }
 .card-layout [data-discussion-text] { pointer-events: auto; cursor: text; user-select: text; -webkit-user-select: text; }
 .card-activity-age { display: block; margin-top: 11px; color: var(--muted); font: 700 .8rem/1.25 var(--site-font-sans); letter-spacing: .02em; }
 .lead-card:active { cursor: grabbing; opacity: .55; }

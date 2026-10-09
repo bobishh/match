@@ -123,7 +123,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
           indexedDB.databases(),
           new Promise<never>((_, reject) => {
             timeout = setTimeout(() => {
-              const error = new Error("Legacy storage enumeration did not complete")
+              const error = new Error("Storage enumeration did not complete")
               error.name = "LegacyJournalEnumerationTimeoutError"
               reject(error)
             }, 2000)
@@ -149,7 +149,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
       if (!exists) return undefined
     } else {
       console.info("[tincanban.storage] legacy-existence-query-unavailable")
-      const error = new Error("Legacy workspace storage could not be safely identified")
+      const error = new Error("Workspace storage could not be safely identified")
       error.name = "LegacyJournalEnumerationUnavailableError"
       throw error
     }
@@ -171,7 +171,7 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
       }
       const openTimer = setTimeout(() => {
         console.info("[tincanban.storage] legacy-open-timeout", { elapsedMs: Date.now() - openStartedAt })
-        const error = new Error("Legacy workspace storage open did not complete")
+        const error = new Error("Workspace storage open did not complete")
         error.name = "LegacyJournalOpenTimeoutError"
         settle(error)
       }, 5000)
@@ -200,15 +200,15 @@ function openLegacyJournal(): Promise<IDBDatabase | undefined> {
           elapsedMs: Date.now() - openStartedAt,
         })
         if (vanishedAfterEnumeration && request.error?.name === "AbortError") {
-          const error = new Error("Legacy workspace storage changed during migration check")
+          const error = new Error("Workspace storage changed during migration check")
           error.name = "LegacyJournalChangedDuringOpenError"
           settle(error)
         }
-        else settle(request.error ?? new Error("Legacy workspace storage could not be opened"))
+        else settle(request.error ?? new Error("Workspace storage could not be opened"))
       }
       request.onblocked = () => {
         console.info("[tincanban.storage] legacy-open-blocked", { elapsedMs: Date.now() - openStartedAt })
-        const error = new Error("Legacy workspace storage is busy in another tab")
+        const error = new Error("Workspace storage is busy in another tab")
         error.name = "LegacyJournalUnavailableError"
         if (blockedTimer) clearTimeout(blockedTimer)
         blockedTimer = setTimeout(() => settle(error), 1500)
@@ -234,20 +234,20 @@ async function readLegacyRows(database: IDBDatabase): Promise<Map<JournalStoreNa
         const cursor = request.result
         if (!cursor) { resolve(result); return }
         if (!cursor.value || typeof cursor.value !== "object") {
-          reject(new Error(`Legacy ${name} record is malformed; source data was preserved`))
+          reject(new Error(`Stored ${name} record is malformed; source data was preserved`))
           return
         }
         const value = cursor.value as Record<string, unknown>
         const id = (value.id as IDBValidKey | undefined) ?? cursor.primaryKey
         const workspaceId = legacyWorkspaceId(name, value, id)
         if (workspaceId === undefined) {
-          reject(new Error(`Legacy ${name} record has no workspace identity; source data was preserved`))
+          reject(new Error(`Stored ${name} record has no workspace identity; source data was preserved`))
           return
         }
         result.push({ id, workspaceId, value })
         cursor.continue()
       }
-      request.onerror = () => reject(request.error ?? new Error(`Legacy ${name} scan failed`))
+      request.onerror = () => reject(request.error ?? new Error(`Stored ${name} scan failed`))
     })
     rows.set(name, storeRows)
   }))
@@ -282,7 +282,7 @@ async function migrateLegacyJournal(database: IDBDatabase): Promise<void> {
     }
     const authorizations = transaction.objectStore("authorizations")
     const marker = authorizations.get(legacyMigrationMarkerId)
-    marker.onerror = () => abort(marker.error ?? new Error("Legacy journal migration marker read failed"))
+    marker.onerror = () => abort(marker.error ?? new Error("Storage migration marker read failed"))
     marker.onsuccess = () => {
       if (marker.result) return
       const rows = [...legacyRows].flatMap(([storeName, storeRows]) => storeRows
@@ -296,7 +296,7 @@ async function migrateLegacyJournal(database: IDBDatabase): Promise<void> {
       for (const { storeName, row } of rows) {
         const store = transaction.objectStore(storeName)
         const existing = store.get(row.id)
-        existing.onerror = () => abort(existing.error ?? new Error("Legacy workspace record read failed"))
+        existing.onerror = () => abort(existing.error ?? new Error("Workspace record read failed"))
         existing.onsuccess = () => {
           const current = existing.result as Record<string, unknown> | undefined
           const incoming: Record<string, unknown> = { ...row.value, id: row.id, workspaceId: row.workspaceId }
@@ -304,11 +304,11 @@ async function migrateLegacyJournal(database: IDBDatabase): Promise<void> {
             if (storeName === "receipts" && (current.transactionId !== incoming.transactionId ||
               (current.receipt as { changeHash?: unknown } | undefined)?.changeHash !==
               (incoming.receipt as { changeHash?: unknown } | undefined)?.changeHash)) {
-              abort(new Error("Legacy workspace receipt conflicts with committed data"))
+              abort(new Error("Workspace receipt conflicts with committed data"))
               return
             }
             if (storeName === "changes" && !byteArraysEqual(current.bytes, incoming.bytes)) {
-              abort(new Error("Legacy workspace change conflicts with committed data"))
+              abort(new Error("Workspace change conflicts with committed data"))
               return
             }
           } else {

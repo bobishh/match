@@ -1,3 +1,4 @@
+import * as admissionClient from "./workspaceAdmissionClient"
 import { hasEntityKind } from "../domain/model"
 import { readFile, writeFile } from "node:fs/promises"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest"
@@ -32,7 +33,7 @@ type TestStoredAuthority = {
 const peerStoreState = vi.hoisted(() => ({ credential: null as TestStoredAuthority | null, authority: null as TestStoredAuthority | null }))
 vi.mock("@automerge/automerge/slim", async () => {
   const actual = await vi.importActual<typeof Automerge>("@automerge/automerge/slim")
-  return { ...actual, diffPath: vi.fn(actual.diffPath), view: vi.fn(actual.view) }
+  return { ...actual, diffPath: vi.fn(actual.diffPath), view: vi.fn(actual.view), clone: vi.fn(actual.clone) }
 })
 vi.mock("./peerStore", () => ({ peerStore: {
   getWorkspaceCredential: async () => peerStoreState.credential,
@@ -107,6 +108,48 @@ it("reports admission phase costs without changing the authorized result", async
     expect(result.profile?.[phase as keyof NonNullable<typeof result.profile>]).toBeGreaterThanOrEqual(0)
   }
   expect(result.admittedHashes).toContain(record.signed.payload.hashes[0])
+})
+
+it("Given one raw document used as local and remote, When reclassifying it, Then avoid a full clone and keep the caller document usable", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Self admission", owner.identity.personId, "blank"))
+  await recordGenesisAuthority(doc, owner)
+  const bundle = await exportDocumentAuthorizationBundle(doc, owner)
+  vi.mocked(Automerge.clone).mockClear()
+  try {
+    const result = await evaluateIncomingWorkspaceAdmission(doc, doc, bundle)
+    expect(result.admittedHashes).toHaveLength(1)
+    expect(Automerge.clone).not.toHaveBeenCalled()
+    expect(Automerge.change(doc, draft => { draft.title = "Still writable" }).title).toBe("Still writable")
+  } finally { Automerge.free(doc) }
+})
+
+it("Given unproven raw history, When its missing signed proof arrives then repeated packets reuse admission, but invalid or revoked evidence is checked again", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Late proof" }), "editor")
+  const admit = vi.spyOn(admissionClient, "runWorkspaceAdmission")
+  try {
+    const hash = record.signed.payload.hashes[0]!
+    const pending = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, []))
+    expect(pending.admittedHashes).not.toContain(hash)
+    expect([...pending.pendingHashes, ...pending.quarantinedHashes]).toContain(hash)
+    const accepted = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [record]))
+    expect(accepted.admittedHashes).toContain(hash)
+    expect(admit).toHaveBeenCalledTimes(2)
+    const repeated = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [record]))
+    expect(repeated.admittedHashes).toContain(hash)
+    expect(repeated.authorizedDocument).toEqual(accepted.authorizedDocument)
+    expect(admit).toHaveBeenCalledTimes(2)
+    const invalid = { ...record, signed: { ...record.signed, signature: "invalid" } }
+    await expect(evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [invalid]))).rejects.toThrow("Invalid signature")
+    await expect(evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [invalid]))).rejects.toThrow("Invalid signature")
+    expect(admit).toHaveBeenCalledTimes(4)
+    const revocation = await createWorkspaceDeviceRevocation(owner, local.id, member.identity.personId,
+      member.device.deviceId, Automerge.getHeads(local), [owner.certificate])
+    const bundle = authorizationBundle(local, [record])
+    const revoked = await evaluateIncomingWorkspaceAdmission(local, remote,
+      { ...bundle, authority: { ...bundle.authority, deviceRevocations: [{ record: revocation.record, signer: revocation.authority }] } })
+    expect(revoked.quarantinedHashes).toContain(hash)
+    expect(admit).toHaveBeenCalledTimes(5)
+  } finally { admit.mockRestore(); Automerge.free(local); Automerge.free(remote) }
 })
 
 it("admits a signed owner bootstrap with long text without expanding it into text patches", async () => {

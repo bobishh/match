@@ -24,7 +24,7 @@ export function projectDocumentHistory(doc: Automerge.Doc<WorkspaceDocumentV2>):
     let personId: string | undefined
     let deviceId: string | undefined
     let isLegacy = true
-    let authorLabel = "Legacy / imported"
+    let authorLabel = "Imported"
 
     if (change.message) {
       try {
@@ -40,12 +40,12 @@ export function projectDocumentHistory(doc: Automerge.Doc<WorkspaceDocumentV2>):
           isLegacy = false
         } else {
           isLegacy = true
-          authorLabel = "Legacy / imported"
+          authorLabel = "Imported"
           action = change.message
         }
       } catch {
         isLegacy = true
-        authorLabel = "Legacy / imported"
+        authorLabel = "Imported"
         action = change.message
       }
     }

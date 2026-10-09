@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge/slim"
 import type { WorkspaceDocumentV2 } from "./domain/model"
 import { validateWorkspaceDoc } from "./domain/model"
-import { exportAuthorizationBundle, evaluateIncomingWorkspaceAdmission, workspaceAuthorityIsInvalid, workspaceWritesBlocked } from "./sync/changeAuthorization"
+import { exportDocumentAuthorizationBundle, evaluateIncomingWorkspaceAdmission, workspaceAuthorityIsInvalid, workspaceWritesBlocked } from "./sync/changeAuthorization"
 import type { WorkspaceChangeAuthorization } from "./sync/workspaceChangeProofStore"
 import { peerStore } from "./sync/peerStore"
 import { defaultStorage } from "./storage"
@@ -42,7 +42,7 @@ export async function reclassifyStoredWorkspace(workspaceId: string, storage = d
     const rawBytes = evidence ? new Uint8Array(evidence.bytes) : Automerge.save(loaded.doc)
     const raw = Automerge.load<WorkspaceDocumentV2>(rawBytes)
     try {
-      const authorization = await phase("export-authorization", () => exportAuthorizationBundle(rawBytes, stateRuntime.currentProfile ?? undefined))
+      const authorization = await phase("export-authorization", () => exportDocumentAuthorizationBundle(raw, stateRuntime.currentProfile ?? undefined))
       const admission = await phase("admit-history", () => evaluateIncomingWorkspaceAdmission(raw, raw, authorization,
         (evidence?.authorizationEvidence ?? []) as WorkspaceChangeAuthorization[]))
       stage = "validate-projection"

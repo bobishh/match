@@ -714,6 +714,73 @@ test("Given two tabs for one editor device, when their real Iroh nodes disconnec
   }
 })
 
+test("Given a mobile peer with 32 leads and 9 applied cards, when desktop moves cards while it is offline, then both persist 23 leads and 12 applied without reloading to sync", async ({ browser }, info) => {
+  test.setTimeout(120_000)
+  const hostContext = await isolatedContext(browser)
+  const guestContext = await isolatedContext(browser)
+  const host = await hostContext.newPage()
+  const guest = await guestContext.newPage()
+  try {
+    await guest.setViewportSize({ width: 390, height: 844 })
+    await Promise.all([host.goto("/"), guest.goto("/")])
+    await ensureJobSearchWorkspace(host)
+    const fixture = await host.evaluate(async () => {
+      const app = (await import("/src/state.ts")).useTincanban()
+      await app.whenReady()
+      const doc = app.getActiveDoc()!
+      const columns = Object.values(doc.entities).filter(entity => entity.kind === "column")
+      const lead = columns.find(column => column.title === "Lead")!
+      const applied = columns.find(column => column.title === "Applied")!
+      for (let index = 0; index < 32; index++) {
+        await app.executeCommandAsync({ kind: "createItem", id: `sync-lead-${index}`, parentId: lead.id, title: `Sync lead ${index} — Engineer` })
+      }
+      for (let index = 0; index < 9; index++) {
+        await app.executeCommandAsync({ kind: "createItem", id: `sync-applied-${index}`, parentId: applied.id, title: `Applied ${index} — Engineer` })
+      }
+      return { workspaceId: doc.id, appliedId: applied.id }
+    })
+    await pairWorkspace(host, guest)
+    const count = (page: Page, column: string) => page.getByRole("region", { name: column, exact: true }).locator(".column-header .count")
+    await expect(count(guest, "Lead")).toHaveText("32", { timeout: 30_000 })
+    await expect(count(guest, "Applied")).toHaveText("9")
+    await guestContext.setOffline(true)
+    await expect(guest.getByLabel("Mesh offline")).toBeVisible({ timeout: 20_000 })
+    await host.evaluate(async ({ appliedId }) => {
+      const app = (await import("/src/state.ts")).useTincanban()
+      for (let index = 0; index < 9; index++) {
+        await app.executeCommandAsync(index < 3
+          ? { kind: "moveEntity", entityId: `sync-lead-${index}`, parentId: appliedId }
+          : { kind: "setEntityArchived", entityId: `sync-lead-${index}`, archived: true })
+      }
+    }, fixture)
+    await expect(count(host, "Lead")).toHaveText("23")
+    await expect(count(host, "Applied")).toHaveText("12")
+    await expect(count(guest, "Lead")).toHaveText("32")
+    await expect(count(guest, "Applied")).toHaveText("9")
+    await guestContext.setOffline(false)
+    await expect(count(guest, "Lead")).toHaveText("23", { timeout: 35_000 })
+    await expect(count(guest, "Applied")).toHaveText("12")
+    const placements = (page: Page) => page.evaluate(async workspaceId => {
+      const storage = new (await import("/src/storage.ts")).WorkspaceStorage()
+      const { isItemArchived } = await import("/src/domain/archive.ts")
+      const { isItem } = await import("/src/domain/model.ts")
+      const snapshot = await storage.loadWorkspaceDoc(workspaceId)
+      return Object.values(snapshot?.doc.entities ?? {}).filter(isItem)
+        .map(entity => ({ id: entity.id, parentId: entity.placement.parentId, archived: isItemArchived(entity) })).sort((a, b) => a.id.localeCompare(b.id))
+    }, fixture.workspaceId)
+    const expected = await placements(host)
+    expect(expected).toHaveLength(41)
+    await expect.poll(() => placements(guest), { timeout: 15_000 }).toEqual(expected)
+    await guest.screenshot({ path: info.outputPath("mobile-caught-up-cards.png") })
+    await guest.reload()
+    await expect(count(guest, "Lead")).toHaveText("23", { timeout: 30_000 })
+    await expect(count(guest, "Applied")).toHaveText("12")
+    expect(await placements(guest)).toEqual(expected)
+  } finally {
+    await Promise.all([hostContext.close(), guestContext.close()])
+  }
+})
+
 test("Given a paired editor goes offline, when both sides edit and it comes online, then persisted changes converge without reloading", async ({ browser }) => {
   test.setTimeout(120_000)
   const hostContext = await isolatedContext(browser)

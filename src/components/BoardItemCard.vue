@@ -2,6 +2,7 @@
 import { computed } from "vue"
 import { MarkdownContent } from "../ui/markdownContent"
 import { previewCardNote } from "../ui/cardNotePreview"
+import type { ItemDiscussion } from "../chat/itemDiscussions"
 import type { Item } from "../domain/model"
 import type { Lead } from "../types"
 
@@ -17,6 +18,7 @@ const props = defineProps<{
   bindings?: Record<string, string>
   hasFilters: boolean
   showFields?: boolean
+  discussion?: ItemDiscussion
   canEditItems: boolean
   moved: boolean
   ageLevel?: string
@@ -67,7 +69,8 @@ const emit = defineEmits<{
         </dl>
       </div>
     </div>
-    <button v-if="canEditItems" class="card-chat-action" type="button" :aria-label="`Discuss ${item.title}`" title="Discuss card" @click.stop="emit('discuss', item.id)">
+    <button v-if="canEditItems || discussion" class="card-chat-action" :class="{ 'has-discussion': discussion }" type="button" :aria-label="discussion ? `Open discussion for ${item.title}. ${discussion.count} ${discussion.count === 1 ? 'message' : 'messages'}` : `Discuss ${item.title}`" :title="discussion ? 'Open discussion' : 'Discuss card'" @click.stop="emit('discuss', item.id)">
+      <span v-if="discussion && discussion.count > 0" class="card-discussion-count" aria-hidden="true">{{ discussion.count }}</span>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8l-6 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /><path d="M7 9h10M7 13h7" /></svg>
     </button>
     <span v-if="ageLevel && ageLevel !== 'fresh'" class="card-activity-age">{{ ageLabel }}</span>

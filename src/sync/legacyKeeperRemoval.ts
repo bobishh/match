@@ -62,7 +62,7 @@ async function ownedLegacyRemovalScopes(workspaceIds: string[], workspaceOwner: 
   trace?: (workspaceId: string, owned: boolean) => void) {
   if (!Array.isArray(workspaceIds) || !workspaceIds.length || workspaceIds.length > 512
     || workspaceIds.some(id => typeof id !== "string" || !id.trim())) {
-    throw new Error("This legacy keeper has no saved board list. Local access was not changed.")
+    throw new Error("This keeper has no saved board list. Local access was not changed.")
   }
   if (!workspaceOwner) throw new Error("Workspace ownership is unavailable")
   const ownerIds: string[] = []

@@ -48,7 +48,7 @@ describe("Native history projection and attribution (Requirement 2.4)", () => {
     expect(lastEntry.isLegacy).toBe(false)
   })
 
-  it("labels changes without metadata as Legacy / imported", async () => {
+  it("labels changes without metadata as Imported", async () => {
     let doc = Automerge.init<any>()
     doc = Automerge.change(doc, { message: "Old legacy commit without JSON metadata" }, (draft) => {
       draft.something = 123
@@ -57,7 +57,7 @@ describe("Native history projection and attribution (Requirement 2.4)", () => {
     const history = projectDocumentHistory(doc)
     expect(history.length).toBe(1)
     expect(history[0].isLegacy).toBe(true)
-    expect(history[0].authorLabel).toBe("Legacy / imported")
+    expect(history[0].authorLabel).toBe("Imported")
   })
 
   it("filters history for a specific entity ID", async () => {
