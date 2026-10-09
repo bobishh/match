@@ -3,6 +3,7 @@ import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { canonicalizeJson } from "../domain/identity"
 import type { WorkspaceDocumentV2 } from "../domain/model"
 import type { WorkspaceRole } from "../domain/permissions"
+import { diagnoseStartupStep } from "./startupDiagnostics"
 
 type Entry = { evidence: string; result: Promise<WorkspaceRole>; expires: number }
 const cache = new Map<string, Entry>()
@@ -27,8 +28,13 @@ export function decideAccess(doc: Automerge.Doc<WorkspaceDocumentV2>, evidence: 
   const signature = canonicalizeJson(evidence)
   const previous = cache.get(key)
   if (previous?.evidence === signature && previous.expires > Date.now()) return previous.result
-  const input = { ...evidence, snapshot: { ...evidence.snapshot, document: Array.from(Automerge.save(doc)) } }
-  const result = typeof window === "undefined" ? Promise.resolve().then(() => meshRustRuntime().state.decideWorkspaceAccess(input, Date.now())) : offThread(input)
+  const detail = { workspaceId: doc.id }
+  const result = (async () => {
+    const input = await diagnoseStartupStep("access-serialize", () => ({ ...evidence,
+      snapshot: { ...evidence.snapshot, document: Array.from(Automerge.save(doc)) } }), detail)
+    return diagnoseStartupStep("access-policy", () => typeof window === "undefined"
+      ? meshRustRuntime().state.decideWorkspaceAccess(input, Date.now()) : offThread(input), detail)
+  })()
   const entry = { evidence: signature, result, expires: Date.now() + 60_000 }
   cache.set(key, entry)
   void result.catch(() => { if (cache.get(key) === entry) cache.delete(key) })

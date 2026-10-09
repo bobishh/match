@@ -5,6 +5,7 @@ import { effectiveWorkspaceOwner, workspaceRole, workspaceWritesBlocked } from "
 import type { useTincanban } from "../state"
 import type { useDeviceSync } from "../sync/useDeviceSync"
 import type { WorkspaceAccessResult } from "./workspaceAccessState"
+import { diagnoseStartupStep } from "../sync/startupDiagnostics"
 
 type ActiveAccess = { role: WorkspaceRole; ownerId: string; access: Record<string, WorkspaceAccessResult> }
 
@@ -30,11 +31,12 @@ export async function loadWorkspaceAccess(tincanban: ReturnType<typeof useTincan
   }
   const items = tincanban.availableWorkspaces.value
   const activeItem = items.find(item => item.id === doc.id) ?? { id: doc.id, title: doc.title }
-  const [activeId, activeRaw] = await resolve(activeItem)
+  const detail = { workspaceId: doc.id }
+  const [activeId, activeRaw] = await diagnoseStartupStep("access-active-workspace", () => resolve(activeItem), detail)
   const active: WorkspaceAccessResult = activeRaw
-  const ownerId = active?.error ? "" : await effectiveWorkspaceOwner(doc.id, doc.ownerPersonId)
+  const ownerId = active?.error ? "" : await diagnoseStartupStep("access-current-owner", () => effectiveWorkspaceOwner(doc.id, doc.ownerPersonId), detail)
   const initial = { role: active.role, ownerId, access: { [activeId]: active } }
-  onActive?.(initial)
+  await diagnoseStartupStep("access-ui-commit", () => onActive?.(initial), detail)
   const others = includeOthers ? await Promise.all(items.filter(item => item.id !== doc.id).map(resolve)) : []
   const access: Record<string, WorkspaceAccessResult> = Object.fromEntries([[activeId, active], ...others])
   return { ...initial, access }
