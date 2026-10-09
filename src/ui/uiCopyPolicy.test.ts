@@ -73,10 +73,10 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe("Application UI copy policy", () => {
-  it("Given any application screen or copy helper, When source is checked, Then no legacy terminology can ship", () => {
-    const root = resolve(import.meta.dirname, "../..")
-    const files = [...sourceFiles(resolve(root, "src")), ...sourceFiles(resolve(root, "public")), resolve(root, "index.html")]
-    const violations = files.flatMap(file => copyViolations(readFileSync(file, "utf8"), relative(root, file)))
+  const root = resolve(import.meta.dirname, "../..")
+  const files = [...sourceFiles(resolve(root, "src")), ...sourceFiles(resolve(root, "public")), resolve(root, "index.html")]
+  it.each(files.map(file => relative(root, file)))("Given application source %s, When copy is checked, Then no legacy terminology can ship", file => {
+    const violations = copyViolations(readFileSync(resolve(root, file), "utf8"), file)
     expect(violations, "Remove implementation terminology from application UI copy").toEqual([])
   })
 
