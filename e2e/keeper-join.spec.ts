@@ -9,7 +9,7 @@ import { validateWorkspaceDoc } from "../src/domain/model"
 import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 const manifest = "crates/tincanban-lighthouse/Cargo.toml"
-test.use({ trace: "off" })
+test.use({ trace: "retain-on-failure" })
 
 function lighthouse(...args: string[]) {
   return spawn("cargo", ["run", "--quiet", "--manifest-path", manifest, "--", ...args], {

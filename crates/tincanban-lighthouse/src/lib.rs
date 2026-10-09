@@ -507,6 +507,16 @@ pub struct TincanbanLighthouseHost {
     pub store: TincanbanScopeStore,
 }
 
+impl TincanbanLighthouseHost {
+    fn handshake_with_causal_admission(&self) -> Result<Value, String> {
+        let mut handshake = self.local_handshake.clone();
+        if !handshake.capabilities.iter().any(|value| value == "causal-write-admission-v1") {
+            handshake.capabilities.push("causal-write-admission-v1".into());
+        }
+        serde_json::to_value(handshake).map_err(|error| error.to_string())
+    }
+}
+
 impl NativeScopeServiceHost for TincanbanLighthouseHost {
     type ScopeHost = TincanbanScopeStore;
 
@@ -531,7 +541,7 @@ impl NativeScopeServiceHost for TincanbanLighthouseHost {
         }
         Ok((
             self.store.authority()?,
-            serde_json::to_value(&self.local_handshake).map_err(|error| error.to_string())?,
+            self.handshake_with_causal_admission()?,
         ))
     }
 
@@ -549,7 +559,7 @@ impl NativeScopeServiceHost for TincanbanLighthouseHost {
         if workspace_id != self.workspace_id {
             return Err("Wrong lighthouse workspace".into());
         }
-        serde_json::to_value(&self.local_handshake).map_err(|error| error.to_string())
+        self.handshake_with_causal_admission()
     }
 
     fn open_scope(&mut self, peer: &MeshPeerAdmission) -> Result<Self::ScopeHost, String> {

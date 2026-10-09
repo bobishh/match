@@ -80,7 +80,20 @@ pub async fn join(raw_invite: &str, directory: PathBuf) -> Result<(), BoxError> 
         &node.endpoint_id().to_string(),
     )?;
     let owner = EndpointAddr::new(owner_endpoint);
-    let session = node.connect_browser(owner, Duration::from_secs(15)).await?;
+    // Endpoint discovery publication can trail invitation creation. Retry the
+    // connection before sending any join request, preserving the same identity.
+    let mut attempt = 0;
+    let session = loop {
+        attempt += 1;
+        match node.connect_browser(owner.clone(), Duration::from_secs(15)).await {
+            Ok(session) => break session,
+            Err(error) if attempt >= 3 => return Err(error),
+            Err(error) => {
+                eprintln!("Lighthouse owner discovery attempt {attempt}: {error}");
+                tokio::time::sleep(Duration::from_secs(attempt)).await;
+            }
+        }
+    };
     let result = async {
         let mut machine = WorkspaceJoinHandshake::guest(&invite.secret)?;
         let request = serde_json::to_vec(&json!({
@@ -312,7 +325,9 @@ fn prepare_config(
         owner_workspace_ids: None,
         capabilities: meta_mesh_core::MESH_CAPABILITIES
             .iter()
-            .map(|item| (*item).into())
+            .copied()
+            .chain(std::iter::once("causal-write-admission-v1"))
+            .map(str::to_owned)
             .collect(),
     };
     Ok(Config {
