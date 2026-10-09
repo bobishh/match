@@ -41,8 +41,28 @@ jobs:
           name: unit-coverage
           path: coverage/
           retention-days: 14
-      - run: npm run quality:size
+      - name: Verify frontend deployment adapter
+        run: node --test workers/frontend/*.test.mjs
+      - name: Build checked production frontend
+        env:
+          VITE_SYNC_TELEMETRY_URL: ${{ vars.VITE_SYNC_TELEMETRY_URL }}
+          VITE_SYNC_TELEMETRY_PROJECT: tincanban
+          VITE_SYNC_TELEMETRY_BROWSER_KEY: ${{ vars.VITE_SYNC_TELEMETRY_BROWSER_KEY }}
+          VITE_SYNC_TELEMETRY_LEVEL: ${{ vars.VITE_SYNC_TELEMETRY_LEVEL || 'all' }}
+          VITE_SYNC_TELEMETRY_SAMPLE_RATE: ${{ vars.VITE_SYNC_TELEMETRY_SAMPLE_RATE || '1' }}
+          VITE_SYNC_TELEMETRY_BATCH_SIZE: ${{ vars.VITE_SYNC_TELEMETRY_BATCH_SIZE || '50' }}
+        run: npm run quality:size
       - run: npm audit --audit-level=moderate
+      - name: Seal checked build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node workers/frontend/release.mjs seal "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: tincanban-frontend-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
 
   formal-models:
     name: Match formal models

@@ -1,0 +1,7 @@
+{
+  "name": "tincanban-frontend-worker",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test frontend.test.mjs release.test.mjs" },
+  "devDependencies": { "wrangler": "4.149.0" }
+}
