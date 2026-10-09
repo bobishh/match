@@ -1061,7 +1061,7 @@ test("Given an online editor, when owner selects them in mesh members and transf
     await expect(guest.getByRole("button", { name: "Edit board", exact: true })).toBeVisible()
     await expect(dialog.getByRole("button", { name: "Add someone" })).toHaveCount(0)
     await expect(dialog.getByRole("button", { name: /^Vote for/ })).toHaveCount(0)
-    await dialog.getByText("Ownership succession", { exact: true }).click()
+    await dialog.locator("summary").filter({ hasText: /^Ownership succession$/ }).click()
     await expect(dialog.getByText("No recovery policy.", { exact: false })).toBeVisible()
     await guest.getByRole("button", { name: "Sync", exact: true }).click()
     const newOwnerDialog = guest.getByRole("dialog", { name: "Device sync" })
