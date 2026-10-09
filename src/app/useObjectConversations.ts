@@ -75,9 +75,7 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
     await nextTick()
     focusSpatialWindow(workspaceId.value, id)
   }
-  function messages(view: Discussion) {
-    return conversationMessages(app.collaboration.device.chat.messages.value as StoredChatMessage[], { anchor: view.anchor, rootId: view.rootId }) as typeof app.collaboration.device.chat.messages.value
-  }
+  const messages = (view: Discussion) => conversationMessages(app.collaboration.device.chat.messages.value as StoredChatMessage[], { anchor: view.anchor, rootId: view.rootId }) as typeof app.collaboration.device.chat.messages.value
   function close(view: Discussion) { dismissLink(view.id); discussions.value = discussions.value.filter(candidate => candidate !== view) }
   function focusOrigin(itemId: string) {
     const owner = findSourceOwner(itemId)
@@ -133,7 +131,11 @@ export function useObjectConversations(app: ReturnType<typeof useAppController>)
     try { const next = await getChatScope(id); if (id === workspaceId.value) scope.value = next } catch { /* workspace not available yet */ }
   }, { immediate: true })
   registerConversationListeners({ navigate: () => { void navigate() }, captureSelection, contextual, dismissContext, menuKey, clear: () => highlighter.clear() })
-  return { scope, currentDiscussions, cardDiscussions, fieldTitles, referenceChoices, selection, contextMenu, sourceState, navigationState, linkedMessageId, discuss, selectedDiscuss, contextualDiscuss, messages, close, openReference, openThread, openCard, navigate, dismissLink }
+  return { scope, currentDiscussions, cardDiscussions, fieldTitles, referenceChoices, selection, contextMenu, sourceState, navigationState, linkedMessageId, discuss, selectedDiscuss, contextualDiscuss, messages, close, openReference, openThread, openCard, navigate, dismissLink,
+    openCardDiscussion: (itemId: string) => {
+      const messageId = cardDiscussions.value.get(itemId)?.messageId
+      return messageId ? openThread(messageId) : discuss(itemId)
+    } }
 }
 
 function createReferenceChoices(app: ReturnType<typeof useAppController>, scope: Ref<string>) {

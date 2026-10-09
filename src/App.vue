@@ -257,7 +257,7 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
                 :age-label="cardAgeFor(item, column)?.label"
                 @open="openCard"
                 @select="openBoardItem"
-                @discuss="conversations.discuss"
+                @discuss="conversations.openCardDiscussion"
                 @task-toggle="toggleCardTask"
               />
             </template>

@@ -18,7 +18,8 @@ second device and keep working across both.
 - Share selected boards with an editor or a read-only visitor.
 - Inspect item history and restore an earlier version without erasing history.
 - Cards with saved messages show a count on their permanent chat icon. Open the
-  discussion from the icon; empty cards offer it on hover/focus. Select text for a quoted
+  thread with the latest saved activity from the icon; empty cards offer a new
+  discussion on hover/focus. Select text for a quoted
   discussion, or right-click a card/field for the app's context menu. References
   return to their source. Reply opens a thread; workspace chat shows reply counts
   and collapsed read-only previews with Open controls. Item, discussion, and chat
