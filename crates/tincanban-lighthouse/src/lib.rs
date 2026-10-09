@@ -82,7 +82,7 @@ impl TincanbanScopeStore {
                 .map(|change| change.hash().to_string())
                 .collect::<Vec<_>>();
             let (snapshot, _) = store.authority_for(&guard.state)?;
-            admit_tincanban_candidate(
+            let admission = admit_tincanban_candidate(
                 None,
                 &guard.state.document,
                 &hashes,
@@ -90,6 +90,9 @@ impl TincanbanScopeStore {
                 snapshot,
                 now_ms()?,
             )?;
+            if admission.decisions.iter().any(|decision| !matches!(decision.status, meta_mesh_core::CausalAdmissionStatus::Admitted { .. })) {
+                return Err("Persisted lighthouse history contains unadmitted changes".into());
+            }
             if guard.file.read()?.is_none() {
                 write_state(&guard.file, &guard.state)?;
             }
@@ -384,10 +387,10 @@ impl NativeScopeHost for TincanbanScopeStore {
                 .authorization
                 .get("records")
                 .and_then(Value::as_array),
-            &verified,
+            &verified.verified_authorizations,
         );
         let mut next = guard.state.clone();
-        next.document = candidate.to_vec();
+        next.document = verified.authorized_document;
         next.authorization = json!({"version": 1, "records": records, "authority": merged});
         self.save(&mut guard, next)
     }
@@ -424,9 +427,10 @@ impl NativeScopeHost for TincanbanScopeStore {
                 .authorization
                 .get("records")
                 .and_then(Value::as_array),
-            &verified,
+            &verified.verified_authorizations,
         );
         let mut next = guard.state.clone();
+        next.document = verified.authorized_document;
         next.authorization = json!({"version": 1, "records": records, "authority": merged});
         self.save(&mut guard, next)
     }

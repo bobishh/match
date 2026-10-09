@@ -9,7 +9,7 @@ import { createWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDevic
   type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceSuccessionPolicy,
   type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
-import { deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, ownerAuthorities, isGrantRevoked, type MeshExport, type ScopeAuthoritySnapshot, type SessionEntry } from "./durableMeshBase"
+import { deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, ownerAuthorities, isGrantRevoked, type MeshExport, type ScopeAuthoritySnapshot } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 import { workspaceSet } from "./workspaceSet"
 import { meshTrace } from "./meshTrace"
@@ -338,6 +338,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   async promotePerson(workspaceId: string, personId: string): Promise<void> {
     await withWorkspaceMutation(workspaceId, () => this.promotePersonLocked(workspaceId, personId))
     await this.reclassifyWorkspaceAuthority(workspaceId)
+    await this.publishAll()
   }
   private async promotePersonLocked(workspaceId: string, personId: string): Promise<void> {
     const profile = await this.options.getProfile()
@@ -365,7 +366,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       }
       if (action === "refreshSuccessionPolicy") await this.refreshSuccessionPolicy(workspaceId)
       if (action === "notify") await this.notify()
-      if (action === "publish") await this.publishAll()
+      // Publishing can await a concurrent receive that needs this mutation lock.
     }
   }
   async revokePerson(workspaceId: string, personId: string, expectedGrantEpoch?: number): Promise<void> {

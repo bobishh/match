@@ -1,3 +1,4 @@
+import { withWorkspaceMutation } from "../workspaceMutation"
 import { readFile } from "node:fs/promises"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
@@ -49,6 +50,16 @@ describe("member access", () => {
     expect(f.peer().advertisement.grant.payload.role).toBe("editor")
     await (f.mesh as any).putVerifiedBundle(f.credential(), f.bundle)
     expect(f.peer().role).toBe("editor")
+    await f.mesh.dispose()
+  })
+  it("Given a promotion, when publication needs the workspace lock, then durable rights commit before publication", async () => {
+    const f = await fixture()
+    const published = vi.mocked((f.mesh as any).publishAll).mockImplementation(() =>
+      withWorkspaceMutation("board", async () => {
+        expect(f.peer().advertisement.grant.payload.role).toBe("editor")
+      }))
+    await f.mesh.promotePerson("board", f.visitor.identity.personId)
+    expect(published).toHaveBeenCalledOnce()
     await f.mesh.dispose()
   })
   it("removes only the chosen device and refuses its old signed advertisement on reconnect", async () => {
