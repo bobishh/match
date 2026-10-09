@@ -16,6 +16,15 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
+it("Given an unavailable diagnostic chunk, When startup runs, Then local work continues", async () => {
+  vi.doMock("./startupDiagnosticsTransport", () => { throw new Error("Diagnostic chunk unavailable") })
+  try {
+    const { beginStartupDiagnostics, diagnoseStartupStep } = await import("./startupDiagnostics")
+    await expect(beginStartupDiagnostics()).resolves.toBeUndefined()
+    await expect(diagnoseStartupStep("history-load", () => "usable")).resolves.toBe("usable")
+  } finally { vi.doUnmock("./startupDiagnosticsTransport") }
+})
+
 it("Given errors-only telemetry and a heavy startup step, When debug is enabled, Then the start checkpoint is acknowledged before computation and typed counts survive", async () => {
   const order: string[] = []
   const bodies: Batch[] = []

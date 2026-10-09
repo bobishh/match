@@ -50,6 +50,9 @@ function scriptViolations(source: string, file: string): string[] {
 }
 
 function copyViolations(source: string, file: string): string[] {
+  // Escapes, concatenation, interpolation and HTML entities can hide literal words.
+  // Files without any of those or the forbidden text need no compiler traversal.
+  if (!/legacy|легаси|\\|\+|\$\{|&/iu.test(source)) return []
   if (!/\.(vue|html|svg)$/u.test(file)) return scriptViolations(source, file)
   const descriptor = file.endsWith(".vue") ? parse(source, { filename: file }).descriptor : undefined
   const scripts = descriptor ? [descriptor.script, descriptor.scriptSetup, ...descriptor.styles].flatMap(block => block ? scriptViolations(block.content, file) : []) : []
@@ -90,6 +93,8 @@ describe("Application UI copy policy", () => {
     ['const label = "\\u004cegacy"', "labels.ts"],
     ['<template><p>Legacy</p></template>', "Screen.vue"],
     ['<template><p>легаси</p></template>', "Screen.vue"],
+    ['<template><p>leg&#97;cy</p></template>', "EncodedScreen.vue"],
+    ['const label = `le${""}gacy`', "labels.ts"],
     ['<svg><text>Legacy system</text></svg>', "icon.svg"],
     ['.status::after { content: "Legacy"; }', "screen.css"],
     ['<template><p>OK</p></template><style>.status::after { content: "Legacy"; }</style>', "StyledScreen.vue"],
