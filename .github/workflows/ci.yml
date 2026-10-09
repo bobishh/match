@@ -29,6 +29,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Verify Ubuntu mirror rewrite fixtures
+        run: bash scripts/use-primary-ubuntu-mirror.test.sh
       - name: Verify Match receive mutation contract
         run: MATCH_ROOT="$GITHUB_WORKSPACE" python3 vendor/meta-mesh/formal/check_match_mutations.py
       - run: npm run verify:policy
@@ -90,7 +92,9 @@ jobs:
   browser-core:
     name: Browser (core ${{ matrix.shard }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # Chromium setup takes ~5 minutes on fresh runners; leave time for full
+    # shard execution and its configured retry without changing test limits.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -105,6 +109,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Use Ubuntu primary archive mirror for Chromium dependencies
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=core --shard=${{ matrix.shard }}
       - name: Verify deployment-configured diagnostics
@@ -155,12 +161,14 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Use Ubuntu primary archive mirror for Chromium dependencies
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
-          name: browser-${{ matrix.project }}-failure
+          name: browser-network-${{ matrix.project }}-failure
           path: test-results/
           retention-days: 3
 
@@ -178,6 +186,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Use Ubuntu primary archive mirror for browser dependencies
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e:policy
       - run: npx playwright test --reporter=list --project=mobile-webkit
@@ -202,6 +212,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - name: Use Ubuntu primary archive mirror for Chromium dependencies
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - name: Verify Rust protocol rules
         run: cargo test --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-core/Cargo.toml --lib
@@ -232,8 +244,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .ci/rusty -> target
+      - name: Move Rusty outside the application Cargo workspace
+        run: cp -a "$GITHUB_WORKSPACE/.ci/rusty" "$RUNNER_TEMP/tincanban-rusty"
       - name: Build pinned blind Rusty
-        run: cargo build --locked --manifest-path .ci/rusty/Cargo.toml
+        run: cargo build --locked --manifest-path "$RUNNER_TEMP/tincanban-rusty/Cargo.toml"
       - name: Install locked Worker dependencies
         run: |
           npm install --global pnpm@11.25.0
@@ -245,14 +259,16 @@ jobs:
           npm test
           npm run test:runtime
           npm run build
+      - name: Use Ubuntu primary archive mirror for Chromium dependencies
+        run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
       - name: Verify browser owner controls and scoped intake
         env:
-          TINCANBAN_RUSTY_BINARY: ${{ github.workspace }}/.ci/rusty/target/debug/mesh-lighthouse
+          TINCANBAN_RUSTY_BINARY: ${{ runner.temp }}/tincanban-rusty/target/debug/mesh-lighthouse
         run: npx playwright test --config playwright.automation-worker.config.ts --reporter=list
       - name: Verify encrypted storage connection
         env:
-          TINCANBAN_RUSTY_BINARY: ${{ github.workspace }}/.ci/rusty/target/debug/mesh-lighthouse
+          TINCANBAN_RUSTY_BINARY: ${{ runner.temp }}/tincanban-rusty/target/debug/mesh-lighthouse
         run: npx playwright test --config playwright.rusty.config.ts --reporter=list
       - uses: actions/upload-artifact@v6
         if: failure()

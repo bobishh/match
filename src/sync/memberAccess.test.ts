@@ -32,7 +32,9 @@ async function fixture() {
     getWorkspaceCredential: async () => credential, listWorkspaceCredentials: async () => [credential],
     putWorkspaceCredential: async (value: any) => { credential = value },
     upsertPeer: async (value: any) => { peer = mergePeerRecords(peer, value); return peer } }
-  const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: { read: async () => bytes } as never,
+  const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {
+    read: async () => bytes, readAuthorityHeads: async () => Automerge.getHeads(doc),
+  } as never,
     store, getProfile: async () => owner })
   vi.spyOn(mesh as any, "notify").mockResolvedValue(undefined)
   vi.spyOn(mesh as any, "publishAll").mockResolvedValue(undefined)

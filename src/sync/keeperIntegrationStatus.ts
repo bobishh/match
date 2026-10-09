@@ -1,6 +1,17 @@
 import type { KeeperDiscovery } from "./keeperDiscovery"
 
 export type KeeperDisconnectScope = { workspaceId: string; expectedGrantEpoch: number }
+export type KeeperSettingsScope = KeeperDisconnectScope
+export type KeeperSettingsReceipt = {
+  integrationId: string
+  operationId: string
+  requestHash: string
+  revision: number
+  status: "updated" | "pending"
+  futureBoards: boolean
+  baselineWorkspaceIds: string[]
+  scopes: Array<{ workspaceId: string; grantEpoch: number; state: "removed" | "pending"; cleanup: "complete" | "pending" }>
+}
 type KeeperIntegrationScope = {
   workspaceId: string
   grantEpoch: number
@@ -28,6 +39,14 @@ export type KeeperIntegrationStatus = {
     status: "pending"
   }
 }
+
+export function assertKeeperGrantFloorRefreshAllowed(integrations: KeeperIntegrationStatus[], workspaceIds: string[],
+  targetIntegrationId?: string) {
+  const blocked = integrations.find(integration => integration.pendingOperation
+    && (integration.integrationId === targetIntegrationId
+      || integration.pendingOperation.scopes.some(scope => workspaceIds.includes(scope.workspaceId))))
+  if (blocked) throw new Error("Rusty has board cleanup pending for this integration or selected board. Finish it before requesting or provisioning access.")
+}
 export type KeeperDisconnectReceipt = {
   integrationId: string
   operationId: string
@@ -39,6 +58,10 @@ export type KeeperDisconnectReceipt = {
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+}
+
+export function keeperIntegrationSettingsSupported(payload: unknown): boolean {
+  return record(record(payload)?.capabilities)?.integrationSettings === true
 }
 
 function isAbsent(value: unknown): boolean {

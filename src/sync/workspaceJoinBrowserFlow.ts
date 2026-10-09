@@ -175,12 +175,12 @@ async function installReceivedInvitation(context: WorkspaceJoinBrowserContext, r
   for (const grant of received.grants) await defaultProofStore.putGrant(grant.payload.grantId, grant)
   await context.durableMesh?.receiveInvitation(received.meshWorkspaces, workspaceIds, profile, received.grants)
   await replica.receive(snapshot)
-  const personalRoot = await defaultStorage.loadPersonalRoot()
-  if (personalRoot?.identity.personId === profile.identity.personId) {
+  await defaultStorage.updatePersonalRootForIdentity(profile.identity.personId, personalRoot => {
+    if (!personalRoot) return null
     personalRoot.workspaces ??= {}
     for (const workspaceId of workspaceIds) registerWorkspaceInRoot(personalRoot, workspaceId, workspaceId, "import")
-    await defaultStorage.savePersonalRoot(personalRoot)
-  }
+    return personalRoot
+  })
   await context.workspaceStore.activate(invite.workspaces[0]!.id)
   return { value: received, acknowledgement: await replica.snapshot() }
 }

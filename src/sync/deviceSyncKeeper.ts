@@ -1,10 +1,16 @@
-import type { KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperPairing"
+import { createKeeperWorkspaceHost, type WorkspaceHostContext } from "./deviceSyncHost"
+import type { KeeperDisconnectScope, KeeperPairing, KeeperPairingStatus } from "./keeperPairing"
 import type { KeeperDisconnectReceipt } from "./keeperIntegrationStatus"
+import type { KeeperIntegrationStatus, KeeperSettingsScope, KeeperSettingsReceipt } from "./keeperIntegrationStatus"
+import type { updateKeeperIntegrationSettings } from "./keeperIntegrationSettingsApi"
+import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { keeperIntegrationReferences, ownerKeepers, removeOwnerKeeper, saveKeeperIntegrationReference, saveOwnerKeeper, type KeeperDetails } from "./ownerKeeper"
 import type { LocalProfile } from "../domain/identity"
 import type { KeeperIntegrationReference } from "../domain/model"
 import type { KeeperDiscovery } from "./keeperDiscovery"
 import type { DurableMesh } from "./durableMesh"
+import { assertKeeperGrantFloorsUnchanged } from "./keeperGrantEpoch"
+import { selectKeeperReference } from "./keeperIntegrationSelection"
 
 function cachedDiscovery(details: KeeperDetails): KeeperDiscovery | undefined {
   if (!details.origin || !details.servicePersonId || !details.serviceDeviceId || !details.servicePublicKey || !details.serviceCertificates) return undefined
@@ -56,19 +62,49 @@ function removalAlreadyCompleted(integration: KeeperIntegrationStatus, reference
       && item.operationId === localPending.operationId).map(item => `${item.workspaceId}\0${item.grantEpoch}`))
     return localPending.scopes.every(scope => done.has(`${scope.workspaceId}\0${scope.expectedGrantEpoch}`))
   }
+  if (reference?.completedRemoval) {
+    const done = new Set(integration.tombstones.filter(item => item.state === "removed" && item.cleanup === "complete"
+      && item.operationId === reference.completedRemoval!.operationId).map(item => `${item.workspaceId}\0${item.grantEpoch}`))
+    return reference.completedRemoval.scopes.every(scope => done.has(`${scope.workspaceId}\0${scope.grantEpoch}`))
+  }
   return !!reference?.scopeReceipts?.length && reference.scopeReceipts.every(scope => integration.tombstones.some(item =>
     item.workspaceId === scope.workspaceId && item.grantEpoch === scope.grantEpoch
       && item.state === "removed" && item.cleanup === "complete"))
 }
 
-async function revokeLocalScopes(mesh: DurableMesh, personId: string, scopes: string[], localOwners: Map<string, boolean>,
-  alreadyRevoked: Set<string>) {
-  for (const workspaceId of scopes) {
-    if (localOwners.get(workspaceId) === true && !alreadyRevoked.has(workspaceId)) {
-      await mesh.revokePerson(workspaceId, personId)
+async function revokeLocalScopes(mesh: DurableMesh, personId: string, scopes: KeeperDisconnectScope[], localOwners: Map<string, boolean>,
+  alreadyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
+  for (const scope of scopes) {
+    const { workspaceId, expectedGrantEpoch } = scope
+    const owned = localOwners.get(workspaceId) === true
+    traceRemoval(trace, "scope-check", { peerId: personId, workspaceId, outcome: owned ? "owner" : "not-owner" })
+    if (owned && !alreadyRevoked.has(workspaceId)) {
+      if (!Number.isSafeInteger(expectedGrantEpoch) || expectedGrantEpoch < 1) {
+        throw new Error("Saved keeper grant generation is unavailable; local access was not changed.")
+      }
+      traceRemoval(trace, "revoke-start", { peerId: personId, workspaceId,
+        outcome: `generation:${expectedGrantEpoch}` })
+      await mesh.revokePerson(workspaceId, personId, expectedGrantEpoch)
       alreadyRevoked.add(workspaceId)
+      traceRemoval(trace, "revoke-complete", { peerId: personId, workspaceId, outcome: "success" })
     }
   }
+}
+
+function cachedRemovalScopes(reference: KeeperIntegrationReference | undefined): KeeperDisconnectScope[] {
+  if (!reference) return []
+  const receiptScopes = reference.scopeReceipts?.filter(scope => reference.workspaceIds.includes(scope.workspaceId))
+    .map(scope => ({ workspaceId: scope.workspaceId, expectedGrantEpoch: scope.grantEpoch }))
+  const saved = reference.pendingRemoval?.scopes
+    ?? (receiptScopes?.length ? receiptScopes : undefined)
+    ?? reference.completedRemoval?.scopes.map(scope => ({ workspaceId: scope.workspaceId, expectedGrantEpoch: scope.grantEpoch }))
+  if (!saved) return []
+  const scopes = saved.map(scope => ({ workspaceId: scope.workspaceId, expectedGrantEpoch: scope.expectedGrantEpoch }))
+  if (new Set(scopes.map(scope => scope.workspaceId)).size !== scopes.length
+    || scopes.some(scope => !scope.workspaceId || !Number.isSafeInteger(scope.expectedGrantEpoch) || scope.expectedGrantEpoch < 1)) {
+    throw new Error("Saved keeper grant generations are invalid; local access was not changed.")
+  }
+  return scopes
 }
 
 async function persistRemovalReceipt(profile: LocalProfile, personId: string, discovery: KeeperDiscovery,
@@ -81,10 +117,18 @@ async function persistRemovalReceipt(profile: LocalProfile, personId: string, di
     scopeReceipts: remaining.map(scope => ({ workspaceId: scope.workspaceId,
       grantEpoch: scope.grantEpoch, activationOperationId: scope.activationOperationId })),
     state: remaining.length ? "active" : "removed", revision: receipt.revision,
-    pendingRemoval: undefined, verifiedAt: new Date().toISOString() }
+    pendingRemoval: undefined,
+    completedRemoval: remaining.length ? descriptor.completedRemoval : {
+      operationId: receipt.operationId,
+      scopes: receipt.scopes.map(scope => ({ workspaceId: scope.workspaceId, grantEpoch: scope.grantEpoch })),
+    }, verifiedAt: new Date().toISOString() }
   await saveKeeperIntegrationReference(nextDescriptor)
   if (!remaining.length) {
-    await removeOwnerKeeper(profile.identity.personId, personId)
+    await removeOwnerKeeper(profile.identity.personId, personId, {
+      integrationId: nextDescriptor.integrationId, throughRevision: receipt.revision,
+    }).catch(error => {
+      throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
+    })
     return
   }
   await saveOwnerKeeper(profile.identity.personId, { personId, role: "editor", details: {
@@ -96,7 +140,7 @@ async function persistRemovalReceipt(profile: LocalProfile, personId: string, di
   } })
 }
 
-type RemovalOptions = {
+export type RemovalOptions = {
   getProfile: () => Promise<LocalProfile>
   workspaces: { id: string }[]
   workspaceOwner?: (id: string) => Promise<string>
@@ -104,6 +148,22 @@ type RemovalOptions = {
   activeWorkspaceId?: string
   discovery?: KeeperDiscovery
   knownServiceDeviceIds?: string[]
+  trace?: (event: string, detail: Record<string, unknown>) => void
+}
+
+function traceRemoval(trace: RemovalOptions["trace"], event: string, detail: Record<string, unknown>) {
+  trace?.(event, detail)
+}
+
+function removalSource(reference: KeeperIntegrationReference | undefined, legacyKeeper: Awaited<ReturnType<typeof ownerKeepers>>[number] | undefined) {
+  if (reference) return "integration-reference"
+  if (legacyKeeper?.details?.boardIds?.length) return "legacy-saved"
+  return "legacy-current-workspaces"
+}
+
+function keeperReferenceForPerson(integrations: Record<string, KeeperIntegrationReference>, personId: string,
+  allowRemovalRetry = false) {
+  return selectKeeperReference(integrations, personId, { allowRemovalRetry })
 }
 
 function resolveRemovalDiscovery(personId: string, reference: KeeperIntegrationReference | undefined,
@@ -129,12 +189,14 @@ async function localOwnerFlags(workspaces: { id: string }[], workspaceOwner: (id
 }
 
 async function removalIntent(discovery: KeeperDiscovery, profile: LocalProfile, integrationId: string | undefined,
-  reference: KeeperIntegrationReference | undefined, localOwners: Map<string, boolean>) {
+  reference: KeeperIntegrationReference | undefined, localOwners: Map<string, boolean>, trace?: RemovalOptions["trace"]) {
   const { getKeeperIntegrationStatus } = await import("./keeperPairing")
   const status = await getKeeperIntegrationStatus(discovery)
   const ownerIds = new Set([...localOwners].filter(([, owned]) => owned).map(([id]) => id))
   const integration = findIntegration(status, ownerIds, integrationId)
   if (!integration) throw new Error("Rusty has no verified integration for this keeper identity.")
+  traceRemoval(trace, "status-verified", { peerId: discovery.personId, recordId: integration.integrationId,
+    outcome: `revision:${integration.revision};scopes:${integration.scopes.length}` })
   const localPending = reference?.pendingRemoval
   const servicePending = integration.pendingOperation
   const scopes = selectRemovalScopes(integration, localPending, localOwners)
@@ -143,15 +205,14 @@ async function removalIntent(discovery: KeeperDiscovery, profile: LocalProfile, 
     throw new Error("Rusty has another pending operation for this integration. Retry or resolve it first.")
   }
   if (scopes.some(scope => scope.expectedGrantEpoch < 1)) throw new Error("Rusty status omitted an owner grant epoch.")
-  return { integration, reference, localPending, servicePending, scopes,
+  return { integration, statusIntegrations: status.integrations, reference, localPending, servicePending, scopes,
     operationId: servicePending?.operationId ?? localPending?.operationId ?? crypto.randomUUID(),
     expectedRevision: servicePending?.expectedRevision ?? localPending?.expectedRevision ?? integration.revision }
 }
 
 async function localRemovalContext(personId: string, options: RemovalOptions, profile: LocalProfile) {
   const { integrations } = await keeperIntegrationReferences()
-  const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
-    .sort((left, right) => right.revision - left.revision)[0]
+  const reference = keeperReferenceForPerson(integrations, personId, true)
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
   const integrationId = reference?.integrationId ?? legacyKeeper?.details?.integrationId
   const discovery = resolveRemovalDiscovery(personId, reference, legacyKeeper, options)
@@ -159,14 +220,33 @@ async function localRemovalContext(personId: string, options: RemovalOptions, pr
   if (!mesh) throw new Error("Mesh unavailable")
   const localOwners = await localOwnerFlags(options.workspaces, options.workspaceOwner!, profile.identity.personId)
   const locallyRevoked = new Set<string>()
-  await revokeLocalScopes(mesh, personId, reference?.workspaceIds ?? legacyKeeper?.details?.boardIds ?? [], localOwners, locallyRevoked)
+  traceRemoval(options.trace, "scopes-loaded", { peerId: personId, recordId: integrationId ?? "none",
+    outcome: removalSource(reference, legacyKeeper),
+    phase: `owned:${[...localOwners.values()].filter(Boolean).length};available:${localOwners.size}` })
+  await revokeLocalScopes(mesh, personId, cachedRemovalScopes(reference), localOwners, locallyRevoked, options.trace)
+  traceRemoval(options.trace, "local-context-ready", { peerId: personId, recordId: integrationId ?? "none",
+    outcome: `locally-revoked:${locallyRevoked.size}` })
   return { reference, discovery, mesh, localOwners, locallyRevoked, integrationId }
 }
 
+async function revokeVisibleOwnedPeerScopes(mesh: DurableMesh, personId: string, localOwners: Map<string, boolean>,
+  alreadyRevoked: Set<string>, reference: KeeperIntegrationReference | undefined, trace?: RemovalOptions["trace"]) {
+  const workspaceIds = [...new Set((await mesh.views()).filter(peer => peer.personId === personId && !peer.revokedAt
+    && localOwners.get(peer.workspaceId) === true).map(peer => peer.workspaceId))]
+  const receipts = cachedRemovalScopes(reference)
+  const scopes = workspaceIds.map(workspaceId => {
+    const receipt = receipts.find(item => item.workspaceId === workspaceId)
+    if (!receipt) throw new Error("Visible keeper grant has no saved generation; local access was not changed.")
+    return receipt
+  })
+  await revokeLocalScopes(mesh, personId, scopes, localOwners, alreadyRevoked, trace)
+  return workspaceIds
+}
+
 async function removalIntentWithLocalError(discovery: KeeperDiscovery, profile: LocalProfile, integrationId: string | undefined,
-  reference: KeeperIntegrationReference | undefined, localOwners: Map<string, boolean>, locallyRevoked: Set<string>) {
+  reference: KeeperIntegrationReference | undefined, localOwners: Map<string, boolean>, locallyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
   try {
-    return await removalIntent(discovery, profile, integrationId, reference, localOwners)
+    return await removalIntent(discovery, profile, integrationId, reference, localOwners, trace)
   } catch (error) {
     if (locallyRevoked.size) throw new Error("Local access was revoked; Rusty confirmation is still pending. Retry when Rusty is available.", { cause: error })
     throw error
@@ -176,16 +256,22 @@ async function removalIntentWithLocalError(discovery: KeeperDiscovery, profile: 
 async function finishAlreadyRemoved(personId: string, profile: LocalProfile, reference: KeeperIntegrationReference | undefined,
   integration: KeeperIntegrationStatus, localPending: KeeperIntegrationReference["pendingRemoval"]): Promise<boolean> {
   if (!removalAlreadyCompleted(integration, reference, localPending)) return false
-  if (reference) await saveKeeperIntegrationReference({ ...reference, state: "removed", workspaceIds: [], revision: integration.revision,
-    pendingRemoval: undefined, verifiedAt: new Date().toISOString() })
-  await removeOwnerKeeper(profile.identity.personId, personId)
+  if (reference) await saveKeeperIntegrationReference({ ...reference, state: "removed", workspaceIds: [], scopeReceipts: [],
+    revision: integration.revision, pendingRemoval: undefined, verifiedAt: new Date().toISOString() })
+  try {
+    await removeOwnerKeeper(profile.identity.personId, personId, {
+      integrationId: reference?.integrationId ?? integration.integrationId, throughRevision: integration.revision,
+    })
+  } catch (error) {
+    throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
+  }
   return true
 }
 
 async function submitRemoval(personId: string, profile: LocalProfile, discovery: KeeperDiscovery, intent: Awaited<ReturnType<typeof removalIntent>>,
-  mesh: DurableMesh, localOwners: Map<string, boolean>, locallyRevoked: Set<string>) {
+  mesh: DurableMesh, localOwners: Map<string, boolean>, locallyRevoked: Set<string>, trace?: RemovalOptions["trace"]) {
   const { integration, scopes, operationId, expectedRevision, servicePending } = intent
-  await revokeLocalScopes(mesh, personId, scopes.map(scope => scope.workspaceId), localOwners, locallyRevoked)
+  await revokeLocalScopes(mesh, personId, scopes, localOwners, locallyRevoked, trace)
   const descriptor: KeeperIntegrationReference = {
     integrationId: integration.integrationId,
     serviceOrigin: discovery.origin,
@@ -204,38 +290,212 @@ async function submitRemoval(personId: string, profile: LocalProfile, discovery:
     pendingRemoval: { operationId, expectedRevision, scopes },
   }
   await saveKeeperIntegrationReference(descriptor)
+  traceRemoval(trace, "intent-saved", { peerId: personId, recordId: integration.integrationId, outcome: "pending-rusty-confirmation" })
+  let receipt: KeeperDisconnectReceipt
   try {
     const { disconnectKeeperIntegration } = await import("./keeperPairing")
-    const receipt = await disconnectKeeperIntegration(discovery, integration.integrationId, expectedRevision, operationId, scopes,
+    receipt = await disconnectKeeperIntegration(discovery, integration.integrationId, expectedRevision, operationId, scopes,
       servicePending?.requestHash)
-    if (receipt.status === "pending") return "pending" as const
-    await persistRemovalReceipt(profile, personId, discovery, integration, receipt, descriptor)
-    return "removed" as const
   } catch (error) {
     throw new Error(`Removal pending Rusty confirmation: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  traceRemoval(trace, "receipt", { peerId: personId, recordId: integration.integrationId, outcome: receipt.status })
+  if (receipt.status === "pending") return "pending" as const
+  try {
+    await persistRemovalReceipt(profile, personId, discovery, integration, receipt, descriptor)
+    traceRemoval(trace, "receipt-persisted", { peerId: personId, recordId: integration.integrationId, outcome: receipt.status })
+    return "removed" as const
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Rusty confirmed removal;")) throw error
+    throw new Error("Rusty confirmed removal; local keeper cleanup is pending. Retry removal to finish.", { cause: error })
   }
 }
 
 export async function removeKeeperAccess(personId: string, options: RemovalOptions): Promise<"removed" | "pending"> {
+  traceRemoval(options.trace, "start", { peerId: personId, outcome: "requested" })
   const profile = await options.getProfile()
   if (personId === profile.identity.personId) throw new Error("Cannot remove this identity")
   if (!options.workspaceOwner) throw new Error("Workspace ownership is unavailable")
   const { integrations } = await keeperIntegrationReferences()
-  const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
-    .sort((left, right) => right.revision - left.revision)[0]
+  const reference = keeperReferenceForPerson(integrations, personId, true)
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
   if (!reference && !legacyKeeper?.details?.integrationId) {
     const { beginLegacyLocalRemoval } = await import("./legacyKeeperRemoval")
-    return beginLegacyLocalRemoval(personId, profile, options, legacyKeeper)
+    const result = await beginLegacyLocalRemoval(personId, profile, options, legacyKeeper)
+    traceRemoval(options.trace, "complete", { peerId: personId, outcome: result })
+    return result
   }
+  traceRemoval(options.trace, "selection", { peerId: personId, recordId: reference?.integrationId ?? legacyKeeper?.details?.integrationId ?? "none",
+    outcome: "selected" })
   const context = await localRemovalContext(personId, options, profile)
   const intent = await removalIntentWithLocalError(context.discovery, profile, context.integrationId,
-    context.reference, context.localOwners, context.locallyRevoked)
-  const { integration, localPending, scopes } = intent
+    context.reference, context.localOwners, context.locallyRevoked, options.trace)
+  const { integration, statusIntegrations, localPending, scopes } = intent
   if (!scopes.length) {
-    if (await finishAlreadyRemoved(personId, profile, context.reference, integration, localPending)) return "removed"
+    const otherActiveOwnedIntegration = statusIntegrations.some(candidate => candidate.integrationId !== integration.integrationId
+      && candidate.scopes.some(scope => context.localOwners.get(scope.workspaceId) === true))
+    if (otherActiveOwnedIntegration) {
+      throw new Error("Rusty has another active integration for this keeper. Remove that integration before retrying cleanup.")
+    }
+    await revokeVisibleOwnedPeerScopes(context.mesh, personId, context.localOwners, context.locallyRevoked,
+      context.reference, options.trace)
+    if (await finishAlreadyRemoved(personId, profile, context.reference, integration, localPending)) {
+      traceRemoval(options.trace, "complete", { peerId: personId, recordId: integration.integrationId, outcome: "already-removed" })
+      return "removed"
+    }
     throw new Error("Rusty has no active or pending removal for this identity.")
   }
-  return submitRemoval(personId, profile, context.discovery, intent,
-    context.mesh, context.localOwners, context.locallyRevoked)
+  const result = await submitRemoval(personId, profile, context.discovery, intent,
+    context.mesh, context.localOwners, context.locallyRevoked, options.trace)
+  traceRemoval(options.trace, "complete", { peerId: personId, recordId: integration.integrationId, outcome: result })
+  return result
+}
+
+export async function updateKeeperIntegrationAccess(personId: string, futureBoards: boolean,
+  removeWorkspaceIds: string[], options: RemovalOptions): Promise<"updated" | "pending"> {
+  const context = await integrationSettingsContext(personId, options)
+  const { profile, reference, discovery, integration, pending } = context
+  const { scopes, liveScopes } = integrationSettingsScopes(integration, pending, removeWorkspaceIds)
+  const desiredFutureBoards = pending?.futureBoards ?? futureBoards
+  const operationId = pending?.operationId ?? (await import("./keeperPairing")).newKeeperOperationId()
+  const expectedRevision = pending?.expectedRevision ?? integration.revision
+  if (!pending) await assertOwnedIntegrationSettings(liveScopes, profile.identity.personId, options)
+  const { keeperIntegrationSettingsRequestHash, updateKeeperIntegrationSettings } = await import("./keeperIntegrationSettingsApi")
+  const requestHash = pending?.requestHash ?? await keeperIntegrationSettingsRequestHash(discovery,
+    reference.integrationId, expectedRevision, operationId, scopes, desiredFutureBoards)
+  const intent = pending ?? { operationId, expectedRevision, requestHash, futureBoards: desiredFutureBoards, scopes }
+  if (!pending) await saveKeeperIntegrationReference({ ...reference, pendingSettings: intent })
+  const receipt = await revokeAndSubmitSettings(personId, options, discovery, reference.integrationId,
+    expectedRevision, operationId, scopes, desiredFutureBoards, requestHash, updateKeeperIntegrationSettings)
+  if (receipt.status === "pending") return "pending"
+  await persistSettingsReceipt(profile, personId, discovery, reference, receipt)
+  return "updated"
+}
+
+async function integrationSettingsContext(personId: string, options: RemovalOptions) {
+  const profile = await options.getProfile()
+  const { integrations } = await keeperIntegrationReferences()
+  const reference = keeperReferenceForPerson(integrations, personId)
+  if (!reference || reference.state !== "active") throw new Error("Keeper integration is not active.")
+  const discovery = options.discovery ?? cachedDiscovery({
+    origin: reference.serviceOrigin, boardIds: reference.workspaceIds, futureBoards: reference.futureBoards,
+    servicePersonId: reference.servicePersonId, serviceDeviceId: reference.serviceDeviceId,
+    servicePublicKey: reference.servicePublicKey, serviceCertificates: reference.serviceCertificates,
+  })
+  if (!discovery) throw new Error("Saved Rusty identity is unavailable. Reconnect before changing settings.")
+  const { getKeeperIntegrationStatus } = await import("./keeperPairing")
+  const service = await getKeeperIntegrationStatus(discovery)
+  if (!service.integrationSettingsSupported) throw new Error("Rusty does not support signed integration settings.")
+  const integration = service.integrations.find(item => item.integrationId === reference.integrationId)
+  if (!integration) throw new Error("Rusty integration is missing from signed status.")
+  const pending = reference.pendingSettings
+  if (!pending && integration.revision !== reference.revision) throw new Error("Rusty settings changed. Reload and review the current boards.")
+  return { profile, reference, discovery, integration, pending }
+}
+
+function integrationSettingsScopes(integration: KeeperIntegrationStatus, pending: KeeperIntegrationReference["pendingSettings"],
+  removeWorkspaceIds: string[]): { scopes: KeeperSettingsScope[]; liveScopes: (KeeperIntegrationStatus["scopes"][number] | undefined)[] } {
+  const scopes = pending?.scopes ?? removeWorkspaceIds.map(workspaceId => {
+    const scope = integration.scopes.find(item => item.workspaceId === workspaceId)
+    if (!scope) throw new Error("Selected board is no longer active for this keeper.")
+    return { workspaceId, expectedGrantEpoch: scope.grantEpoch }
+  })
+  const liveScopes = scopes.map(requested => {
+    const scope = integration.scopes.find(item => item.workspaceId === requested.workspaceId)
+    if (scope?.grantEpoch === requested.expectedGrantEpoch) return scope
+    const tombstone = integration.tombstones.find(item => item.workspaceId === requested.workspaceId
+      && item.grantEpoch === requested.expectedGrantEpoch)
+    if (pending && tombstone?.operationId === pending.operationId) return undefined
+    throw new Error("A selected board grant changed. Reload settings.")
+  })
+  return { scopes, liveScopes }
+}
+
+async function assertOwnedIntegrationSettings(
+  liveScopes: (KeeperIntegrationStatus["scopes"][number] | undefined)[], ownerPersonId: string, options: RemovalOptions,
+) {
+  for (const scope of liveScopes.filter((item): item is NonNullable<typeof item> => !!item)) {
+    const owner = await options.workspaceOwner?.(scope.workspaceId)
+    if (owner !== ownerPersonId) throw new Error("Cannot change keeper access for a board you do not own.")
+  }
+}
+
+async function revokeAndSubmitSettings(personId: string, options: RemovalOptions, discovery: KeeperDiscovery,
+  integrationId: string, expectedRevision: number, operationId: string, scopes: KeeperSettingsScope[],
+  futureBoards: boolean, requestHash: string,
+  update: typeof updateKeeperIntegrationSettings): Promise<KeeperSettingsReceipt> {
+  const mesh = await options.mesh()
+  if (!mesh && scopes.length) throw new Error("Workspace mesh unavailable. Keeper settings remain pending.")
+  for (const scope of scopes) await mesh!.revokePerson(scope.workspaceId, personId, scope.expectedGrantEpoch)
+  return update(discovery, integrationId,
+    expectedRevision, operationId, scopes, futureBoards, requestHash)
+}
+
+async function persistSettingsReceipt(profile: LocalProfile, personId: string, discovery: KeeperDiscovery,
+  reference: KeeperIntegrationReference, receipt: KeeperSettingsReceipt) {
+  const { getKeeperIntegrationStatus } = await import("./keeperPairing")
+  const currentStatus = await getKeeperIntegrationStatus(discovery)
+  const current = currentStatus.integrations.find(item => item.integrationId === reference.integrationId)
+  if (!current || current.revision < receipt.revision) throw new Error("Rusty settings status is older than the signed update receipt.")
+  const { integrations: latestReferences } = await keeperIntegrationReferences()
+  const latestLocal = latestReferences[reference.integrationId]
+  if (latestLocal && latestLocal.revision > current.revision) throw new Error("Rusty integration revision moved backwards. Local settings were preserved.")
+  const remaining = current.scopes
+  const nextReference: KeeperIntegrationReference = { ...(latestLocal ?? reference),
+    workspaceIds: remaining.map(scope => scope.workspaceId),
+    scopeReceipts: remaining.map(scope => ({ workspaceId: scope.workspaceId,
+      grantEpoch: scope.grantEpoch, activationOperationId: scope.activationOperationId })),
+    futureBoards: current.futureBoards, futureBoardBaselineIds: current.baselineWorkspaceIds,
+    integrationSettingsSupported: currentStatus.integrationSettingsSupported,
+    revision: current.revision, pendingSettings: undefined, verifiedAt: new Date().toISOString() }
+  await saveKeeperIntegrationReference(nextReference)
+  await saveOwnerKeeper(profile.identity.personId, { personId, role: "editor", details: {
+    origin: discovery.origin, boardIds: nextReference.workspaceIds, futureBoards: nextReference.futureBoards,
+    futureBoardBaselineIds: nextReference.futureBoardBaselineIds, integrationId: nextReference.integrationId,
+    servicePersonId: nextReference.servicePersonId, serviceDeviceId: nextReference.serviceDeviceId,
+    servicePublicKey: nextReference.servicePublicKey, serviceCertificates: nextReference.serviceCertificates,
+    revision: nextReference.revision,
+  } })
+}
+
+export function createKeeperProvisioner(
+  ensureDurableMesh: () => Promise<unknown>,
+  hostContext: () => WorkspaceHostContext,
+) {
+  const invitationHosts = new Map<string, Promise<WorkspaceJoinInvitation>>()
+  const invitationGrantFloors = new Map<string, Record<string, number>>()
+  return async (pairing: KeeperPairing): Promise<KeeperPairingStatus> => {
+    const pairingApi = await import("./keeperPairing")
+    const currentFloors = await pairingApi.refreshKeeperGrantFloors(pairing.discovery,
+      pairing.workspaces.map(workspace => workspace.id), pairing.serviceGrantFloors,
+      pairing.integrationId)
+    if (pairing.integrationUpdate?.policyOnly === true) {
+      if (pairing.workspaces.length !== 0 || pairing.futureBoards !== true) {
+        throw new Error("Policy-only approval contains an unexpected scope or policy.")
+      }
+      pairing.serviceGrantFloors = currentFloors
+      return pairingApi.deliverKeeperInvitation(pairing)
+    }
+    let invitationTask = invitationHosts.get(pairing.pairingId)
+    const usedFloors = invitationGrantFloors.get(pairing.pairingId)
+    if (usedFloors) assertKeeperGrantFloorsUnchanged(usedFloors, currentFloors, pairing.workspaces.map(workspace => workspace.id))
+    if (!invitationTask) {
+      pairing.serviceGrantFloors = currentFloors
+      await ensureDurableMesh()
+      invitationTask = createKeeperWorkspaceHost(hostContext(), pairing.workspaces, pairing.discovery.personId,
+        pairing.futureBoards === true, pairing.serviceGrantFloors)
+      invitationHosts.set(pairing.pairingId, invitationTask)
+      invitationGrantFloors.set(pairing.pairingId, currentFloors)
+      void invitationTask.catch(() => {
+        if (invitationHosts.get(pairing.pairingId) === invitationTask) {
+          invitationHosts.delete(pairing.pairingId)
+          invitationGrantFloors.delete(pairing.pairingId)
+        }
+      })
+    }
+    const invitation = await invitationTask
+    const status = await pairingApi.deliverKeeperInvitation(pairing, invitation)
+    if (status === "active") await pairingApi.rememberActiveKeeperIntegration(pairing)
+    return status
+  }
 }

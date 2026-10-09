@@ -29,6 +29,85 @@ violating `CompletedRevokeCoversCurrentGrant`. This abstracts the revocation
 list to its maximum epoch; signatures, peer-store persistence, and Rusty's
 separate signed disconnect receipt remain implementation-test obligations.
 
+`KeeperGrantRecovery` models a restored owner device whose local grant history
+is behind Rusty's retained signed tombstone. The old approved grant cannot
+reactivate; the owner reads the authenticated floor, issues a grant above both
+local and service history, and activates only after a fresh approval.
+`KeeperGrantRecoveryTamperedStatus` makes the status signature invalid and checks
+that no grant can be issued from that floor. The finite model abstracts actual
+signatures and board identity; implementation tests cover workspace scoping and
+the signed status parser.
+
+`KeeperOrphanResolution` distinguishes a pruned pairing from a signed
+cancellation. It resolves only after exact signed status, complete tombstones
+for saved grant epochs, and local keeper-grant revocation; dismissing the
+visible request leaves durable cleanup evidence private. Reload does not
+reproject an outbox entry as a keeper request. Discovery stays independent of
+outbox state, while a new request for the same service requires verified status
+and completed cleanup. The no-grant configuration permits resolution only when
+Rusty has no target tombstone to link. Mutants that skip local grant revocation,
+ignore tombstone epochs, erase evidence on dismiss, globally gate discovery, or
+reopen a dismissed request after reload/stale completion must produce
+counterexamples. The model abstracts signature, certificate-chain, revision,
+and browser-store checks; Playwright and unit tests cover those boundaries.
+
+`KeeperHostInstanceNode` checks that an invitation host uses its durable leased
+node-instance key before workspace adoption and keeps that same route after
+reload. `KeeperHostInstanceNodeLegacyHost` models the old unscoped host key and
+must violate the adopted-route invariant.
+
+`OwnerRevocationPersistence` models removing a different keeper while preserving
+the owner's role. A signed revocation boundary must exist in both the document
+history and stored authority before local removal completes; the boundary must
+reference an already-admitted head. Reload then keeps the owner authorized and
+the keeper revoked. A failed persist leaves removal incomplete; retry after
+restart can commit both records. Raw causal evidence may contain quarantined
+branches, while access is resolved against the admitted document. The raw-head-
+only mutation signs against a head available only in raw evidence, stores the
+revocation and reports removal without the admitted boundary; reload makes owner
+access unavailable and violates
+`OwnerAccessSurvivesOtherKeeperRemoval`. This finite model
+abstracts signatures and storage transactions; implementation tests must verify
+the actual document/authority commit and recovery behavior.
+
+`OwnerAuthorityRecovery` covers repair of legacy malformed target-revocation
+boundaries: authenticate the current owner and a non-revoked current device,
+retain the old signed boundary in history, CAS-replace that target's record with
+a higher epoch referencing an admitted head, then restore owner access after
+reload while keeping the target revoked. A CAS conflict changes no authority;
+restart refreshes revision before retry. `OwnerAuthorityRecoveryUnauthorized.cfg`
+allows a foreign actor to repair and expects `OnlyCurrentOwnerRepairs` to fail.
+`OwnerAuthorityRecoveryRevokedDevice.cfg` bypasses the device gate and expects
+`OnlyAuthorizedOwnerDeviceRepairs` to fail. The finite model does not represent
+signature bytes or real store transactions.
+
+`ReviewLifecycle` keeps the original causal source quarantined and separates it
+from the source-hash-to-authorized-clone resolution receipt, active review row,
+persisted dismissal, and action error. Dismissal hides a pending row but retains
+source history; reopening it does not approve it. A failed local commit leaves the source quarantined and
+retryable. A failed dismissal save keeps the row hidden in the current view,
+surfaces a dismissible error, and can retry persistence; reload uses the last
+durable dismissal value. Successful review atomically records the trusted clone,
+receipt, and source-hash resolution while the original branch remains
+unadmitted. Projection refresh may happen later; duplicate clicks check the
+resolution map under the serialized lock. `ReviewLifecycleDuplicateApply.cfg` removes that guard and
+expects a second command; `ReviewLifecycleDismissErasesHistory.cfg` models
+deleting source history on dismissal and expects the retention invariant to fail.
+Proof and raw source bytes remain retained across all modeled transitions.
+This bounds review to one source change and two click attempts. It abstracts
+IndexedDB atomicity, command signatures, concurrent browser tabs, and the exact
+presentation store; implementation tests must cover those details.
+
+`ReviewedWorkspaceBootstrap` starts after a trusted review clone and its
+source-hash resolution are durable. Raw causal history still contains the
+quarantined source and admitted clone; bootstrap classifies that history into an
+admitted projection containing only the clone. The source remains available in
+history and unadmitted. `ReviewedWorkspaceBootstrapRejectsQuarantine.cfg` models
+rejecting the whole workspace merely because raw history contains the
+quarantined source and expects bootstrap availability to fail. This two-change
+abstraction does not model Automerge dependencies or the actual admission
+classifier; the browser regression must verify those.
+
 ## Run
 
 Requirements: Java, Python 3, official
@@ -87,6 +166,16 @@ workspace, ownership, and entitlement abstraction.
 | WorkerLifecycleQueuedTimeout | QueuedTimeoutIsolated violated | 37 / 29 |
 | RevocationGeneration | Safety holds | 6 / 3 |
 | RevocationGenerationPersonOnly | CompletedRevokeCoversCurrentGrant violated | 4 / 3 |
+| OwnerRevocationPersistence | Safety holds | 12 / 10 |
+| OwnerRevocationPersistenceNonAtomic | OwnerAccessSurvivesOtherKeeperRemoval violated | 7 / 7 |
+| OwnerAuthorityRecovery | Safety holds | 18 / 8 |
+| OwnerAuthorityRecoveryUnauthorized | OnlyCurrentOwnerRepairs violated | 3 / 3 |
+| OwnerAuthorityRecoveryRevokedDevice | OnlyAuthorizedOwnerDeviceRepairs violated | 3 / 3 |
+| ReviewLifecycle | Safety holds | 115 / 32 |
+| ReviewLifecycleDuplicateApply | AtMostOneAuthorizedCommand violated | 143 / 42 |
+| ReviewLifecycleDismissErasesHistory | DismissalPreservesProof violated | 2 / 2 |
+| ReviewedWorkspaceBootstrap | Safety holds | 2 / 2 |
+| ReviewedWorkspaceBootstrapRejectsQuarantine | ResolvedWorkspaceCanBootstrap violated | 2 / 2 |
 
 ## Interpretation and code mapping
 

@@ -1,10 +1,10 @@
 import { computed, ref, watch } from "vue"
-import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle, workspaceWritesBlocked } from "../sync/changeAuthorization"
+import { workspaceRole, effectiveWorkspaceOwner, exportAuthorizationBundle } from "../sync/changeAuthorization"
 import { canWorkspace, type WorkspaceRole } from "../domain/permissions"
 import { bootstrapIdentity } from "../domain/identity"
 import { useTincanban } from "../state"
 import type { ArtifactKind } from "../types"
-import { type Column, type Item, type WorkspaceDocumentV2 } from "../domain/model"
+import { type Column, type Item } from "../domain/model"
 import { configureChat, exportChat, receiveChat, subscribeChat } from "../chat/service"
 import type { WorkspaceAccessResult } from "./workspaceAccessState"
 import { refreshWorkspaceAccess } from "./workspaceAccessRefresh"
@@ -107,6 +107,7 @@ function useAppCollaboration(tincanban: ReturnType<typeof useTincanban>, ui: Ret
     },
     workspaceStore: {
       read: id => timedWorkspaceStoreStage("read", id, () => tincanban.readWorkspaceBytes(id)),
+      readAuthorityHeads: id => timedWorkspaceStoreStage("authority-heads", id, () => tincanban.readWorkspaceHeads(id)),
       reclassify: id => timedWorkspaceStoreStage("reclassify", id, () => tincanban.reclassifyWorkspace(id)),
       validate: (id, bytes, authorization) => timedWorkspaceStoreStage("validate", id, async () => {
         await tincanban.validateAuthorizedWorkspace(id, bytes, authorization)
@@ -187,7 +188,10 @@ function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: Retu
     await refreshWorkspaceAccess({ workspaceId: doc.id, includeOthers, cancelled: () => cancelled,
       getActiveWorkspaceId: () => tincanban.activeWorkspace.id, getDocVersion: () => tincanban.docVersion.value,
       getWorkspaceIds: () => tincanban.availableWorkspaces.value.map(item => item.id),
-      load: (all, onActive) => loadWorkspaceAccess(tincanban, doc, all, onActive),
+      load: async (all, onActive) => {
+        const { loadWorkspaceAccess } = await import("./workspaceAccessLoader")
+        return loadWorkspaceAccess(tincanban, doc, sync, all, onActive)
+      },
       state: { currentRole, currentWorkspaceOwnerId, roleWorkspaceId, workspaceAccess, workspaceAccessErrors } })
   }
   const identityFingerprint = () => {
@@ -215,31 +219,6 @@ function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: Retu
   watch(canEditBoard, allowed => { if (!allowed) { ui.isEditingBoard.value = false; ui.editingColumn.value = null; ui.showEntitySettings.value = false } })
   watch(canEditItems, allowed => { if (!allowed) closeRestrictedEditors(ui) })
   return { confirmedRole, currentRole, currentWorkspaceOwnerId, workspaceAccess, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace }
-}
-
-async function loadWorkspaceAccess(tincanban: ReturnType<typeof useTincanban>, doc: WorkspaceDocumentV2, includeOthers = true,
-  onActive?: (result: { role: WorkspaceRole; ownerId: string; access: Record<string, WorkspaceAccessResult> }) => void) {
-  const profile = await bootstrapIdentity("My Device")
-  const resolve = async (item: { id: string; title: string }) => {
-    try {
-      const role = item.id === doc.id ? await workspaceRole(doc, profile) : await tincanban.getWorkspaceRole(item.id)
-      return [item.id, { role, blocked: await workspaceWritesBlocked(item.id) }] as const
-    } catch (cause) {
-      const detail = cause instanceof Error ? cause.message : String(cause)
-      const error = `“${item.title}” (${item.id}): permissions could not be verified. ${detail}`
-      return [item.id, { role: "visitor" as const, blocked: true, error }] as const
-    }
-  }
-  const items = tincanban.availableWorkspaces.value
-  const activeItem = items.find(item => item.id === doc.id) ?? { id: doc.id, title: doc.title }
-  const [activeId, activeRaw] = await resolve(activeItem)
-  const active: WorkspaceAccessResult = activeRaw
-  const ownerId = active?.error ? "" : await effectiveWorkspaceOwner(doc.id, doc.ownerPersonId)
-  const initial = { role: active.role, ownerId, access: { [activeId]: active } }
-  onActive?.(initial)
-  const others = includeOthers ? await Promise.all(items.filter(item => item.id !== doc.id).map(resolve)) : []
-  const access: Record<string, WorkspaceAccessResult> = Object.fromEntries([[activeId, active], ...others])
-  return { ...initial, access }
 }
 
 function closeRestrictedEditors(ui: ReturnType<typeof useAppUiState>) {

@@ -120,12 +120,20 @@ describe("item lifecycle/workflow Automerge concurrency", () => {
         workflow: JSON.stringify({ columnId: columns[0]!, changedAt: "2026-02-01T00:00:00.000Z" }),
         createdAt: "2026-02-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z",
       } as Item
+      draft.entities["nested-child"] = {
+        id: "nested-child", title: "Nested child", body: "", values: {}, placement: { parentId: "nested-item", rank: "0/1" },
+        archivedAt: null, lifecycle: JSON.stringify({ state: "active", changedAt: "2026-02-01T00:00:00.000Z" }),
+        workflow: JSON.stringify({ columnId: columns[0]!, changedAt: "2026-02-01T00:00:00.000Z" }),
+        createdAt: "2026-02-01T00:00:00.000Z", updatedAt: "2026-02-01T00:00:00.000Z",
+      } as Item
     })
     const moved = await executeCommand(active, { kind: "moveEntity", entityId: itemId, parentId: columns[1]! }, profile)
     expect(moved.ok).toBe(true)
     if (!moved.ok) return
     expect(itemWorkflow(moved.value.newDoc.entities["nested-item"] as Item)?.columnId).toBe(columns[1])
+    expect(itemWorkflow(moved.value.newDoc.entities["nested-child"] as Item)?.columnId).toBe(columns[1])
     expect(moved.value.receipt.changedEntityIds).toContain("nested-item")
+    expect(moved.value.receipt.changedEntityIds).toContain("nested-child")
     expect(validateWorkspaceDoc(moved.value.newDoc).ok).toBe(true)
   })
 

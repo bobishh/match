@@ -34,6 +34,8 @@ export type OwnerWorkspaceOfferFrame = "mesh-owner-workspace-offer"
 
 export type WorkspaceSetStore = {
   read: (id: string) => Promise<Uint8Array>
+  /** Heads from the admitted local document, excluding quarantined causal evidence. */
+  readAuthorityHeads?: (id: string) => Promise<string[]>
   reclassify?: (id: string) => Promise<void>
   validate?: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>
   merge: (id: string, bytes: Uint8Array, authorization?: unknown) => Promise<void>

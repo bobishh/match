@@ -176,6 +176,9 @@ test("Given an offline editor change accepted before revocation, when the signed
       hasNewSignedAuthorization: evidence.authorizationEvidence.some(record => record.signed.payload.hashes.includes(reviewChange?.hash ?? "")) }
   }, fixture), { timeout: 15_000 }).toMatchObject({ sourceStatus: "quarantined", reviewHash: expect.any(String),
     projectedItemTitle: "Offline editor draft", hasNewSignedAuthorization: true })
-  await expect(page.getByRole("region", { name: "Workspace change review" })).toContainText(fixture.changeHash)
+  const reviewHistory = page.getByRole("region", { name: "Workspace review history" })
+  await expect(reviewHistory).toContainText(fixture.changeHash)
+  await expect(reviewHistory.locator("li").filter({ hasText: fixture.changeHash })).toContainText("Authorized change saved")
+  await expect(page.getByRole("region", { name: "Workspace change review" })).toContainText(fixture.dependentHash)
   expect(fixture.rawBytes.length).toBeGreaterThan(0)
 })

@@ -181,8 +181,11 @@ export async function addWorkspaceToPersonalRoot(
 ): Promise<void> {
   const root = await storage.loadPersonalRoot();
   if (!root) return;
-  registerWorkspaceInRoot(root, id, id, source);
-  await storage.savePersonalRoot(root);
+  await storage.updatePersonalRootForIdentity(root.identity.personId, current => {
+    if (!current) return null;
+    registerWorkspaceInRoot(current, id, id, source);
+    return current;
+  });
 }
 
 export async function requireProfile() {

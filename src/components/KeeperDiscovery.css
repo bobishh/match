@@ -1,0 +1,17 @@
+.keeper-add { gap: 8px; }
+.keeper-list { display: grid; gap: 8px; }
+.keeper-list [role="status"] { min-width: 0; overflow-wrap: anywhere; }
+.keeper-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); text-align: left; cursor: pointer; }
+.keeper-dot[data-state="service-available"] { background: var(--green); }
+.keeper-dot[data-state="service-unavailable"] { background: var(--red); }
+.keeper-dot[data-state="service-checking"] { background: var(--yellow); }
+.keeper-row-copy { min-width: 0; display: grid; gap: 4px; }
+.keeper-list article.keeper-row > .button { max-width: 100%; white-space: normal; }
+.keeper-row-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.keeper-row small { color: var(--muted); font: 700 .8rem/1.2 var(--site-font-sans); text-transform: uppercase; }
+.keeper-empty { margin: 0; padding: 12px; border: 1px dashed var(--soft); color: var(--muted); }
+
+@media (max-width: 420px) {
+  .keeper-list article.keeper-row { grid-template-columns: 10px minmax(0, 1fr); }
+  .keeper-list article.keeper-row > .button { grid-column: 2; justify-self: start; }
+}

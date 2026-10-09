@@ -532,7 +532,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "meta-mesh-core"
 version = "0.1.0"
-source = "git+https://github.com/bobishh/meta-mesh.git?rev=de5095dddbc618368f2976571c476a91a2b76b97#de5095dddbc618368f2976571c476a91a2b76b97"
+source = "git+https://github.com/bobishh/meta-mesh.git?rev=beb9840c15ca79cbc45f8e3c221b2dcbdf941d3e#beb9840c15ca79cbc45f8e3c221b2dcbdf941d3e"
 dependencies = [
  "aes-gcm",
  "automerge",

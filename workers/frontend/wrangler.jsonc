@@ -12,5 +12,5 @@
     "run_worker_first": true,
     "not_found_handling": "none"
   },
-  "observability": { "enabled": false }
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
 }

@@ -1,20 +1,23 @@
-import { fromBase64Url, type LocalProfile } from "../domain/identity"
+import { type LocalProfile } from "../domain/identity"
 import { authorityValidationFingerprint } from "./changeAuthorization"
 import { WorkspaceAuthorityClassification } from "./workspaceAuthorityClassification"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
-import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
 import { adaptVerifiedWorkspaceAdvertisement } from "@meta-uber/mesh-replication/protocol"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
-import { createWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDeviceRevocation, type WorkspaceDeviceRevocation, createWorkspaceRevocation,
-  verifyWorkspaceMemberBundle,
-  createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
-  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceRevocation,
-  type WorkspaceSuccessionPolicy, type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
+import { createWorkspaceDeparture, type WorkspaceDeparture, createWorkspaceDeviceRevocation, type WorkspaceDeviceRevocation,
+  createWorkspaceRevocation, verifyWorkspaceMemberBundle, createWorkspaceSuccessionPolicy, createWorkspaceSuccessionVote, createWorkspaceSuccessionClaim,
+  type WorkspaceMemberBundle, type WorkspaceOwnershipTransfer, type WorkspaceSuccessionPolicy,
+  type WorkspaceSuccessionVote, type WorkspaceSuccessionClaim } from "./meshRecords"
 import { type WorkspaceMeshCredential, type WorkspacePeerRecord } from "./peerStore"
 import { deviceRevocations, isDeviceRevoked, uniqueCertificates, meshCatalog, revocations, ownershipTransfers, successionPolicy, successionVotes, ownerAuthorities, isGrantRevoked, type MeshExport, type ScopeAuthoritySnapshot, type SessionEntry } from "./durableMeshBase"
 import { DurableMeshCredentials } from "./durableMeshCredentials"
 import { workspaceSet } from "./workspaceSet"
+import { meshTrace } from "./meshTrace"
+import { assertKeeperGrantGeneration, emptyRevocationGeneration, reconcilePriorPersonRevocation } from "./revocationGeneration"
+import { withWorkspaceMutation } from "../workspaceMutation"
+import { runKeeperRevocationActions } from "./keeperRevocationActions"
+import { nextKeeperRevocationEpoch } from "./keeperGrantEpoch"
 import { awaitOwnerDelivery, confirmedOwnershipSnapshot, createOwnershipProposal, mergeSuccessionState as mergeSuccessionStateInScope,
   ownershipTransfersWithPending, persistScopeAuthoritySnapshot, planOwnershipMerge, preflightScopeAuthoritySnapshot, publishConfirmedToSessions,
   type OwnershipMergePlan } from "./durableMeshOwnershipScope"
@@ -105,6 +108,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
   protected async putVerifiedBundle(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle,
     batch?: { index: number; total: number }) {
+    return withWorkspaceMutation(credential.workspaceId, () => this.putVerifiedBundleLocked(credential, raw, batch))
+  }
+  private async putVerifiedBundleLocked(credential: WorkspaceMeshCredential, raw: WorkspaceMemberBundle,
+    batch?: { index: number; total: number }) {
     const peer = { personId: raw.advertisement.payload.personId.slice(0, 8), deviceId: raw.advertisement.payload.deviceId.slice(0, 8),
       ...(batch ? { bundleIndex: batch.index, bundleCount: batch.total } : {}) }
     const phase = <T>(name: string, operation: () => T | Promise<T>) =>
@@ -150,8 +157,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       transportSecret: credential.transportSecret,
       role: verified.role,
       lastSeen: route.issuedAt,
-      // A grant at a newer generation is the owner's explicit re-approval;
-      // clear the old per-device tombstone so every device can reconnect.
+      // A newer grant is the owner's explicit re-approval; clear its old tombstone.
       revokedAt: null,
       advertisement: raw,
     }))
@@ -259,9 +265,9 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     let claim!: WorkspaceSuccessionClaim
     for (const action of actions) {
       if (action === "createClaim") {
-        const doc = Automerge.load<Record<string, unknown>>(await this.options.workspaceStore.read(credential!.workspaceId))
-        try { claim = await createWorkspaceSuccessionClaim(profile, policy!, votes, grant!, Automerge.getHeads(doc), credential!.epoch + 1,
-          uniqueCertificates(profile, await defaultProofStore.listCertificates())) } finally { Automerge.free(doc) }
+        claim = await createWorkspaceSuccessionClaim(profile, policy!, votes, grant!,
+          await this.readAuthorityHeads(credential!.workspaceId), credential!.epoch + 1,
+          uniqueCertificates(profile, await defaultProofStore.listCertificates()))
       }
       if (action === "mergeClaim") await this.mergeSuccessionState(credential!, policy!, votes, [claim])
       if (action === "notify") await this.notify()
@@ -331,9 +337,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const certificates = uniqueCertificates(profile, await defaultProofStore.listCertificates())
     for (const workspaceId of new Set(workspaceIds)) {
       const credential = (await this.store.getWorkspaceCredential(workspaceId))!
-      const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
-      let heads: string[]
-      try { heads = Automerge.getHeads(doc) } finally { Automerge.free(doc) }
+      const heads = await this.readAuthorityHeads(workspaceId)
       const record = await createWorkspaceDeviceRevocation(profile, workspaceId, personId, deviceId, heads, certificates)
       await this.mergeDeviceRevocations(credential, [record], false)
     }
@@ -347,6 +351,10 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   }
 
   async promotePerson(workspaceId: string, personId: string): Promise<void> {
+    await withWorkspaceMutation(workspaceId, () => this.promotePersonLocked(workspaceId, personId))
+    await this.reclassifyWorkspaceAuthority(workspaceId)
+  }
+  private async promotePersonLocked(workspaceId: string, personId: string): Promise<void> {
     const profile = await this.options.getProfile()
     const credential = await this.store.getWorkspaceCredential(workspaceId)
     const peers = (await this.peerInstances(workspaceId)).filter(peer => peer.personId === personId && !peer.revokedAt && peer.advertisement)
@@ -367,44 +375,48 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
         await this.store.putWorkspaceCredential(credential!)
         for (const peer of peers) {
           const bundle = { ...peer.advertisement as WorkspaceMemberBundle, grant, ownerPublicKey: credential!.ownerPublicKey, ownerCertificates: credential!.ownerCertificates as DeviceCertificate[] }
-          await this.putVerifiedBundle(credential!, bundle)
+          await this.putVerifiedBundleLocked(credential!, bundle)
         }
       }
       if (action === "refreshSuccessionPolicy") await this.refreshSuccessionPolicy(workspaceId)
       if (action === "notify") await this.notify()
       if (action === "publish") await this.publishAll()
     }
-    await this.reclassifyWorkspaceAuthority(workspaceId)
   }
-  async revokePerson(workspaceId: string, personId: string): Promise<void> {
-    const profile = await this.options.getProfile(); let current = await this.store.getWorkspaceCredential(workspaceId)
-    if (current && revocations(current).some(item => item.payload.personId === personId)) {
-      await this.mergeRevocations(current, [], true)
-      await this.reclassifyWorkspaceAuthority(workspaceId)
-      await this.notify()
-      return
-    }
-    const actions = meshRustRuntime().state.planAuthorityCommand({ kind: "revoke", localPersonId: profile.identity.personId,
-      ownerPersonId: current?.ownerPersonId ?? null })
-    let record!: WorkspaceRevocation
-    for (const action of actions) {
-      if (action === "createRevocation") {
-        const doc = Automerge.load(await this.options.workspaceStore.read(workspaceId))
-        try { record = await createWorkspaceRevocation(profile, workspaceId, personId, await this.nextAccessEpoch(workspaceId), Automerge.getHeads(doc)) }
-        finally { Automerge.free(doc) }
+  async revokePerson(workspaceId: string, personId: string, expectedGrantEpoch?: number): Promise<void> {
+    await withWorkspaceMutation(workspaceId, async () => {
+      const profile = await this.options.getProfile(); let current = await this.store.getWorkspaceCredential(workspaceId)
+      if (expectedGrantEpoch !== undefined) {
+        const { verifiedKeeperGrantEpochs } = await import("./keeperGrantGeneration")
+        const verifiedEpochs = current ? await verifiedKeeperGrantEpochs(profile, current, workspaceId, personId) : []
+        assertKeeperGrantGeneration(current, await this.store.listPeers(workspaceId),
+          profile, personId, expectedGrantEpoch, verifiedEpochs)
       }
-      if (action === "mergeRevocation") await this.mergeRevocations(current!, [record], false)
-      if (action === "refreshSuccessionPolicy") await this.refreshSuccessionPolicy(workspaceId)
-      if (action === "publish") queueMicrotask(() => { void this.publishWorkspace(workspaceId).catch(error => this.report("Publish revocation", error)) })
-      if (action === "reloadCredential") current = await this.store.getWorkspaceCredential(workspaceId) ?? current
-      if (action === "disconnectRevoked") await this.mergeRevocations(current!, [record], true)
-      if (action === "notify") await this.notify()
-    }
+      const prior = await reconcilePriorPersonRevocation(current, personId, () => this.store.listPeers(workspaceId),
+        async () => { await this.mergeRevocations(current!, [], true) },
+        () => this.notify(), generation => meshTrace("authority.revoke.generation-check", generation as Record<string, unknown>))
+      if (prior.completed) return
+      const generation = prior.generation ?? emptyRevocationGeneration()
+      const actions = meshRustRuntime().state.planAuthorityCommand({ kind: "revoke", localPersonId: profile.identity.personId,
+        ownerPersonId: current?.ownerPersonId ?? null })
+      await runKeeperRevocationActions(actions, {
+        create: async () => {
+          const revocationEpoch = nextKeeperRevocationEpoch(await this.nextAccessEpoch(workspaceId), expectedGrantEpoch)
+          const record = await createWorkspaceRevocation(profile, workspaceId, personId, revocationEpoch, await this.readAuthorityHeads(workspaceId))
+          if (expectedGrantEpoch !== undefined && record.payload.epoch <= expectedGrantEpoch) throw new Error("Revocation did not advance beyond the issued keeper grant.")
+          meshTrace("authority.revoke.generation-created", { ...generation, newRevocationEpoch: record.payload.epoch }); return record
+        },
+        merge: (record, disconnect) => this.mergeRevocations(current!, [record], disconnect),
+        refresh: () => this.refreshSuccessionPolicy(workspaceId),
+        publish: () => queueMicrotask(() => { void this.publishWorkspace(workspaceId).catch(error => this.report("Publish revocation", error)) }),
+        reload: async () => { current = await this.store.getWorkspaceCredential(workspaceId) ?? current },
+        notify: () => this.notify(),
+      })
+    })
     await this.reclassifyWorkspaceAuthority(workspaceId)
   }
-  async transferOwnership(workspaceId: string, personId: string): Promise<void> {
-    await this.transferOwnershipWithReceipt(workspaceId, personId)
-  }
+  private async readAuthorityHeads(workspaceId: string): Promise<string[]> { const read = this.options.workspaceStore.readAuthorityHeads; if (!read) throw new Error("Admitted workspace document unavailable for authority signing"); return read(workspaceId) }
+  async transferOwnership(workspaceId: string, personId: string): Promise<void> { return this.transferOwnershipWithReceipt(workspaceId, personId) }
 
   private async transferOwnershipWithReceipt(workspaceId: string, personId: string): Promise<void> {
     const [profile, credential, allPeers, pendingProposal] = await Promise.all([
@@ -483,10 +495,7 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
     const snapshot = await workspaceSet(this.options.workspaceStore, [workspaceId]).snapshot()
     await awaitOwnerDelivery(() => [...this.sessions.values()].filter(session => session.workspaceId === workspaceId &&
       session.remotePersonId === credential.ownerPersonId && session.ownershipReceiptSupported), credential.transportSecret, snapshot, deadline)
-    const [{ bytes }] = JSON.parse(new TextDecoder().decode(snapshot)) as Array<{ bytes: string }>
-    const workspaceDoc = Automerge.load(fromBase64Url(bytes))
-    let workspaceHeads: string[]
-    try { workspaceHeads = Automerge.getHeads(workspaceDoc) } finally { Automerge.free(workspaceDoc) }
+    const workspaceHeads = await this.readAuthorityHeads(workspaceId)
     const departure = await createWorkspaceDeparture(profile, workspaceId, (credential.localGrant as WorkspaceGrant | undefined)?.payload.accessEpoch ?? 1,
       workspaceHeads,
       uniqueCertificates(profile, await defaultProofStore.listCertificates()))

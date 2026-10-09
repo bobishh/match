@@ -326,10 +326,12 @@ async function approveEnrollment(
   if (!result.ok) throw new Error(result.error)
   const certificateHash = await certHashDefault(result.certificate)
   await defaultProofStore.putCertificate(certificateHash, result.certificate)
-  const root = await defaultStorage.loadPersonalRoot()
+  const root = await defaultStorage.updatePersonalRootForIdentity(profile.identity.personId, current => {
+    if (!current) throw new Error("Personal identity is unavailable. Reload and try again.")
+    registerDeviceInRoot(current, { ...guest, certificateHash, addedAt: new Date().toISOString() })
+    return current
+  })
   if (!root) throw new Error("Personal identity is unavailable. Reload and try again.")
-  registerDeviceInRoot(root, { ...guest, certificateHash, addedAt: new Date().toISOString() })
-  await defaultStorage.savePersonalRoot(root)
   const transfer = await transferableWorkspaces(context, profile)
   const workspaces = transfer.workspaces
   const ids = workspaces.map(item => item.id)

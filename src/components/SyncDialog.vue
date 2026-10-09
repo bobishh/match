@@ -9,10 +9,18 @@ import EnrollmentRequest from "./EnrollmentRequest.vue"
 import DeviceRemovalControl from "./DeviceRemovalControl.vue"
 import ModalLayer from "./ModalLayer.vue"
 import WorkspaceFileActions from "./WorkspaceFileActions.vue"
-import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, useId, watch, defineAsyncComponent, type Component } from "vue"
 import type { SyncStep, SuccessionView } from "../app/syncTypes"
 
+const LegacyKeeperDiscovery = defineAsyncComponent(() => import("./KeeperDiscovery.vue") as Promise<{ default: Component }>)
+import type { KeeperPairing, KeeperPairingStatus, KeeperServiceDiscovery } from "../app/keeperApi"
+
 const props = defineProps<{
+  keeperOwnedWorkspaces?: { id: string; title: string }[]
+  provisionKeeper?: (pairing: KeeperPairing) => Promise<KeeperPairingStatus>
+  cancelKeeper?: (pairing: KeeperPairing, operationId: string) => Promise<"cancel_pending" | "cancelled" | "orphan_resolved">
+  removeKeeper?: (personId: string, discovery?: KeeperServiceDiscovery, knownServiceDeviceIds?: string[]) => Promise<"removed" | "pending">
+  beginPolicyUpdate?: (personId: string, baselineWorkspaceIds: string[]) => Promise<KeeperPairing>
   initialTab?: "Participants" | "Rusty" | "Backups"
   memberAvatars?: Record<string, string>
   revokingPersonId?: string
@@ -133,6 +141,7 @@ const confirmingReconnect = ref(false)
 const reconnectCancelled = ref(false)
 watch(() => props.step, () => { reconnectCancelled.value = false; activeTab.value = props.initialTab ?? "Participants" })
 const selectedMember = computed(() => props.meshMembers?.find(member => member.personId === selectedMemberId.value))
+const keeperMembers = computed(() => (props.meshMembers ?? []).filter(member => member.deviceList.some(device => isKeeper(device.userAgent))))
 const peopleMembers = computed(() => (props.meshMembers ?? []).filter(member => !member.deviceList.some(device => isKeeper(device.userAgent))))
 const now = ref(Date.now())
 let clock: ReturnType<typeof setInterval> | undefined
@@ -321,6 +330,9 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         </details>
         </div>
         <div v-show="activeTab === 'Rusty'" :id="`${tabId}-Rusty-panel`" role="tabpanel" :aria-labelledby="`${tabId}-Rusty-tab`">
+          <details v-if="keeperMembers.length && provisionKeeper && cancelKeeper" class="legacy-keeper-settings"><summary>Legacy Rusty connections</summary>
+            <LegacyKeeperDiscovery :owned-workspaces="keeperOwnedWorkspaces ?? []" :keepers="keeperMembers" :provision-keeper="provisionKeeper" :cancel-keeper="cancelKeeper" :remove-keeper="currentRole === 'owner' ? removeKeeper : undefined" :begin-policy-update="currentRole === 'owner' ? beginPolicyUpdate : undefined" :active-workspace-id="activeWorkspaceId" />
+          </details>
           <RustyPanel v-if="blindReplication && activeWorkspaceId" :controller="blindReplication" :workspace-id="activeWorkspaceId" :owner="currentRole === 'owner'" />
           <p v-else class="dialog-copy">Rusty is unavailable for this workspace.</p>
         </div>

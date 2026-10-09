@@ -54,6 +54,7 @@ describe("recordVerifiedOwnerWorkspace", () => {
       loadWorkspaceDoc: async () => ({ doc }),
       loadPersonalRoot: async () => root,
       savePersonalRoot: async () => {},
+      updatePersonalRootForIdentity: async (_personId: string, update: (current: typeof root | null) => typeof root | null) => update(root),
       listWorkspaceCatalog: async () => ({ available: catalog, archived: [] }),
     } as unknown as WorkspaceStorage
     stateRuntime.currentProfile = profile
@@ -72,6 +73,7 @@ describe("recordVerifiedOwnerWorkspace", () => {
       loadWorkspaceDoc: async () => ({ doc }),
       loadPersonalRoot: async () => root,
       savePersonalRoot: async () => {},
+      updatePersonalRootForIdentity: async (_personId: string, update: (current: typeof root | null) => typeof root | null) => update(root),
       listWorkspaceCatalog: async () => ({ available: [{ id: doc.id, title: doc.title, updatedAt: "now" }], archived: [] }),
     } as unknown as WorkspaceStorage
     stateRuntime.currentProfile = profile

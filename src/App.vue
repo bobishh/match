@@ -18,11 +18,12 @@ import LeadFilters from "./components/LeadFilters.vue"
 import { useObjectConversations } from "./app/useObjectConversations"
 import ObjectConversationLayer from "./components/ObjectConversationLayer.vue"
 import CardStageStrip from "./components/CardStageStrip.vue"
-import QuickNoteForm from "./components/QuickNoteForm.vue"
 import AutosaveTextarea from "./components/AutosaveTextarea.vue"
 import MobileDrawer from "./components/MobileDrawer.vue"
 import SaveState from "./components/SaveState.vue"
 import { LazyItemDocuments as ItemDocuments } from "./app/lazyItemDocuments"
+import { ItemFormDialog } from "./app/lazyItemFormDialog"
+import QuickNoteForm from "./components/QuickNoteForm.vue"
 import BuildFooter from "./components/BuildFooter.vue"
 import { saveIdentityName } from "./app/identityName"
 import { onBeforeUnmount, ref } from "vue"
@@ -32,10 +33,9 @@ import { useColumnCollapse } from "./app/useColumnCollapse"
 import { useAppViewState } from "./app/useAppViewState"
 import { useMemberAvatars } from "./app/useMemberAvatars"
 import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, startOfflineDetailPreload, WorkspaceConnectionsPanel, IdentityPhotoPanel, WorkspacesDialog } from "./app/lazyUiComponents"
-import ItemFormDialog from "./components/ItemFormDialog.vue"
 
 const app = useAppController()
-const { SyncDialog, reviewCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
+const { SyncDialog, reviewCausalChange, dismissCausalChange, restoreCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)
 const [showIdentityRecovery, showSettings] = [ref(false), ref(false)]
 const syncInitialTab = ref<"Participants" | "Rusty" | "Backups">("Participants")
@@ -71,7 +71,7 @@ const {
   selectedItemHistory, editingItem, candidateParentsForMove,
 } = app.board
 const { sync, chat } = app.collaboration.device
-const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
+const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
 const { devicePresence, meshPresence, meshPresenceLabel,
   activeMeshRetryAt, meshMembers, activeSuccession,
   canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
@@ -144,7 +144,8 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
     </template>
 
     <CausalChangeReview :changes="causalReview" :error="causalReviewError"
-      :can-review="uiReady && canEditItems" :review-change="reviewCausalChange" />
+      :can-review="uiReady && canEditItems" :review-change="reviewCausalChange"
+      :dismiss-change="dismissCausalChange" :restore-change="restoreCausalChange" />
 
     <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
       <div class="boot-toolbar">
@@ -477,7 +478,7 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
       :mesh-members="meshMembers"
       v-bind="{ activeWorkspaceId: activeWorkspace.id, localDeviceId: sync.localDeviceId.value,
         removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value,
-         }"
+         keeperOwnedWorkspaces, provisionKeeper: sync.provisionKeeperPairing, cancelKeeper: sync.cancelKeeperPairing, removeKeeper: sync.removeKeeper, beginPolicyUpdate: sync.beginPolicyUpdate }"
       :has-mesh="sync.meshPeers.value.some(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)" :current-person-id="chat.personId.value"
       :current-role="currentRole"
       :succession="activeSuccession"
@@ -517,7 +518,3 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
   </TincanbanPageLayout>
   <BuildFooter />
 </template>
-
-<style scoped>
-.spatial-detail { height: 100%; max-height: none; width: 100%; display: flex; flex-direction: column; padding: 16px; }
-</style>

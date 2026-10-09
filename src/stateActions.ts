@@ -1,6 +1,6 @@
 import * as Automerge from "@automerge/automerge/slim";
 import { bootstrapIdentity } from "./domain/identity";
-import { commitAndPersist, reconcile, reviewCausalChange, whenReady } from "./statePersistence";
+import { commitAndPersist, dismissCausalChange, reconcile, restoreCausalChange, reviewCausalChange, whenReady } from "./statePersistence";
 import { stateRuntime } from "./stateContext";
 import { createStateDerived } from "./stateDerived";
 import { createWorkspaceActions } from "./stateWorkspaceActions";
@@ -27,6 +27,8 @@ export function createTincanbanActions() {
     executeCommandAsync: commitAndPersist,
     executeWorkspaceCommandAsync: (id: string, command: Parameters<typeof commitAndPersist>[0]) => commitAndPersist(command, undefined, id),
     reviewCausalChange,
+    dismissCausalChange,
+    restoreCausalChange,
     getActiveDoc: () => stateRuntime.activeDoc,
     whenReady,
     getCurrentProfile: () => stateRuntime.currentProfile,

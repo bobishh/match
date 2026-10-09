@@ -14,13 +14,14 @@ export function newerIdentityPhoto(left: IdentityPhoto | undefined, right: Ident
   return left.changedAt > right.changedAt || left.changedAt === right.changedAt && (left.avatarData ?? "") >= (right.avatarData ?? "") ? left : right
 }
 export async function saveIdentityPhoto(profile: LocalProfile, avatarData: string | null,
-  storage: Pick<typeof defaultStorage, "loadPersonalRoot" | "savePersonalRoot"> = defaultStorage): Promise<IdentityPhoto> {
+  storage: Pick<typeof defaultStorage, "updatePersonalRootForIdentity"> = defaultStorage): Promise<IdentityPhoto> {
   if (avatarData !== null && !isAvatarDataUrl(avatarData)) throw new Error("Profile photo must be a small WebP or JPEG image")
-  const root = await storage.loadPersonalRoot()
-  if (root?.identity.personId !== profile.identity.personId) throw new Error("Identity catalog is unavailable")
-  const previous = parseIdentityPhoto(root.photo)
-  const changedAt = new Date(Math.max(Date.now(), previous ? Date.parse(previous.changedAt) + 1 : 0)).toISOString()
-  const photo = { avatarData, changedAt }
-  await storage.savePersonalRoot({ ...root, photo })
-  return photo
+  const root = await storage.updatePersonalRootForIdentity(profile.identity.personId, current => {
+    if (current?.identity.personId !== profile.identity.personId) throw new Error("Identity catalog is unavailable")
+    const previous = parseIdentityPhoto(current.photo)
+    const changedAt = new Date(Math.max(Date.now(), previous ? Date.parse(previous.changedAt) + 1 : 0)).toISOString()
+    return { ...current, photo: { avatarData, changedAt } }
+  })
+  if (!root?.photo) throw new Error("Identity catalog is unavailable")
+  return root.photo
 }

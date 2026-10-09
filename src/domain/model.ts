@@ -43,6 +43,15 @@ export type PersonalRootDocumentV1 = {
   devices: Record<DeviceId, RegisteredDevice>
   workspaces: Record<WorkspaceId, WorkspaceReference>
   keeperIntegrations?: Record<string, KeeperIntegrationReference>
+  pendingKeeperWithdrawals?: Record<string, {
+    pairingId: string
+    operationId: string
+    pairing: unknown
+    grantScopes?: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown; grant: unknown }>
+    orphanResolution?: { verifiedAt: IsoTime; serviceRevision: number; integrationRevision: number;
+      signedStatus: { payload: Record<string, unknown>; signerKeyId: string; signature: string };
+      localRevocationScopes: Array<{ workspaceId: WorkspaceId; document: string; authorizationBundle: unknown }> }
+  }>
 }
 
 /** Public, service-signed locator and policy cache; Rusty status remains authoritative. */
@@ -56,6 +65,7 @@ export type KeeperIntegrationReference = {
   workspaceIds: WorkspaceId[]
   scopeReceipts?: Array<{ workspaceId: WorkspaceId; grantEpoch: number; activationOperationId: string }>
   futureBoards: boolean
+  integrationSettingsSupported?: boolean
   /** Owner scopes present before this integration was approved; never auto-offer these later. */
   futureBoardBaselineIds?: WorkspaceId[]
   revision: number
@@ -65,6 +75,17 @@ export type KeeperIntegrationReference = {
     operationId: string
     expectedRevision: number
     scopes: Array<{ workspaceId: WorkspaceId; expectedGrantEpoch: number }>
+  }
+  pendingSettings?: {
+    operationId: string
+    expectedRevision: number
+    requestHash?: string
+    futureBoards: boolean
+    scopes: Array<{ workspaceId: WorkspaceId; expectedGrantEpoch: number }>
+  }
+  completedRemoval?: {
+    operationId: string
+    scopes: Array<{ workspaceId: WorkspaceId; grantEpoch: number }>
   }
 }
 

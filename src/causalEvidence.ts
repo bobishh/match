@@ -7,6 +7,8 @@ export function cloneCausalEvidence(evidence: StoredCausalEvidence | null | unde
     bytes: new Uint8Array(evidence.bytes),
     decisions: evidence.decisions,
     authorizationEvidence: evidence.authorizationEvidence,
+    dismissedHashes: evidence.dismissedHashes ? [...evidence.dismissedHashes] : undefined,
+    resolvedReviews: evidence.resolvedReviews?.map(review => ({ ...review })),
   } : null
 }
 
@@ -15,7 +17,12 @@ export function snapshotCausalEvidence(
   incoming: StoredCausalEvidence | undefined,
   previous: StoredCausalEvidence | undefined,
 ): StoredCausalEvidence | undefined {
-  return incoming ? cloneCausalEvidence(incoming) ?? undefined : previous
+  if (!incoming) return previous
+  const dismissedHashes = incoming.dismissedHashes ?? (previous?.dismissedHashes ?? []).filter(hash =>
+    incoming.decisions.some(decision => decision.hash === hash && decision.status.type !== "admitted"))
+  const resolvedReviews = incoming.resolvedReviews ?? (previous?.resolvedReviews ?? []).filter(review =>
+    incoming.decisions.some(decision => decision.hash === review.sourceHash && decision.status.type !== "admitted"))
+  return cloneCausalEvidence({ ...incoming, dismissedHashes, resolvedReviews }) ?? undefined
 }
 
 /** Compare all durable evidence fields to decide whether the snapshot changed. */
@@ -27,7 +34,9 @@ export function causalEvidenceChanged(
   if (!previous) return true
   return !sameBytes(previous.bytes, current.bytes) ||
     canonicalizeJson(previous.decisions) !== canonicalizeJson(current.decisions) ||
-    canonicalizeJson(previous.authorizationEvidence ?? []) !== canonicalizeJson(current.authorizationEvidence ?? [])
+    canonicalizeJson(previous.authorizationEvidence ?? []) !== canonicalizeJson(current.authorizationEvidence ?? []) ||
+    canonicalizeJson(previous.dismissedHashes ?? []) !== canonicalizeJson(current.dismissedHashes ?? []) ||
+    canonicalizeJson(previous.resolvedReviews ?? []) !== canonicalizeJson(current.resolvedReviews ?? [])
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {

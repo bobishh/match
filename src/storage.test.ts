@@ -7,6 +7,7 @@ import { bootstrapIdentity, resetIdentityStorageForTest, type LocalProfile } fro
 import { prepareLocalChangeAuthorizations } from "./sync/changeAuthorization"
 import { createPersonalRoot } from "./domain/personalRoot"
 import { createWorkspaceDoc } from "./domain/seeds"
+import { deleteLocal, readLocal } from "./localDb"
 import { executeCommand, type Command } from "./domain/commands"
 import { isItem } from "./domain/model"
 import {
@@ -21,6 +22,84 @@ beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
   await initializeAutomerge()
+})
+
+describe("personal root map writes", () => {
+  beforeEach(async () => {
+    resetIdentityStorageForTest()
+    await deleteLocal("tincanban.v1.personal_roots")
+  })
+
+  it("serializes writes from separate storage instances without dropping another identity root", async () => {
+    const firstProfile = await bootstrapIdentity("First identity")
+    const firstRoot = createPersonalRoot(firstProfile, "cert-a", "00000000-0000-4000-8000-000000000001")
+    resetIdentityStorageForTest()
+    const secondProfile = await bootstrapIdentity("Second identity")
+    const secondRoot = createPersonalRoot(secondProfile, "cert-b", "00000000-0000-4000-8000-000000000002")
+    const firstTab = new WorkspaceStorage()
+    const secondTab = new WorkspaceStorage()
+
+    await Promise.all([firstTab.savePersonalRoot(firstRoot), secondTab.savePersonalRoot(secondRoot)])
+
+    await expect(firstTab.loadPersonalRoot("00000000-0000-4000-8000-000000000001")).resolves.toMatchObject({ rootId: "00000000-0000-4000-8000-000000000001" })
+    await expect(secondTab.loadPersonalRoot("00000000-0000-4000-8000-000000000002")).resolves.toMatchObject({ rootId: "00000000-0000-4000-8000-000000000002" })
+  })
+
+  it("preserves independent field updates made concurrently from separate tabs", async () => {
+    const profile = await bootstrapIdentity("Concurrent owner")
+    const storageA = new WorkspaceStorage()
+    const storageB = new WorkspaceStorage()
+    await storageA.savePersonalRoot(createPersonalRoot(profile, "cert", "00000000-0000-4000-8000-000000000003"))
+
+    await Promise.all([
+      storageA.updatePersonalRootForIdentity(profile.identity.personId, async root => {
+        if (!root) throw new Error("root missing")
+        root.displayNamePreset = "Owner label"
+        await Promise.resolve()
+        return root
+      }),
+      storageB.updatePersonalRootForIdentity(profile.identity.personId, async root => {
+        if (!root) throw new Error("root missing")
+        root.pendingKeeperWithdrawals = { pairing: { pairingId: "pairing", operationId: "operation", pairing: {} } }
+        await Promise.resolve()
+        return root
+      }),
+    ])
+
+    await expect(storageA.loadPersonalRoot("00000000-0000-4000-8000-000000000003")).resolves.toMatchObject({
+      displayNamePreset: "Owner label",
+      pendingKeeperWithdrawals: { pairing: { operationId: "operation" } },
+    })
+  })
+
+  it("keeps deletion visible to stale storage instances and never recreates a missing root", async () => {
+    const profile = await bootstrapIdentity("Deleted owner")
+    const staleTab = new WorkspaceStorage()
+    const currentTab = new WorkspaceStorage()
+    await currentTab.savePersonalRoot(createPersonalRoot(profile, "cert", "00000000-0000-4000-8000-000000000004"))
+    await staleTab.loadPersonalRoot("00000000-0000-4000-8000-000000000004")
+
+    await currentTab.updatePersonalRootForIdentity(profile.identity.personId, () => null)
+    const staleUpdate = await staleTab.updatePersonalRootForIdentity(profile.identity.personId, root => root)
+
+    expect(staleUpdate).toBeNull()
+    await expect(staleTab.loadPersonalRoot("00000000-0000-4000-8000-000000000004")).resolves.toBeNull()
+  })
+
+  it("does not persist a root when its mutation rejects", async () => {
+    const profile = await bootstrapIdentity("Rejected mutation owner")
+    const storage = new WorkspaceStorage()
+    await storage.savePersonalRoot(createPersonalRoot(profile, "cert", "00000000-0000-4000-8000-000000000005"))
+    const before = await readLocal("tincanban.v1.personal_roots")
+
+    await expect(storage.updatePersonalRootForIdentity(profile.identity.personId, root => {
+      if (!root) throw new Error("root missing")
+      root.displayNamePreset = "Uncommitted"
+      throw new Error("mutation rejected")
+    })).rejects.toThrow("mutation rejected")
+
+    expect(await readLocal("tincanban.v1.personal_roots")).toBe(before)
+  })
 })
 
 describe("Workspace catalog across browser tabs", () => {
@@ -228,7 +307,7 @@ describe("Document & Change-hash persistence (Requirement 1.7)", () => {
     const raw = Automerge.save(doc)
     await storage.saveSnapshot(doc.id, doc, raw)
     const evidence = { bytes: raw, decisions: [{ hash: "raw-hash", status: { type: "quarantined" as const, reason: "revoked" } }],
-      authorizationEvidence: [{ signed: { signature: "verified-proof" } }] }
+      authorizationEvidence: [{ signed: { signature: "verified-proof" } }], dismissedHashes: [], resolvedReviews: [] }
 
     await storage.commitWorkspace(doc.id, doc, raw, [], undefined, evidence)
     const reopened = new WorkspaceStorage({ changes: new Map(), proofs: new Map(), receipts: new Map(),

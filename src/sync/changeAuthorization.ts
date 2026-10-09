@@ -3,8 +3,8 @@ import { canonicalizeJson, publicKeyId, sha256Base64Url, signEnvelope, type Loca
 import type { WorkspaceDocumentV2, WorkspaceGrant, DeviceCertificate } from "../domain/model"
 import { defaultProofStore } from "../domain/proofs"
 import { peerStore, type WorkspaceAuthorityRecord, type WorkspaceMeshCredential } from "./peerStore"
-import { type WorkspaceAuthority, type WorkspaceOwnershipTransfer,
-  type WorkspaceSuccessionClaim, type WorkspaceDeviceRevocation } from "./meshRecords"
+import { type WorkspaceAuthority, type WorkspaceDeviceRevocation, type WorkspaceOwnershipTransfer,
+  type WorkspaceSuccessionClaim } from "./meshRecords"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { mergeAuthorizationRecords, putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
 import { runWorkspaceAdmission } from "./workspaceAdmissionClient"
@@ -101,7 +101,10 @@ type Authorization = WorkspaceChangeAuthorization
 
 export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProfile): Promise<WorkspaceRole> {
   const stored = await storedWorkspaceAuthority(doc.id)
-  if (stored.invalid) return "visitor"
+  if (stored.invalid) {
+    traceWorkspaceAccess(doc, profile, stored.authority, "visitor", "invalid")
+    return "visitor"
+  }
   const authority = stored.authority
   const genesisOwner = authorities(authority).find(owner => owner.personId === doc.ownerPersonId)
   if (!authority && typeof indexedDB === "undefined" && doc.ownerPersonId === profile.identity.personId) {
@@ -114,8 +117,26 @@ export async function workspaceRole(doc: WorkspaceDocumentV2, profile: LocalProf
       updatedAt: new Date().toISOString(), catalog: {},
     }, root)
   }
-  if (!authority || !genesisOwner) return "visitor"
-  return decideWorkspaceRole(doc, profile, authority, genesisOwner)
+  if (!authority || !genesisOwner) {
+    traceWorkspaceAccess(doc, profile, authority, "visitor", "missing")
+    return "visitor"
+  }
+  try {
+    const role = await decideWorkspaceRole(doc, profile, authority, genesisOwner)
+    traceWorkspaceAccess(doc, profile, authority, role, "valid")
+    return role
+  } catch (error) {
+    traceWorkspaceAccess(doc, profile, authority, "unavailable", "error", error)
+    throw error
+  }
+}
+
+/** Diagnostics are uncommon; keep their classifier and payload out of startup JS. */
+function traceWorkspaceAccess(doc: WorkspaceDocumentV2, profile: LocalProfile, authority: StoredWorkspaceAuthority | null,
+  role: WorkspaceRole | "unavailable", validation: "valid" | "invalid" | "missing" | "error", error?: unknown) {
+  if (typeof window === "undefined" || !window.location.search.includes("syncTrace=1")) return
+  void import("./workspaceAccessTrace").then(({ traceWorkspaceAccessSnapshot }) =>
+    traceWorkspaceAccessSnapshot(doc, profile, authority, role, validation, error)).catch(() => {})
 }
 
 /** Immutable grant identity embedded in each newly authored editor change. */

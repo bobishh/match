@@ -33,6 +33,10 @@ export type StoredCausalEvidence = {
   bytes: Uint8Array
   decisions: CausalChangeDecision[]
   authorizationEvidence?: unknown[]
+  /** Local presentation state; never changes a decision's admission status. */
+  dismissedHashes?: string[]
+  /** Links a quarantined source to one durable, locally authorized replacement change. */
+  resolvedReviews?: Array<{ sourceHash: string; authorizedChangeHash: string }>
 }
 
 export type StoredWorkspaceSnapshot = {

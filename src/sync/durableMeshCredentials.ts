@@ -1,5 +1,5 @@
-import { type LocalProfile } from "../domain/identity"
-import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
+import { type LocalProfile, toBase64Url } from "../domain/identity"
+import type { DeviceCertificate, KeeperIntegrationReference, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
 import { keeperIntegrationReferences, mayOfferFutureKeeperWorkspace, ownerKeepers, saveOwnerKeeper, type OwnerKeeper } from "./ownerKeeper"
 import { createPairingSecret} from "@meta-uber/mesh-pairing"
@@ -11,23 +11,38 @@ import { createPeerAdvertisement, verifyWorkspaceMemberBundle,
 import { type WorkspaceMeshCredential} from "./peerStore"
 import type { SyncConnection} from "./transport"
 import { workspaceSet, publishOwnerWorkspaceOffer} from "./workspaceSet"
+import { exportWorkspaceProofs } from "./workspaceProofTransfer"
 import { registerOwnerOfferProofs } from "./ownerOfferProofs"
-import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, uniqueCertificates, isEnvelope, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
+import { departures, hasLeftWorkspace, deviceRevocations, isDeviceRevoked, isGrantRevoked, uniqueCertificates, isEnvelope, revocations, ownershipTransfers, successionPolicy, successionVotes, successionClaims, ownerAuthorities,
   type MeshExport, type MeshWorkspaceEnvelope } from "./durableMeshBase"
 import { DurableMeshBase } from "./durableMeshBase"
 
-async function ownerKeeperOfferPolicy(profile: LocalProfile, remotePersonId: string): Promise<{ allowed: boolean; keeper?: OwnerKeeper }> {
+export type KeeperGrantScopeProof = { workspaceId: string; document: string; authorizationBundle: unknown; grant: WorkspaceGrant }
+
+function selectOwnerKeeperOfferReference(references: KeeperIntegrationReference[]) {
+  const live = references.filter(item => item.state !== "removed")
+  if (live.length === 1) return live[0]
+  return live.length === 0 && references.length === 0 ? undefined : null
+}
+
+export async function ownerKeeperOfferPolicy(profile: LocalProfile, remotePersonId: string): Promise<{ allowed: boolean; keeper?: OwnerKeeper }> {
   if (remotePersonId === profile.identity.personId) return { allowed: true }
   let keeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === remotePersonId)
-  let reference
+  let references
   try {
     const { integrations } = await keeperIntegrationReferences()
-    reference = Object.values(integrations).filter(item => item.servicePersonId === remotePersonId)
-      .sort((left, right) => right.revision - left.revision)[0]
+    references = Object.values(integrations).filter(item => item.servicePersonId === remotePersonId)
   } catch {
     return { allowed: false }
   }
+  // Integration revisions are scoped to integrationId. Never use one service's
+  // revision values to choose between distinct legacy/canonical records.
+  const reference = selectOwnerKeeperOfferReference(references)
+  if (reference === null) return { allowed: false }
+  // A durable ref with no live integration still outranks the legacy cache.
   if (reference && reference.state !== "active") return { allowed: false }
+  // Do not mint owner grants against committed policy while a settings CAS is unresolved.
+  if (reference?.pendingSettings || reference?.pendingRemoval) return { allowed: false }
   if (reference) keeper = { personId: remotePersonId, role: "editor", details: {
     boardIds: reference.workspaceIds,
     futureBoards: reference.futureBoards,
@@ -121,6 +136,76 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
   async connectOwnerKeeper(personId: string, role: "visitor" | "editor") {
     const profile = await this.options.getProfile()
     await saveOwnerKeeper(profile.identity.personId, { personId, role })
+  }
+
+  /** Capture owner-signed post-revocation evidence for Rusty withdrawal completion. */
+  async captureRevocationCompletionScopes(workspaceIds: string[], targetPersonId: string) {
+    const profile = await this.options.getProfile()
+    const ids = [...new Set(workspaceIds)].sort()
+    if (!ids.length || ids.length !== workspaceIds.length || targetPersonId === profile.identity.personId) {
+      throw new Error("Keeper revocation scope set is invalid.")
+    }
+    const scopes = []
+    for (const workspaceId of ids) {
+      const credential = await this.store.getWorkspaceCredential(workspaceId)
+      if (!credential || credential.ownerPersonId !== profile.identity.personId
+        || credential.ownerPublicKey !== profile.identity.publicKey) {
+        throw new Error("Current owner proof is unavailable for a selected keeper board.")
+      }
+      const signedRevocations = revocations(credential).filter(item => item.payload.personId === targetPersonId)
+      if (!signedRevocations.length) throw new Error("Signed keeper revocation is not saved for every selected board.")
+      const peers = await this.store.listPeers(workspaceId)
+      for (const peer of peers.filter(item => item.personId === targetPersonId && !item.revokedAt)) {
+        const grant = (peer.advertisement as WorkspaceMemberBundle | undefined)?.grant
+        if (!grant || !isGrantRevoked(credential, targetPersonId, grant)) {
+          throw new Error("Keeper still has an active board grant. Retry local revocation before completing cancellation.")
+        }
+      }
+      const document = await this.options.workspaceStore.read(workspaceId)
+      const readAuthorization = this.options.workspaceStore.readAuthorization
+      if (!readAuthorization) throw new Error("Signed board authorization proof is unavailable.")
+      const authorization = await readAuthorization(document, workspaceId)
+      scopes.push({ workspaceId, document: toBase64Url(document),
+        authorizationBundle: exportWorkspaceProofs(document, authorization) })
+    }
+    return scopes
+  }
+
+  /** Capture original owner-signed grants before first withdrawal; callers persist exact bytes by operation id. */
+  async captureKeeperGrantScopeProofs(workspaceIds: string[], targetPersonId: string): Promise<KeeperGrantScopeProof[]> {
+    const profile = await this.options.getProfile()
+    const ids = [...new Set(workspaceIds)].sort()
+    if (!ids.length || ids.length !== workspaceIds.length || targetPersonId === profile.identity.personId) {
+      throw new Error("Keeper grant proof scope set is invalid.")
+    }
+    const scopes: KeeperGrantScopeProof[] = []
+    for (const workspaceId of ids) {
+      const credential = await this.store.getWorkspaceCredential(workspaceId)
+      if (!credential || credential.ownerPersonId !== profile.identity.personId
+        || credential.ownerPublicKey !== profile.identity.publicKey) {
+        throw new Error("Current owner proof is unavailable for a selected keeper board.")
+      }
+      const grants = await defaultProofStore.listGrants(workspaceId)
+      const candidates = grants.filter(grant => grant.payload.workspaceId === workspaceId
+        && grant.payload.personId === targetPersonId && grant.payload.role === "editor")
+      const peers = await this.store.listPeers(workspaceId)
+      const peerGrantIds = new Set(peers.filter(peer => peer.personId === targetPersonId && !peer.revokedAt)
+        .map(peer => (peer.advertisement as WorkspaceMemberBundle | undefined)?.grant?.payload.grantId)
+        .filter((id): id is string => typeof id === "string"))
+      const current = candidates.filter(grant => peerGrantIds.has(grant.payload.grantId))
+      const pool = current.length ? current : candidates
+      const latestEpoch = Math.max(0, ...pool.map(grant => grant.payload.accessEpoch ?? 1))
+      const latest = pool.filter(grant => (grant.payload.accessEpoch ?? 1) === latestEpoch)
+      if (!pool.length) continue
+      if (latestEpoch < 1 || latest.length !== 1) throw new Error("A unique owner-signed keeper grant is unavailable for this board.")
+      const document = await this.options.workspaceStore.read(workspaceId)
+      const readAuthorization = this.options.workspaceStore.readAuthorization
+      if (!readAuthorization) throw new Error("Signed board authorization proof is unavailable.")
+      const authorization = await readAuthorization(document, workspaceId)
+      scopes.push({ workspaceId, document: toBase64Url(document),
+        authorizationBundle: exportWorkspaceProofs(document, authorization), grant: latest[0]! })
+    }
+    return scopes
   }
 
   async addOwnerWorkspace(workspaceId: string): Promise<void> {

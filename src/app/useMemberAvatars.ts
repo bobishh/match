@@ -42,7 +42,10 @@ export function useMemberAvatars(workspace: ReturnType<typeof useTincanban>) {
       try {
         const doc = await workspace.readWorkspaceDoc(workspaceId)
         const entity = doc.entities[memberProfileEntityId(id!)]
-        if (entity?.kind === "member_profile" && entity.data === JSON.stringify(value)) continue
+        if (entity?.kind === "member_profile") {
+          const projected = parseIdentityPhoto(JSON.parse(entity.data))
+          if (entity.data === JSON.stringify(value) || newerIdentityPhoto(projected, value) === projected) continue
+        }
         await workspace.executeWorkspaceCommandAsync(workspaceId, { kind: "setMemberAvatar", ...value })
       } catch { failed++ }
     }
@@ -58,10 +61,17 @@ export function useMemberAvatars(workspace: ReturnType<typeof useTincanban>) {
     const stored = parseIdentityPhoto(root.photo)
     const entity = workspace.getActiveDoc()?.entities[memberProfileEntityId(id)]
     const incoming = entity?.kind === "member_profile" ? parseIdentityPhoto(JSON.parse(entity.data)) : undefined
-    const chosen = newerIdentityPhoto(stored, incoming)
+    let chosen = newerIdentityPhoto(stored, incoming)
     if (!chosen || disposed || personId() !== id) return
     const changed = chosen !== stored
-    if (changed) await defaultStorage.savePersonalRoot({ ...root, photo: chosen })
+    if (changed) {
+      const updated = await defaultStorage.updatePersonalRootForIdentity(id, current => {
+        if (!current) throw new Error("Identity catalog is unavailable")
+        return { ...current, photo: newerIdentityPhoto(parseIdentityPhoto(current.photo), chosen) }
+      })
+      chosen = parseIdentityPhoto(updated?.photo)
+      if (!chosen) return
+    }
     photo.value = chosen
     await projectPhoto(chosen, changed)
   }

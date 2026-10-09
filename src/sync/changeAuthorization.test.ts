@@ -2,7 +2,7 @@ import { hasEntityKind } from "../domain/model"
 import { readFile, writeFile } from "node:fs/promises"
 import { beforeAll, beforeEach, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
-import type { WorkspaceOwnershipTransfer } from "@meta-uber/mesh-workspace"
+import type { WorkspaceOwnershipTransfer, WorkspaceRevocation } from "@meta-uber/mesh-workspace"
 import { initializeAutomerge } from "../crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest, signEnvelope, type LocalProfile } from "../domain/identity"
 import { createWorkspaceDoc } from "../domain/seeds"
@@ -10,11 +10,26 @@ import { createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, createWorkspaceDeparture, createWorkspaceDeviceRevocation, createWorkspaceRevocation } from "./meshRecords"
 import { executeCommand, type Command } from "../domain/commands"
 import { exportAuthorizations, exportAuthorizationBundle, exportDocumentAuthorizationBundle, evaluateIncomingWorkspaceAdmission, recordGenesisAuthority, validateIncomingChanges, validateIncomingChangesWithProofStatus, validateIncomingChangeAuthorizations, workspaceRole, workspaceWritesBlocked } from "./changeAuthorization"
+import { reconcileOwnerRevocationBoundaries } from "./ownerRevocationBoundaryRepair"
 import { assertWorkspaceTransition } from "../domain/permissions"
 import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 
-const peerStoreState = vi.hoisted(() => ({ credential: null as any, authority: null as any }))
+type TestCatalog = {
+  revocations?: WorkspaceRevocation[]
+  revocationBoundaryHistory?: Array<{ personId: string; removed: unknown[]; replacements: unknown[] }>
+  [key: string]: unknown
+}
+type TestStoredAuthority = {
+  workspaceId: string
+  ownerPersonId: string
+  ownerPublicKey: string
+  ownerCertificates?: unknown[]
+  localGrant?: unknown
+  catalog?: TestCatalog
+  [key: string]: unknown
+}
+const peerStoreState = vi.hoisted(() => ({ credential: null as TestStoredAuthority | null, authority: null as TestStoredAuthority | null }))
 vi.mock("@automerge/automerge/slim", async () => {
   const actual = await vi.importActual<typeof Automerge>("@automerge/automerge/slim")
   return { ...actual, diffPath: vi.fn(actual.diffPath), view: vi.fn(actual.view) }
@@ -22,7 +37,24 @@ vi.mock("@automerge/automerge/slim", async () => {
 vi.mock("./peerStore", () => ({ peerStore: {
   getWorkspaceCredential: async () => peerStoreState.credential,
   getWorkspaceAuthority: async () => peerStoreState.authority,
-  putWorkspaceAuthority: async (authority: any) => { peerStoreState.authority = authority },
+  putWorkspaceAuthority: async (authority: TestStoredAuthority) => { peerStoreState.authority = authority },
+  replaceWorkspaceRevocationGeneration: async ({ workspaceId, personId, expected, replacements }: {
+    workspaceId: string; personId: string; expected: unknown[]; replacements: unknown[]
+  }) => {
+    const credential = peerStoreState.credential
+    if (!credential || credential.workspaceId !== workspaceId) throw new Error("Workspace credential disappeared")
+    const catalog = credential.catalog ?? {}
+    const revocations = catalog.revocations ?? []
+    const current = revocations.filter(item => item.payload.personId === personId)
+    if (JSON.stringify(current) !== JSON.stringify(expected)) throw new Error("Workspace revocations changed during boundary repair")
+    const updated = { ...credential, catalog: { ...catalog,
+      revocations: [...revocations.filter(item => item.payload.personId !== personId), ...replacements as WorkspaceRevocation[]],
+      revocationBoundaryHistory: [...(catalog.revocationBoundaryHistory ?? []), { personId, removed: expected, replacements }],
+    } }
+    peerStoreState.credential = updated
+    peerStoreState.authority = updated
+    return updated
+  },
   listPeers: async () => [],
 } }))
 beforeAll(async () => {
@@ -195,7 +227,7 @@ it("admits a visitor's signed change only for their own avatar profile", async (
 it("defaults an omitted optional departures list before calling Rust", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Forbidden" }), "visitor")
   const bundle = authorizationBundle(local, [record])
-  delete (bundle.authority as any).departures
+  Reflect.deleteProperty(bundle.authority, "departures")
   const admission = await evaluateIncomingWorkspaceAdmission(local, remote, bundle)
   expect(admission.decisions.some(decision => decision.status.type === "quarantined")).toBe(true)
 })
@@ -224,14 +256,14 @@ it("Given divergent durable branches, metadata admission retains dependency cove
 it("admits a valid editor bundle when optional departures are omitted", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Allowed" }), "editor")
   const bundle = authorizationBundle(local, [record])
-  delete (bundle.authority as any).departures
+  Reflect.deleteProperty(bundle.authority, "departures")
   await expect(validateIncomingChanges(local, remote, bundle)).resolves.toBeUndefined()
 })
 
 it("rejects malformed present departures evidence before Rust", async () => {
   const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Malformed" }), "editor")
   const bundle = authorizationBundle(local, [record])
-  ;(bundle.authority as any).departures = null
+  Reflect.set(bundle.authority, "departures", null)
   await expect(validateIncomingChanges(local, remote, bundle)).rejects.toThrow("Invalid workspace authority departures")
 })
 it("accepts signed editor item changes with a delegated-device grant, including when forwarded by another peer", async () => {
@@ -287,6 +319,74 @@ it("derives local owner, editor, visitor, revocation, departure, renewal, and de
   peerStoreState.authority.catalog = { deviceRevocations: [await createWorkspaceDeviceRevocation(owner, doc.id,
     member.identity.personId, member.device.deviceId, Automerge.getHeads(doc), [owner.certificate])] }
   await expect(workspaceRole(doc, member)).resolves.toBe("visitor")
+})
+
+it("repairs a current-owner signed revocation bound only to quarantined raw history", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Owner recovery", owner.identity.personId, "blank"))
+  const raw = Automerge.change(Automerge.clone(doc), draft => {
+    ;(draft as unknown as Record<string, unknown>).unadmittedEvidence = "quarantined"
+  })
+  const old = await createWorkspaceRevocation(owner, doc.id, member.identity.personId, 6, Automerge.getHeads(raw))
+  const credential = { version: 1, workspaceId: doc.id, ownerPersonId: owner.identity.personId,
+    ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret", epoch: 6,
+    updatedAt: new Date().toISOString(), localGrant: await createWorkspaceGrant(owner, doc.id, owner.identity.personId, "owner"),
+    catalog: { revocations: [old] } }
+  peerStoreState.credential = credential
+  peerStoreState.authority = structuredClone(credential)
+  peerStoreState.authority.localGrant = await createWorkspaceGrant(owner, doc.id, owner.identity.personId, "owner")
+
+  await expect(workspaceRole(doc, owner)).rejects.toThrow(/missing from the document/)
+  await reconcileOwnerRevocationBoundaries(doc, owner)
+
+  const repairedAuthority = peerStoreState.authority!
+  const repairedCatalog = repairedAuthority.catalog!
+  const repaired = repairedCatalog.revocations![0]
+  expect(repaired.payload.personId).toBe(member.identity.personId)
+  expect(repaired.payload.epoch).toBeGreaterThan(old.payload.epoch)
+  expect(repaired.payload.workspaceHeads).toEqual(Automerge.getHeads(doc))
+  expect(repairedCatalog.revocationBoundaryHistory![0].removed).toEqual([old])
+  await expect(workspaceRole(doc, owner)).resolves.toBe("owner")
+  peerStoreState.authority.localGrant = await createWorkspaceGrant(owner, doc.id, member.identity.personId, "editor", 1)
+  await expect(workspaceRole(doc, member)).resolves.toBe("visitor")
+  expect(Automerge.getHeads(raw)).not.toEqual(Automerge.getHeads(doc))
+})
+
+it("does not repair a missing boundary with a foreign-owner signature", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Reject foreign repair", owner.identity.personId, "blank"))
+  const raw = Automerge.change(Automerge.clone(doc), draft => {
+    ;(draft as unknown as Record<string, unknown>).unadmittedEvidence = "quarantined"
+  })
+  const bad: WorkspaceRevocation = await signEnvelope(member.privateKeys.identityPrivateKey!, {
+    kind: "workspace-revocation" as const, version: 1 as const, workspaceId: doc.id, ownerPersonId: owner.identity.personId,
+    personId: "revoked-person", epoch: 6, workspaceHeads: Automerge.getHeads(raw), revokedAt: new Date().toISOString(),
+  }, member.identity.personId)
+  const credential = { version: 1, workspaceId: doc.id, ownerPersonId: owner.identity.personId,
+    ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret", epoch: 6,
+    updatedAt: new Date().toISOString(), catalog: { revocations: [bad] } }
+  peerStoreState.credential = credential
+  peerStoreState.authority = structuredClone(credential)
+
+  await expect(reconcileOwnerRevocationBoundaries(doc, owner)).rejects.toThrow(/Invalid workspace revocation signature/)
+  expect(peerStoreState.authority!.catalog!.revocations).toEqual([bad])
+})
+
+it("does not repair owner boundaries from a revoked owner device", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Reject revoked repair device", owner.identity.personId, "blank"))
+  const raw = Automerge.change(Automerge.clone(doc), draft => {
+    ;(draft as unknown as Record<string, unknown>).unadmittedEvidence = "quarantined"
+  })
+  const old = await createWorkspaceRevocation(owner, doc.id, member.identity.personId, 6, Automerge.getHeads(raw))
+  const revokedDevice = await createWorkspaceDeviceRevocation(owner, doc.id, owner.identity.personId,
+    owner.device.deviceId, Automerge.getHeads(doc), [owner.certificate])
+  const credential = { version: 1, workspaceId: doc.id, ownerPersonId: owner.identity.personId,
+    ownerPublicKey: owner.identity.publicKey, ownerCertificates: [owner.certificate], transportSecret: "secret", epoch: 6,
+    updatedAt: new Date().toISOString(), catalog: { revocations: [old], deviceRevocations: [revokedDevice] } }
+  peerStoreState.credential = credential
+  peerStoreState.authority = structuredClone(credential)
+
+  await expect(reconcileOwnerRevocationBoundaries(doc, owner)).rejects.toThrow(/revoked owner device/)
+  expect(peerStoreState.authority!.catalog!.revocations).toEqual([old])
+  expect(peerStoreState.authority!.catalog!.revocationBoundaryHistory).toBeUndefined()
 })
 
 it("admits a revoked device's signed change at its revocation frontier and rejects a later signed change", async () => {
@@ -510,6 +610,13 @@ it("Given two manual transfers from one owner at one epoch, when authorization c
 
 it("Given one local ownership transfer before mesh startup, when write access is checked, then Rust runtime is not required", async () => {
   peerStoreState.credential = {
+    version: 1,
+    workspaceId: "local-transfer-before-runtime",
+    ownerPersonId: owner.identity.personId,
+    ownerPublicKey: owner.identity.publicKey,
+    ownerCertificates: [owner.certificate],
+    transportSecret: "test-secret",
+    updatedAt: new Date().toISOString(),
     epoch: 1,
     catalog: { ownershipTransfers: [
       { payload: { epoch: 2, fromOwnerPersonId: "owner", toOwnerPersonId: "alice" } },

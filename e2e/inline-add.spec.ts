@@ -62,3 +62,21 @@ for (const width of [1280, 390]) {
     await expect(column.locator(".lead-card .company")).toHaveText(["First", "Middle", "Second"])
   })
 }
+
+test("Given the item dialog chunk fails to load, when dismissed and reloaded, then the item flow recovers", async ({ page }) => {
+  let requests = 0
+  await page.route(/ItemFormDialog\.vue/, route => {
+    requests++
+    return requests === 1 ? route.abort() : route.continue()
+  })
+  await page.goto("/")
+  await createJobSearchWorkspace(page, "Lazy item dialog")
+  await page.getByRole("button", { name: "Add lead to Lead", exact: true }).click()
+  const failure = page.getByRole("alertdialog", { name: "Dialog failed to load" })
+  await expect(failure.getByRole("alert")).toContainText("could not load")
+  await failure.getByRole("button", { name: "Dismiss" }).click()
+  await expect(failure).toBeHidden()
+  await page.reload()
+  await page.getByRole("button", { name: "Add lead to Lead", exact: true }).click()
+  await expect(page.getByRole("dialog", { name: "Add item" })).toBeVisible()
+})

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { KeeperDiscovery } from "./keeperDiscovery"
-import { parseKeeperIntegrationStatus } from "./keeperIntegrationStatus"
+import { assertKeeperGrantFloorRefreshAllowed, keeperIntegrationSettingsSupported, parseKeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
 const discovery: KeeperDiscovery = {
   origin: "https://rusty.example",
@@ -48,6 +48,14 @@ function status(pendingOperation: unknown): StatusPayload {
 }
 
 describe("keeper integration status", () => {
+  it("fails closed when a service omits or malforms signed settings capability", () => {
+    expect(keeperIntegrationSettingsSupported({ capabilities: { integrationSettings: true } })).toBe(true)
+    expect(keeperIntegrationSettingsSupported({ capabilities: { integrationSettings: false } })).toBe(false)
+    expect(keeperIntegrationSettingsSupported({ capabilities: {} })).toBe(false)
+    expect(keeperIntegrationSettingsSupported({ capabilities: null })).toBe(false)
+    expect(keeperIntegrationSettingsSupported({ capabilities: { integrationSettings: "true" } })).toBe(false)
+  })
+
   it("accepts Rusty's explicit null for an absent pending operation", () => {
     const [integration] = parseKeeperIntegrationStatus(status(null), discovery)
     expect(integration?.scopes.map(scope => scope.workspaceId)).toEqual(["board-1"])
@@ -130,5 +138,33 @@ describe("keeper integration status", () => {
 
     expect(() => parseKeeperIntegrationStatus(payload, discovery))
       .toThrow("Rusty pending operation does not match its scope tombstones.")
+  })
+
+  it("blocks grant refresh for a pending target integration even when policy-only request has no boards", () => {
+    const payload = status({ operationId: "cleanup-1", requestHash: "hash", expectedRevision: 2,
+      scopes: [{ workspaceId: "board-1", expectedGrantEpoch: 1 }], status: "pending" })
+    payload.integrations[0]!.scopes = []
+    payload.integrations[0]!.tombstones = [{ workspaceId: "board-1", grantEpoch: 1,
+      operationId: "cleanup-1", state: "pending", cleanup: "pending" }]
+    const integration = parseKeeperIntegrationStatus(payload, discovery)
+
+    expect(() => assertKeeperGrantFloorRefreshAllowed(integration, [], "integration-1"))
+      .toThrow("board cleanup pending")
+  })
+
+  it("blocks overlapping pending scopes but allows another integration's unrelated cleanup", () => {
+    const payload = status({ operationId: "cleanup-1", requestHash: "hash", expectedRevision: 2,
+      scopes: [{ workspaceId: "other-board", expectedGrantEpoch: 1 }], status: "pending" })
+    payload.integrations[0]!.scopes = []
+    payload.integrations[0]!.tombstones = [{ workspaceId: "other-board", grantEpoch: 1,
+      operationId: "cleanup-1", state: "pending", cleanup: "pending" }]
+    const integration = parseKeeperIntegrationStatus(payload, discovery)
+
+    expect(() => assertKeeperGrantFloorRefreshAllowed(integration, ["other-board"], "different-integration"))
+      .toThrow("board cleanup pending")
+    expect(() => assertKeeperGrantFloorRefreshAllowed(integration, ["board-1"], "different-integration"))
+      .not.toThrow()
+    expect(() => assertKeeperGrantFloorRefreshAllowed(integration, ["board-1"], "integration-1"))
+      .toThrow("board cleanup pending")
   })
 })

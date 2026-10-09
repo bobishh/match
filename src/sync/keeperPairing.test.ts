@@ -6,7 +6,9 @@ import { defaultProofStore } from "../domain/proofs"
 import type { KeeperDiscovery } from "./keeperDiscovery"
 import { peerStore } from "./peerStore"
 import * as ownerKeeper from "./ownerKeeper"
-import { beginKeeperPairing, decideKeeperPairing, deliverKeeperInvitation, disconnectKeeperIntegration, getEligibleKeeperWorkspaces, getKeeperIntegrationStatus, getKeeperPairingStatus, rememberActiveKeeperIntegration, signKeeperControllerRequest, verifyKeeperServiceEnvelope, type KeeperPairing } from "./keeperPairing"
+import { getKeeperPairingStatusInfo } from "./lighthousePairingWithdrawalApi"
+const getKeeperPairingStatus = async (pairing: KeeperPairing) => (await getKeeperPairingStatusInfo(pairing)).status
+import { beginKeeperPairing, decideKeeperPairing, deliverKeeperInvitation, disconnectKeeperIntegration, getEligibleKeeperWorkspaces, getKeeperIntegrationStatus, rememberActiveKeeperIntegration, signKeeperControllerRequest, verifyKeeperServiceEnvelope, type KeeperPairing } from "./keeperPairing"
 
 const domain = "MESH-LIGHTHOUSE/1"
 const boards = [{ id: "board", title: "Board" }]

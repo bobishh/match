@@ -16,7 +16,7 @@ tincanban SHALL discover a service by HTTPS hostname, negotiate protocol support
 - **THEN** tincanban preserves the current integrations and shows the specific error and retry/upgrade action.
 
 ### Requirement: Mutual scoped approval
-tincanban MUST activate only the exact integration and scopes approved by both controller and authenticated service operator; hostname knowledge or a display name SHALL NOT confer authority.
+tincanban MUST activate only the exact integration and scopes approved by the authenticated service; hostname knowledge or a display name SHALL NOT confer authority. Services without owner-origin admission support SHALL retain the separate operator and controller approvals.
 
 #### Scenario: Two approvals
 - **WHEN** both parties approve the same unexpired transcript and all initial scopes persist successfully
@@ -26,6 +26,18 @@ tincanban MUST activate only the exact integration and scopes approved by both c
 - **WHEN** one party has not approved
 - **THEN** the integration stays pending and no usable workspace credentials or documents are released.
 
+#### Scenario: Owner-origin admission
+- **WHEN** a service advertises owner-origin admission and its authenticated owner reviews and approves exact owned-board scopes from an allowed Tincanban origin
+- **THEN** Tincanban signs that exact origin into the offer, omits the redundant operator step, and provisions only after Rusty returns signed approval for the same origin, controller, policy and board set.
+
+#### Scenario: Legacy service approval
+- **WHEN** discovery omits owner-origin admission support
+- **THEN** Tincanban omits the origin field and retains the operator approval link and controller decision.
+
+#### Scenario: Owner-origin mismatch
+- **WHEN** a service status reports a different origin, controller, policy or approved board set than the signed offer
+- **THEN** Tincanban rejects the status and releases no board access.
+
 #### Scenario: Tampered scope selection
 - **WHEN** a board, mode, key or revision changes after approval
 - **THEN** the request is rejected and new approval is required.
@@ -33,6 +45,10 @@ tincanban MUST activate only the exact integration and scopes approved by both c
 #### Scenario: Interrupted provisioning
 - **WHEN** transport fails after grants are issued
 - **THEN** tincanban shows pending provisioning, resumes idempotently, or revokes issued grants on cancellation; it does not report completion.
+
+#### Scenario: Withdraw a stuck pairing
+- **WHEN** an owner cancels a pairing whose provisioning outcome is uncertain
+- **THEN** tincanban fences the pairing with a signed withdrawal, durably revokes only its exact approved scopes, and keeps cancellation pending and retryable until Rusty confirms cleanup; dismissing it moves the request to restorable history without granting access or claiming cancellation.
 
 ### Requirement: Owner-approved keeper scope selection
 Tincanban SHALL offer only currently owned boards. Dedicated keeper integrations SHALL use an independently verified owner-signed Editor grant after both parties approve the exact scopes. Ordinary workspace invitations SHALL retain their selected role, including Visitor.
@@ -48,6 +64,10 @@ Tincanban SHALL offer only currently owned boards. Dedicated keeper integrations
 #### Scenario: Ownership changes while pending
 - **WHEN** ownership changes before grant issuance
 - **THEN** that scope is rejected with a visible reason and other existing integrations keep working.
+
+#### Scenario: Ambiguous or pending keeper policy
+- **WHEN** multiple non-removed integrations identify the same keeper, or its settings update is unresolved
+- **THEN** Tincanban issues no automatic owner grant until one unambiguous active integration has verified policy.
 
 #### Scenario: Automation upgrade
 - **WHEN** the owner explicitly enables a writer on one board

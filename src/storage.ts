@@ -1,5 +1,4 @@
 import * as Automerge from "@automerge/automerge/slim"
-import { bootstrapIdentity } from "./domain/identity"
 import type {
   TransactionReceipt,
   ChangeProof,
@@ -15,6 +14,7 @@ import type { StoredProofsV1 } from "./domain/proofs"
 import { toBase64Url, fromBase64Url } from "./domain/identity"
 import { validateRekeyAuthorizations } from "./storageRekey"
 import { getStorageRaw, removeStorageRaw, setStorageRaw } from "./storageRaw"
+import { PersonalRootMapStore } from "./storagePersonalRoot"
 import { includesWorkspaceHeads, partitionCatalog, readWorkspaceCatalogRecords, type WorkspaceMeta } from "./storageCatalog"
 import {
   deleteWorkspaceJournal,
@@ -96,10 +96,12 @@ async function readIndexedJournalRecord<T>(
 
 export class WorkspaceStorage {
   private inMemory: InMemoryStore
+  private personalRootStore: PersonalRootMapStore
   private loadedDocuments = new Map<string, Automerge.Doc<WorkspaceDocumentV2>>()
 
   constructor(store = memoryStore) {
     this.inMemory = store
+    this.personalRootStore = new PersonalRootMapStore(store.personalRoots, checkStorageFailureHook)
   }
 
   private rememberDocument(workspaceId: string, doc?: Automerge.Doc<WorkspaceDocumentV2>) {
@@ -522,34 +524,18 @@ export class WorkspaceStorage {
   }
 
   async savePersonalRoot(root: PersonalRootDocumentV1): Promise<void> {
-    checkStorageFailureHook()
-    const raw = await getStorageRaw("tincanban.v1.personal_roots")
-    const map: Record<string, PersonalRootDocumentV1> = raw ? JSON.parse(raw) : {}
-    map[root.rootId] = JSON.parse(JSON.stringify(root))
-    await setStorageRaw("tincanban.v1.personal_roots", JSON.stringify(map))
-    this.inMemory.personalRoots.set(root.rootId, JSON.parse(JSON.stringify(root)))
+    return this.personalRootStore.save(root)
+  }
+
+  async updatePersonalRootForIdentity(
+    personId: string,
+    update: (current: PersonalRootDocumentV1 | null) => PersonalRootDocumentV1 | null | Promise<PersonalRootDocumentV1 | null>,
+  ): Promise<PersonalRootDocumentV1 | null> {
+    return this.personalRootStore.update(personId, update)
   }
 
   async loadPersonalRoot(rootId?: string): Promise<PersonalRootDocumentV1 | null> {
-    const raw = await getStorageRaw("tincanban.v1.personal_roots")
-    if (raw) {
-      try {
-        const map = JSON.parse(raw)
-        for (const [id, root] of Object.entries(map)) {
-          this.inMemory.personalRoots.set(id, root as PersonalRootDocumentV1)
-        }
-      } catch {
-        // Ignore malformed persisted personal roots.
-      }
-    }
-
-    if (rootId) {
-      const found = this.inMemory.personalRoots.get(rootId)
-      return found ? JSON.parse(JSON.stringify(found)) : null
-    }
-    const personId = (await bootstrapIdentity()).identity.personId
-    const current = [...this.inMemory.personalRoots.values()].find(root => root.identity.personId === personId)
-    return current ? JSON.parse(JSON.stringify(current)) : null
+    return this.personalRootStore.load(rootId)
   }
 }
 
