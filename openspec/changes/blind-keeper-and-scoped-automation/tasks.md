@@ -73,7 +73,15 @@ The remainder tracks the full automation rollout. Completed storage slice does n
 
 ## Completion scope requested by owner (2026-10-09)
 
-- [ ] One identity photo across workspaces; immediate crop save, durable reload and failure retry.
-- [ ] Logically stage all current authorized changes, including required shared policy and runtime code.
+- [x] One identity photo across workspaces; immediate crop save, durable reload and failure retry.
+- [x] Logically stage all current authorized changes, including required shared policy and runtime code.
 - [ ] Make remote CI green without dropping meaningful scenario coverage.
 - [ ] Confirm GitHub Actions deployed the checked frontend to Cloudflare; fix pipeline if needed.
+
+Remote verification in progress: GitHub Verify `37936123592` proves the owner
+visitor → editor → device removal/reconnection flow after moving publication
+outside the workspace mutation lock. Automation runtime/owner lifecycle,
+production packaging/mobile layout and chat passed in `37935255145`.
+Full Verify and the corresponding GitHub → Cloudflare frontend release remain
+open. Automation production still requires renewed Cloudflare authentication;
+`/v2/capabilities` returned 404 before deployment.

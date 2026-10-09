@@ -54,7 +54,7 @@ describe("member access", () => {
   })
   it("Given a promotion, when publication needs the workspace lock, then durable rights commit before publication", async () => {
     const f = await fixture()
-    const published = vi.mocked((f.mesh as any).publishAll).mockImplementation(() =>
+    const published = vi.mocked((f.mesh as unknown as { publishAll: () => Promise<void> }).publishAll).mockImplementation(() =>
       withWorkspaceMutation("board", async () => {
         expect(f.peer().advertisement.grant.payload.role).toBe("editor")
       }))
