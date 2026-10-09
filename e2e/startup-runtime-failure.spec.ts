@@ -8,4 +8,7 @@ test("Given the Rust policy runtime request fails, when tincanban opens, then it
   const alert = page.getByRole("alert")
   await expect(alert).toContainText("Could not load tincanban’s local runtime")
   await expect(alert).not.toContainText("Could not open your local data")
+  await expect(alert).toBeInViewport()
+  await expect(page.locator(".loading-indicator")).toHaveCount(0)
+  expect(await page.locator(".boot-placeholder").boundingBox()).toEqual({ x: 0, y: 0, ...page.viewportSize()! })
 })

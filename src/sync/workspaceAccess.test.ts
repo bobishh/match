@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
-import { beforeAll, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, expect, it, vi } from "vitest"
 import { initializeAutomerge } from "../crdt"
 import { createWorkspaceDoc } from "../domain/seeds"
 import type { WorkspaceDocumentV2 } from "../domain/model"
@@ -20,6 +20,7 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
   await initializeAutomerge()
 })
+afterEach(() => { vi.unstubAllGlobals() })
 
 it("Given uncached access, When checking permissions, Then checkpoints precede document serialization and policy execution", async () => {
   stages.length = 0
@@ -57,4 +58,29 @@ it("revalidates an unrelated document change even with identical authority", asy
   decision.mockReturnValue("visitor")
   await expect(decideAccess(changed, evidence)).resolves.toBe("visitor")
   expect(decision).toHaveBeenCalledTimes(calls + 1)
+})
+
+it("Given browser access validation, When sending a saved document, Then ownership transfers without cloning a number array", async () => {
+  const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc(crypto.randomUUID(), "Access", "owner", "blank"))
+  const expected = Automerge.save(doc)
+  const messages: unknown[] = []
+  class AccessWorker {
+    onmessage?: (event: { data: { id: number; role: string } }) => void
+    postMessage(request: { id: number; input: { snapshot: { document: Uint8Array } } }, transfer: Transferable[]) {
+      const document = request.input.snapshot.document
+      expect(document).toBeInstanceOf(Uint8Array)
+      expect(transfer).toEqual([document.buffer])
+      const received = structuredClone(request, { transfer })
+      expect(document.byteLength).toBe(0)
+      expect(received.input.snapshot.document).toEqual(expected)
+      messages.push(received)
+      queueMicrotask(() => this.onmessage?.({ data: { id: received.id, role: "owner" } }))
+    }
+    terminate() {}
+  }
+  vi.stubGlobal("window", {})
+  vi.stubGlobal("Worker", AccessWorker)
+  await expect(decideAccess(doc, { snapshot: {} })).resolves.toBe("owner")
+  expect(messages).toHaveLength(1)
+  Automerge.free(doc)
 })

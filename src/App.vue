@@ -148,11 +148,11 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
       :dismiss-change="dismissCausalChange" :restore-change="restoreCausalChange" />
 
     <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
-      <div class="boot-toolbar">
-        <div class="boot-search" aria-hidden="true"></div>
+      <div class="boot-content">
+        <div class="boot-brand" aria-hidden="true"><BrandCan /><span>tincanban</span></div>
         <div class="boot-progress" aria-live="polite">
           <Transition name="notice">
-            <div v-if="showLoading || showAccessLoading" class="loading-indicator" role="status">
+            <div v-if="!startupError && (showLoading || showAccessLoading)" class="loading-indicator" role="status">
               <div class="loading-track" aria-hidden="true"><span></span></div>
               <span>{{ ready.value ? 'Checking workspace access' : 'Loading your cards' }}</span>
             </div>
@@ -162,9 +162,6 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
             <p v-if="startupError.stage === 'storage'" class="startup-error-guidance">Do not clear website data. Share this error when asking for help.</p>
           </div>
         </div>
-      </div>
-      <div class="board boot-board" aria-hidden="true">
-        <div v-for="index in 5" :key="index" class="column boot-column"><div class="column-header"></div><div class="boot-card"></div></div>
       </div>
     </section>
 

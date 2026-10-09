@@ -14,7 +14,8 @@ async function addLead(page: import("@playwright/test").Page, input: { company: 
   await page.getByRole("button", { name: "Close detail" }).click()
 }
 
-test("Given cards still loading on first visit, when tincanban opens, then delayed progress appears within the board shell", async ({ page }) => {
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) test(`Given cards still loading at ${viewport.width}px, when tincanban opens, then full-page progress covers controls until ready`, async ({ page }) => {
+  await page.setViewportSize(viewport)
   await page.addInitScript(() => {
     const instantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly)
     const released = new Promise<void>(resolve => {
@@ -32,7 +33,14 @@ test("Given cards still loading on first visit, when tincanban opens, then delay
   await expect(preloader).toBeVisible()
   await expect(preloader.getByText("Loading your cards")).toBeVisible()
   await expect(page.locator(".boot-placeholder")).toBeVisible()
-  await expect(page.locator(".topbar")).toBeVisible()
+  const overlay = page.locator(".boot-placeholder")
+  expect(await overlay.boundingBox()).toEqual({ x: 0, y: 0, ...viewport })
+  expect(await overlay.evaluate(element => {
+    const points = [[1, 1], [innerWidth - 1, 1], [1, innerHeight - 1], [innerWidth - 1, innerHeight - 1]]
+    return points.every(([x, y]) => element.contains(document.elementFromPoint(x!, y!)))
+  })).toBe(true)
+  await expect(page.locator(".topbar")).toHaveAttribute("inert", "")
+  await expect(page.locator(".boot-board")).toHaveCount(0)
   await expect(page.getByRole("region", { name: "Job search" })).toHaveCount(0)
 
   await page.evaluate(() => window.dispatchEvent(new Event("match:release-automerge")))

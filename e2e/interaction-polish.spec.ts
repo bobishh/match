@@ -108,7 +108,7 @@ test("Given a filtered mobile board, when no cards match, then result count and 
   await expect(page.getByRole("button", { name: "Open Visible again", exact: true })).toBeVisible()
 })
 
-test("Given slow startup, when data is not ready, then a stable shell shows delayed progress and recovers", async ({ page }) => {
+test("Given slow startup, when data is not ready, then full-page progress hides controls and recovers", async ({ page }) => {
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
   await page.route(/automerge.*\.wasm/, async route => {
@@ -118,7 +118,7 @@ test("Given slow startup, when data is not ready, then a stable shell shows dela
   await page.goto("/", { waitUntil: "domcontentloaded" })
   await expect(page.locator(".boot-placeholder")).toBeVisible()
   await expect(page.getByText("Loading your cards", { exact: true })).toBeVisible()
-  await expect(page.getByRole("button", { name: "Open workspaces" })).toBeDisabled()
+  await expect(page.locator(".topbar")).toHaveAttribute("inert", "")
   release()
   await expect(page.locator(".boot-placeholder")).toBeHidden()
   await expect(page.getByRole("button", { name: "Open workspaces" })).toBeEnabled()
