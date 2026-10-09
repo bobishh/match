@@ -15,7 +15,7 @@ export function setStartupDiagnosticDevice(id: string): void {
   if (startupDiagnosticsEnabled()) try { localStorage.setItem(deviceKey, id) } catch { /* Diagnostic storage is optional. */ }
 }
 
-/** Debug checkpoints bypass batching so a process crash cannot erase every preceding stage. */
+/** Dispatch before computation; collector acknowledgement must never gate local startup. */
 async function startupCheckpoint(event: string, stage: string, detail: Record<string, unknown> = {}): Promise<void> {
   if (!startupDiagnosticsEnabled()) return
   currentStage = stage
@@ -31,14 +31,13 @@ async function startupCheckpoint(event: string, stage: string, detail: Record<st
       platform: /iPhone|iPad|iPod/.test(userAgent) ? "ios" : "other",
     }, { project: config.project, sessionId, deviceId, timestamp: Date.now(), level: event.endsWith("failed") ? "warn" : "info" })
     const body = JSON.stringify({ schema_version: 2, project: config.project, stream: "telemetry", source: "browser", events: [diagnostic] })
-    const deadline = new Promise<void>(resolve => { timer = setTimeout(() => { controller.abort(); resolve() }, 1200) })
-    const delivery = fetch(config.endpoint, { method: "POST", credentials: "omit", keepalive: true,
+    timer = setTimeout(() => { controller.abort() }, 1200)
+    void fetch(config.endpoint, { method: "POST", credentials: "omit", keepalive: true,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.browserKey}` }, body, signal: controller.signal }).then(async response => {
       if (!response.ok || (await response.json() as { accepted?: number }).accepted !== 1) throw new Error("Startup diagnostic not accepted")
-    })
-    await Promise.race([delivery, deadline])
-  } catch { /* A diagnostic failure must never block the local board. */ }
-  finally { if (timer !== undefined) clearTimeout(timer) }
+    }).catch(() => { /* Optional delivery can fail independently of startup. */ })
+      .finally(() => { if (timer !== undefined) clearTimeout(timer) })
+  } catch { if (timer !== undefined) clearTimeout(timer) }
 }
 
 export async function diagnoseStartupStep<T>(stage: string, step: () => T | Promise<T>, detail: Record<string, unknown> = {}): Promise<T> {

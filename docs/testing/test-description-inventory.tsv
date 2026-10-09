@@ -5,327 +5,6 @@ app-rust	crates/tincanban-authority/src/lib.rs	317	no		validates_each_admitted_a
 app-rust	crates/tincanban-authority/src/lib.rs	352	no		prepares_signed_owner_authority_for_a_tincanban_document
 app-rust	crates/tincanban-lighthouse/src/join.rs	380	no		failed_join_preserves_existing_http_inbox
 app-rust	crates/tincanban-lighthouse/src/lib.rs	646	no		signed_document_survives_restart_but_unsigned_change_never_replaces_it
-browser	e2e/access-policy-local.spec.ts	6	no		Given multiple workspaces, when active content changes, then inactive access loads wait for workspace invalidation
-browser	e2e/agent-guide.spec.ts	4	no	Agent guide	Given current tincanban, when an agent opens the guide, then workspace and MCP instructions match the live contract
-browser	e2e/agent-guide.spec.ts	40	no	Agent guide	Given invalid or stale settings, when an agent follows recovery guidance, then validation and conflict behavior is explicit
-browser	e2e/agent-guide.spec.ts	50	no	Agent guide	Given a narrow viewport, when the guide opens, then content remains within the viewport
-browser	e2e/archive-column-option.spec.ts	15	no		Given a blank board, when Archive column is enabled and item archived, then one collapsible Archive contains item after reload
-browser	e2e/archive-column-option.spec.ts	41	no		Given archive column save fails, when checked column is added, then draft remains and board has no Archive
-browser	e2e/archive-column-option.spec.ts	53	no		Given item archived before Archive column exists, when column is enabled, then item appears and restores
-browser	e2e/archive-layout.spec.ts	4	no		Given a job-search board, when archive opens and closes at four widths, then columns retain geometry and archive styling
-browser	e2e/archive-layout.spec.ts	49	no		Given collapsible Rejected and Archive columns, when each is toggled, then their local states stay independent
-browser	e2e/archive-layout.spec.ts	68	no		Given a collapsible column on desktop or mobile, when it closes and reopens, then width animates both ways
-browser	e2e/archive-layout.spec.ts	97	no		Given archive role moves, when the board updates, then old preset bindings do not keep old column styled as Archive
-browser	e2e/archive-layout.spec.ts	126	no		Given invalid local collapse preferences, when the board loads, then preferences recover and collapse controls remain usable
-browser	e2e/archive-layout.spec.ts	144	no	Folded board motion	Given a folded board, when opened, then paper appears before contents and reduced motion opens immediately
-browser	e2e/archive-layout.spec.ts	204	no		Given a board taller than the viewport, when Rejected and Archive fold, then their labels and counts remain visible near the board top
-browser	e2e/archive-layout.spec.ts	240	no		Given an open column, when folded and unfolded, then its striped header turns and stretches into a full-height spine
-browser	e2e/archive-role-settings.spec.ts	4	no		Given an Archive column, when role moves in column settings, then Archive role stays independent from collapse
-browser	e2e/automatic-priority.spec.ts	26	no	Automatic priority from workspace preferences	Given weighted work-mode rules, when leads are created, then fit and priority are derived without manual fields
-browser	e2e/automatic-priority.spec.ts	54	no	Automatic priority from workspace preferences	Given automatic priority with no criteria, when saving, then settings stay open with an actionable error
-browser	e2e/automation-production.spec.ts	36	no	production automation proof	Given the production owner UI, when owner connects Rusty and approves the Worker, then private signed scope is exported
-browser	e2e/automation-production.spec.ts	108	no	production automation proof	Given exact owner-approved Worker routing, when real Clef classifies website intake, then a Lead syncs to Rusty and reopens in the owner UI
-browser	e2e/automation-worker.spec.ts	14	no		Given an owner-approved blind workspace, when Worker intake and forwarded mail run, then real clients see one scoped Lead and safe status moves
-browser	e2e/avatar-crop-responsive.spec.ts	18	no		Given a narrow mobile viewport, when cropping a wide photo, then preview scale matches saved square bounds
-browser	e2e/board-breakpoint.spec.ts	4	no		Given a 640px board, when resizing to a phone, then compact columns become a navigable single column only at 560px
-browser	e2e/board-discovery.spec.ts	4	no		Given several boards, when searching discovery, then title, owner, filters, and empty state stay clear
-browser	e2e/board-discovery.spec.ts	50	no		Given empty workspace chat, when opened, then message area owns scrolling without a stray content scrollbar
-browser	e2e/board-drag-drop.spec.ts	74	no	Trello-like board dragging	Given detailed card text across columns, when dragging from card border, then selection stays empty and card moves
-browser	e2e/board-drag-drop.spec.ts	99	no	Trello-like board dragging	Given selectable card text, when dragging across its title, then text selects and card does not move
-browser	e2e/board-drag-drop.spec.ts	114	no	Trello-like board dragging	Given an active border drag, when Escape cancels, then selection clears and later text selection still works
-browser	e2e/board-drag-drop.spec.ts	139	no	Trello-like board dragging	Given an active border drag, when pointercancel fires, then no move commits and selection works afterward
-browser	e2e/board-drag-drop.spec.ts	164	no	Trello-like board dragging	Given filtered cards with a hidden neighbor, when dropping at the unchanged visible position, then hidden order and document revision stay unchanged
-browser	e2e/board-drag-drop.spec.ts	183	no	Trello-like board dragging	Given an unchanged card order, when cancelling a drag or dropping at its original position, then no document write occurs
-browser	e2e/board-drag-drop.spec.ts	212	no	Trello-like board dragging	Given a card and its neighbor, when dragged before the neighbor, then source stays in Vue DOM and separate preview marks one persisted move
-browser	e2e/board-drag-drop.spec.ts	246	no	Trello-like board dragging	Given an independent text selection, when a card border drag completes, then that selection remains intact
-browser	e2e/board-drag-drop.spec.ts	268	no	Trello-like board dragging	Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards
-browser	e2e/board-drag-drop.spec.ts	296	no	Trello-like board dragging	Given a mobile board, when an editor drags a card sideways, then the board scrolls and the card changes column
-browser	e2e/board-drag-drop.spec.ts	311	no	Trello-like board dragging	Given a mobile board, when a card is released over another column header, then that column receives it
-browser	e2e/board-drag-drop.spec.ts	324	no	Trello-like board dragging	Given three cards, when cards and columns reorder, then hints, neighbors and exact order survive reload
-browser	e2e/board-drag-drop.spec.ts	408	no	Trello-like board dragging	Given persistence fails, when a card is dragged and retried, then rollback and recovery preserve neighbors after reload
-browser	e2e/board-drag-drop.spec.ts	427	no	Trello-like board dragging	Given storage rejects a card move, when rollback finishes, then card text remains selectable
-browser	e2e/board-local.spec.ts	17	no		Given cards still loading on first visit, when tincanban opens, then delayed progress appears within the board shell
-browser	e2e/board-local.spec.ts	43	no		Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts
-browser	e2e/board-local.spec.ts	76	no		Given an archived card, when Archive opens, then it expands into a filtered column and can collapse again
-browser	e2e/board-local.spec.ts	106	no		Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit
-browser	e2e/board-local.spec.ts	122	no		Given a mid-size desktop viewport, when tincanban opens, then the title and filters stay legible without clipped controls
-browser	e2e/board-local.spec.ts	147	no		Given an iPhone 17e portrait viewport, when tincanban opens, then filters start closed and columns snap one page at a time
-browser	e2e/board-local.spec.ts	166	no		Given two tabs on one device, when one tab saves a card, then the other reads and merges IndexedDB without pairing
-browser	e2e/board-local.spec.ts	180	no		Given the board, when Sync is clicked, then members open before workspace selection without starting a node
-browser	e2e/brand-layout.spec.ts	4	yes		Given ${width}px mobile header, when Caveat is pending then ${width === 320 ? "fails" : "loads"}, then full brand name stays before controls
-browser	e2e/brand-layout.spec.ts	42	no		Given owner board, when its can logo opens workspaces, then centered role stamp remains visible
-browser	e2e/browser-native.spec.ts	9	no		Given a signed editor and native Rust peer, when they sync and revoke access, then documents converge and further access is denied
-browser	e2e/card-aging.spec.ts	3	no		idle cards age while the page stays open and editing restores freshness
-browser	e2e/card-aging.spec.ts	30	no		aging threshold changes are explained before applying
-browser	e2e/card-discuss-layout.spec.ts	5	yes		Given ${width}px board and fit score, when Discuss appears on hover or focus then score stays readable and unsent draft survives closing
-browser	e2e/card-drop-zone.spec.ts	8	yes		Given a tall source and ${targetHasCard ? "short" : "empty"} destination, when dropping near the column bottom, then card moves and survives reload
-browser	e2e/card-drop-zone.spec.ts	35	no		Given storage failure, when dropping near an empty column bottom, then card returns and retry moves it
-browser	e2e/card-drop-zone.spec.ts	48	no		Given 55 detailed leads, when a card drops into blank column space, then pointer response and main-thread work stay below 200ms
-browser	e2e/card-edit-responsiveness.spec.ts	7	no		Given 55 detailed leads, when Company and Role are typed, then keystrokes paint within 200ms and only Save commits
-browser	e2e/card-edit.spec.ts	21	no	schema-driven lead editing	Given a long lead, when details open and schema values change, then Edit stays visible and values survive reload
-browser	e2e/card-edit.spec.ts	52	no	schema-driven lead editing	Given storage failure, when lead edit saves, then the form stays open and retry commits atomically
-browser	e2e/card-move-performance.spec.ts	4	no		Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists
-browser	e2e/card-move-performance.spec.ts	21	no		Given two tabs share a detailed board, when one moves a card and another edits its neighbor, then reload retains both writes
-browser	e2e/card-move-responsiveness.spec.ts	9	no		Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction
-browser	e2e/card-narrative-race.spec.ts	49	no		Given legacy narrative sources and an attachment, when Description saves, then all text folds and attachment remains
-browser	e2e/card-narrative-race.spec.ts	73	no		Given legacy narrative sources, when unchanged Description saves, then old text remains editable after reload
-browser	e2e/card-narrative-race.spec.ts	96	no		Given a failed narrative save, when retry succeeds, then draft commits once and source remains intact until then
-browser	e2e/card-narrative-race.spec.ts	129	no		Given an inline note changes while Description edit open, when stale form saves, then newer note and draft both survive
-browser	e2e/card-stage-shortcuts.spec.ts	19	no		Given a generic card, when stage shortcut is clicked, then card moves and selection persists
-browser	e2e/card-stage-shortcuts.spec.ts	31	no		Given a generic card, when stage move fails, then card stays put and error appears
-browser	e2e/card-stage-shortcuts.spec.ts	41	no		Given board JSON, when stage buttons are configured, then card shows configured buttons and order
-browser	e2e/causal-admission.spec.ts	3	no		Given an offline editor change accepted before revocation, when the signed revocation arrives, then the projection retracts and review creates a new authorized change
-browser	e2e/chat-local.spec.ts	17	no		Given Markdown cannot load, when a chat message is saved, then its text remains visible
-browser	e2e/chat-local.spec.ts	32	yes		Given a ${width}px workspace, when I name myself and send a message, then both persist after reload
-browser	e2e/chat-local.spec.ts	60	no		Given two messages across midnight, when chat renders them on mobile, then each date and time stays distinct
-browser	e2e/chat-local.spec.ts	95	no		Given a chosen profile name, when a new workspace is created, then it reuses the personal name preset
-browser	e2e/chat-local.spec.ts	117	no		Given desktop chat, when its corner is dragged, then the window resizes within the viewport
-browser	e2e/chat-local.spec.ts	141	no		Given a storage failure, when a message is submitted, then the draft remains and retry writes once
-browser	e2e/chat-local.spec.ts	166	no		Given slow local signing, when a message is submitted, then it appears immediately while durability finishes
-browser	e2e/chat-local.spec.ts	187	no		Given one poisoned historical chat record, when a peer sends it with a valid record, then the valid message still arrives
-browser	e2e/chat-open-performance.spec.ts	7	no		Given 55 detailed cards, when Chat opens, then pointer event timing stays below 200ms
-browser	e2e/chat-open-performance.spec.ts	26	no		Given 55 detailed cards, when Sync opens, then pointer event timing stays below 200ms
-browser	e2e/chat-open-performance.spec.ts	125	no		Given chat metadata becomes unavailable, when Chat opens, then failure appears and board remains usable
-browser	e2e/chat-open-performance.spec.ts	139	no		Given the Chat chunk fails after loading is delayed, when Chat opens, then reload recovers chat
-browser	e2e/chat-open-performance.spec.ts	163	no		Given Sync chunk fails to load, when Sync opens, then pending can close and reload recovers
-browser	e2e/chat-reference-search.spec.ts	5	yes		Given ${width}px chat and many reference kinds, when typing and filtering then compact examples become matching references and empty search recovers
-browser	e2e/chat-storage.spec.ts	11	no	ChatStore Real IndexedDB Durability & Isolation E2E	two tabs concurrently append different messages and duplicate is suppressed
-browser	e2e/chat-storage.spec.ts	97	no	ChatStore Real IndexedDB Durability & Isolation E2E	atomic merge failure on conflicting record does not partially save valid message
-browser	e2e/chat-storage.spec.ts	165	no	ChatStore Real IndexedDB Durability & Isolation E2E	page reload opens and loads durable stored chat data identically
-browser	e2e/chat.spec.ts	17	no		Given paired workspaces, when matching names and messages sync, then both peers show stable suffixes and offline messages recover
-browser	e2e/collapsible-sync.spec.ts	27	no		Given paired desktop and mobile peers, when desktop enables collapse for a column, then mobile receives shared capability but keeps local open state
-browser	e2e/column-add-and-notice.spec.ts	5	no	Column add actions and overlay notices	Given a job board, when adding from Applied, then the form starts in Applied and no add action occupies the header
-browser	e2e/column-add-and-notice.spec.ts	18	no	Column add actions and overlay notices	Given a successful action, when its notice appears, then it overlays content and disappears
-browser	e2e/column-add-and-notice.spec.ts	33	no	Column add actions and overlay notices	Given a blank board, when adding inside Doing, then the item form is scoped to Doing
-browser	e2e/column-fold-motion.spec.ts	7	no		Given a wide board, when a column folds and opens, then its width and visible title move continuously
-browser	e2e/component-layout.spec.ts	27	no	Component layout audit	Given a wide desktop, when all job columns fit, then the board uses available width without horizontal scrolling
-browser	e2e/component-layout.spec.ts	41	no	Component layout audit	Given desktop viewport, when recent dialogs open, then spacing and geometry stay consistent
-browser	e2e/component-layout.spec.ts	67	no	Component layout audit	Given mobile viewport, when navigation and settings open, then neither surface escapes viewport
-browser	e2e/contextual-sync.spec.ts	31	no		Given independent paired peers, when signed object discussions sync, then context and avatars converge and unsupported or tampered records remain bounded
-browser	e2e/conversation-windows.spec.ts	28	no		Given generic item and discussion, when pointer drag and resize then both nonmodal windows stay usable
-browser	e2e/conversation-windows.spec.ts	65	no		Given overlapping windows, when cycling focus and opening Settings then bounded ring yields to modal
-browser	e2e/conversation-windows.spec.ts	93	no		Given narrow touch screen and unsent draft, when closing and reopening discussion then source and draft stay reachable
-browser	e2e/conversation-windows.spec.ts	116	no		Given generic description, when keyboard Discuss targets its field then message retains field anchor
-browser	e2e/conversation-windows.spec.ts	128	no		Given tablet touch window, when titlebar and corner gestures move resize and cancel then content keeps native touch behavior
-browser	e2e/conversation-windows.spec.ts	166	no		Given workspace A windows and separate B item, when switching back then A content and geometry restore without B leakage
-browser	e2e/custom-avatar.spec.ts	32	no		Given workspace photo settings, when saved and another workspace opens, then the photo survives reload only in its workspace
-browser	e2e/custom-avatar.spec.ts	82	no		Given a photo draft, when file decode or save fails, then current avatar stays and draft can retry
-browser	e2e/custom-avatar.spec.ts	101	no		Given a visitor joins a workspace, when they save their avatar, then owner receives the CRDT profile
-browser	e2e/datetime-field.spec.ts	14	no	Datetime field type	Given a board with a datetime field, supports datetime input, validation, card rendering, and persistence across reload
-browser	e2e/datetime-field.spec.ts	91	no	Datetime field type	Given schema visual editor, allows selecting datetime as field type
-browser	e2e/detail-prose-width.spec.ts	31	no		Given a Lead detail window, when its container maximizes and then narrows, then properties reflow beside narrative only while space allows
-browser	e2e/detail-prose-width.spec.ts	66	no		Given a generic item overview, when maximized then narrow, then content reflows and failure draft remains usable
-browser	e2e/device-sync-dialog.spec.ts	3	no		Given tincanban is open in development, when the footer renders, then it shows the tower and honest dev build label
-browser	e2e/device-sync-dialog.spec.ts	13	no		Given Device sync members are open, when the user wants to dismiss it, then only the header close control is shown
-browser	e2e/device-sync-dialog.spec.ts	24	no		Given live sync is enabled without a connected peer, when Sync opens, then Stop remains available until explicitly stopped
-browser	e2e/device-sync-dialog.spec.ts	39	no		Given Device sync shows an invalid-link failure, when it renders recovery actions, then Dismiss remains and Close is not duplicated
-browser	e2e/device-sync-dialog.spec.ts	49	no		Given many devices on mobile, when their list is scrolled, then the list moves and the board stays locked
-browser	e2e/discussion-entry-points.spec.ts	18	no		Given board card, when Discuss sends then source link opens card and workspace Reply opens a thread
-browser	e2e/discussion-entry-points.spec.ts	65	no		Given lead metadata selection spanning fields, when Discuss then captured quote attaches and returns to source
-browser	e2e/discussion-entry-points.spec.ts	85	no		Given board text, when pointer selects company then Discuss opens quote without opening card
-browser	e2e/discussion-entry-points.spec.ts	104	no		Given card context menu, when right click then native menu is suppressed and Escape dismisses app menu
-browser	e2e/discussion-entry-points.spec.ts	123	no		Given window controls, when maximize restore and cycle then fixed SVG controls keep header reachable
-browser	e2e/document-editing.spec.ts	23	no		Given a generic card, when Edit is selected, then its visible fields can be changed from the detail view
-browser	e2e/document-editing.spec.ts	39	no		Given a real file attachment, when it is reopened, then tincanban can preview and download its persisted bytes
-browser	e2e/document-editing.spec.ts	73	no		Given document controls fail to load, when item detail opens, then pending and error states preserve board access
-browser	e2e/durable-mesh.spec.ts	151	no		Given paired browsers, when a lead changes, then the peer receives the durable board update
-browser	e2e/durable-mesh.spec.ts	169	no		Given a legacy local device without metadata, when Sync opens in a known browser, then it shows the current browser and OS
-browser	e2e/durable-mesh.spec.ts	197	no		Given a joined workspace with local data, when an editor leaves the mesh, then its copy remains and rejoining requires merge confirmation
-browser	e2e/durable-mesh.spec.ts	243	no		Given signed workspace authority, when transport state disappears, then owner and editor roles recover while forged authority stays read-only
-browser	e2e/durable-mesh.spec.ts	309	no		Given a paired editor, when the invitation tab reloads repeatedly, then trust and editing survive and sync resumes without approval
-browser	e2e/durable-mesh.spec.ts	342	no		Given two connected clients, when exactly one page reloads after a pending network state, then both sides restore live presence
-browser	e2e/durable-mesh.spec.ts	380	no		Given a paired editor, when its actual Iroh node closes unexpectedly, then a fresh node reconnects and syncs without reload or pairing
-browser	e2e/durable-mesh.spec.ts	427	no		Given a paired editor, when live receive persistence fails, then no saved state is acknowledged and reconnect replays it after storage recovers
-browser	e2e/durable-mesh.spec.ts	480	no		Given two tabs for one editor device, when their real Iroh nodes disconnect repeatedly, then roles, edits, and node ownership recover without accumulation
-browser	e2e/durable-mesh.spec.ts	568	no		Given a paired editor goes offline, when both sides edit and it comes online, then persisted changes converge without reloading
-browser	e2e/durable-mesh.spec.ts	644	no		Given a connected peer misses a local change notification, then periodic anti-entropy converges without adding another device
-browser	e2e/durable-mesh.spec.ts	668	no		Given an existing editor, when the owner enrolls another device, then the owner device verifies that editor after reload
-browser	e2e/durable-mesh.spec.ts	717	no		Given trusted devices and multiple tabs, when tabs close and reopen, then each tab keeps an independent channel under one device
-browser	e2e/durable-mesh.spec.ts	764	no		Given a connected peer closes its tab, when it returns, then presence turns offline and queued changes sync
-browser	e2e/durable-mesh.spec.ts	826	no		Given owner introduced two editors, when owner goes offline, then editors discover each other and keep syncing
-browser	e2e/durable-mesh.spec.ts	848	no		Given an editor has synced changes, when owner removes access, then writes stop and a new peer retains accepted history
-browser	e2e/durable-mesh.spec.ts	884	no		Given an online editor, when owner selects them in mesh members and transfers ownership, then roles swap across devices
-browser	e2e/durable-mesh.spec.ts	958	no		Given sibling tabs on both devices, when mesh reconnects concurrently, then connections settle without repeated closure
-browser	e2e/durable-mesh.spec.ts	989	no		Given an editor has an unsigned raw branch, when it is reloaded, then it stays quarantined and valid sync continues
-browser	e2e/durable-mesh.spec.ts	1051	no		Given chat history exceeds one control frame, when paired peers reconnect, then history and subsequent edits sync
-browser	e2e/favicon.spec.ts	32	no		Given a ready board with no peers, when its tab opens, then tincanban favicon matches empty mesh without blinking
-browser	e2e/favicon.spec.ts	42	no		Given app startup fails, when its tab opens, then tincanban icon still loads
-browser	e2e/favicon.spec.ts	49	no		Given favicon animation cannot load, when the board opens, then the static icon and local board remain available
-browser	e2e/filtered-board-layout.spec.ts	32	no		Given a fresh desktop board, when filtering, searching, and moving a card, then layout and hidden cards persist
-browser	e2e/filtered-board-layout.spec.ts	122	no		Given a mobile status filter, when one column remains then it uses the screen without redundant navigation
-browser	e2e/filtered-board-layout.spec.ts	140	no		Given a horizontally scrolled mobile board, when search changes visible columns, then the first matching column returns into view
-browser	e2e/filtered-board-layout.spec.ts	152	no		Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns
-browser	e2e/filtered-board-layout.spec.ts	173	no		Given a card being dragged, when document data refreshes then drag continues and its ghost disappears on release
-browser	e2e/filtered-board-layout.spec.ts	199	yes		Given a card being dragged, when filtering to ${query} rebuilds the board then drag cancels without leaving a ghost or saving a move
-browser	e2e/footer-animation.spec.ts	3	yes		Given workspace permissions ${unavailable ? "fail" : "load"}, when footer animation replays, then it completes without blocking controls
-browser	e2e/history-restore.spec.ts	30	no		Given a moved item, when restore fails then retries, then current placement is preserved until durable compensation succeeds
-browser	e2e/inline-add.spec.ts	15	yes		Given two cards at ${width}px, when hovering their gap, then add appears there and failed insertion retries in place
-browser	e2e/interaction-polish.spec.ts	14	no		Given mobile navigation, when settings open and close, then focus stays in the dialog and returns to Menu
-browser	e2e/interaction-polish.spec.ts	30	no		Given an empty form, when Escape is pressed, then it closes; a dirty draft survives a backdrop click
-browser	e2e/interaction-polish.spec.ts	48	no		Given nested schema dialogs, when the preview closes, then focus returns to its parent before the parent closes
-browser	e2e/interaction-polish.spec.ts	70	no		Given mobile save failure, when retry succeeds, then draft persists exactly once and save status recovers
-browser	e2e/interaction-polish.spec.ts	92	no		Given a filtered mobile board, when no cards match, then result count and reset explain the empty state
-browser	e2e/interaction-polish.spec.ts	111	no		Given slow startup, when data is not ready, then a stable shell shows delayed progress and recovers
-browser	e2e/interaction-polish.spec.ts	127	no		Given reduced motion, when mobile navigation opens and closes, then transitions do not delay interaction
-browser	e2e/interaction-polish.spec.ts	140	no		Given a pending save, when the user tries to edit or submit again, then the form waits and publishes one card
-browser	e2e/interaction-polish.spec.ts	168	no		Given fast startup, when data arrives before the progress delay, then no loading indicator flashes
-browser	e2e/interaction-polish.spec.ts	183	no		Given a desktop scrollbar, when settings open, reject a draft, and close, then header and logo keep their positions
-browser	e2e/job-search-rejected.spec.ts	5	no	Job Search Rejected Column & Retrospective Notes (Gate F)	Given a Job search board with a lead, when moved to Rejected and a retrospective note is added, it persists across reload
-browser	e2e/job-search-rejected.spec.ts	56	no	Job Search Rejected Column & Retrospective Notes (Gate F)	Given a lead created directly in Rejected status, optional rejection reason is saved upon creation
-browser	e2e/keeper-join.spec.ts	68	no		Given a tincanban invitation, when native lighthouse joins and restarts, then it exchanges board changes both ways
-browser	e2e/keeper-join.spec.ts	139	no		Given owner and editor share a fresh board, when owner closes, then editor syncs with lighthouse
-browser	e2e/markdown.spec.ts	3	no		Markdown descriptions and templates render consistently without executing HTML
-browser	e2e/member-access.spec.ts	4	no		owner promotes a visitor, then removes only their device through an explicit scope confirmation
-browser	e2e/mesh-storage-contention.spec.ts	26	no		Given three tabs sharing nine boards, when signed catalogs replay, then processing stays bounded and a checklist change remains visible
-browser	e2e/mesh-worker-responsiveness.spec.ts	4	no		Given mesh computation pending in its worker, when searching cards, then board responds before computation completes
-browser	e2e/mesh-worker-responsiveness.spec.ts	36	no		Given malformed mesh data, when worker rejects it, then board remains usable and valid computation can retry
-browser	e2e/message-references.spec.ts	43	no		Given a committed local message, when its copied link reloads, then chat reveals and highlights that exact message
-browser	e2e/message-references.spec.ts	54	no		Given a linked message, when closing chat, then URL clears and the same link can open it again
-browser	e2e/message-references.spec.ts	72	no		Given an unavailable linked message, when closing its error chat, then URL and retry feedback clear
-browser	e2e/message-references.spec.ts	84	no		Given denied clipboard access, when copying a message link, then a selectable local URL and honest feedback remain
-browser	e2e/message-references.spec.ts	99	no		Given an unknown workspace reference, when opening its link, then workspace unavailable appears without highlighting an unrelated target
-browser	e2e/message-references.spec.ts	106	no		Given a retained workspace with an absent target, when opening its link, then message unavailable appears after loading
-browser	e2e/message-references.spec.ts	112	no		Given a malformed reference, when opening its link, then invalid-link feedback appears
-browser	e2e/message-references.spec.ts	117	no		Given signing remains pending, when its optimistic message appears, then copy stays unavailable until commit
-browser	e2e/message-references.spec.ts	138	no		Given a target older than 100 messages, when its link opens, then that retained message becomes visible
-browser	e2e/message-references.spec.ts	154	no		Given chat loading remains pending, when opening a link, then loading precedes retained-message resolution
-browser	e2e/message-references.spec.ts	172	no		Given a copied link before local workspace rekeying, when its preserved scope opens afterward, then the same message resolves
-browser	e2e/mobile-nav.spec.ts	9	yes	Mobile Navigation & Drawer (Gate D)	Given ${viewport.name} viewport, when opened, hamburger drawer provides accessible grouped navigation and traps focus
-browser	e2e/mobile-nav.spec.ts	75	no	Mobile Navigation & Drawer (Gate D)	Given 1024px desktop viewport, topbar displays direct action buttons and hides hamburger button
-browser	e2e/mobile-nav.spec.ts	98	no	Mobile Navigation & Drawer (Gate D)	Given an open drawer, when a background branch appears, then it stays inaccessible and scroll lock survives an interrupted handoff
-browser	e2e/mobile-overlay-safe-area.spec.ts	28	no		Given mobile board with safe insets, when Sync opens and viewport changes, then backdrop reaches bottom and closing restores board
-browser	e2e/mobile-overlay-safe-area.spec.ts	52	no		Given scrolled mobile board, when a visible Add item opens and closes, then scroll position returns
-browser	e2e/mobile-overlay-safe-area.spec.ts	69	no		Given invalid mobile pairing link, when error opens, then backdrop covers safe area and Dismiss returns to board
-browser	e2e/mobile-overlay-safe-area.spec.ts	81	no		Given mobile chat with safe insets, when viewport shrinks and message sends, then composer stays reachable and message appears
-browser	e2e/object-discussions.spec.ts	29	no		Given an offline discussion with an incompatible known peer, when sending, then signed context saves locally and survives reload
-browser	e2e/object-discussions.spec.ts	58	yes		Given an item at ${width}px, when Discuss sends and replies, then one message lives in item discussion and global chat
-browser	e2e/object-discussions.spec.ts	91	no		Given selected item text, when Discuss sends then a quote returns to its exact source
-browser	e2e/object-discussions.spec.ts	109	no		Given a discussion draft and storage failure, when send fails then close/reopen retains draft and retry commits once
-browser	e2e/object-discussions.spec.ts	132	no		Given item and discussion windows, when dragged resized and reopened then geometry and shared focus persist
-browser	e2e/object-discussions.spec.ts	157	no		Given two items and a participant, when one discussion attaches both items and mentions the participant then one signed message references both
-browser	e2e/object-discussions.spec.ts	193	no		Given a quoted passage changed after discussion, when its reference opens then original quote remains without false highlighting
-browser	e2e/object-discussions.spec.ts	219	no		Given a pending discussion send, when its window closes and reopens then completion keeps one message
-browser	e2e/paper-and-technical-type.spec.ts	11	no		Given paper buttons and cards, when hovered, then rotation is visible and clicking still opens the card
-browser	e2e/paper-and-technical-type.spec.ts	34	no		Given archive, when expanded and collapsed, then open archive keeps strokes and folded columns retain their category colors and closed borders
-browser	e2e/paper-and-technical-type.spec.ts	83	no		Given mesh devices or an offline board and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code
-browser	e2e/paper-controls-chat.spec.ts	5	yes		Given a ${width}px board, when a select opens and a long chat message scrolls, then paper controls and complete message frames remain usable
-browser	e2e/participant-avatars.spec.ts	16	yes		Given a ${width}px workspace, when an author renames and reloads, then their chat and participant avatar stays stable
-browser	e2e/participant-avatars.spec.ts	49	no		Given slow signing, when a message is pending then fails, then its avatar stays stable and retry preserves attribution
-browser	e2e/participant-avatars.spec.ts	75	no		Given two signed participants share a name, when one profile disappears offline, then names stay distinct and their retained avatar stays stable
-browser	e2e/policy-transport-startup.spec.ts	24	no		Given persisted authorized local data, when transport assets are unavailable, then the board opens and local edits survive reload without transport requests
-browser	e2e/policy-transport-startup.spec.ts	43	no		Given unavailable transport, when invitation creation fails, then local edits remain usable and retry can create an invitation
-browser	e2e/policy-transport-startup.spec.ts	62	no		Given unavailable policy WASM, when startup runs, then local access stays blocked with an explicit runtime error
-browser	e2e/quick-note.spec.ts	18	no		Given an item overview, when a quick note is added, then it appears immediately and survives reload
-browser	e2e/quick-note.spec.ts	36	no		Given quick-note persistence fails, when retry succeeds, then the draft stays and one note is saved
-browser	e2e/quick-note.spec.ts	53	no		Given a Job search lead, when a quick note is added, then it appends to its Description
-browser	e2e/rejection-notes.spec.ts	18	no		Given a rejected card, when typing continuously, then input stays local until idle and survives reload
-browser	e2e/rejection-notes.spec.ts	46	no		Given storage fails, when closing a dirty card, then draft stays visible and retry saves it
-browser	e2e/rejection-notes.spec.ts	62	no		Given a slow save, when typing newer text, then saved updates never overwrite the draft
-browser	e2e/remaining-ui-polish.spec.ts	22	no		Given an archived item, when Undo is pressed, then it returns to its original column and position
-browser	e2e/remaining-ui-polish.spec.ts	38	no		Given archive persistence fails, when an item is archived, then the item remains visible and the failure is honest
-browser	e2e/remaining-ui-polish.spec.ts	48	no		Given a mobile board, when navigating columns, then the next column peeks and the switcher changes the active column
-browser	e2e/remaining-ui-polish.spec.ts	67	no		Given a Job search lead, when Archive status is selected, then Undo stays available inside Lead details
-browser	e2e/remaining-ui-polish.spec.ts	84	yes		Given ${width}px mobile, when the board opens, then the next column peeks and Add follows the empty card stack
-browser	e2e/remaining-ui-polish.spec.ts	104	no		Given a lead dragged to Archive, when Undo fails then retries, then its original position survives reload
-browser	e2e/remaining-ui-polish.spec.ts	144	no		Given an archived item, when the workspace changes, then its Undo cannot act on the new board
-browser	e2e/root-message-links.spec.ts	4	no		Given a root message with replies, when its copied local link reloads, then root conversation reveals the root and its siblings
-browser	e2e/rusty-connection.spec.ts	9	no		Given an owned board, address-only Rusty connects once and removal waits for server revocation without losing local work
-browser	e2e/rusty-mark-sizing.spec.ts	3	no		Given the Rusty connection panel, when Rusty appears on desktop and narrow mobile, then Rusty keeps TinCanBan visual size without horizontal overflow
-browser	e2e/schema-driven-filters.spec.ts	13	no	Schema-driven board filters	Given a renamed select option, when filters render, then they use the current schema title and stable option ID
-browser	e2e/schema-driven-filters.spec.ts	29	no	Schema-driven board filters	Given a generic workspace select field, when one option is filtered, then only matching items remain
-browser	e2e/schema-driven-filters.spec.ts	62	no	Schema-driven board filters	Given a numeric schema field, when filters render, then bounds come from the schema without preset buckets
-browser	e2e/schema-editor.spec.ts	14	no	Visual board and entity editing	Given a board, when edit mode renames and adds columns, then the board keeps those changes
-browser	e2e/schema-editor.spec.ts	35	no	Visual board and entity editing	Given entity editing, when its name is blank, then applying changes is blocked
-browser	e2e/schema-editor.spec.ts	48	no	Visual board and entity editing	Given a column with an item, when it is archived from visual edit mode, then its item is hidden
-browser	e2e/scoped-sync.spec.ts	13	no	Scoped Sync Outer Scenarios	Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment
-browser	e2e/scoped-sync.spec.ts	134	no	Scoped Sync Outer Scenarios	Given an enrolled device deletes its final workspace, when tincanban creates the fallback, then the enrolled device remains its owner after reload
-browser	e2e/scoped-sync.spec.ts	209	no	Scoped Sync Outer Scenarios	Given Sync is opened, when active workspace is preselected, then Generate link creates a usable single-workspace invite without extra navigation
-browser	e2e/scoped-sync.spec.ts	243	no	Scoped Sync Outer Scenarios	Given multiple workspaces, when user selects A+B, then one invitation is generated for both, recipient sees both names on acceptance, and both connect
-browser	e2e/scoped-sync.spec.ts	289	no	Scoped Sync Outer Scenarios	Given Sync is opened, when all workspaces are deselected, then Generate link is disabled
-browser	e2e/scoped-sync.spec.ts	306	no	Scoped Sync Outer Scenarios	Given enrolled devices, when either device reloads, then it retains durable trust without requiring another QR
-browser	e2e/scoped-sync.spec.ts	349	no	Scoped Sync Outer Scenarios	Given enrolled devices share several workspaces, when one device reloads, then the other stays connected and receives its next edit
-browser	e2e/scoped-sync.spec.ts	395	no	Scoped Sync Outer Scenarios	Given an enrolled owner device is offline, when another device creates a workspace, then it receives the workspace after reconnecting without another invite
-browser	e2e/scoped-sync.spec.ts	447	no		Given a real pending device request, when declined, then guest sees refusal and keeps its identity
-browser	e2e/scoped-sync.spec.ts	471	no		Given approved enrollment but failed storage, when receiving identity, then both devices report failure without claiming success
-browser	e2e/scoped-sync.spec.ts	499	no		Given a visitor already has the owner's board, when the same device is enrolled, then the board stays and owner access survives reload
-browser	e2e/scoped-sync.spec.ts	542	no		Given existing data under another identity, when enrollment is approved, then the same device keeps old data stored but hides its unentitled scope
-browser	e2e/scoped-sync.spec.ts	615	no		Given a delegated owner device, when it grants an editor access twice, then the editor verifies both grants
-browser	e2e/search-responsiveness.spec.ts	7	no		Given 55 detailed leads, when search narrows then has no matches, then keyboard stays responsive and clearing restores cards without writes
-browser	e2e/settings-scope.spec.ts	3	yes		Given Settings at ${width}px, when switching scope, then profile, workspace and connections stay separate
-browser	e2e/settings-scope.spec.ts	38	no		Given a job-search workspace, when keyboard moves between settings and board sections, then focus and visible content follow selection
-browser	e2e/spatial-window-loading.spec.ts	4	no		Given a new lead, when its detail module is still loading then a pending status precedes the window
-browser	e2e/startup-runtime-failure.spec.ts	3	no		Given the Rust policy runtime request fails, when tincanban opens, then it identifies the runtime rather than local data
-browser	e2e/startup-storage-failure.spec.ts	3	no		Given local storage fails, when tincanban opens, then it shows the cause without a reload button
-browser	e2e/startup-storage-failure.spec.ts	19	no		Given a saved board cannot open, when a device invitation opens, then pairing remains available and the board error stays visible
-browser	e2e/storage-atomicity.spec.ts	4	no		Given two tabs persist different changes concurrently, when storage reopens, then both durable records remain
-browser	e2e/storage-atomicity.spec.ts	36	no		Given proof persistence fails, when a transaction aborts, then no change or receipt leaks
-browser	e2e/storage-atomicity.spec.ts	75	no		Given two open tabs, when both edit one workspace together, then both converge on both changes
-browser	e2e/storage-atomicity.spec.ts	110	no		Given independent tabs receive peer branches together, when both admissions finish, then reopened workspace keeps both
-browser	e2e/storage-atomicity.spec.ts	156	no		Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged
-browser	e2e/storage-atomicity.spec.ts	196	no		Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog
-browser	e2e/storage-failure.spec.ts	4	no		Given newer local databases, when tincanban saves workspace and chat data, then it opens without downgrade errors
-browser	e2e/storage-failure.spec.ts	52	no		Given storage failure, when an item is saved, then failure stays visible and no card publishes
-browser	e2e/storage-journal-migration.spec.ts	3	no		Given a held legacy journal with committed board and receipts, when tincanban opens and edits, then migration preserves data and does not replay compacted changes
-browser	e2e/storage-offline-shape.spec.ts	3	no		Given snapshots in local kv and changes in legacy journal, when default storage loads workspace, then it restores both
-browser	e2e/storage-upgrade-block.spec.ts	3	no		Given a local journal created before the catalog index, when tincanban opens, then it keeps the board and loads
-browser	e2e/storage-upgrade-block.spec.ts	56	no		Given normal browser storage, when tincanban starts, then workspace controls load
-browser	e2e/storage-upgrade-block.spec.ts	65	no		Given a legacy version upgrade is pending, when tincanban opens it unversioned, then timeout is distinguishable and recovers
-browser	e2e/storage-upgrade-block.spec.ts	112	no		Given legacy records conflict with current receipt, when migration aborts and conflict is fixed, then retry copies all records atomically
-browser	e2e/succession.spec.ts	33	no		Given an owner names an editor successor, when the editor claims succession, then every peer accepts the new owner
-browser	e2e/succession.spec.ts	66	no		Given editor quorum recovery, when a majority votes, then one vote stays pending and quorum elects the candidate
-browser	e2e/sync-layout.spec.ts	4	yes		Given sync management at ${width}px, when offline and then paused, then status and actions remain readable
-browser	e2e/sync-tabs.spec.ts	3	yes		Given Device sync at ${width}px, when switching tasks, then each tab exposes only its relevant controls
-browser	e2e/sync-tabs.spec.ts	37	no		Given Rusty is unavailable, when connecting from its tab, then pending and failure stay local to Rusty
-browser	e2e/sync.spec.ts	4	no		Given clipboard access is denied, when Sync opens, then its pairing link remains selectable for manual copy
-browser	e2e/sync.spec.ts	23	no		Given a malformed pairing link, when tincanban opens it, then it fails without claiming a sync
-browser	e2e/sync.spec.ts	35	no		Given a QR invitation opened in a scanner, when its current URL opens in another browser then the invitation survives
-browser	e2e/sync.spec.ts	58	yes		Given an expired invitation, when its error is closed with ${exit}, then the URL returns to the board and reload stays there
-browser	e2e/sync.spec.ts	96	no		Given paired browser profiles, when either peer changes a card, then the other board updates without another QR
-browser	e2e/telemetry.spec.ts	28	yes		Given diagnostics return ${status}, when chat saves, then text persists and telemetry excludes content
-browser	e2e/telemetry.spec.ts	65	no		Given diagnostics are disabled, when chat saves and page hides, then no intake request occurs
-browser	e2e/telemetry.spec.ts	76	no		Given legacy collector settings, when deployment loads, then only the deployed collector receives events
-browser	e2e/telemetry.spec.ts	90	yes		Given intake returns ${rejection}, when chat saves, then retry stops and user can disable diagnostics
-browser	e2e/telemetry.spec.ts	110	no		Given unavailable preference storage, when device opts out, then the checkbox reverts and reports the failure
-browser	e2e/unified-settings.spec.ts	9	no		Given Settings is open, when Recovery backup opens, then recovery stays above Settings and closes back to it
-browser	e2e/unified-settings.spec.ts	34	no		Settings keeps identity available while workspace controls stay role-gated
-browser	e2e/unified-settings.spec.ts	73	no		Given two workspaces, when identity name changes, then both show that name even with older chat announcements
-browser	e2e/workspace-access-isolation.spec.ts	5	no		Given an unreadable authority on one board, when creating and importing another board, then its owner access survives
-browser	e2e/workspace-catalog.spec.ts	3	no		a legacy orphaned workspace reappears and survives another tab saving
-browser	e2e/workspace-configure-create.spec.ts	4	yes		Given a ${width}px viewport, when creating a configured board, then its name, columns, required fields, and select options appear in the item form
-browser	e2e/workspace-configure-create.spec.ts	74	no		Given edited configuration, when preset changes, then draft stays intact; invalid and failed saves keep draft for retry
-browser	e2e/workspace-configure-create.spec.ts	103	no		Given clean defaults or edited configuration, when presets change or reset is chosen, then changes happen only as requested
-browser	e2e/workspace-configure-create.spec.ts	123	no		Given preset Archive column and a removed column, when the draft is created, then archive behavior stays intact without stale stage references
-browser	e2e/workspace-configure-create.spec.ts	143	no		Given initial workspace persistence is pending, when Create is submitted again, then duplicate submission stays disabled
-browser	e2e/workspace-create-layout.spec.ts	4	yes		Given a ${width}px viewport, when creating a workspace, then presets stay beside their controls and validation allows recovery
-browser	e2e/workspace-roles.spec.ts	6	yes		Given an owner and pending guest, when approved as ${role}, then role controls writes and board settings
-browser	e2e/workspace-roles.spec.ts	101	no		Given a pending access request, when the owner declines, then no shared workspace arrives
-browser	e2e/workspace-roles.spec.ts	120	no		Given another browser uses the owner's identity, when it opens an editor invite, then tincanban explains the identity conflict before approval
-browser	e2e/workspace-roles.spec.ts	144	no		Given snapshot preparation fails, when an editor is approved, then both devices see one terminal cause
-browser	e2e/workspace-schema-migration.spec.ts	46	no		Given an older signed board, when owner reloads and invites a visitor, then card reaches visitor
-browser	e2e/workspace-schema-migration.spec.ts	79	no		Given malformed older board, when owner reloads, then migration stops and stored copy remains
-browser	e2e/workspace-settings-json.spec.ts	13	no		Given a blank workspace, when invalid settings are repaired, then one apply persists all configuration
-browser	e2e/workspace-sync-data.spec.ts	17	no		Given a workspace attachment, when another peer opens it, then verified bytes transfer over the authenticated mesh session
-browser	e2e/workspace-sync-data.spec.ts	74	no		Given independent devices without a signaling API, when a workspace invitation is accepted, then saved cards arrive and edits sync both ways
-browser	e2e/workspace-sync-data.spec.ts	128	no		Given no network before accepting, when the connection returns, then the same invitation completes without another click
-browser	e2e/workspace-sync-data.spec.ts	158	no		Given both devices have independent populated workspaces, when joining, then random IDs keep the local one separate without conflict renaming
-browser	e2e/workspace-sync-data.spec.ts	201	no		Given a storage failure on the receiving device, when joining, then it shows progress followed by an error and keeps the invitation
-browser	e2e/workspace-sync-data.spec.ts	230	no		Given three workspaces, when sharing A and B while viewing Private, then only selected documents arrive and stay independent
-browser	e2e/workspace-worker.spec.ts	31	no		Given an already admitted board, when its exact signed evidence repeats, then it needs no new Worker
-browser	e2e/workspace-worker.spec.ts	56	no		Given a large signed peer history, when admission runs, then board controls stay responsive until durable commit
-browser	e2e/workspace-worker.spec.ts	124	yes		Given ${failure} fails admission, when a candidate arrives, then document and notifications remain unchanged
-browser	e2e/workspaces.spec.ts	4	no		Given boards with identical names, when choosing an invitation scope, then the current board is distinct and an empty selection cannot generate a link
-browser	e2e/workspaces.spec.ts	24	no	Workspaces and Generic Board UI (Outer Scenarios)	Given an owner workspace, when access is checked after reload, then visitor role never flashes
-browser	e2e/workspaces.spec.ts	40	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a new profile, when tincanban opens, then it starts with a collision-safe blank Untitled workspace
-browser	e2e/workspaces.spec.ts	49	no	Workspaces and Generic Board UI (Outer Scenarios)	Given two first tabs, when both open together, then they share one generated Untitled workspace
-browser	e2e/workspaces.spec.ts	66	no	Workspaces and Generic Board UI (Outer Scenarios)	Given two workspaces, when either is renamed from the workspace list, then its data and new name persist
-browser	e2e/workspaces.spec.ts	100	no	Workspaces and Generic Board UI (Outer Scenarios)	Given workspace rename persistence fails, when save is attempted, then the form keeps the draft and shows the error
-browser	e2e/workspaces.spec.ts	114	no	Workspaces and Generic Board UI (Outer Scenarios)	Given workspace archive save is pending and fails, when Archive is retried, then controls recover and fallback persists
-browser	e2e/workspaces.spec.ts	174	no	Workspaces and Generic Board UI (Outer Scenarios)	Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes
-browser	e2e/workspaces.spec.ts	223	no	Workspaces and Generic Board UI (Outer Scenarios)	Given tincanban is opened, when a Blank board workspace is created, then it seeds To do, Doing, Done columns without job-search fields
-browser	e2e/workspaces.spec.ts	253	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a board with columns, when a column is renamed, then the new title persists after reload
-browser	e2e/workspaces.spec.ts	280	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a board with a required custom field, when an item is saved without that field, then validation fails without creating the item
-browser	e2e/workspaces.spec.ts	318	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a parent item and a subitem, when the subitem is moved to another parent, then the hierarchy updates correctly
-browser	e2e/workspaces.spec.ts	365	no	Workspaces and Generic Board UI (Outer Scenarios)	Gate A evidence: Reading board with Author field and nested item alongside Job search, with reload and export
 app-unit	src/app/automation.test.ts	8	no		Given owner and job board, when approving Worker, then grants only bound columns and fields
 app-unit	src/app/commitBoardDrop.test.ts	40	no	board drop commits	ignores missing targets and inactive boards
 app-unit	src/app/commitBoardDrop.test.ts	50	no	board drop commits	archives active cards and exposes undo only after accepted commit
@@ -892,6 +571,11 @@ app-unit	src/sync/replicationHealth.test.ts	13	no		Given saved Rusty settings, w
 app-unit	src/sync/replicationHealth.test.ts	17	no		Given two boards, when only the other board fails, then active board retains its confirmed status
 app-unit	src/sync/replicationHealth.test.ts	24	no		Given a prior successful sync, when a request fails or confirmation expires, then status stops claiming healthy
 app-unit	src/sync/rustyEnrollment.test.ts	8	no		Given a trusted device, when connecting or removing Rusty, then device proof and pinned policy receipt cover exact scope and token commitments
+app-unit	src/sync/startupDiagnostics.test.ts	19	no		Given an unavailable diagnostic chunk, When startup runs, Then local work continues
+app-unit	src/sync/startupDiagnostics.test.ts	28	no		Given errors-only telemetry and a heavy startup step, When debug is enabled, Then the start checkpoint is dispatched before computation and typed counts survive
+app-unit	src/sync/startupDiagnostics.test.ts	45	no		Given an intake awaiting acknowledgement, When startup runs, Then local work completes while both checkpoints remain in flight
+app-unit	src/sync/startupDiagnostics.test.ts	62	no		Given a startup failure, When the stage throws, Then diagnostics identify the stage and error type without transmitting raw error content
+app-unit	src/sync/startupDiagnostics.test.ts	71	yes		Given %s diagnostics, When startup runs, Then diagnostics cannot prevent local work
 app-unit	src/sync/telemetry.test.ts	37	no	bounded telemetry delivery	Given an in-flight batch, when device opts out and back in, then old request aborts and old events are discarded
 app-unit	src/sync/telemetry.test.ts	63	no	bounded telemetry delivery	Given large attribute lists, when delivered, then every request fits the byte and event limits
 app-unit	src/sync/telemetry.test.ts	82	no	bounded telemetry delivery	Given default settings on production hostname, when traced, then no fetch is scheduled
@@ -994,6 +678,329 @@ app-unit	src/webmcp.test.ts	120	no	generic WebMCP tools	reads and atomically app
 app-unit	src/webmcp.test.ts	146	no	generic WebMCP tools	executes valid create_item and rejects invalid create_item without mutating
 app-unit	src/webmcp.test.ts	178	no	generic WebMCP tools	executes move_entity and rename_entity with proper validation
 app-unit	src/webmcp.test.ts	209	no	generic WebMCP tools	archives an item and lists it through the same archive state
+browser	e2e/access-policy-local.spec.ts	6	no		Given multiple workspaces, when active content changes, then inactive access loads wait for workspace invalidation
+browser	e2e/agent-guide.spec.ts	4	no	Agent guide	Given current tincanban, when an agent opens the guide, then workspace and MCP instructions match the live contract
+browser	e2e/agent-guide.spec.ts	40	no	Agent guide	Given invalid or stale settings, when an agent follows recovery guidance, then validation and conflict behavior is explicit
+browser	e2e/agent-guide.spec.ts	50	no	Agent guide	Given a narrow viewport, when the guide opens, then content remains within the viewport
+browser	e2e/archive-column-option.spec.ts	15	no		Given a blank board, when Archive column is enabled and item archived, then one collapsible Archive contains item after reload
+browser	e2e/archive-column-option.spec.ts	41	no		Given archive column save fails, when checked column is added, then draft remains and board has no Archive
+browser	e2e/archive-column-option.spec.ts	53	no		Given item archived before Archive column exists, when column is enabled, then item appears and restores
+browser	e2e/archive-layout.spec.ts	4	no		Given a job-search board, when archive opens and closes at four widths, then columns retain geometry and archive styling
+browser	e2e/archive-layout.spec.ts	49	no		Given collapsible Rejected and Archive columns, when each is toggled, then their local states stay independent
+browser	e2e/archive-layout.spec.ts	68	no		Given a collapsible column on desktop or mobile, when it closes and reopens, then width animates both ways
+browser	e2e/archive-layout.spec.ts	97	no		Given archive role moves, when the board updates, then old preset bindings do not keep old column styled as Archive
+browser	e2e/archive-layout.spec.ts	126	no		Given invalid local collapse preferences, when the board loads, then preferences recover and collapse controls remain usable
+browser	e2e/archive-layout.spec.ts	144	no	Folded board motion	Given a folded board, when opened, then paper appears before contents and reduced motion opens immediately
+browser	e2e/archive-layout.spec.ts	204	no		Given a board taller than the viewport, when Rejected and Archive fold, then their labels and counts remain visible near the board top
+browser	e2e/archive-layout.spec.ts	240	no		Given an open column, when folded and unfolded, then its striped header turns and stretches into a full-height spine
+browser	e2e/archive-role-settings.spec.ts	4	no		Given an Archive column, when role moves in column settings, then Archive role stays independent from collapse
+browser	e2e/automatic-priority.spec.ts	26	no	Automatic priority from workspace preferences	Given weighted work-mode rules, when leads are created, then fit and priority are derived without manual fields
+browser	e2e/automatic-priority.spec.ts	54	no	Automatic priority from workspace preferences	Given automatic priority with no criteria, when saving, then settings stay open with an actionable error
+browser	e2e/automation-production.spec.ts	36	no	production automation proof	Given the production owner UI, when owner connects Rusty and approves the Worker, then private signed scope is exported
+browser	e2e/automation-production.spec.ts	108	no	production automation proof	Given exact owner-approved Worker routing, when real Clef classifies website intake, then a Lead syncs to Rusty and reopens in the owner UI
+browser	e2e/automation-worker.spec.ts	14	no		Given an owner-approved blind workspace, when Worker intake and forwarded mail run, then real clients see one scoped Lead and safe status moves
+browser	e2e/avatar-crop-responsive.spec.ts	18	no		Given a narrow mobile viewport, when cropping a wide photo, then preview scale matches saved square bounds
+browser	e2e/board-breakpoint.spec.ts	4	no		Given a 640px board, when resizing to a phone, then compact columns become a navigable single column only at 560px
+browser	e2e/board-discovery.spec.ts	4	no		Given several boards, when searching discovery, then title, owner, filters, and empty state stay clear
+browser	e2e/board-discovery.spec.ts	50	no		Given empty workspace chat, when opened, then message area owns scrolling without a stray content scrollbar
+browser	e2e/board-drag-drop.spec.ts	74	no	Trello-like board dragging	Given detailed card text across columns, when dragging from card border, then selection stays empty and card moves
+browser	e2e/board-drag-drop.spec.ts	99	no	Trello-like board dragging	Given selectable card text, when dragging across its title, then text selects and card does not move
+browser	e2e/board-drag-drop.spec.ts	114	no	Trello-like board dragging	Given an active border drag, when Escape cancels, then selection clears and later text selection still works
+browser	e2e/board-drag-drop.spec.ts	139	no	Trello-like board dragging	Given an active border drag, when pointercancel fires, then no move commits and selection works afterward
+browser	e2e/board-drag-drop.spec.ts	164	no	Trello-like board dragging	Given filtered cards with a hidden neighbor, when dropping at the unchanged visible position, then hidden order and document revision stay unchanged
+browser	e2e/board-drag-drop.spec.ts	183	no	Trello-like board dragging	Given an unchanged card order, when cancelling a drag or dropping at its original position, then no document write occurs
+browser	e2e/board-drag-drop.spec.ts	212	no	Trello-like board dragging	Given a card and its neighbor, when dragged before the neighbor, then source stays in Vue DOM and separate preview marks one persisted move
+browser	e2e/board-drag-drop.spec.ts	246	no	Trello-like board dragging	Given an independent text selection, when a card border drag completes, then that selection remains intact
+browser	e2e/board-drag-drop.spec.ts	268	no	Trello-like board dragging	Given a mobile card stack, when a finger swipes immediately, then the board scroll gesture does not reorder cards
+browser	e2e/board-drag-drop.spec.ts	296	no	Trello-like board dragging	Given a mobile board, when an editor drags a card sideways, then the board scrolls and the card changes column
+browser	e2e/board-drag-drop.spec.ts	311	no	Trello-like board dragging	Given a mobile board, when a card is released over another column header, then that column receives it
+browser	e2e/board-drag-drop.spec.ts	324	no	Trello-like board dragging	Given three cards, when cards and columns reorder, then hints, neighbors and exact order survive reload
+browser	e2e/board-drag-drop.spec.ts	408	no	Trello-like board dragging	Given persistence fails, when a card is dragged and retried, then rollback and recovery preserve neighbors after reload
+browser	e2e/board-drag-drop.spec.ts	427	no	Trello-like board dragging	Given storage rejects a card move, when rollback finishes, then card text remains selectable
+browser	e2e/board-local.spec.ts	17	no		Given cards still loading on first visit, when tincanban opens, then delayed progress appears within the board shell
+browser	e2e/board-local.spec.ts	43	no		Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts
+browser	e2e/board-local.spec.ts	76	no		Given an archived card, when Archive opens, then it expands into a filtered column and can collapse again
+browser	e2e/board-local.spec.ts	106	no		Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit
+browser	e2e/board-local.spec.ts	122	no		Given a mid-size desktop viewport, when tincanban opens, then the title and filters stay legible without clipped controls
+browser	e2e/board-local.spec.ts	147	no		Given an iPhone 17e portrait viewport, when tincanban opens, then filters start closed and columns snap one page at a time
+browser	e2e/board-local.spec.ts	166	no		Given two tabs on one device, when one tab saves a card, then the other reads and merges IndexedDB without pairing
+browser	e2e/board-local.spec.ts	180	no		Given the board, when Sync is clicked, then members open before workspace selection without starting a node
+browser	e2e/brand-layout.spec.ts	4	yes		Given ${width}px mobile header, when Caveat is pending then ${width === 320 ? "fails" : "loads"}, then full brand name stays before controls
+browser	e2e/brand-layout.spec.ts	42	no		Given owner board, when its can logo opens workspaces, then centered role stamp remains visible
+browser	e2e/browser-native.spec.ts	9	no		Given a signed editor and native Rust peer, when they sync and revoke access, then documents converge and further access is denied
+browser	e2e/card-aging.spec.ts	3	no		idle cards age while the page stays open and editing restores freshness
+browser	e2e/card-aging.spec.ts	30	no		aging threshold changes are explained before applying
+browser	e2e/card-discuss-layout.spec.ts	5	yes		Given ${width}px board and fit score, when Discuss appears on hover or focus then score stays readable and unsent draft survives closing
+browser	e2e/card-drop-zone.spec.ts	8	yes		Given a tall source and ${targetHasCard ? "short" : "empty"} destination, when dropping near the column bottom, then card moves and survives reload
+browser	e2e/card-drop-zone.spec.ts	35	no		Given storage failure, when dropping near an empty column bottom, then card returns and retry moves it
+browser	e2e/card-drop-zone.spec.ts	48	no		Given 55 detailed leads, when a card drops into blank column space, then pointer response and main-thread work stay below 200ms
+browser	e2e/card-edit-responsiveness.spec.ts	7	no		Given 55 detailed leads, when Company and Role are typed, then keystrokes paint within 200ms and only Save commits
+browser	e2e/card-edit.spec.ts	21	no	schema-driven lead editing	Given a long lead, when details open and schema values change, then Edit stays visible and values survive reload
+browser	e2e/card-edit.spec.ts	52	no	schema-driven lead editing	Given storage failure, when lead edit saves, then the form stays open and retry commits atomically
+browser	e2e/card-move-performance.spec.ts	4	no		Given a detailed board and failed storage, when a card moves, then failure restores placement and retry persists
+browser	e2e/card-move-performance.spec.ts	21	no		Given two tabs share a detailed board, when one moves a card and another edits its neighbor, then reload retains both writes
+browser	e2e/card-move-responsiveness.spec.ts	9	no		Given 55 detailed cards, when a card moves, then persistence does not stall the next board interaction
+browser	e2e/card-narrative-race.spec.ts	49	no		Given legacy narrative sources and an attachment, when Description saves, then all text folds and attachment remains
+browser	e2e/card-narrative-race.spec.ts	73	no		Given legacy narrative sources, when unchanged Description saves, then old text remains editable after reload
+browser	e2e/card-narrative-race.spec.ts	96	no		Given a failed narrative save, when retry succeeds, then draft commits once and source remains intact until then
+browser	e2e/card-narrative-race.spec.ts	129	no		Given an inline note changes while Description edit open, when stale form saves, then newer note and draft both survive
+browser	e2e/card-stage-shortcuts.spec.ts	19	no		Given a generic card, when stage shortcut is clicked, then card moves and selection persists
+browser	e2e/card-stage-shortcuts.spec.ts	31	no		Given a generic card, when stage move fails, then card stays put and error appears
+browser	e2e/card-stage-shortcuts.spec.ts	41	no		Given board JSON, when stage buttons are configured, then card shows configured buttons and order
+browser	e2e/causal-admission.spec.ts	3	no		Given an offline editor change accepted before revocation, when the signed revocation arrives, then the projection retracts and review creates a new authorized change
+browser	e2e/chat-local.spec.ts	17	no		Given Markdown cannot load, when a chat message is saved, then its text remains visible
+browser	e2e/chat-local.spec.ts	32	yes		Given a ${width}px workspace, when I name myself and send a message, then both persist after reload
+browser	e2e/chat-local.spec.ts	60	no		Given two messages across midnight, when chat renders them on mobile, then each date and time stays distinct
+browser	e2e/chat-local.spec.ts	95	no		Given a chosen profile name, when a new workspace is created, then it reuses the personal name preset
+browser	e2e/chat-local.spec.ts	117	no		Given desktop chat, when its corner is dragged, then the window resizes within the viewport
+browser	e2e/chat-local.spec.ts	141	no		Given a storage failure, when a message is submitted, then the draft remains and retry writes once
+browser	e2e/chat-local.spec.ts	166	no		Given slow local signing, when a message is submitted, then it appears immediately while durability finishes
+browser	e2e/chat-local.spec.ts	187	no		Given one poisoned historical chat record, when a peer sends it with a valid record, then the valid message still arrives
+browser	e2e/chat-open-performance.spec.ts	7	no		Given 55 detailed cards, when Chat opens, then pointer event timing stays below 200ms
+browser	e2e/chat-open-performance.spec.ts	26	no		Given 55 detailed cards, when Sync opens, then pointer event timing stays below 200ms
+browser	e2e/chat-open-performance.spec.ts	125	no		Given chat metadata becomes unavailable, when Chat opens, then failure appears and board remains usable
+browser	e2e/chat-open-performance.spec.ts	139	no		Given the Chat chunk fails after loading is delayed, when Chat opens, then reload recovers chat
+browser	e2e/chat-open-performance.spec.ts	163	no		Given Sync chunk fails to load, when Sync opens, then pending can close and reload recovers
+browser	e2e/chat-reference-search.spec.ts	5	yes		Given ${width}px chat and many reference kinds, when typing and filtering then compact examples become matching references and empty search recovers
+browser	e2e/chat-storage.spec.ts	11	no	ChatStore Real IndexedDB Durability & Isolation E2E	two tabs concurrently append different messages and duplicate is suppressed
+browser	e2e/chat-storage.spec.ts	97	no	ChatStore Real IndexedDB Durability & Isolation E2E	atomic merge failure on conflicting record does not partially save valid message
+browser	e2e/chat-storage.spec.ts	165	no	ChatStore Real IndexedDB Durability & Isolation E2E	page reload opens and loads durable stored chat data identically
+browser	e2e/chat.spec.ts	17	no		Given paired workspaces, when matching names and messages sync, then both peers show stable suffixes and offline messages recover
+browser	e2e/collapsible-sync.spec.ts	27	no		Given paired desktop and mobile peers, when desktop enables collapse for a column, then mobile receives shared capability but keeps local open state
+browser	e2e/column-add-and-notice.spec.ts	5	no	Column add actions and overlay notices	Given a job board, when adding from Applied, then the form starts in Applied and no add action occupies the header
+browser	e2e/column-add-and-notice.spec.ts	18	no	Column add actions and overlay notices	Given a successful action, when its notice appears, then it overlays content and disappears
+browser	e2e/column-add-and-notice.spec.ts	33	no	Column add actions and overlay notices	Given a blank board, when adding inside Doing, then the item form is scoped to Doing
+browser	e2e/column-fold-motion.spec.ts	7	no		Given a wide board, when a column folds and opens, then its width and visible title move continuously
+browser	e2e/component-layout.spec.ts	27	no	Component layout audit	Given a wide desktop, when all job columns fit, then the board uses available width without horizontal scrolling
+browser	e2e/component-layout.spec.ts	41	no	Component layout audit	Given desktop viewport, when recent dialogs open, then spacing and geometry stay consistent
+browser	e2e/component-layout.spec.ts	67	no	Component layout audit	Given mobile viewport, when navigation and settings open, then neither surface escapes viewport
+browser	e2e/contextual-sync.spec.ts	31	no		Given independent paired peers, when signed object discussions sync, then context and avatars converge and unsupported or tampered records remain bounded
+browser	e2e/conversation-windows.spec.ts	28	no		Given generic item and discussion, when pointer drag and resize then both nonmodal windows stay usable
+browser	e2e/conversation-windows.spec.ts	65	no		Given overlapping windows, when cycling focus and opening Settings then bounded ring yields to modal
+browser	e2e/conversation-windows.spec.ts	93	no		Given narrow touch screen and unsent draft, when closing and reopening discussion then source and draft stay reachable
+browser	e2e/conversation-windows.spec.ts	116	no		Given generic description, when keyboard Discuss targets its field then message retains field anchor
+browser	e2e/conversation-windows.spec.ts	128	no		Given tablet touch window, when titlebar and corner gestures move resize and cancel then content keeps native touch behavior
+browser	e2e/conversation-windows.spec.ts	166	no		Given workspace A windows and separate B item, when switching back then A content and geometry restore without B leakage
+browser	e2e/custom-avatar.spec.ts	32	no		Given workspace photo settings, when saved and another workspace opens, then the photo survives reload only in its workspace
+browser	e2e/custom-avatar.spec.ts	82	no		Given a photo draft, when file decode or save fails, then current avatar stays and draft can retry
+browser	e2e/custom-avatar.spec.ts	101	no		Given a visitor joins a workspace, when they save their avatar, then owner receives the CRDT profile
+browser	e2e/datetime-field.spec.ts	14	no	Datetime field type	Given a board with a datetime field, supports datetime input, validation, card rendering, and persistence across reload
+browser	e2e/datetime-field.spec.ts	91	no	Datetime field type	Given schema visual editor, allows selecting datetime as field type
+browser	e2e/detail-prose-width.spec.ts	31	no		Given a Lead detail window, when its container maximizes and then narrows, then properties reflow beside narrative only while space allows
+browser	e2e/detail-prose-width.spec.ts	66	no		Given a generic item overview, when maximized then narrow, then content reflows and failure draft remains usable
+browser	e2e/device-sync-dialog.spec.ts	3	no		Given tincanban is open in development, when the footer renders, then it shows the tower and honest dev build label
+browser	e2e/device-sync-dialog.spec.ts	13	no		Given Device sync members are open, when the user wants to dismiss it, then only the header close control is shown
+browser	e2e/device-sync-dialog.spec.ts	24	no		Given live sync is enabled without a connected peer, when Sync opens, then Stop remains available until explicitly stopped
+browser	e2e/device-sync-dialog.spec.ts	39	no		Given Device sync shows an invalid-link failure, when it renders recovery actions, then Dismiss remains and Close is not duplicated
+browser	e2e/device-sync-dialog.spec.ts	49	no		Given many devices on mobile, when their list is scrolled, then the list moves and the board stays locked
+browser	e2e/discussion-entry-points.spec.ts	18	no		Given board card, when Discuss sends then source link opens card and workspace Reply opens a thread
+browser	e2e/discussion-entry-points.spec.ts	65	no		Given lead metadata selection spanning fields, when Discuss then captured quote attaches and returns to source
+browser	e2e/discussion-entry-points.spec.ts	85	no		Given board text, when pointer selects company then Discuss opens quote without opening card
+browser	e2e/discussion-entry-points.spec.ts	104	no		Given card context menu, when right click then native menu is suppressed and Escape dismisses app menu
+browser	e2e/discussion-entry-points.spec.ts	123	no		Given window controls, when maximize restore and cycle then fixed SVG controls keep header reachable
+browser	e2e/document-editing.spec.ts	23	no		Given a generic card, when Edit is selected, then its visible fields can be changed from the detail view
+browser	e2e/document-editing.spec.ts	39	no		Given a real file attachment, when it is reopened, then tincanban can preview and download its persisted bytes
+browser	e2e/document-editing.spec.ts	73	no		Given document controls fail to load, when item detail opens, then pending and error states preserve board access
+browser	e2e/durable-mesh.spec.ts	151	no		Given paired browsers, when a lead changes, then the peer receives the durable board update
+browser	e2e/durable-mesh.spec.ts	169	no		Given a legacy local device without metadata, when Sync opens in a known browser, then it shows the current browser and OS
+browser	e2e/durable-mesh.spec.ts	197	no		Given a joined workspace with local data, when an editor leaves the mesh, then its copy remains and rejoining requires merge confirmation
+browser	e2e/durable-mesh.spec.ts	243	no		Given signed workspace authority, when transport state disappears, then owner and editor roles recover while forged authority stays read-only
+browser	e2e/durable-mesh.spec.ts	309	no		Given a paired editor, when the invitation tab reloads repeatedly, then trust and editing survive and sync resumes without approval
+browser	e2e/durable-mesh.spec.ts	342	no		Given two connected clients, when exactly one page reloads after a pending network state, then both sides restore live presence
+browser	e2e/durable-mesh.spec.ts	380	no		Given a paired editor, when its actual Iroh node closes unexpectedly, then a fresh node reconnects and syncs without reload or pairing
+browser	e2e/durable-mesh.spec.ts	427	no		Given a paired editor, when live receive persistence fails, then no saved state is acknowledged and reconnect replays it after storage recovers
+browser	e2e/durable-mesh.spec.ts	480	no		Given two tabs for one editor device, when their real Iroh nodes disconnect repeatedly, then roles, edits, and node ownership recover without accumulation
+browser	e2e/durable-mesh.spec.ts	568	no		Given a paired editor goes offline, when both sides edit and it comes online, then persisted changes converge without reloading
+browser	e2e/durable-mesh.spec.ts	644	no		Given a connected peer misses a local change notification, then periodic anti-entropy converges without adding another device
+browser	e2e/durable-mesh.spec.ts	668	no		Given an existing editor, when the owner enrolls another device, then the owner device verifies that editor after reload
+browser	e2e/durable-mesh.spec.ts	717	no		Given trusted devices and multiple tabs, when tabs close and reopen, then each tab keeps an independent channel under one device
+browser	e2e/durable-mesh.spec.ts	764	no		Given a connected peer closes its tab, when it returns, then presence turns offline and queued changes sync
+browser	e2e/durable-mesh.spec.ts	826	no		Given owner introduced two editors, when owner goes offline, then editors discover each other and keep syncing
+browser	e2e/durable-mesh.spec.ts	848	no		Given an editor has synced changes, when owner removes access, then writes stop and a new peer retains accepted history
+browser	e2e/durable-mesh.spec.ts	884	no		Given an online editor, when owner selects them in mesh members and transfers ownership, then roles swap across devices
+browser	e2e/durable-mesh.spec.ts	958	no		Given sibling tabs on both devices, when mesh reconnects concurrently, then connections settle without repeated closure
+browser	e2e/durable-mesh.spec.ts	989	no		Given an editor has an unsigned raw branch, when it is reloaded, then it stays quarantined and valid sync continues
+browser	e2e/durable-mesh.spec.ts	1051	no		Given chat history exceeds one control frame, when paired peers reconnect, then history and subsequent edits sync
+browser	e2e/favicon.spec.ts	32	no		Given a ready board with no peers, when its tab opens, then tincanban favicon matches empty mesh without blinking
+browser	e2e/favicon.spec.ts	42	no		Given app startup fails, when its tab opens, then tincanban icon still loads
+browser	e2e/favicon.spec.ts	49	no		Given favicon animation cannot load, when the board opens, then the static icon and local board remain available
+browser	e2e/filtered-board-layout.spec.ts	32	no		Given a fresh desktop board, when filtering, searching, and moving a card, then layout and hidden cards persist
+browser	e2e/filtered-board-layout.spec.ts	122	no		Given a mobile status filter, when one column remains then it uses the screen without redundant navigation
+browser	e2e/filtered-board-layout.spec.ts	140	no		Given a horizontally scrolled mobile board, when search changes visible columns, then the first matching column returns into view
+browser	e2e/filtered-board-layout.spec.ts	152	no		Given filtered cards and a failed save, when dragging ends then the preview disappears and the card returns
+browser	e2e/filtered-board-layout.spec.ts	173	no		Given a card being dragged, when document data refreshes then drag continues and its ghost disappears on release
+browser	e2e/filtered-board-layout.spec.ts	199	yes		Given a card being dragged, when filtering to ${query} rebuilds the board then drag cancels without leaving a ghost or saving a move
+browser	e2e/footer-animation.spec.ts	3	yes		Given workspace permissions ${unavailable ? "fail" : "load"}, when footer animation replays, then it completes without blocking controls
+browser	e2e/history-restore.spec.ts	30	no		Given a moved item, when restore fails then retries, then current placement is preserved until durable compensation succeeds
+browser	e2e/inline-add.spec.ts	15	yes		Given two cards at ${width}px, when hovering their gap, then add appears there and failed insertion retries in place
+browser	e2e/interaction-polish.spec.ts	14	no		Given mobile navigation, when settings open and close, then focus stays in the dialog and returns to Menu
+browser	e2e/interaction-polish.spec.ts	30	no		Given an empty form, when Escape is pressed, then it closes; a dirty draft survives a backdrop click
+browser	e2e/interaction-polish.spec.ts	48	no		Given nested schema dialogs, when the preview closes, then focus returns to its parent before the parent closes
+browser	e2e/interaction-polish.spec.ts	70	no		Given mobile save failure, when retry succeeds, then draft persists exactly once and save status recovers
+browser	e2e/interaction-polish.spec.ts	92	no		Given a filtered mobile board, when no cards match, then result count and reset explain the empty state
+browser	e2e/interaction-polish.spec.ts	111	no		Given slow startup, when data is not ready, then a stable shell shows delayed progress and recovers
+browser	e2e/interaction-polish.spec.ts	127	no		Given reduced motion, when mobile navigation opens and closes, then transitions do not delay interaction
+browser	e2e/interaction-polish.spec.ts	140	no		Given a pending save, when the user tries to edit or submit again, then the form waits and publishes one card
+browser	e2e/interaction-polish.spec.ts	168	no		Given fast startup, when data arrives before the progress delay, then no loading indicator flashes
+browser	e2e/interaction-polish.spec.ts	183	no		Given a desktop scrollbar, when settings open, reject a draft, and close, then header and logo keep their positions
+browser	e2e/job-search-rejected.spec.ts	5	no	Job Search Rejected Column & Retrospective Notes (Gate F)	Given a Job search board with a lead, when moved to Rejected and a retrospective note is added, it persists across reload
+browser	e2e/job-search-rejected.spec.ts	56	no	Job Search Rejected Column & Retrospective Notes (Gate F)	Given a lead created directly in Rejected status, optional rejection reason is saved upon creation
+browser	e2e/keeper-join.spec.ts	68	no		Given a tincanban invitation, when native lighthouse joins and restarts, then it exchanges board changes both ways
+browser	e2e/keeper-join.spec.ts	139	no		Given owner and editor share a fresh board, when owner closes, then editor syncs with lighthouse
+browser	e2e/markdown.spec.ts	3	no		Markdown descriptions and templates render consistently without executing HTML
+browser	e2e/member-access.spec.ts	4	no		owner promotes a visitor, then removes only their device through an explicit scope confirmation
+browser	e2e/mesh-storage-contention.spec.ts	26	no		Given three tabs sharing nine boards, when signed catalogs replay, then processing stays bounded and a checklist change remains visible
+browser	e2e/mesh-worker-responsiveness.spec.ts	4	no		Given mesh computation pending in its worker, when searching cards, then board responds before computation completes
+browser	e2e/mesh-worker-responsiveness.spec.ts	36	no		Given malformed mesh data, when worker rejects it, then board remains usable and valid computation can retry
+browser	e2e/message-references.spec.ts	43	no		Given a committed local message, when its copied link reloads, then chat reveals and highlights that exact message
+browser	e2e/message-references.spec.ts	54	no		Given a linked message, when closing chat, then URL clears and the same link can open it again
+browser	e2e/message-references.spec.ts	72	no		Given an unavailable linked message, when closing its error chat, then URL and retry feedback clear
+browser	e2e/message-references.spec.ts	84	no		Given denied clipboard access, when copying a message link, then a selectable local URL and honest feedback remain
+browser	e2e/message-references.spec.ts	99	no		Given an unknown workspace reference, when opening its link, then workspace unavailable appears without highlighting an unrelated target
+browser	e2e/message-references.spec.ts	106	no		Given a retained workspace with an absent target, when opening its link, then message unavailable appears after loading
+browser	e2e/message-references.spec.ts	112	no		Given a malformed reference, when opening its link, then invalid-link feedback appears
+browser	e2e/message-references.spec.ts	117	no		Given signing remains pending, when its optimistic message appears, then copy stays unavailable until commit
+browser	e2e/message-references.spec.ts	138	no		Given a target older than 100 messages, when its link opens, then that retained message becomes visible
+browser	e2e/message-references.spec.ts	154	no		Given chat loading remains pending, when opening a link, then loading precedes retained-message resolution
+browser	e2e/message-references.spec.ts	172	no		Given a copied link before local workspace rekeying, when its preserved scope opens afterward, then the same message resolves
+browser	e2e/mobile-nav.spec.ts	9	yes	Mobile Navigation & Drawer (Gate D)	Given ${viewport.name} viewport, when opened, hamburger drawer provides accessible grouped navigation and traps focus
+browser	e2e/mobile-nav.spec.ts	75	no	Mobile Navigation & Drawer (Gate D)	Given 1024px desktop viewport, topbar displays direct action buttons and hides hamburger button
+browser	e2e/mobile-nav.spec.ts	98	no	Mobile Navigation & Drawer (Gate D)	Given an open drawer, when a background branch appears, then it stays inaccessible and scroll lock survives an interrupted handoff
+browser	e2e/mobile-overlay-safe-area.spec.ts	28	no		Given mobile board with safe insets, when Sync opens and viewport changes, then backdrop reaches bottom and closing restores board
+browser	e2e/mobile-overlay-safe-area.spec.ts	52	no		Given scrolled mobile board, when a visible Add item opens and closes, then scroll position returns
+browser	e2e/mobile-overlay-safe-area.spec.ts	69	no		Given invalid mobile pairing link, when error opens, then backdrop covers safe area and Dismiss returns to board
+browser	e2e/mobile-overlay-safe-area.spec.ts	81	no		Given mobile chat with safe insets, when viewport shrinks and message sends, then composer stays reachable and message appears
+browser	e2e/object-discussions.spec.ts	29	no		Given an offline discussion with an incompatible known peer, when sending, then signed context saves locally and survives reload
+browser	e2e/object-discussions.spec.ts	58	yes		Given an item at ${width}px, when Discuss sends and replies, then one message lives in item discussion and global chat
+browser	e2e/object-discussions.spec.ts	91	no		Given selected item text, when Discuss sends then a quote returns to its exact source
+browser	e2e/object-discussions.spec.ts	109	no		Given a discussion draft and storage failure, when send fails then close/reopen retains draft and retry commits once
+browser	e2e/object-discussions.spec.ts	132	no		Given item and discussion windows, when dragged resized and reopened then geometry and shared focus persist
+browser	e2e/object-discussions.spec.ts	157	no		Given two items and a participant, when one discussion attaches both items and mentions the participant then one signed message references both
+browser	e2e/object-discussions.spec.ts	193	no		Given a quoted passage changed after discussion, when its reference opens then original quote remains without false highlighting
+browser	e2e/object-discussions.spec.ts	219	no		Given a pending discussion send, when its window closes and reopens then completion keeps one message
+browser	e2e/paper-and-technical-type.spec.ts	11	no		Given paper buttons and cards, when hovered, then rotation is visible and clicking still opens the card
+browser	e2e/paper-and-technical-type.spec.ts	34	no		Given archive, when expanded and collapsed, then open archive keeps strokes and folded columns retain their category colors and closed borders
+browser	e2e/paper-and-technical-type.spec.ts	83	no		Given mesh devices or an offline board and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code
+browser	e2e/paper-controls-chat.spec.ts	5	yes		Given a ${width}px board, when a select opens and a long chat message scrolls, then paper controls and complete message frames remain usable
+browser	e2e/participant-avatars.spec.ts	16	yes		Given a ${width}px workspace, when an author renames and reloads, then their chat and participant avatar stays stable
+browser	e2e/participant-avatars.spec.ts	49	no		Given slow signing, when a message is pending then fails, then its avatar stays stable and retry preserves attribution
+browser	e2e/participant-avatars.spec.ts	75	no		Given two signed participants share a name, when one profile disappears offline, then names stay distinct and their retained avatar stays stable
+browser	e2e/policy-transport-startup.spec.ts	24	no		Given persisted authorized local data, when transport assets are unavailable, then the board opens and local edits survive reload without transport requests
+browser	e2e/policy-transport-startup.spec.ts	43	no		Given unavailable transport, when invitation creation fails, then local edits remain usable and retry can create an invitation
+browser	e2e/policy-transport-startup.spec.ts	62	no		Given unavailable policy WASM, when startup runs, then local access stays blocked with an explicit runtime error
+browser	e2e/quick-note.spec.ts	18	no		Given an item overview, when a quick note is added, then it appears immediately and survives reload
+browser	e2e/quick-note.spec.ts	36	no		Given quick-note persistence fails, when retry succeeds, then the draft stays and one note is saved
+browser	e2e/quick-note.spec.ts	53	no		Given a Job search lead, when a quick note is added, then it appends to its Description
+browser	e2e/rejection-notes.spec.ts	18	no		Given a rejected card, when typing continuously, then input stays local until idle and survives reload
+browser	e2e/rejection-notes.spec.ts	46	no		Given storage fails, when closing a dirty card, then draft stays visible and retry saves it
+browser	e2e/rejection-notes.spec.ts	62	no		Given a slow save, when typing newer text, then saved updates never overwrite the draft
+browser	e2e/remaining-ui-polish.spec.ts	22	no		Given an archived item, when Undo is pressed, then it returns to its original column and position
+browser	e2e/remaining-ui-polish.spec.ts	38	no		Given archive persistence fails, when an item is archived, then the item remains visible and the failure is honest
+browser	e2e/remaining-ui-polish.spec.ts	48	no		Given a mobile board, when navigating columns, then the next column peeks and the switcher changes the active column
+browser	e2e/remaining-ui-polish.spec.ts	67	no		Given a Job search lead, when Archive status is selected, then Undo stays available inside Lead details
+browser	e2e/remaining-ui-polish.spec.ts	84	yes		Given ${width}px mobile, when the board opens, then the next column peeks and Add follows the empty card stack
+browser	e2e/remaining-ui-polish.spec.ts	104	no		Given a lead dragged to Archive, when Undo fails then retries, then its original position survives reload
+browser	e2e/remaining-ui-polish.spec.ts	144	no		Given an archived item, when the workspace changes, then its Undo cannot act on the new board
+browser	e2e/root-message-links.spec.ts	4	no		Given a root message with replies, when its copied local link reloads, then root conversation reveals the root and its siblings
+browser	e2e/rusty-connection.spec.ts	9	no		Given an owned board, address-only Rusty connects once and removal waits for server revocation without losing local work
+browser	e2e/rusty-mark-sizing.spec.ts	3	no		Given the Rusty connection panel, when Rusty appears on desktop and narrow mobile, then Rusty keeps TinCanBan visual size without horizontal overflow
+browser	e2e/schema-driven-filters.spec.ts	13	no	Schema-driven board filters	Given a renamed select option, when filters render, then they use the current schema title and stable option ID
+browser	e2e/schema-driven-filters.spec.ts	29	no	Schema-driven board filters	Given a generic workspace select field, when one option is filtered, then only matching items remain
+browser	e2e/schema-driven-filters.spec.ts	62	no	Schema-driven board filters	Given a numeric schema field, when filters render, then bounds come from the schema without preset buckets
+browser	e2e/schema-editor.spec.ts	14	no	Visual board and entity editing	Given a board, when edit mode renames and adds columns, then the board keeps those changes
+browser	e2e/schema-editor.spec.ts	35	no	Visual board and entity editing	Given entity editing, when its name is blank, then applying changes is blocked
+browser	e2e/schema-editor.spec.ts	48	no	Visual board and entity editing	Given a column with an item, when it is archived from visual edit mode, then its item is hidden
+browser	e2e/scoped-sync.spec.ts	13	no	Scoped Sync Outer Scenarios	Given Sync is opened, when user selects Sync all (Add my device), then it requires mutual approval and displays authentication code before completing enrollment
+browser	e2e/scoped-sync.spec.ts	134	no	Scoped Sync Outer Scenarios	Given an enrolled device deletes its final workspace, when tincanban creates the fallback, then the enrolled device remains its owner after reload
+browser	e2e/scoped-sync.spec.ts	209	no	Scoped Sync Outer Scenarios	Given Sync is opened, when active workspace is preselected, then Generate link creates a usable single-workspace invite without extra navigation
+browser	e2e/scoped-sync.spec.ts	243	no	Scoped Sync Outer Scenarios	Given multiple workspaces, when user selects A+B, then one invitation is generated for both, recipient sees both names on acceptance, and both connect
+browser	e2e/scoped-sync.spec.ts	289	no	Scoped Sync Outer Scenarios	Given Sync is opened, when all workspaces are deselected, then Generate link is disabled
+browser	e2e/scoped-sync.spec.ts	306	no	Scoped Sync Outer Scenarios	Given enrolled devices, when either device reloads, then it retains durable trust without requiring another QR
+browser	e2e/scoped-sync.spec.ts	349	no	Scoped Sync Outer Scenarios	Given enrolled devices share several workspaces, when one device reloads, then the other stays connected and receives its next edit
+browser	e2e/scoped-sync.spec.ts	395	no	Scoped Sync Outer Scenarios	Given an enrolled owner device is offline, when another device creates a workspace, then it receives the workspace after reconnecting without another invite
+browser	e2e/scoped-sync.spec.ts	447	no		Given a real pending device request, when declined, then guest sees refusal and keeps its identity
+browser	e2e/scoped-sync.spec.ts	471	no		Given approved enrollment but failed storage, when receiving identity, then both devices report failure without claiming success
+browser	e2e/scoped-sync.spec.ts	499	no		Given a visitor already has the owner's board, when the same device is enrolled, then the board stays and owner access survives reload
+browser	e2e/scoped-sync.spec.ts	542	no		Given existing data under another identity, when enrollment is approved, then the same device keeps old data stored but hides its unentitled scope
+browser	e2e/scoped-sync.spec.ts	615	no		Given a delegated owner device, when it grants an editor access twice, then the editor verifies both grants
+browser	e2e/search-responsiveness.spec.ts	7	no		Given 55 detailed leads, when search narrows then has no matches, then keyboard stays responsive and clearing restores cards without writes
+browser	e2e/settings-scope.spec.ts	3	yes		Given Settings at ${width}px, when switching scope, then profile, workspace and connections stay separate
+browser	e2e/settings-scope.spec.ts	38	no		Given a job-search workspace, when keyboard moves between settings and board sections, then focus and visible content follow selection
+browser	e2e/spatial-window-loading.spec.ts	4	no		Given a new lead, when its detail module is still loading then a pending status precedes the window
+browser	e2e/startup-diagnostics.spec.ts	3	no		Given an intake withholding every acknowledgement, When a mobile board opens and reloads, Then the board becomes usable before any acknowledgement
+browser	e2e/startup-diagnostics.spec.ts	25	yes		Given startup debug and intake ${status}, When a mobile page reloads, Then phase checkpoints identify startup and the board stays usable
+browser	e2e/startup-runtime-failure.spec.ts	3	no		Given the Rust policy runtime request fails, when tincanban opens, then it identifies the runtime rather than local data
+browser	e2e/startup-storage-failure.spec.ts	3	no		Given local storage fails, when tincanban opens, then it shows the cause without a reload button
+browser	e2e/startup-storage-failure.spec.ts	19	no		Given a saved board cannot open, when a device invitation opens, then pairing remains available and the board error stays visible
+browser	e2e/storage-atomicity.spec.ts	4	no		Given two tabs persist different changes concurrently, when storage reopens, then both durable records remain
+browser	e2e/storage-atomicity.spec.ts	36	no		Given proof persistence fails, when a transaction aborts, then no change or receipt leaks
+browser	e2e/storage-atomicity.spec.ts	75	no		Given two open tabs, when both edit one workspace together, then both converge on both changes
+browser	e2e/storage-atomicity.spec.ts	110	no		Given independent tabs receive peer branches together, when both admissions finish, then reopened workspace keeps both
+browser	e2e/storage-atomicity.spec.ts	156	no		Given authorization write fails during admission, when transaction aborts, then document, UI and notifications remain unchanged
+browser	e2e/storage-atomicity.spec.ts	196	no		Given legacy snapshot and proof databases, when a command commits, then migration preserves history and reopened catalog
+browser	e2e/storage-failure.spec.ts	4	no		Given newer local databases, when tincanban saves workspace and chat data, then it opens without downgrade errors
+browser	e2e/storage-failure.spec.ts	52	no		Given storage failure, when an item is saved, then failure stays visible and no card publishes
+browser	e2e/storage-journal-migration.spec.ts	3	no		Given a held legacy journal with committed board and receipts, when tincanban opens and edits, then migration preserves data and does not replay compacted changes
+browser	e2e/storage-offline-shape.spec.ts	3	no		Given snapshots in local kv and changes in legacy journal, when default storage loads workspace, then it restores both
+browser	e2e/storage-upgrade-block.spec.ts	3	no		Given a local journal created before the catalog index, when tincanban opens, then it keeps the board and loads
+browser	e2e/storage-upgrade-block.spec.ts	56	no		Given normal browser storage, when tincanban starts, then workspace controls load
+browser	e2e/storage-upgrade-block.spec.ts	65	no		Given a legacy version upgrade is pending, when tincanban opens it unversioned, then timeout is distinguishable and recovers
+browser	e2e/storage-upgrade-block.spec.ts	112	no		Given legacy records conflict with current receipt, when migration aborts and conflict is fixed, then retry copies all records atomically
+browser	e2e/succession.spec.ts	33	no		Given an owner names an editor successor, when the editor claims succession, then every peer accepts the new owner
+browser	e2e/succession.spec.ts	66	no		Given editor quorum recovery, when a majority votes, then one vote stays pending and quorum elects the candidate
+browser	e2e/sync-layout.spec.ts	4	yes		Given sync management at ${width}px, when offline and then paused, then status and actions remain readable
+browser	e2e/sync-tabs.spec.ts	3	yes		Given Device sync at ${width}px, when switching tasks, then each tab exposes only its relevant controls
+browser	e2e/sync-tabs.spec.ts	37	no		Given Rusty is unavailable, when connecting from its tab, then pending and failure stay local to Rusty
+browser	e2e/sync.spec.ts	4	no		Given clipboard access is denied, when Sync opens, then its pairing link remains selectable for manual copy
+browser	e2e/sync.spec.ts	23	no		Given a malformed pairing link, when tincanban opens it, then it fails without claiming a sync
+browser	e2e/sync.spec.ts	35	no		Given a QR invitation opened in a scanner, when its current URL opens in another browser then the invitation survives
+browser	e2e/sync.spec.ts	58	yes		Given an expired invitation, when its error is closed with ${exit}, then the URL returns to the board and reload stays there
+browser	e2e/sync.spec.ts	96	no		Given paired browser profiles, when either peer changes a card, then the other board updates without another QR
+browser	e2e/telemetry.spec.ts	28	yes		Given diagnostics return ${status}, when chat saves, then text persists and telemetry excludes content
+browser	e2e/telemetry.spec.ts	65	no		Given diagnostics are disabled, when chat saves and page hides, then no intake request occurs
+browser	e2e/telemetry.spec.ts	76	no		Given legacy collector settings, when deployment loads, then only the deployed collector receives events
+browser	e2e/telemetry.spec.ts	90	yes		Given intake returns ${rejection}, when chat saves, then retry stops and user can disable diagnostics
+browser	e2e/telemetry.spec.ts	110	no		Given unavailable preference storage, when device opts out, then the checkbox reverts and reports the failure
+browser	e2e/unified-settings.spec.ts	9	no		Given Settings is open, when Recovery backup opens, then recovery stays above Settings and closes back to it
+browser	e2e/unified-settings.spec.ts	34	no		Settings keeps identity available while workspace controls stay role-gated
+browser	e2e/unified-settings.spec.ts	73	no		Given two workspaces, when identity name changes, then both show that name even with older chat announcements
+browser	e2e/workspace-access-isolation.spec.ts	5	no		Given an unreadable authority on one board, when creating and importing another board, then its owner access survives
+browser	e2e/workspace-catalog.spec.ts	3	no		a legacy orphaned workspace reappears and survives another tab saving
+browser	e2e/workspace-configure-create.spec.ts	4	yes		Given a ${width}px viewport, when creating a configured board, then its name, columns, required fields, and select options appear in the item form
+browser	e2e/workspace-configure-create.spec.ts	74	no		Given edited configuration, when preset changes, then draft stays intact; invalid and failed saves keep draft for retry
+browser	e2e/workspace-configure-create.spec.ts	103	no		Given clean defaults or edited configuration, when presets change or reset is chosen, then changes happen only as requested
+browser	e2e/workspace-configure-create.spec.ts	123	no		Given preset Archive column and a removed column, when the draft is created, then archive behavior stays intact without stale stage references
+browser	e2e/workspace-configure-create.spec.ts	143	no		Given initial workspace persistence is pending, when Create is submitted again, then duplicate submission stays disabled
+browser	e2e/workspace-create-layout.spec.ts	4	yes		Given a ${width}px viewport, when creating a workspace, then presets stay beside their controls and validation allows recovery
+browser	e2e/workspace-roles.spec.ts	6	yes		Given an owner and pending guest, when approved as ${role}, then role controls writes and board settings
+browser	e2e/workspace-roles.spec.ts	101	no		Given a pending access request, when the owner declines, then no shared workspace arrives
+browser	e2e/workspace-roles.spec.ts	120	no		Given another browser uses the owner's identity, when it opens an editor invite, then tincanban explains the identity conflict before approval
+browser	e2e/workspace-roles.spec.ts	144	no		Given snapshot preparation fails, when an editor is approved, then both devices see one terminal cause
+browser	e2e/workspace-schema-migration.spec.ts	46	no		Given an older signed board, when owner reloads and invites a visitor, then card reaches visitor
+browser	e2e/workspace-schema-migration.spec.ts	79	no		Given malformed older board, when owner reloads, then migration stops and stored copy remains
+browser	e2e/workspace-settings-json.spec.ts	13	no		Given a blank workspace, when invalid settings are repaired, then one apply persists all configuration
+browser	e2e/workspace-sync-data.spec.ts	17	no		Given a workspace attachment, when another peer opens it, then verified bytes transfer over the authenticated mesh session
+browser	e2e/workspace-sync-data.spec.ts	74	no		Given independent devices without a signaling API, when a workspace invitation is accepted, then saved cards arrive and edits sync both ways
+browser	e2e/workspace-sync-data.spec.ts	128	no		Given no network before accepting, when the connection returns, then the same invitation completes without another click
+browser	e2e/workspace-sync-data.spec.ts	158	no		Given both devices have independent populated workspaces, when joining, then random IDs keep the local one separate without conflict renaming
+browser	e2e/workspace-sync-data.spec.ts	201	no		Given a storage failure on the receiving device, when joining, then it shows progress followed by an error and keeps the invitation
+browser	e2e/workspace-sync-data.spec.ts	230	no		Given three workspaces, when sharing A and B while viewing Private, then only selected documents arrive and stay independent
+browser	e2e/workspace-worker.spec.ts	31	no		Given an already admitted board, when its exact signed evidence repeats, then it needs no new Worker
+browser	e2e/workspace-worker.spec.ts	56	no		Given a large signed peer history, when admission runs, then board controls stay responsive until durable commit
+browser	e2e/workspace-worker.spec.ts	124	yes		Given ${failure} fails admission, when a candidate arrives, then document and notifications remain unchanged
+browser	e2e/workspaces.spec.ts	4	no		Given boards with identical names, when choosing an invitation scope, then the current board is distinct and an empty selection cannot generate a link
+browser	e2e/workspaces.spec.ts	24	no	Workspaces and Generic Board UI (Outer Scenarios)	Given an owner workspace, when access is checked after reload, then visitor role never flashes
+browser	e2e/workspaces.spec.ts	40	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a new profile, when tincanban opens, then it starts with a collision-safe blank Untitled workspace
+browser	e2e/workspaces.spec.ts	49	no	Workspaces and Generic Board UI (Outer Scenarios)	Given two first tabs, when both open together, then they share one generated Untitled workspace
+browser	e2e/workspaces.spec.ts	66	no	Workspaces and Generic Board UI (Outer Scenarios)	Given two workspaces, when either is renamed from the workspace list, then its data and new name persist
+browser	e2e/workspaces.spec.ts	100	no	Workspaces and Generic Board UI (Outer Scenarios)	Given workspace rename persistence fails, when save is attempted, then the form keeps the draft and shows the error
+browser	e2e/workspaces.spec.ts	114	no	Workspaces and Generic Board UI (Outer Scenarios)	Given workspace archive save is pending and fails, when Archive is retried, then controls recover and fallback persists
+browser	e2e/workspaces.spec.ts	174	no	Workspaces and Generic Board UI (Outer Scenarios)	Given local workspaces, when archive is cancelled or confirmed, then cards remain recoverable and active workspace changes
+browser	e2e/workspaces.spec.ts	223	no	Workspaces and Generic Board UI (Outer Scenarios)	Given tincanban is opened, when a Blank board workspace is created, then it seeds To do, Doing, Done columns without job-search fields
+browser	e2e/workspaces.spec.ts	253	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a board with columns, when a column is renamed, then the new title persists after reload
+browser	e2e/workspaces.spec.ts	280	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a board with a required custom field, when an item is saved without that field, then validation fails without creating the item
+browser	e2e/workspaces.spec.ts	318	no	Workspaces and Generic Board UI (Outer Scenarios)	Given a parent item and a subitem, when the subitem is moved to another parent, then the hierarchy updates correctly
+browser	e2e/workspaces.spec.ts	365	no	Workspaces and Generic Board UI (Outer Scenarios)	Gate A evidence: Reading board with Author field and nested item alongside Job search, with reload and export
 meta-mesh-rust	vendor/meta-mesh/crates/meta-mesh-core/src/access.rs	139	no		expired_automation_grant_loses_current_access
 meta-mesh-rust	vendor/meta-mesh/crates/meta-mesh-core/src/authority.rs	940	no		succession_summary_excludes_revoked_editors_and_reports_quorum
 meta-mesh-rust	vendor/meta-mesh/crates/meta-mesh-core/src/authority.rs	957	no		eligible_editors_are_unique_sorted_and_active

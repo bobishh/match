@@ -25,7 +25,7 @@ it("Given an unavailable diagnostic chunk, When startup runs, Then local work co
   } finally { vi.doUnmock("./startupDiagnosticsTransport") }
 })
 
-it("Given errors-only telemetry and a heavy startup step, When debug is enabled, Then the start checkpoint is acknowledged before computation and typed counts survive", async () => {
+it("Given errors-only telemetry and a heavy startup step, When debug is enabled, Then the start checkpoint is dispatched before computation and typed counts survive", async () => {
   const order: string[] = []
   const bodies: Batch[] = []
   vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
@@ -40,6 +40,23 @@ it("Given errors-only telemetry and a heavy startup step, When debug is enabled,
   expect(order).toEqual(["startup.phase.started", "compute", "startup.phase.completed"])
   expect(bodies[0].events[0]).toMatchObject({ device_id: "device-a", component: "startup", attrs: { stage: "history-load", operation_count: 312613, bytes: 135109, browser: "safari", platform: "ios" } })
   expect(JSON.stringify(bodies)).not.toContain("private-body")
+})
+
+it("Given an intake awaiting acknowledgement, When startup runs, Then local work completes while both checkpoints remain in flight", async () => {
+  let acknowledge!: (response: Response) => void
+  const response = new Promise<Response>(resolve => { acknowledge = resolve })
+  const bodies: Batch[] = []
+  vi.stubGlobal("fetch", vi.fn((_url, options) => { bodies.push(JSON.parse(options.body)); return response }))
+  const { diagnoseStartupStep } = await import("./startupDiagnostics")
+  let result: string | undefined
+  const startup = diagnoseStartupStep("history-load", () => "usable").then(value => { result = value })
+  try {
+    await vi.waitFor(() => expect(result).toBe("usable"), { timeout: 200 })
+    expect(bodies.map(body => body.events[0].event)).toEqual(["startup.phase.started", "startup.phase.completed"])
+  } finally {
+    acknowledge(Response.json({ accepted: 1 }))
+    await startup
+  }
 })
 
 it("Given a startup failure, When the stage throws, Then diagnostics identify the stage and error type without transmitting raw error content", async () => {
