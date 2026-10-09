@@ -6,6 +6,7 @@ import type { WorkspaceRole } from "../domain/permissions"
 import { diagnoseStartupStep } from "./startupDiagnostics"
 
 type Entry = { evidence: string; result: Promise<WorkspaceRole>; expires: number }
+export type AccessWorkerRequest = { id: number; input: Record<string, unknown> & { snapshot: Record<string, unknown> & { document: Uint8Array } } }
 const cache = new Map<string, Entry>()
 const jobs = new Map<number, { resolve(role: WorkspaceRole): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>()
 let worker: Worker | undefined
@@ -28,12 +29,16 @@ export function decideAccess(doc: Automerge.Doc<WorkspaceDocumentV2>, evidence: 
   const signature = canonicalizeJson(evidence)
   const previous = cache.get(key)
   if (previous?.evidence === signature && previous.expires > Date.now()) return previous.result
-  const detail = { workspaceId: doc.id }
+  const detail = { workspaceId: doc.id, bytes: 0 }
   const result = (async () => {
-    const input = await diagnoseStartupStep("access-serialize", () => ({ ...evidence,
-      snapshot: { ...evidence.snapshot, document: Array.from(Automerge.save(doc)) } }), detail)
+    const input = await diagnoseStartupStep("access-serialize", () => {
+      const document = Automerge.save(doc)
+      detail.bytes = document.byteLength
+      return { ...evidence, snapshot: { ...evidence.snapshot, document } }
+    }, detail)
     return diagnoseStartupStep("access-policy", () => typeof window === "undefined"
-      ? meshRustRuntime().state.decideWorkspaceAccess(input, Date.now()) : offThread(input), detail)
+      ? meshRustRuntime().state.decideWorkspaceAccess({ ...input,
+        snapshot: { ...input.snapshot, document: Array.from(input.snapshot.document) } }, Date.now()) : offThread(input), detail)
   })()
   const entry = { evidence: signature, result, expires: Date.now() + 60_000 }
   cache.set(key, entry)
@@ -51,7 +56,7 @@ function fail(error: Error) {
   jobs.clear()
 }
 
-function offThread(input: unknown): Promise<WorkspaceRole> {
+function offThread(input: AccessWorkerRequest["input"]): Promise<WorkspaceRole> {
   return new Promise((resolve, reject) => {
     const id = ++sequence
     try {
@@ -70,7 +75,7 @@ function offThread(input: unknown): Promise<WorkspaceRole> {
         worker.onmessageerror = () => fail(new Error("Workspace access response unavailable"))
       }
       jobs.set(id, { resolve, reject, timer: setTimeout(() => fail(new Error("Workspace access worker timed out")), 60_000) })
-      worker.postMessage({ id, input })
+      worker.postMessage({ id, input } satisfies AccessWorkerRequest, [input.snapshot.document.buffer as ArrayBuffer])
     } catch (error) { fail(error instanceof Error ? error : new Error(String(error))); reject(error) }
   })
 }
