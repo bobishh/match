@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "auditedAtUtc": "2026-10-08T17:43:11Z",
+  "service": {
+    "publicOrigin": "https://ingest.meta-uber-engineer.dev",
+    "protocolVersion": 2,
+    "image": "ghcr.io/bobishh/mesh-lighthouse:blindprep-kamal-20261008-1f80da2d3771",
+    "imageDigest": "sha256:e6be5f500d2f44cda9be15efa4704f43e0072a60fcb15ef6fa930f142595d234",
+    "volume": "mesh_lighthouse_blind_20261008"
+  },
+  "inventory": {
+    "filesScanned": 16,
+    "encryptedObjectEnvelopes": 12,
+    "policyFiles": 2,
+    "activeScopes": 1,
+    "revokedScopes": 1
+  },
+  "storedObjectShape": {
+    "recordFields": ["sequence", "objectId", "object"],
+    "objectFields": ["version", "scopeId", "keyEpoch", "nonce", "ciphertext"]
+  },
+  "storedPolicyShape": {
+    "fields": ["revision", "readMac", "writeMac", "revoked"]
+  },
+  "checks": {
+    "allObjectEnvelopesMatchCiphertextOnlyShape": true,
+    "syntheticCompanyRoleAndSourceTextMarkersAbsent": true,
+    "syntheticJobUrlAndCardIdMarkersAbsent": true,
+    "ownerScopeBindingMatchesStoredInventory": true,
+    "readWriteAndContentKeyValuesAbsent": true,
+    "keyValuesComparedInMemory": 6,
+    "comparedEncodedAndDecodedKeyForms": true,
+    "noProductionVolumeMutationDuringAudit": true
+  },
+  "notes": "One revoked deployment-proof scope remains alongside the active board scope. Audit report contains no scope IDs, key values, or private-access contents."
+}

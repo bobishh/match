@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useSlots } from "vue";
+import { computed, ref, useId, useSlots } from "vue";
 import "./SchemaEditorDialog.css";
 import ModalLayer from "./ModalLayer.vue";
 import SchemaEntitySection from "./schema-editor/SchemaEntitySection.vue";
@@ -59,9 +59,30 @@ const emit = defineEmits<{
 }>();
 
 const slots = useSlots();
-const activeTab = ref<"identity" | "templates" | "priority" | "json" | "participants" | "data">(
-  slots.identity ? "identity" : "templates",
-);
+const activeTab = ref<"identity" | "workspace" | "connections">(slots.identity ? "identity" : "workspace");
+const workspaceTab = ref<"templates" | "priority">("templates");
+const settingsId = useId();
+const settingsTabs = computed(() => [
+  ...(slots.identity ? [{ key: "identity" as const, label: "Identity" }] : []),
+  { key: "workspace" as const, label: "Workspace" },
+  ...(slots.connections ? [{ key: "connections" as const, label: "Connections" }] : []),
+]);
+function navigateTabs<T extends string>(event: KeyboardEvent, tabs: T[], active: { value: T }, attribute: string) {
+  const index = tabs.indexOf(active.value);
+  const target = event.key === "ArrowRight" ? (index + 1) % tabs.length
+    : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+    : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
+  if (target < 0) return;
+  event.preventDefault();
+  active.value = tabs[target];
+  (event.currentTarget as HTMLElement).querySelector<HTMLButtonElement>(`[${attribute}="${active.value}"]`)?.focus();
+}
+function navigateSettings(event: KeyboardEvent) {
+  navigateTabs(event, settingsTabs.value.map(tab => tab.key), activeTab, "data-settings-tab");
+}
+function navigateWorkspace(event: KeyboardEvent) {
+  navigateTabs(event, supportsAutomaticPriority.value ? ["templates", "priority"] : ["templates"], workspaceTab, "data-workspace-tab");
+}
 const draft = ref<BoardSchemaDraft>(
   projectBoardSchema(props.doc, props.board.id),
 );
@@ -289,113 +310,46 @@ function invalidJsonError(error: unknown): SchemaValidationError {
       />
 
       <template v-else>
-        <nav
-          class="schema-tabs"
-          role="tablist"
-          aria-label="Settings views"
-        >
-          <button
-            v-if="$slots.identity"
-            class="schema-tab-btn"
-            :class="{ active: activeTab === 'identity' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'identity'"
-            @click="activeTab = 'identity'"
-          >
-            Identity
-          </button>
-          <button
-            v-if="$slots.participants"
-            class="schema-tab-btn"
-            :class="{ active: activeTab === 'participants' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'participants'"
-            @click="activeTab = 'participants'"
-          >
-            Participants
-          </button>
-          <button
-            v-if="$slots.data"
-            class="schema-tab-btn"
-            :class="{ active: activeTab === 'data' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'data'"
-            @click="activeTab = 'data'"
-          >
-            Data
-          </button>
-          <button
-            v-if="supportsAutomaticPriority"
-            class="schema-tab-btn"
-            :class="{ active: activeTab === 'priority' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'priority'"
-            @click="activeTab = 'priority'"
-          >
-            Priority rules
-          </button>
-          <button
-            class="schema-tab-btn"
-            :class="{ active: activeTab === 'templates' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'templates'"
-            @click="activeTab = 'templates'"
-          >
-            Document templates
-          </button>
-          <button
-            class="schema-tab-btn"
-            :class="{ active: activeTab === 'json' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'json'"
-            @click="activeTab = 'json'"
-          >
-            JSON
-          </button>
+        <nav class="schema-tabs" role="tablist" aria-label="Settings views" @keydown="navigateSettings">
+          <button v-for="tab in settingsTabs" :id="`${settingsId}-${tab.key}-tab`" :key="tab.key"
+            class="schema-tab-btn" :class="{ active: activeTab === tab.key }" type="button" role="tab"
+            :data-settings-tab="tab.key" :aria-selected="activeTab === tab.key"
+            :aria-controls="`${settingsId}-${tab.key}-panel`" :tabindex="activeTab === tab.key ? 0 : -1"
+            @click="activeTab = tab.key">{{ tab.label }}</button>
         </nav>
-
-        <div v-if="activeTab === 'identity'" class="schema-tab-content">
+        <div v-if="activeTab === 'identity'" :id="`${settingsId}-identity-panel`" class="schema-tab-content" role="tabpanel" :aria-labelledby="`${settingsId}-identity-tab`">
           <slot name="identity" />
         </div>
-        <SchemaTemplateSection
-          v-else-if="activeTab === 'templates'"
-          :read-only="readOnly"
-          :templates="templates"
-          @save="emit('saveTemplate', $event)"
-        />
-        <div v-else-if="activeTab === 'participants'" class="schema-tab-content">
-          <slot name="participants" />
+        <div v-else-if="activeTab === 'connections'" :id="`${settingsId}-connections-panel`" class="schema-tab-content" role="tabpanel" :aria-labelledby="`${settingsId}-connections-tab`">
+          <slot name="connections" />
         </div>
-        <div v-else-if="activeTab === 'data'" class="schema-tab-content">
-          <slot name="data" />
+        <div v-else :id="`${settingsId}-workspace-panel`" class="schema-tab-content" role="tabpanel" :aria-labelledby="`${settingsId}-workspace-tab`">
+          <p class="dialog-copy">Workspace: <strong>{{ doc.title }}</strong> · Board: <strong>{{ board.title }}</strong></p>
+          <p v-if="readOnly" class="dialog-copy">Workspace configuration is read-only for your role.</p>
+          <nav class="schema-tabs schema-workspace-tabs" role="tablist" aria-label="Workspace configuration" @keydown="navigateWorkspace">
+            <button :id="`${settingsId}-templates-tab`" class="schema-tab-btn" :class="{ active: workspaceTab === 'templates' }" type="button" role="tab"
+              :aria-selected="workspaceTab === 'templates'" :tabindex="workspaceTab === 'templates' ? 0 : -1"
+              data-workspace-tab="templates" :aria-controls="`${settingsId}-templates-panel`" @click="workspaceTab = 'templates'">Document templates</button>
+            <button v-if="supportsAutomaticPriority" :id="`${settingsId}-priority-tab`" class="schema-tab-btn" :class="{ active: workspaceTab === 'priority' }" type="button" role="tab"
+              :aria-selected="workspaceTab === 'priority'" :tabindex="workspaceTab === 'priority' ? 0 : -1"
+              data-workspace-tab="priority" :aria-controls="`${settingsId}-priority-panel`" @click="workspaceTab = 'priority'">Priority rules</button>
+          </nav>
+          <div v-if="workspaceTab === 'templates'" :id="`${settingsId}-templates-panel`" role="tabpanel" :aria-labelledby="`${settingsId}-templates-tab`">
+            <p class="dialog-copy">Templates are shared across this workspace.</p>
+            <SchemaTemplateSection :read-only="readOnly" :templates="templates" @save="emit('saveTemplate', $event)" />
+          </div>
+          <div v-else :id="`${settingsId}-priority-panel`" role="tabpanel" :aria-labelledby="`${settingsId}-priority-tab`">
+            <p class="dialog-copy">Priority rules apply to {{ board.title }}.</p>
+            <SchemaPrioritySection :criterion-fields="criterionFields" :errors="priorityErrors" :policy="priorityPolicy"
+              :priority-options="priorityOptions" :read-only="readOnly" @add-rule="addPriorityRule" @disable="disableAutomaticPriority"
+              @enable="enableAutomaticPriority" @remove-rule="removePriorityRule" @save="savePriorityRules" />
+          </div>
+          <details class="schema-advanced">
+            <summary>Advanced configuration</summary>
+            <SchemaWorkspaceJsonSection :errors="workspaceErrors" :read-only="readOnly" :value="workspaceJson"
+              @apply="applyWorkspaceJson" @update:value="updateWorkspaceJson" />
+          </details>
         </div>
-        <SchemaPrioritySection
-          v-else-if="activeTab === 'priority'"
-          :criterion-fields="criterionFields"
-          :errors="priorityErrors"
-          :policy="priorityPolicy"
-          :priority-options="priorityOptions"
-          :read-only="readOnly"
-          @add-rule="addPriorityRule"
-          @disable="disableAutomaticPriority"
-          @enable="enableAutomaticPriority"
-          @remove-rule="removePriorityRule"
-          @save="savePriorityRules"
-        />
-        <SchemaWorkspaceJsonSection
-          v-else
-          :errors="workspaceErrors"
-          :read-only="readOnly"
-          :value="workspaceJson"
-          @apply="applyWorkspaceJson"
-          @update:value="updateWorkspaceJson"
-        />
       </template>
 
       <footer

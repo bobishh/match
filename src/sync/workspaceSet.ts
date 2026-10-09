@@ -133,7 +133,7 @@ async function measureScopePhase<T>(phase: string, workspaceId: string, peerId: 
   finally {
     const elapsedMs = Math.round(performance.now() - started)
     if (elapsedMs >= 250) meshTrace("workspace.scope.phase", {
-      phase, workspaceId: workspaceId.slice(0, 8), peerId: peerId.slice(0, 8), elapsedMs,
+      phase, workspaceId: workspaceId, peerId: peerId, elapsedMs,
       ...(byteLength === undefined ? {} : { byteLength }),
     }, "warn")
   }
@@ -378,7 +378,7 @@ export function liveAutomergeWorkspaceSync(
       const elapsedMs = Math.round(timing.elapsedMs)
       if (elapsedMs >= 250) meshTrace("workspace.scope.queue", {
         operation: timing.operation, operationId: timing.operationId, phase: timing.phase,
-        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8), elapsedMs,
+        workspaceId: workspaceId, peerId: remoteDeviceId, elapsedMs,
         ...(timing.frameBytes === undefined ? {} : { frameBytes: timing.frameBytes }),
       }, "warn")
     },
@@ -416,7 +416,7 @@ export function liveAutomergeWorkspaceSync(
       if (!stopped && frame.length > 0) await receive(responseStream, frame)
     } catch (error) {
       if (!stopped) meshTrace("document.response.failed", {
-        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8),
+        workspaceId: workspaceId, peerId: remoteDeviceId,
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
     }
@@ -500,7 +500,7 @@ async function handleLiveWorkspaceStream(stream: DuplexStream, context: {
       if (context.isStopped()) return
       kind = inspectPairingFrame(frame).type
       meshTrace("workspace.receive.started", {
-        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8), kind,
+        workspaceId: workspaceId, peerId: remoteDeviceId, kind,
       })
       if (kind === "sync-heartbeat") {
         // Rust authenticates and validates heartbeat independently of pending
@@ -511,13 +511,13 @@ async function handleLiveWorkspaceStream(stream: DuplexStream, context: {
       } else await receive(stream, frame)
     } catch (error) {
       if (!context.isStopped()) meshTrace("workspace.frame.rejected", {
-        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8),
+        workspaceId: workspaceId, peerId: remoteDeviceId,
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
       await stream.closeSend().catch(() => {})
     } finally {
       meshTrace("workspace.receive.completed", {
-        workspaceId: workspaceId.slice(0, 8), peerId: remoteDeviceId.slice(0, 8), kind,
+        workspaceId: workspaceId, peerId: remoteDeviceId, kind,
         elapsedMs: Math.round(performance.now() - started),
       })
     }

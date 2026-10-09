@@ -159,8 +159,9 @@ export function whenReady(): Promise<void> {
 export async function commitAndPersist(
   command: Command,
   storage = defaultStorage,
+  targetWorkspaceId?: string,
 ): Promise<void> {
-  const workspaceId = stateRuntime.activeDoc?.id;
+  const workspaceId = targetWorkspaceId ?? stateRuntime.activeDoc?.id;
   const profile = stateRuntime.currentProfile;
   if (!workspaceId || !profile) throw new Error("Workspace not hydrated");
   startPendingWrite();
@@ -250,7 +251,8 @@ async function persistNewLocalChange(
   await storage.commitWorkspace(base.id, authorizedDoc, Automerge.save(authorizedDoc), admission.verifiedAuthorizations, {
     receipt: created.receipt, changeBytes, proof: created.proof,
   }, { bytes: admission.rawBytes, decisions: admission.decisions, authorizationEvidence: admission.authorizationEvidence });
-  meshTrace("document.persisted", { workspaceId: base.id, recordId: created.receipt.changeHash, phase: "local" });
+  meshTrace("document.persisted", { workspaceId: base.id, recordId: created.receipt.changeHash, changeId: created.receipt.changeHash,
+    phase: "local", component: "automerge", heads: Automerge.getHeads(authorizedDoc), bytes: changeBytes.byteLength });
   return authorizedDoc;
 }
 

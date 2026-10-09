@@ -15,10 +15,7 @@ export function partitionCatalog(records: WorkspaceMeta[]) {
 }
 
 export function includesWorkspaceHeads(doc: Automerge.Doc<WorkspaceDocumentV2>, heads: Heads): boolean {
-  const changes = new Map(Automerge.getAllChanges(doc).map(bytes => {
-    const change = Automerge.decodeChange(bytes)
-    return [change.hash, change.deps] as const
-  }))
+  const changes = new Map(Automerge.getChangesMetaSince(doc, []).map(change => [change.hash, change.deps] as const))
   const reachable = new Set<string>()
   const pending = [...Automerge.getHeads(doc)]
   while (pending.length) {

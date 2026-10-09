@@ -3,6 +3,7 @@ import type {
   ActorBinding,
   ChangeProof,
   WorkspaceGrant,
+  AutomationGrantScope,
   WorkspaceGenesis,
   PersonId,
   DeviceId,
@@ -165,6 +166,7 @@ export async function createWorkspaceGrant(
   role: "owner" | "editor" | "visitor",
   accessEpoch = 1,
 ): Promise<WorkspaceGrant> {
+  if (role !== "owner" && role !== "editor" && role !== "visitor") throw new TypeError("Use createAutomationWorkspaceGrant for automation access")
   const payload = {
     kind: "workspace-grant" as const,
     version: 1 as const,
@@ -182,10 +184,61 @@ export async function createWorkspaceGrant(
   )) as unknown as WorkspaceGrant
 }
 
+export async function createAutomationWorkspaceGrant(
+  profile: LocalProfile,
+  workspaceId: WorkspaceId,
+  subjectPersonId: PersonId,
+  automation: AutomationGrantScope,
+  accessEpoch = 1,
+): Promise<WorkspaceGrant> {
+  assertAutomationGrantScope(automation, Date.now())
+  if (!workspaceId || !subjectPersonId || !Number.isSafeInteger(accessEpoch) || accessEpoch < 1) {
+    throw new TypeError("Invalid automation workspace grant")
+  }
+  const payload = {
+    kind: "workspace-grant" as const,
+    version: 1 as const,
+    grantId: crypto.randomUUID(),
+    workspaceId,
+    personId: subjectPersonId,
+    role: "automation" as const,
+    accessEpoch,
+    automation,
+  }
+  return (await signEnvelope(profile.privateKeys.devicePrivateKey, payload, profile.device.deviceId)) as unknown as WorkspaceGrant
+}
+
+function exactAutomationKeys(value: object, expected: string[]): boolean {
+  const keys = Object.keys(value).sort()
+  const sorted = expected.slice().sort()
+  return keys.length === expected.length && keys.every((key, index) => key === sorted[index])
+}
+function validAutomationColumns(columns: AutomationGrantScope["columns"]): boolean {
+  if (!columns || !exactAutomationKeys(columns, ["lead", "interview", "rejected"])) return false
+  const ids = [columns.lead, columns.interview, columns.rejected]
+  return ids.every(id => typeof id === "string" && Boolean(id)) && new Set(ids).size === ids.length
+}
+function validAutomationFields(ids: AutomationGrantScope["fieldIds"]): boolean {
+  return Array.isArray(ids) && ids.length <= 128 && ids.every(id => typeof id === "string" && Boolean(id)) && new Set(ids).size === ids.length
+}
+function assertAutomationGrantScope(scope: AutomationGrantScope, now: number): void {
+  if (!scope || !exactAutomationKeys(scope, ["version", "boardId", "columns", "fieldIds", "expiresAt"]) ||
+    scope.version !== 1 || typeof scope.boardId !== "string" || !scope.boardId.trim() ||
+    !validAutomationColumns(scope.columns) || !validAutomationFields(scope.fieldIds) ||
+    !Number.isSafeInteger(scope.expiresAt) || scope.expiresAt <= now) {
+    throw new TypeError("Invalid automation grant scope")
+  }
+}
+
 export async function verifyWorkspaceGrant(
   grant: WorkspaceGrant,
   publicKey: string
 ): Promise<boolean> {
+  if (grant?.payload?.role === "automation") {
+    try { assertAutomationGrantScope(grant.payload.automation!, Date.now()) }
+    catch { return false }
+  } else if (!grant?.payload || grant.payload.automation !== undefined ||
+    !["owner", "editor", "visitor"].includes(grant.payload.role)) return false
   return verifyEnvelope(grant, publicKey)
 }
 

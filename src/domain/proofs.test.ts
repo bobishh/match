@@ -13,6 +13,7 @@ import {
   createDelegatedCertificate,
   createWorkspaceGenesis,
   createWorkspaceGrant,
+  createAutomationWorkspaceGrant,
   verifyWorkspaceGrant,
   verifyWorkspaceGenesis,
   ProofStore,
@@ -63,6 +64,30 @@ describe("Cryptographic proofs, authority, and certificate chains (Requirement 2
     // Tampered signature
     const tamperedSig = { ...signed, signature: signed.signature.slice(0, -4) + "AAAA" }
     expect(await verifyEnvelope(tamperedSig, profile.device.publicKey)).toBe(false)
+  })
+
+  it("Given approved board scope, when owner creates automation grant, then signs exact bounded scope", async () => {
+    const owner = await bootstrapIdentity("Owner")
+    const scope = { version: 1 as const, boardId: "board-1", columns: { lead: "lead", interview: "interview", rejected: "rejected" }, fieldIds: ["company", "role"], expiresAt: Date.now() + 60_000 }
+    const grant = await createAutomationWorkspaceGrant(owner, "workspace-1", "automation-person", scope)
+    expect(grant.payload.role).toBe("automation")
+    expect(grant.payload.automation).toEqual(scope)
+    expect(await verifyWorkspaceGrant(grant, owner.device.publicKey)).toBe(true)
+    const expired = await signEnvelope(owner.privateKeys.devicePrivateKey, {
+      kind: "workspace-grant" as const, version: 1 as const, grantId: "expired-grant",
+      workspaceId: "workspace-1", personId: "automation-person", role: "automation" as const,
+      accessEpoch: 1,
+      automation: { ...scope, expiresAt: Date.now() - 1 },
+    }, owner.device.deviceId)
+    expect(await verifyWorkspaceGrant(expired, owner.device.publicKey)).toBe(false)
+    await expect(createAutomationWorkspaceGrant(owner, "workspace-1", "automation-person", { ...scope, columns: { ...scope.columns, rejected: "lead" } }))
+      .rejects.toThrow(/scope/i)
+    await expect(createAutomationWorkspaceGrant(owner, "workspace-1", "automation-person", { ...scope, expiresAt: Date.now() - 1 }))
+      .rejects.toThrow(/scope/i)
+    await expect(createAutomationWorkspaceGrant(owner, "workspace-1", "automation-person", { ...scope, boardId: "board-1", extra: true } as never))
+      .rejects.toThrow(/scope/i)
+    await expect(createWorkspaceGrant(owner, "workspace-1", "automation-person", "automation" as never))
+      .rejects.toThrow(/automation/i)
   })
 
   it("validates root-issued device certificates", async () => {

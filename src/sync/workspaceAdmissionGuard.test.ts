@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises"
-import { beforeAll, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, expect, it, vi } from "vitest"
 import * as Automerge from "@automerge/automerge/slim"
 import { initializeAutomerge } from "../crdt"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "../domain/identity"
 import { createWorkspaceDoc } from "../domain/seeds"
 import { validateIncomingChangeAuthorizations } from "./changeAuthorization"
 import type { WorkspaceAdmissionResult } from "./workspaceAdmissionCore"
+import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 
 const state = vi.hoisted(() => ({ authority: null as any, admit: vi.fn() }))
 vi.mock("./workspaceAdmissionClient", () => ({ runWorkspaceAdmission: (...args: unknown[]) => state.admit(...args) }))
@@ -18,6 +19,27 @@ beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
   await initializeAutomerge()
+})
+
+beforeEach(() => { state.admit.mockReset(); clearMeshTrace() })
+
+it("Given unchanged workspace rights, When a timestamp refresh overlaps admission, Then synchronization accepts the result", async () => {
+  resetIdentityStorageForTest()
+  const profile = await bootstrapIdentity("Owner")
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Timestamp race", profile.identity.personId, "blank"))
+  const owner = { personId: profile.identity.personId, publicKey: profile.identity.publicKey, certificates: [profile.certificate] }
+  const authority = { genesisOwner: owner, currentOwner: owner, genesisEpoch: 1, currentEpoch: 1,
+    ownershipTransfers: [], successionClaims: [], revocations: [], deviceRevocations: [], departures: [] }
+  state.authority = { version: 1, workspaceId: doc.id, ownerPersonId: owner.personId,
+    ownerPublicKey: owner.publicKey, ownerCertificates: owner.certificates, epoch: 1,
+    updatedAt: "2026-10-09T11:00:00.000Z", catalog: {} }
+  state.admit.mockImplementation(async () => {
+    state.authority = { ...state.authority, updatedAt: "2026-10-09T11:00:01.000Z" }
+    return { verifiedAuthorizations: [] }
+  })
+  await expect(validateIncomingChangeAuthorizations(doc, doc, { version: 1, records: [], authority })).resolves.toEqual([])
+  expect(meshTraceSnapshot().some(event => event.event === "workspace.admission.authority-refreshed")).toBe(true)
+  Automerge.free(doc)
 })
 
 it("rejects a worker result when durable authority changed while admission was pending", async () => {
@@ -38,5 +60,9 @@ it("rejects a worker result when durable authority changed while admission was p
   finish({ neededHashes: [], admittedHashes: [], verifiedAuthorizations: [], authorizationEvidence: [], quarantinedHashes: [],
     pendingHashes: [], decisions: [], authorizedDocument: new Uint8Array(), authorizedHeads: [] })
   await rejected
+  expect(meshTraceSnapshot()).toEqual(expect.arrayContaining([expect.objectContaining({
+    event: "workspace.admission.authority-changed",
+    workspaceId: doc.id,
+  })]))
   Automerge.free(doc)
 })

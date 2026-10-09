@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import type { LighthouseDiscovery } from "./lighthouseDiscovery"
+import type { KeeperDiscovery } from "./keeperDiscovery"
 import { parseKeeperIntegrationStatus } from "./keeperIntegrationStatus"
 
-const discovery: LighthouseDiscovery = {
+const discovery: KeeperDiscovery = {
   origin: "https://rusty.example",
   displayName: "Rusty",
   personId: "service-person",

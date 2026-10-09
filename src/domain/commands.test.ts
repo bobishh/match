@@ -13,6 +13,11 @@ import {
 } from "./commands"
 import { isItem, type WorkspaceDocumentV2, type Item } from "./model"
 
+vi.mock("@automerge/automerge/slim", async () => {
+  const actual = await vi.importActual<typeof Automerge>("@automerge/automerge/slim")
+  return { ...actual, view: vi.fn(actual.view) }
+})
+
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(wasm, { headers: { "content-type": "application/wasm" } })))
@@ -264,7 +269,10 @@ describe("Transaction wrapper, commands, and publication queue (Requirement 1.6)
     if (!patched.ok) return
     const patchHash = patched.value.receipt.changeHash
 
+    const historicalViews = vi.mocked(Automerge.view)
+    historicalViews.mockClear()
     const restored = await queue.transact({ kind: "restoreItemVersion", entityId: itemId, changeHash: creationHash })
+    expect(historicalViews.mock.calls.length).toBe(0)
     expect(restored.ok).toBe(true)
     expect((queue.getDocument().entities[itemId] as Item)).toMatchObject({ title: "Before", body: "Original" })
     expect(Automerge.getHistory(queue.getDocument()).at(-1)?.change.message).toContain("restoreItemVersion")

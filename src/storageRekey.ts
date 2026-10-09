@@ -9,7 +9,7 @@ export async function validateRekeyAuthorizations(
 ) {
   if (!Array.isArray(authorizations) || !authorizations.length)
     throw new Error("Workspace rekey requires authorization evidence")
-  const pending = new Set(Automerge.getAllChanges(document).map(change => Automerge.decodeChange(change).hash))
+  const pending = new Set(Automerge.getChangesMetaSince(document, []).map(change => change.hash))
   for (const authorization of authorizations) {
     const payload = authorization.signed?.payload
     if (!matchesScope(payload, document))

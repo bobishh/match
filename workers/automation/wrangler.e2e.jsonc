@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tincanban-automation-e2e",
+  "main": "src/e2e-worker.ts",
+  "compatibility_date": "2026-10-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [
+    { "name": "AUTOMATION", "class_name": "AutomationCoordinator" },
+    { "name": "TEST_CONFIG", "class_name": "AutomationE2eConfig" }
+  ] },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AutomationCoordinator"] },
+    { "tag": "v2", "new_sqlite_classes": ["AutomationE2eConfig"] }
+  ],
+  "vars": {
+    "PUBLIC_ORIGIN": "http://127.0.0.1:4173",
+    "CORS_ORIGINS": "http://127.0.0.1:4173,http://localhost:4173",
+    "EMAIL_DOMAIN": "example.test",
+    "INTEGRATIONS_JSON": "[]",
+    "PROVISIONING_TOKEN": "automation-e2e-provisioning-token-with-at-least-32-bytes",
+    "IDENTITY_STORAGE_SECRET": "automation-e2e-identity-secret-with-at-least-32-bytes",
+    "EVENT_STORAGE_SECRET": "automation-e2e-event-secret-with-at-least-32-bytes",
+    "HUMAN_CHECK_SECRET": "automation-e2e-human-check-secret-with-at-least-32-bytes"
+  },
+  "observability": { "enabled": false },
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
+  "limits": { "cpu_ms": 30000 }
+}

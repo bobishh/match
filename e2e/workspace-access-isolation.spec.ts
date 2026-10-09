@@ -25,6 +25,7 @@ test("Given an unreadable authority on one board, when creating and importing an
   await expect.poll(() => faviconRole(page)).toEqual({ role: "owner", body: "#d5b16d" })
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync" })
+  await sync.getByRole("tab", { name: "Backups", exact: true }).click()
   const downloadEvent = page.waitForEvent("download")
   await sync.getByRole("button", { name: "Export .tincanban", exact: true }).click()
   const bundle = await (await downloadEvent).path()

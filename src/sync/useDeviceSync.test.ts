@@ -231,8 +231,10 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
   })
 
   it("handles expired invitation by setting error state and preventing connection", async () => {
+    const start = vi.fn(async () => { throw new Error("Expired invitation must not start transport") })
     const sync = useDeviceSync({
       workspace: {},
+      transport: { start } as never,
       origin: () => "http://localhost:3000",
     })
 
@@ -241,5 +243,7 @@ describe("useDeviceSync direct sync selection and custom workspace sets", () => 
 
     expect(sync.step.value).toBe("error")
     expect(sync.error.value).toMatch(/This invitation has expired/i)
+    expect(start).not.toHaveBeenCalled()
+    expect(sync.inviteUrl.value).toBe("")
   })
 })

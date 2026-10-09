@@ -1,6 +1,8 @@
 import { z } from "zod"
 import { isMemberProfileData, MAX_AVATAR_DATA_URL_LENGTH } from "./avatarData"
 import { isValidRank } from "./rank"
+import { isAutomationDefinitionData, isAutomationControlData, isAutomationOrigin } from "./automationLifecycle"
+import { isAutomationApprovalData } from "./automationApproval"
 
 const id = z.string().min(1)
 const rank = z.string().refine(isValidRank, "Invalid canonical rank")
@@ -85,8 +87,15 @@ const memberProfileSchema = z.strictObject({
   ...common, kind: z.literal("member_profile"), personId: id,
   data: z.string().max(MAX_AVATAR_DATA_URL_LENGTH + 100).refine(isMemberProfileData),
 })
+const automationSchema = z.strictObject({
+  ...common, kind: z.literal("automation"),
+  definition: z.string().max(8192).refine(isAutomationDefinitionData),
+  approval: z.string().max(32768).refine(isAutomationApprovalData),
+  executor: z.strictObject({ origin: z.string().max(2048).refine(isAutomationOrigin), personId: id }),
+  controls: z.record(z.string(), z.string().max(8192).refine(isAutomationControlData)),
+})
 export const entitySchema = z.union([
-  boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema, memberProfileSchema,
+  boardSchema, columnSchema, fieldSchema, documentSchema, templateSchema, legacyTemplateSchema, artifactSchema, itemSchema, memberProfileSchema, automationSchema,
 ])
 export const workspaceSchema = z.strictObject({
   kind: z.literal("workspace"), formatVersion: z.literal(3), id, title: z.string(), archivedAt: z.string().nullable(), ownerPersonId: z.string(),
@@ -109,7 +118,8 @@ export type DocumentTemplate = z.infer<typeof templateSchema>
 export type LegacyWritingTemplate = z.infer<typeof legacyTemplateSchema>
 export type PdfArtifact = z.infer<typeof artifactSchema>
 type MemberProfile = z.infer<typeof memberProfileSchema>
-export type WorkspaceEntity = Board | Column | Item | FieldDefinition | AttachedDocument | DocumentTemplate | LegacyWritingTemplate | PdfArtifact | MemberProfile
+type AutomationEntity = z.infer<typeof automationSchema>
+export type WorkspaceEntity = Board | Column | Item | FieldDefinition | AttachedDocument | DocumentTemplate | LegacyWritingTemplate | PdfArtifact | MemberProfile | AutomationEntity
 export type WorkspaceDocumentV2 = Omit<z.infer<typeof workspaceSchema>, "entities"> & { entities: Record<string, WorkspaceEntity> }
 
 export type EntityKind = Exclude<WorkspaceEntity, Item>["kind"] | "item"

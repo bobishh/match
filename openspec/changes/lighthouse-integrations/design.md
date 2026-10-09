@@ -26,6 +26,16 @@ Keeper integrations use Editor grants because Rusty writes replicated boards; bo
 
 Show service identity fingerprint and the same transcript code at both ends. HTTPS locates the service; the saved person ID pins it thereafter. A different identity at the same hostname requires a new trust decision, never automatic acceptance. Service operator authentication stays on Lighthouse, not in a tincanban password field.
 
+Operator administration and Tincanban identity sign-in are separate browser
+session contexts. Identity exchange writes only the identity session; it must
+not replace a valid operator session or create operator authority. The legacy
+`mesh_lighthouse_admin` cookie remains accepted only after server-side session
+validation determines its role. New identity sessions use a separate cookie.
+When both contexts exist, the default session view retains operator access;
+explicit context selection and logout act only on the selected validated
+session. Every operator action still checks the operator role and its CSRF
+token.
+
 ### 3. Approval is a shared state machine
 
 Use the canonical protocol's signed offer/challenge and explicit tincanban and operator decisions. Both approvals bind the exact board IDs, modes, identity keys, nonce and expiration. Changing the set invalidates approvals. MetaMesh Rust owns verification and legal transitions; browser TS executes HTTP, persistence and UI effects.

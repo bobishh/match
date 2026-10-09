@@ -12,9 +12,11 @@ export const setMemberAvatar: CommandHandler<"setMemberAvatar"> = (doc, command,
   const profileId = memberProfileEntityId(personId)
   const existing = doc.entities[profileId]
   if (existing && !hasEntityKind(existing, "member_profile")) return err("invalid_input", "Profile entity ID conflicts with another record")
-  if (command.avatarData === null && !existing) return err("invalid_input", "No custom avatar to remove")
+  if (command.avatarData === null && !existing && !command.changedAt) return err("invalid_input", "No custom avatar to remove")
   const createdAt = hasEntityKind(existing, "member_profile") ? existing.createdAt : context.nowIso
-  const data = command.avatarData === null ? undefined : JSON.stringify({ avatarData: command.avatarData, changedAt: context.nowIso })
+  const changedAt = command.changedAt ?? context.nowIso
+  if (!Number.isFinite(Date.parse(changedAt)) || new Date(changedAt).toISOString() !== changedAt) return err("invalid_input", "Profile timestamp must be ISO", "changedAt")
+  const data = command.avatarData === null && !command.changedAt ? undefined : JSON.stringify({ avatarData: command.avatarData, changedAt })
   return { ok: true, value: { changedEntityIds: [profileId], apply: draft => {
     if (!data) delete draft.entities[profileId]
     else draft.entities[profileId] = {

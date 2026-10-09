@@ -25,7 +25,8 @@
     "test:e2e:coverage": "TINCANBAN_E2E_COVERAGE=1 playwright test --project=core && node scripts/e2e-coverage.mjs",
     "test:e2e:policy": "npm run build && playwright test --config playwright.policy.config.ts",
     "verify:policy": "node vendor/meta-mesh/scripts/verify-policy-deps.mjs",
-    "test:e2e:discussions": "playwright test --config playwright.discussions.config.ts"
+    "test:e2e:discussions": "playwright test --config playwright.discussions.config.ts",
+    "test:inventory": "node scripts/test-description-inventory.mjs"
   },
   "dependencies": {
     "@automerge/automerge": "^3.4.1",
@@ -57,6 +58,7 @@
     "dependency-cruiser": "18.4.0",
     "eslint": "10.11.0",
     "eslint-plugin-vue": "10.11.0",
+    "fake-indexeddb": "^6.2.5",
     "globals": "17.12.0",
     "istanbul-lib-coverage": "3.2.2",
     "istanbul-lib-report": "3.0.1",

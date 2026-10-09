@@ -260,7 +260,7 @@ export abstract class DurableMeshBase {
     finally {
       const elapsedMs = Math.round(performance.now() - startedAt)
       if (elapsedMs >= 250) this.trace("authority.merge.phase", {
-        phase, workspaceId: workspaceId.slice(0, 8), elapsedMs, ...detail,
+        phase, workspaceId: workspaceId, elapsedMs, ...detail,
       }, "warn")
     }
   }

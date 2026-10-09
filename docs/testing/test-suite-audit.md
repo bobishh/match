@@ -1,5 +1,117 @@
 # Test suite audit — 2026-10-02
 
+## 2026-10-08: complete description inventory and CI correction
+
+The [complete inventory](test-description-inventory.tsv) records every test
+declaration under `e2e`, `src`, `workers`, application Rust crates and vendored
+meta-mesh packages/crates. Generate it with
+`npm run --silent test:inventory > docs/testing/test-description-inventory.tsv`.
+It records source locations, group names and parameterized declarations. Group
+headings, `test.step` and runtime skip calls are excluded. Rust entries are test
+function identifiers, not prose titles. Counts below are declarations, not
+expanded executions:
+
+| Layer | Declarations | Files |
+| --- | ---: | ---: |
+| Browser | 318 | 96 |
+| Application TypeScript | 665 | 95 |
+| Worker TypeScript | 37 | 6 |
+| meta-mesh TypeScript | 270 | 27 |
+| Application Rust | 6 | 3 |
+| meta-mesh Rust | 233 | 47 |
+
+The earlier count of 362 browser descriptions incorrectly included group
+headings. Playwright's current main configuration discovers 348 expanded cases,
+including Chromium, WebKit and network projects. Dedicated automation and blind
+Rusty configurations are separate. `--list` JSON has empty execution results;
+its `stats.skipped` is not evidence that discovered scenarios are disabled.
+
+There are no normalized duplicate prose titles across the TypeScript layers.
+That does **not** establish semantic uniqueness. Two Rust title pairs occur in
+both `catalog.rs` and `handshake.rs`: obsolete claim rejection. They validate
+different input codecs and entry points; identical identifiers alone do not
+justify deleting either boundary.
+
+### Completed moves, with surviving assertions
+
+| Previous location | Fast coverage / action | Browser or adapter boundary retained |
+| --- | --- | --- |
+| `e2e/archive-role-settings.spec.ts`, active-card archive assignment rejection | Existing `src/domain/schema.test.ts` verifies exact pointer and error; remove redundant browser case | Archive role/collapse consumer remains; settings JSON still proves visible invalid-draft feedback |
+| `e2e/scoped-sync.spec.ts`, standalone expired invitation | Strengthen `src/sync/useDeviceSync.test.ts` with no transport start and no invitation URL | `e2e/sync.spec.ts` retains expiry dismissal and reload/URL behavior; malformed-link UI remains |
+| `e2e/card-stage-shortcuts.spec.ts`, missing configured target | Four `src/domain/workspaceSettings.test.ts` cases: missing target, duplicate target, blank label, unknown key; exact errors and unchanged heads/settings | Configured order, successful stage action/reload and failed command feedback remain |
+| `e2e/chat-storage.spec.ts`, immutable conflict, 2001-message limit, 4 MiB limit, monotonic cursor | Four `src/chat/storeIntegration.test.ts` contracts execute the real `ChatStore` transaction code against a fresh fake IndexedDB factory | Real cross-tab concurrency, atomic conflicting merge rollback and page reload persistence remain |
+| `src/sync/durableMesh.test.ts`, three direct `createMeshRuntime().admitSession()` matrices | Move complete cases into `vendor/meta-mesh/packages/mesh-runtime/src/index.test.ts` | Application install/session adapter, stale cleanup and real multi-tab Iroh tests remain |
+
+Seven browser cases moved/removed after equivalent fast assertions were verified.
+The three runtime matrices changed ownership; root Vitest still executes them.
+Do not describe this as seven browser tests' measured CI savings: local ChatStore
+harness tests were already short, and no runner-equivalent before/after timing
+was collected.
+
+### Semantic overlap decisions
+
+| Family | Shared logic / setup | Decision and distinct risk |
+| --- | --- | --- |
+| Device synchronization: `sync`, `scoped-sync`, `workspace-roles`, `member-access`, `workspace-sync-data`, `durable-mesh` | Pairing fixtures, grants, validation and reconnect decisions | Move pure decision matrices; keep actual admission, role UI, durable receive/no ACK, failed storage/replay, revocation and persisted trust. Repeated pairing setup is not proof of duplicate assertions. |
+| Succession and authorization | Rust core + `mesh-workspace` policy cases + app planner/guard fixtures | Keep named and quorum UI flows plus app atomic authority/scope/revocation persistence. A Rust policy result does not prove the application's durable commit. |
+| Session selection, route/ACK and anti-entropy | `mesh-runtime`, `mesh-peer-store`, `mesh-replication` and app wrapper tests | Protocol matrices belong to meta-mesh. Keep app translation/state/error contracts and a real transport proof. Three direct runtime proxies moved; other wrappers require matching adapter assertions before deletion. |
+| Identity and proofs | Certificate/grant/genesis/canonicalization rules in app and mesh libraries | App `proofs.ts` still has an independent verifier/signing implementation. Deleting its tests would conceal that duplicate implementation. Unify implementation first; preserve app ProofStore and automation scope contracts. |
+| Chat/storage | Identity predicate, retention rules, transaction code, browser storage | Pure policy and transaction matrices can run fast. Keep actual browser concurrency, commit rollback and durable reload. In-memory IndexedDB does not prove browser disk persistence. |
+| Schema/settings/priority/custom fields | Domain validation and derived calculations | Move exhaustive invalid values/decision tables; retain UI consumers, visible validation feedback, draft preservation, failed Apply and reload. Check every surviving consumer assertion before merging a large “all settings” story. |
+| Layout, input and responsiveness | Repeated board/card preparation, viewport sweeps | Units cannot prove DOM geometry, focus/inert, touch/pointer, scroll lock, animation or timing. Consolidate preparation within bounded stories; preserve distinct viewport and failure branches. Archive's four-width sweep already shares one setup. |
+| Discussions, references and Markdown | Parsing/formatting/domain units + repeated content fixtures | Keep rendered links/source navigation, pending send/copy, multi-window focus/geometry, offline UI and contextual peer interchange. Move only exhaustive parser/format matrices. |
+| Startup, workers and migrations | Schema/migration planner units, package stores | Keep actual worker boot, upgrade blocking, app publication after IndexedDB commit, multi-tab serialization and failed startup recovery. Memory adapters and protocol models do not cover these boundaries. |
+| Rusty, native and external automation | Shared protocol rules and service fixtures | Keep actual service contracts. Do not replace native admission/transport/disk tests with JS proxy tests. Production automation requires its own authorized external fixture. |
+
+All descriptions were reviewed for overlap. Assertion-body comparison focused on
+suspected duplicates and proposed migrations; this is not a claim that every
+remaining browser assertion has been proved unique or every candidate migrated.
+The concrete reductions above are implemented; broader merges require preserving
+the listed boundaries and collecting new execution evidence.
+
+### Measured cause of the long CI and current configuration
+
+[Run 37799579672](https://github.com/bobishh/tincanban/actions/runs/37799579672)
+took 43m37s wall time. Static checks took 2m36s; formal models 45s. The four UI
+shards spent 434, 350, 305 and 359 seconds inside Playwright, approximately
+24 minutes combined test work. The serial network step spent 1406 seconds.
+The old Rusty job took 8m02s, including a failed lifecycle case. These are actual
+job/step timings, not predicted savings.
+
+Replacing the suite with an arbitrary nine-test smoke was rejected and reverted.
+The current workflow retains full core/network coverage and manual dispatch of
+the same checks. Independent jobs have no `needs` chain; separate network
+project runners may run three at a time. Core still uses four shards because
+removing them before reducing actual test work would increase elapsed time.
+The network matrix now also includes schema migration; native verification
+includes the application lighthouse join cases and Rust core rules. WebKit
+checks run in the packaging job. Static quality, coverage floors, bundle budgets,
+security audit, formal models and production policy packaging remain.
+
+Root Vitest includes vendored package tests once, excluding workspace symlink
+copies in `node_modules`. `verify:meta-mesh` only checks the Git pin/clean tracked
+files; it is not a protocol test command. Native CI now explicitly runs
+`cargo test --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-core/Cargo.toml --lib`.
+
+The removed protocol-1 Rusty lifecycle job targeted a deleted Playwright project
+and cannot test the new blind-storage implementation. The current blind Rusty
+scenario passes locally with its matching sibling binary; publishing a pinned
+protocol-2 fixture remains necessary for equivalent GitHub verification.
+
+### Verification and limits
+
+- Full root unit coverage after the final loading changes: **1053 passed, 1 skipped**, 122 files, 5.27s local elapsed; statements 50.04%, branches 45.23%, functions 48.36%, lines 54.83%. Original floors retained.
+- Rust core rules: **185 passed, 3 ignored**, 13.64s test execution. Ignored tests are not claimed as verified.
+- Four migrated ChatStore contracts: **258 ms** test execution. Remaining browser storage/stage/archive checks: **7 passed**, 10.3s local elapsed.
+- Blind Rusty connect/sync/server-stop/removal/reload: **1 passed**, 4.3s local elapsed after lazy-loading changes.
+- Pairing/QR and failure recovery: **7 passed**, 19.3s. Production policy/transport packaging: **3 passed**, 4.6s. WebKit mobile layout, safe area and failure recovery: **8 passed**, 13.3s.
+- Static quality passes. Initial JS was 238.59 kB against 235 kB; QR generation and Rusty replication/enrollment/automation now load on demand. New initial JS **229.14 kB**; all original size caps pass.
+- The two application native lighthouse join histories **fail** at live replication after successful join. Native logs report `read error: connection lost`; one test fails before reaching its owner-offline phase. Their exact adapter/transport fault remains undiagnosed. These failures are retained and exposed by automatic CI, not deleted as duplicates.
+- Workflow/project structure was checked locally. No GitHub run of this revised configuration exists yet; no remote timing or green CI is claimed. The dirty meta-mesh checkout prevents the clean-pin check until its changes are explicitly committed/pinned. No commits or pushes were made by this audit.
+
+The sections below are historical evidence; their counts and old CI topology do
+not describe the current checkout.
+
 ## Baseline and limits
 
 Before reduction, core contained 176 independently expanded scenarios. The inventory [core-scenarios.tsv](core-scenarios.tsv) now tracks the current suite. The earlier statement that CI passed 179 scenarios was incorrect: log numbering included retries. GitHub run `36991147079` was cancelled at its ten-minute job limit, before Playwright printed the final failure report.
@@ -219,7 +331,7 @@ The fix adds authenticated succession events to the scope ledger. Claims bind to
 
 Local verification on the final implementation: named and quorum browser histories pass with retries disabled; the quorum history retains one-vote-pending and majority-election assertions. Ten Rust scope cases cover valid claims, insufficient quorum, revoked candidates/voters, historical revocations, signed stale-policy replay after A→B→A, forged/wrong-scope claims and evidence merging/forks. Meta-mesh TypeScript checks, 279 JS tests, Cargo workspace tests (163 passed, 3 ignored), native and mobile tests, touched-file Rust formatting and the rebuilt WASM pass. tincanban quality gates pass; 769 unit tests pass with one existing skip, statements coverage 47.47% and lines 51.75%, unchanged floors. Initial JS is 233.9 kB against the unchanged 235 kB limit.
 
-Seven isolated browser performance/durability/failure histories pass on the final WASM. At 4× CPU with 55 detailed cards, move longest task is 74 ms; Chat Event Timing 48 ms / ready 44 ms; Sync Event Timing 48 ms / pending paint 43 ms / controls ready 93 ms. These are local laboratory observations, not field INP. The deployed Lighthouse adapter already rejects mesh authority changes, including succession; this change preserves that fail-closed limitation and does not modify its separate dirty checkout.
+Seven isolated browser performance/durability/failure histories pass on the final WASM. At 4× CPU with 55 detailed cards, move longest task is 74 ms; Chat Event Timing 48 ms / ready 44 ms; Sync Event Timing 48 ms / pending paint 43 ms / controls ready 93 ms. These are local laboratory observations, not field INP. The deployed Keeper adapter already rejects mesh authority changes, including succession; this change preserves that fail-closed limitation and does not modify its separate dirty checkout.
 
 A separate real UI race allowed another Archive trigger while a previous archive was pending; the first completion could clear the later confirmation. Archive triggers are now disabled during that operation. The existing failure history now defers persistence, checks disabled controls, rejects the save, checks error and reenabled controls, retries and verifies durable replacement and retained archived data. Parallel browser checks use separate output directories to avoid artifact cleanup collisions.
 

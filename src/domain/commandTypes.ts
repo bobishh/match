@@ -11,6 +11,8 @@ import type {
 } from "./model";
 import type { BoardSchemaDraft } from "./schema";
 import type { WorkspaceSettingsDraft } from "./workspaceSettings";
+import type { AutomationDefinition } from "./automationContract";
+import type { AutomationDesiredState } from "./automationLifecycle";
 
 export type NarrativeFoldSources = { expectedBody: string; notesFieldId?: string; expectedNotes?: FieldValue; notes: Array<{ id: string; title: string; content: string | null; format: "markdown" | "html" | "pdf" | "file" | "path" }> };
 
@@ -67,7 +69,9 @@ export type Command =
     }
   | { kind: "updateBoardSchema"; boardId: string; schema: BoardSchemaDraft; expectedHeads?: Heads }
   | { kind: "updateWorkspaceSettings"; settings: WorkspaceSettingsDraft; expectedHeads?: Heads }
-  | { kind: "setMemberAvatar"; avatarData: string | null };
+  | { kind: "setMemberAvatar"; avatarData: string | null; changedAt?: string }
+  | { kind: "createAutomation"; definition: AutomationDefinition; approval: string; executor: { origin: string; personId: string } }
+  | { kind: "setAutomationState"; automationId: string; state: AutomationDesiredState };
 
 export type ExecuteResult = CommandResult<{
   newDoc: Automerge.Doc<WorkspaceDocumentV2>;

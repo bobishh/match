@@ -51,24 +51,25 @@ shared document.
 Compare the authentication codes and approve on the existing device. Use a fresh
 profile for a demo so you do not enroll someone else's browser into your identity.
 
-The tab icon follows the active board's connection status: green when connected,
-blinking yellow while reconnecting, red when offline, and steady yellow without
-peers. Reduced motion keeps the reconnecting icon steady.
+The header and tab icon follow the active board's confirmed connections. Green
+means a live device channel or a successful Rusty replication pass within 45
+seconds. Yellow means checking, catching up, or no configured connections; red
+means configured connections are unavailable or their confirmation is overdue.
+The header tooltip reports devices and Rusty separately. **Sync → Rusty** shows
+each server's actual state and last successful sync in this tab. Saved settings
+alone never count as connected. Reduced motion disables reconnecting animation.
 
-Standalone Lighthouse can request an owner connection through the same invitation
-flow. During approval, **Connect all my boards, including future boards** grants
-its separate identity the selected role across owned boards. The checkbox starts
-unchecked. The approving browser issues a signed grant for each new board before replication
-starts. This preference is currently local to that browser; settings synchronization
-between enrolled devices is not implemented yet.
+Standalone Rusty now uses **Sync → Blind Rusty** and protocol 2 encrypted object
+storage. Its service key signs storage receipts; it receives no readable board
+invitation, content key, or Editor/Visitor application grant. Board history and
+chat are encrypted by clients, which still verify authorizations before merging.
+See [keeper service](../mesh-lighthouse/README.md) for setup and migration.
 
-For a standalone Lighthouse keeper, tincanban discovers the configured HTTPS origin,
-shows its identity and capabilities, and requires controller and authenticated
-operator approval for the same transcript. tincanban then sends a short-lived visitor
-invitation for the exact selected boards. Pairing stays pending until Lighthouse
-returns signed evidence that every selected board committed durably.
-See [mesh-lighthouse](../mesh-lighthouse/README.md) for provisioning and durable
-state setup.
+The old **Add keeper** flow remains for legacy readable protocol 1 services.
+Those services use board invitations and application roles; they must not be
+presented as blind replicas. Existing deployments and grants require explicit
+migration to a fresh storage volume. Private keys and attachment replication are
+not automatically transferred to the new service.
 
 The [demo guide](docs/demo.md) covers offline edits, attachments, and what to explain
 when showing the project.
@@ -98,6 +99,26 @@ when showing the project.
 
 Reload tincanban on both sides after this protocol update. Older clients cannot join
 sessions until they support device removals and membership departures.
+
+## Settings scopes
+
+Deployment topology, source locations, infrastructure ownership and import-first
+Hetzner/DNS configuration: [production architecture](../hetzner_playground/docs/architecture.md).
+
+- **Identity:** display name, one profile photo across workspaces, encrypted identity recovery, device diagnostic consent.
+- **Workspace:** shared document templates,
+  priority rules for the named board, and collapsed advanced JSON configuration.
+- **Connections:** shortcuts to the single Participants/devices, Rusty storage and
+  Backups views. Ownership succession belongs to Participants; workspace import
+  and export belong to Backups.
+
+Removing a participant explicitly revokes all their devices in that workspace.
+Removing a single device remains a separate action. Both disclose their scope.
+**Connections → Automations** lets the owner add a supported Worker instance, pause,
+resume or remove it. Desired state is shared through CRDT. Confirmed state requires
+a signed Worker acknowledgement of those exact commands. Reading access applies
+to the entire workspace; grants last 30 days. New UI instances support website
+job intake; email routing still requires deployment configuration.
 
 ## Run locally
 
@@ -129,6 +150,24 @@ npm run build            # type-check and create dist/
 npm run preview          # serve the production build locally
 ```
 
+External sync diagnostics require a collector configured once per deployment.
+Set the public frontend build values listed in [.env.example](.env.example): intake
+URL, project, browser write key, level, sample rate and batch size. Both URL and key
+are required; invalid values disable sending. Use `.env` locally or Cloudflare build
+variables in production. These values become public browser assets; backend/desktop
+secret write keys belong only in backend runtime secrets.
+
+**Settings → Identity** contains only **Send diagnostics from this device** when a
+collector is configured. The consent choice applies to this browser across
+workspaces and survives reload. Old local collector URLs and keys are ignored;
+explicit old opt-out survives. **Settings → Connections → Diagnostic delivery**
+shows queued/dropped events, last confirmed send and delivery failures. The
+collector must accept the [version 2 contract](openspec/changes/configurable-telemetry/design.md).
+Local diagnostic snapshots remain available when external sending is disabled.
+No message/card contents or raw errors are sent. IDs are complete and numeric
+attributes retain their types. Chat/change events share an entity correlation
+trace across devices; this does not measure precise cross-device network latency.
+
 [MetaMesh](https://github.com/bobishh/meta-mesh) is a public repository pinned as a
 Git submodule. No GitHub credentials or deploy key are required to fetch it. Its
 packages are consumed from source; they are not currently published to npm.
@@ -158,11 +197,27 @@ npx playwright test --project=durable-mesh
 [Coverage and typed lint](docs/testing/coverage-and-lint.md) explains report commands,
 current regression floors, and existing lint debt. The [scenario audit](docs/testing/test-suite-audit.md)
 records reduction candidates and the risks each surviving browser scenario must protect.
+The complete [description inventory](docs/testing/test-description-inventory.tsv)
+covers browser declarations, application/Worker units, meta-mesh package units,
+and Rust test identifiers. Regenerate it with
+`npm run --silent test:inventory > docs/testing/test-description-inventory.tsv`.
+Parameterized declarations are marked; they are not expanded execution counts.
 
 See [playwright.config.ts](playwright.config.ts) for all projects. CI runs the static
 checks, unit tests, bundle budgets, dependency audit, and browser suites. Historical
 measurements in [CODE_QUALITY_AUDIT.md](CODE_QUALITY_AUDIT.md) are dated snapshots,
 not a substitute for the current CI result.
+The verification jobs start independently: browser suites do not wait for the
+unit/formal/UI jobs. The complete network project matrix remains automatic;
+manual dispatch runs the same checks. Browser processes remain isolated per
+network project, with three independent projects allowed concurrently. Core
+shards still divide the retained UI suite; they are not a reduction in coverage.
+Root Vitest runs vendored package tests once; native CI also runs Rust core rules.
+Dedicated blind Rusty verification uses `playwright.rusty.config.ts` and requires
+the matching binary from the sibling `mesh-lighthouse` checkout. The removed old
+CI lifecycle job targeted a deleted project and a protocol-1 fixture; it cannot
+verify the current blind-storage protocol. Publishing a pinned protocol-2 fixture
+is still required before that dedicated check can run on GitHub.
 
 ## Recovery and verification
 
@@ -250,3 +305,11 @@ transport, and runtime primitives used by tincanban and Twang.
 The [architecture notes](docs/architecture.md) explain these boundaries and the
 remaining compromises. The [protocol and WebMCP reference](docs/protocol-and-tools.md)
 contains the detailed feature and tool catalog.
+
+### Blind Rusty storage
+
+The standalone `../mesh-lighthouse` service now runs protocol 2 opaque storage. In **Sync → Blind Rusty**, a board owner supplies the HTTPS origin and operator token. The browser generates the reading key locally and replicates encrypted board history, authorization proofs, and chat. Rusty receives no readable board invitation or application grant. Receivers still enforce signed causal admission. Attachments use existing device sync.
+
+Private access files contain reading keys and storage tokens; transfer them privately to devices already authorized for the board. Settings are local to the identity on this device. Local disconnection does not revoke other storage credentials. Old plaintext Keeper volumes fail closed and require a fresh storage directory plus explicit client migration; old Keeper board grants must be revoked separately. Setup, quotas, storage-token revocation, and container configuration: [Rusty README](../mesh-lighthouse/README.md).
+
+Cloudflare Worker + Clef ingestion uses an independent identity and an exact owner-signed Automation grant. **Settings → Connections → Automations** enrolls the Worker by owner signature and privately sends its activation packet; its workspace-wide reading scope is disclosed before approval. The real production Worker has created a synthetic Lead through live Clef and blind Rusty. Interview/Rejected transitions are verified locally; Gmail forwarding and a real received email are still pending. See [implementation evidence and rollout limits](openspec/changes/blind-keeper-and-scoped-automation/implementation.md) and the [Worker setup](workers/automation/README.md).

@@ -3,12 +3,12 @@ export function keeperDisplayName(name: string): string {
   return name.replace(/^Participant(?= · |$)/, "Rusty keeper")
 }
 
-export function isLighthouse(userAgent?: string): boolean {
+export function isKeeper(userAgent?: string): boolean {
   return /^mesh-lighthouse\/\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(userAgent ?? "")
 }
 
 export function describeUserAgent(userAgent?: string): string {
-  if (isLighthouse(userAgent)) return "Rusty"
+  if (isKeeper(userAgent)) return "Rusty"
   if (!userAgent?.trim()) return "Browser / OS unknown"
   const os = identifyUserAgent(userAgent, [
     [/iPhone|iPad|iPod/, "iOS"], [/Android/, "Android"], [/Windows NT/, "Windows"],

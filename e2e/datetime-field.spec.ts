@@ -17,7 +17,8 @@ test.describe("Datetime field type", () => {
     // Configure a datetime field via Workspace Settings JSON
     await page.getByRole("button", { name: "Settings" }).click()
     const settingsDialog = page.getByRole("dialog", { name: "Settings" })
-    await settingsDialog.getByRole("tab", { name: "JSON" }).click()
+    await settingsDialog.getByRole("tab", { name: "Workspace", exact: true }).click()
+    await settingsDialog.getByText("Advanced configuration", { exact: true }).click()
     const editor = settingsDialog.getByLabel("Workspace settings JSON")
     const config = JSON.parse(await editor.inputValue())
     config.board.fields = [

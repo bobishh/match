@@ -16,7 +16,10 @@ export function setMeshTraceVerboseLogging(enabled: boolean) {
 
 export function meshTrace(event: string, detail: Record<string, unknown> = {}, level: MeshTraceLevel = "info") {
   traceBuffer.trace(event, detail, level)
-  if (typeof window !== "undefined") void import("./telemetry").then(module => module.record(event, detail)).catch(() => {})
+  if (typeof window !== "undefined") {
+    const timestampMs = Date.now()
+    void import("./telemetry").then(module => module.record(event, { timestampMs, ...detail }, level)).catch(() => {})
+  }
 }
 
 export function meshTraceSnapshot(): MeshTraceEvent[] {

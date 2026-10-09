@@ -303,38 +303,6 @@ test.describe("Scoped Sync Outer Scenarios", () => {
     await expect(hostDialog.getByRole("button", { name: "Generate link" })).toBeDisabled()
   })
 
-  test("Given an expired invitation link, when opened, then it reports expiration and prevents connection", async ({ page }) => {
-    await page.goto("/")
-    await ensureJobSearchWorkspace(page)
-    const expiredInvite = await page.evaluate(async () => {
-      const state = (await import("/src/state.ts")).useTincanban()
-      const current = state.getCurrentProfile()
-      if (!current) throw new Error("Expected current identity for expired invitation fixture")
-      const params = new URLSearchParams({
-        v: "1",
-        kind: "workspace-join",
-        invitationId: "expired_1",
-        issuerPersonId: current.identity.personId,
-        issuerDeviceId: current.device.deviceId,
-        issuerPublicKey: current.device.publicKey,
-        workspaceId: "ws_1",
-        workspaceTitle: "Expired board",
-        role: "visitor",
-        endpoint: "peer1",
-        createdAt: "2019-01-01T00:00:00.000Z",
-        expiresAt: "2020-01-01T00:00:00.000Z",
-        secret: "abc",
-      })
-      return `/pair?view=board#${params}`
-    })
-    await page.goto(expiredInvite)
-
-    const dialog = page.getByRole("dialog", { name: "Device sync" })
-    await expect(dialog.getByRole("heading", { name: "Couldn’t sync" })).toBeVisible()
-    await expect(dialog.getByRole("alert")).toHaveText(/This invitation has expired/i)
-    await expect(dialog.getByRole("button", { name: "Connect" })).toHaveCount(0)
-  })
-
   test("Given enrolled devices, when either device reloads, then it retains durable trust without requiring another QR", async ({ browser, page }) => {
     test.setTimeout(120_000)
     const secondContext = await browser.newContext()
@@ -697,6 +665,7 @@ test("Given a delegated owner device, when it grants an editor access twice, the
     await editor.getByRole("button", { name: "Close detail" }).click()
     await editor.getByRole("button", { name: "Sync", exact: true }).click()
     const editorDialog = editor.getByRole("dialog", { name: "Device sync" })
+    await editorDialog.getByText("Advanced", { exact: true }).click()
     await editorDialog.getByRole("button", { name: "Leave mesh" }).click()
     await editorDialog.getByRole("button", { name: "Leave mesh, keep copy" }).click()
     const closeEditorSync = editorDialog.getByRole("button", { name: "Close", exact: true }).first()

@@ -25,7 +25,7 @@ export type LocalJournal = {
 
 type CausalChangeDecision = {
   hash: string
-  status: { type: "admitted"; role: "owner" | "editor" | "visitor" }
+  status: { type: "admitted"; role: "owner" | "editor" | "visitor" | "automation" }
     | { type: "quarantined" | "pending"; reason: string }
 }
 

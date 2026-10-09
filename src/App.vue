@@ -12,6 +12,7 @@ import TincanbanPageLayout from "./components/TincanbanPageLayout.vue"
 import TincanbanHeading from "./components/TincanbanHeading.vue"
 import BrandCan from "./components/BrandCan.vue"
 import BoardDragOverlay from "./components/BoardDragOverlay.vue"
+import ColumnFoldCover from "./components/ColumnFoldCover.vue"
 import BoardItemCard from "./components/BoardItemCard.vue"
 import LeadFilters from "./components/LeadFilters.vue"
 import { useObjectConversations } from "./app/useObjectConversations"
@@ -30,13 +31,19 @@ import { createNarrativeEditHandler } from "./app/narrativeEditor"
 import { useColumnCollapse } from "./app/useColumnCollapse"
 import { useAppViewState } from "./app/useAppViewState"
 import { useMemberAvatars } from "./app/useMemberAvatars"
-import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, startOfflineDetailPreload, WorkspaceFileActions, WorkspaceParticipants, WorkspacesDialog } from "./app/lazyUiComponents"
+import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, startOfflineDetailPreload, WorkspaceConnectionsPanel, IdentityPhotoPanel, WorkspacesDialog } from "./app/lazyUiComponents"
 import ItemFormDialog from "./components/ItemFormDialog.vue"
 
 const app = useAppController()
 const { SyncDialog, reviewCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
 const conversations = useObjectConversations(app)
 const [showIdentityRecovery, showSettings] = [ref(false), ref(false)]
+const syncInitialTab = ref<"Participants" | "Rusty" | "Backups">("Participants")
+function openConnections(tab: "Participants" | "Rusty" | "Backups") {
+  showSettings.value = false
+  syncInitialTab.value = tab
+  sync.open()
+}
 const editingFoldSnapshot = ref<NarrativeFoldSources | undefined>()
 const stopSyncForIdentityRestore = () => app.collaboration.device.sync.shutdown()
 const restoredIdentity = () => window.location.reload()
@@ -64,9 +71,9 @@ const {
   selectedItemHistory, editingItem, candidateParentsForMove,
 } = app.board
 const { sync, chat } = app.collaboration.device
-const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
-const { meshPresence, meshPresenceLabel,
-  activeMeshRetryAt, meshMembers, meshParticipantDevices, activeSuccession,
+const { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, canEditItems, canEditBoard, canManageAccess, canRenameWorkspace } = app.collaboration.permissions
+const { devicePresence, meshPresence, meshPresenceLabel,
+  activeMeshRetryAt, meshMembers, activeSuccession,
   canClaimSuccession, transferringOwnership, leavingMesh, revokingPeer,
   peerAccessError, transferWorkspaceOwnership,
   leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,
@@ -95,9 +102,7 @@ async function editItem(item: Parameters<typeof editItemNow>[0]) { if (!rejectio
 
 async function applyWorkspaceSettings(payload: Parameters<typeof handleApplyWorkspaceSettings>[0]) { if (await handleApplyWorkspaceSettings(payload)) showSettings.value = false }
 const cardAgeFor = useCardAges(() => activeBoard.value?.cardAgingPolicy)
-const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.workspace.docVersion, getActiveDoc,
-  () => app.workspace.getCurrentProfile()?.identity.personId,
-  async avatarData => { await app.workspace.executeCommandAsync({ kind: "setMemberAvatar", avatarData }) })
+const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvatars(app.workspace)
 </script>
 
 <template>
@@ -129,7 +134,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
       </div>
       <div class="top-actions top-actions-desktop" :inert="!uiReady || undefined">
         <button class="button button-quiet" type="button" aria-label="Workspace chat" @click="chat.open.value = true">Chat<span v-if="chat.unread.value"> · {{ chat.unread.value }}</span></button>
-        <button class="button button-quiet" type="button" @click="sync.open">Sync</button>
+        <button class="button button-quiet" type="button" @click="openConnections('Participants')">Sync</button>
         <button class="button button-quiet" type="button" aria-label="Settings" @click="showSettings = true">Settings</button>
         <button v-if="canEditBoard" class="button button-quiet" type="button" @click="isEditingBoard = !isEditingBoard">{{ isEditingBoard ? "Done" : "Edit board" }}</button>
         <button v-if="isEditingBoard" class="button button-primary" type="button" @click="showEntitySettings = true">Edit {{ entityName }}</button>
@@ -174,7 +179,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
       @open-settings="showSettings = true"
       @toggle-board-edit="isEditingBoard = !isEditingBoard"
       @open-entity-settings="showEntitySettings = true"
-      @open-sync="sync.open"
+      @open-sync="openConnections('Participants')"
     />
 
     <TransitionGroup name="notice" tag="aside" class="notice-overlay" aria-live="polite" aria-atomic="true" @before-enter="showEnteringElement" @before-leave="hideLeavingElement">
@@ -221,11 +226,13 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
         :data-column-id="column.id"
         role="region"
         :aria-label="column.title"
-        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
+        :class="[columnStatus(column.id) ? `column-${columnStatus(column.id)}` : '', { 'bin-column': isArchiveColumn(column), 'bin-column-open': isArchiveColumn(column) && !isColumnCollapsed(column), 'column-foldable': column.collapsible, 'column-collapsed': isColumnCollapsed(column), 'column-moved': movedColumnId === column.id }]"
       >
-        <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span v-if="isArchiveColumn(column)" class="bin-icon" aria-hidden="true"></span><strong>{{ column.title }}</strong><small>{{ itemsForColumn(column).length }}</small></button>
-        <template v-else>
-          <div class="card-stack" :data-column-id="column.id">
+        <span v-if="column.collapsible" class="column-paper" aria-hidden="true"></span>
+        <ColumnFoldCover v-if="column.collapsible" :collapsed="isColumnCollapsed(column)" :title="column.title" :count="itemsForColumn(column).length" />
+        <Transition name="column-fold">
+          <button v-if="isColumnCollapsed(column)" class="column-closed" type="button" :aria-label="`Open ${column.title} with ${itemsForColumn(column).length} cards`" @click="toggleColumnCollapse(column)"><span class="count">{{ itemsForColumn(column).length }}</span><strong>{{ column.title }}</strong></button>
+          <div v-else class="card-stack" :data-column-id="column.id">
             <header class="column-header" :class="{ 'column-drag-handle': isEditingBoard }">
               <div class="column-title"><span class="column-dot"></span><h2 :title="isEditingBoard ? 'Double-click to edit column' : undefined" @dblclick="isEditingBoard && (editingColumn = column)">{{ column.title }}</h2></div>
               <div class="column-actions"><span class="count">{{ itemsForColumn(column).length }}</span><button v-if="column.collapsible && !hasFilters" class="bin-close" type="button" :aria-label="`Collapse ${column.title}`" @click="toggleColumnCollapse(column)">×</button><button v-if="isEditingBoard" class="button button-small button-quiet" type="button" aria-label="Edit column" @click="editingColumn = column">Edit</button></div>
@@ -255,7 +262,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
             <div v-if="!itemsForColumn(column).length" class="empty-column">{{ hasFilters ? 'No matches in this column' : `No ${entityName}s` }}</div>
             <button v-if="!isEditingBoard && canEditItems && !isArchiveColumn(column)" class="column-add-button" type="button" :aria-label="`Add ${entityName} to ${column.title}`" @click="openAddItem(column.id)">{{ addItemLabel }}</button>
           </div>
-        </template>
+        </Transition>
       </article>
       <div v-if="hasFilters && !visibleColumns.length" class="board-empty">Try another search or clear filters to see all cards.</div>
       <form v-if="isEditingBoard" class="add-column-card" @submit.prevent="addBoardColumn"><label class="sr-only" for="new-board-column">New column</label><input id="new-board-column" v-model="newBoardColumnTitle" placeholder="New column" :disabled="addingBoardColumn" /><label><input type="checkbox" :checked="newBoardColumnArchive" :disabled="genericColumns.some(column => isArchiveColumn(column)) || addingBoardColumn" @change="selectArchiveColumn(($event.target as HTMLInputElement).checked)" /> Archive column</label><label><input v-model="newBoardColumnCollapsible" type="checkbox" :disabled="addingBoardColumn" /> Allow this column to collapse</label><button class="button button-primary" type="submit" :disabled="addingBoardColumn">{{ addingBoardColumn ? 'Adding…' : '+ Add column' }}</button><p v-if="addBoardColumnError" class="form-error" role="alert">{{ addBoardColumnError }}</p></form>
@@ -304,29 +311,22 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
       @apply-workspace-settings="applyWorkspaceSettings"
     >
       <template #identity>
-        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :avatar-data="currentAvatar" :save-avatar="saveAvatar" :save-name="(name: string) => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :save-name="(name: string) => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
+        <IdentityPhotoPanel :avatar-data="currentAvatar" :save-avatar="saveAvatar" />
+        <p v-if="avatarNotice" role="status">{{ avatarNotice }}</p>
       </template>
-      <template #participants>
-        <WorkspaceParticipants
-          :members="chat.members.value" :current-person-id="chat.personId.value"
-          :member-avatars="memberAvatars"
-          :current-identity-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''"
-          :current-role="currentRole"
-          :owner-person-id="currentWorkspaceOwnerId"
-          :peers="meshParticipantDevices"
-          :can-manage-access="canManageAccess"
-          :revoking-person-id="revokingPeer"
-          :error="peerAccessError"
-          @revoke="revokeWorkspacePeer"
-        />
+      <template #connections>
+        <WorkspaceConnectionsPanel :workspace="app.workspace" :workspace-title="activeWorkspace.title" :workspace-id="activeWorkspace.id"
+          :controller="app.collaboration.device.blindReplication" :owner="canManageAccess" @open="openConnections" />
       </template>
-      <template #data><WorkspaceFileActions export-only @export="exportWorkspace" /></template>
     </SchemaEditorDialog>
     <ModalLayer v-else-if="showSettings" @close="showSettings = false">
       <section class="dialog" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="dialog-head"><div><span class="eyebrow">Identity</span><h2>Settings</h2></div><button class="icon-button" type="button" aria-label="Close" @click="showSettings = false">×</button></div>
-        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" :avatar-data="currentAvatar" :save-avatar="saveAvatar"
+        <IdentitySettingsPanel :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''"
           :save-name="(name: string) => saveIdentityName(name, activeWorkspace.id, app.workspace.refreshIdentity)" @recovery="showIdentityRecovery = true" />
+        <IdentityPhotoPanel :avatar-data="currentAvatar" :save-avatar="saveAvatar" />
+        <p v-if="avatarNotice" role="status">{{ avatarNotice }}</p>
       </section>
     </ModalLayer>
     <IdentityRecoveryDialog v-if="showIdentityRecovery" :before-restore="stopSyncForIdentityRestore" :display-name="app.workspace.getCurrentProfile()?.identity.displayName ?? ''" @close="showIdentityRecovery = false" @restored="restoredIdentity" />
@@ -460,8 +460,7 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
     </SpatialWindow>
     </template>
 
-    <SyncDialog
-      v-if="sync.isOpen.value"
+    <SyncDialog v-if="sync.isOpen.value" :initial-tab="syncInitialTab" :member-avatars="memberAvatars" :revoking-person-id="revokingPeer" @revoke-person="revokeWorkspacePeer" :blind-replication="app.collaboration.device.blindReplication"
       :pending-joins="sync.pendingJoins.value"
       @decide-join="sync.decideJoin"
       :step="sync.step.value"
@@ -478,15 +477,15 @@ const { memberAvatars, currentAvatar, saveAvatar } = useMemberAvatars(app.worksp
       :mesh-members="meshMembers"
       v-bind="{ activeWorkspaceId: activeWorkspace.id, localDeviceId: sync.localDeviceId.value,
         removableDeviceWorkspaces: sync.removableDeviceWorkspaces, removeDevice: sync.removeDevice, enrollmentConflict: sync.enrollmentConflict.value,
-        keeperOwnedWorkspaces, provisionKeeper: sync.provisionKeeperPairing, removeKeeper: sync.removeKeeper }"
-      :has-mesh="meshMembers.length > 0" :current-person-id="chat.personId.value"
+         }"
+      :has-mesh="sync.meshPeers.value.some(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)" :current-person-id="chat.personId.value"
       :current-role="currentRole"
       :succession="activeSuccession"
       :can-claim-succession="canClaimSuccession"
       :can-manage-mesh="canManageAccess"
       :transferring-ownership="transferringOwnership" :leaving-mesh="leavingMesh"
       :mesh-action-error="peerAccessError"
-      :workspace-connected="meshPresence === 'connected'" :workspace-reconnecting="meshPresence === 'reconnecting'"
+      :workspace-connected="devicePresence === 'connected'" :workspace-reconnecting="devicePresence === 'reconnecting'"
       :mesh-diagnostic="sync.meshDiagnostic.value"
       :retry-at="activeMeshRetryAt"
       :network-online="sync.networkOnline.value"

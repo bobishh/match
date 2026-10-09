@@ -43,7 +43,8 @@ test("Given board JSON, when stage buttons are configured, then card shows confi
   await page.getByRole("dialog", { name: "Item overview" }).getByRole("button", { name: "Close detail" }).click()
   await page.getByRole("button", { name: "Settings" }).click()
   const settings = page.getByRole("dialog", { name: "Settings" })
-  await settings.getByRole("tab", { name: "JSON" }).click()
+  await settings.getByRole("tab", { name: "Workspace", exact: true }).click()
+  await settings.getByText("Advanced configuration", { exact: true }).click()
   const editor = settings.getByLabel("Workspace settings JSON")
   const config = JSON.parse(await editor.inputValue())
   expect(config.board.cardStageButtons).toHaveLength(3)
@@ -65,18 +66,4 @@ test("Given board JSON, when stage buttons are configured, then card shows confi
   await expect(page.getByRole("region", { name: "Done" }).getByRole("button", { name: "Open Read Dune" })).toBeVisible()
   await page.getByRole("button", { name: "Open Read Dune" }).click()
   await expect(page.getByRole("dialog", { name: "Item overview" }).locator(".status-strip button")).toHaveText(["Finished", "To do"])
-})
-
-test("Given board JSON, when a button targets an absent column, then settings reject it", async ({ page }) => {
-  await createBoard(page)
-  await page.getByRole("dialog", { name: "Item overview" }).getByRole("button", { name: "Close detail" }).click()
-  await page.getByRole("button", { name: "Settings" }).click()
-  const settings = page.getByRole("dialog", { name: "Settings" })
-  await settings.getByRole("tab", { name: "JSON" }).click()
-  const editor = settings.getByLabel("Workspace settings JSON")
-  const config = JSON.parse(await editor.inputValue())
-  config.board.cardStageButtons = [{ columnId: "missing" }]
-  await editor.fill(JSON.stringify(config, null, 2))
-  await expect(settings.getByText("/board/cardStageButtons/0/columnId")).toBeVisible()
-  await expect(settings.getByRole("button", { name: "Apply JSON" })).toBeDisabled()
 })

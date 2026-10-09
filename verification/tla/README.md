@@ -20,6 +20,15 @@ and expect a counterexample. The abstraction models at most two worker generatio
 and two queued jobs; it does not model browser event-loop scheduling or worker
 internals.
 
+`RevocationGeneration` starts with grant epoch 2 revoked, issues a newer grant
+at epoch 3, then removes that grant. A successful second removal must record a
+revocation epoch covering grant 3 (epoch 4 in this finite abstraction).
+`RevocationGenerationPersonOnly.cfg` models the old person-only idempotency
+shortcut: it treats the epoch-2 revocation as complete and skips the new record,
+violating `CompletedRevokeCoversCurrentGrant`. This abstracts the revocation
+list to its maximum epoch; signatures, peer-store persistence, and Rusty's
+separate signed disconnect receipt remain implementation-test obligations.
+
 ## Run
 
 Requirements: Java, Python 3, official
@@ -76,6 +85,8 @@ workspace, ownership, and entitlement abstraction.
 | WorkerLifecycle | Safety holds | 518 / 174 |
 | WorkerLifecycleStaleFatal | StaleFatalIsolated violated | 37 / 29 |
 | WorkerLifecycleQueuedTimeout | QueuedTimeoutIsolated violated | 37 / 29 |
+| RevocationGeneration | Safety holds | 6 / 3 |
+| RevocationGenerationPersonOnly | CompletedRevokeCoversCurrentGrant violated | 4 / 3 |
 
 ## Interpretation and code mapping
 

@@ -1,4 +1,6 @@
 import { computed, onScopeDispose, ref, watch, type Ref } from "vue"
+import { replicationPresence, replicationSummary } from "../sync/replicationHealth"
+import type { BlindReplicationController } from "./blindReplication"
 import type { WorkspaceRole } from "../domain/permissions"
 import { describeUserAgent } from "../ui/deviceInfo"
 import type { useDeviceSync } from "../sync/useDeviceSync"
@@ -9,41 +11,50 @@ type MeshContext = {
   chat: ReturnType<typeof useWorkspaceChat>
   currentRole: Ref<WorkspaceRole>
   currentWorkspaceOwnerId: Ref<string>
+  blindReplication: BlindReplicationController
   sync: ReturnType<typeof useDeviceSync>
 }
 
 export function useAppMesh(context: MeshContext) {
-  const { activeWorkspace, chat, currentRole, currentWorkspaceOwnerId, sync } = context
+  const { activeWorkspace, chat, currentRole, currentWorkspaceOwnerId, sync, blindReplication } = context
   const activeMeshPeers = computed(() => sync.meshPeers.value.filter(peer =>
     peer.workspaceId === activeWorkspace.id && peer.deviceId !== sync.localDeviceId.value && !peer.revokedAt,
   ))
   const liveChannel = computed(() => sync.isWorkspaceLive(activeWorkspace.id) || activeMeshPeers.value.some(peer => peer.online))
-  const meshPresence = ref<"connected" | "reconnecting" | "offline" | "empty">("empty")
+  const devicePresence = ref<"connected" | "reconnecting" | "offline" | "empty">("empty")
   let offlineTimer: ReturnType<typeof setTimeout> | undefined
   watch([() => activeWorkspace.id, liveChannel, () => sync.isEnabled.value, () => sync.networkOnline.value,
     () => sync.isWorkspaceAccessRevoked(activeWorkspace.id), () => activeMeshPeers.value.length],
   ([workspaceId, connected, enabled, networkOnline, revoked, peerCount]) => {
     clearTimeout(offlineTimer)
     if (networkOnline !== false && connected) {
-      meshPresence.value = "connected"
+      devicePresence.value = "connected"
     } else if (revoked || networkOnline === false || !enabled) {
-      meshPresence.value = peerCount ? "offline" : "empty"
+      devicePresence.value = peerCount ? "offline" : "empty"
     } else if (peerCount) {
-      meshPresence.value = "reconnecting"
+      devicePresence.value = "reconnecting"
       offlineTimer = setTimeout(() => {
-        if (activeWorkspace.id === workspaceId && !liveChannel.value) meshPresence.value = "offline"
+        if (activeWorkspace.id === workspaceId && !liveChannel.value) devicePresence.value = "offline"
       }, 4_000)
     } else {
-      meshPresence.value = "empty"
+      devicePresence.value = "empty"
     }
   }, { immediate: true })
   onScopeDispose(() => clearTimeout(offlineTimer))
-  const meshPresenceLabel = computed(() => ({
+  const devicePresenceLabel = computed(() => ({
     connected: "Mesh connected",
     reconnecting: "Mesh reconnecting",
     offline: "Mesh offline",
     empty: "Mesh empty",
-  }[meshPresence.value]))
+  }[devicePresence.value]))
+  const meshPresence = computed(() => replicationPresence(devicePresence.value, blindReplication.configs.value,
+    blindReplication.statuses.value, activeWorkspace.id, blindReplication.now.value))
+  const meshPresenceLabel = computed(() => {
+    const rusty = replicationSummary(blindReplication.configs.value, blindReplication.statuses.value, activeWorkspace.id, blindReplication.now.value)
+    if (!rusty) return devicePresenceLabel.value
+    const devices = { connected: "Devices connected", reconnecting: "Devices reconnecting", offline: "Devices offline", empty: "No live devices" }[devicePresence.value]
+    return `${devices} · ${rusty}`
+  })
   const activeMeshRetryAt = computed(() => sync.meshRetryAt.value[activeWorkspace.id])
   const onlineWorkspaceDevices = computed(() => {
     const ids = new Set(sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt && peer.online)
@@ -53,17 +64,13 @@ export function useAppMesh(context: MeshContext) {
   })
   const revokingPeer = ref("")
   const peerAccessError = ref("")
-  const meshParticipantDevices = computed(() => sync.meshPeers.value
-    .filter(peer => peer.workspaceId === activeWorkspace.id && peer.personId !== chat.personId.value)
-    .map(peer => ({ ...peer, name: chat.members.value.find(member => member.personId === peer.personId)?.name ?? `Participant · ${peer.personId.slice(0, 6)}` })))
   const meshMembers = computed(() => {
     const peers = sync.meshPeers.value.filter(peer => peer.workspaceId === activeWorkspace.id && !peer.revokedAt)
-    if (!peers.length) return []
     const selfId = chat.personId.value
     const personIds = new Set(peers.map(peer => peer.personId))
     if (selfId) personIds.add(selfId)
     return [...personIds].map(personId => createMeshMember(personId, peers, selfId, sync, chat, currentWorkspaceOwnerId.value, currentRole.value,
-      meshPresence.value === "reconnecting"))
+      devicePresence.value === "reconnecting"))
       .sort((a, b) => Number(b.self) - Number(a.self) || Number(b.role === "owner") - Number(a.role === "owner") || a.name.localeCompare(b.name))
   })
   const activeSuccession = computed(() => sync.meshSuccession.value.find(item => item.workspaceId === activeWorkspace.id))
@@ -106,7 +113,7 @@ export function useAppMesh(context: MeshContext) {
     catch (error) { peerAccessError.value = error instanceof Error ? error.message : "Could not revoke access" }
     finally { revokingPeer.value = "" }
   }
-  return { promoteWorkspacePeer, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, meshParticipantDevices, meshMembers, activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, revokeWorkspacePeer }
+  return { promoteWorkspacePeer, devicePresence, meshPresence, meshPresenceLabel, activeMeshRetryAt, onlineWorkspaceDevices, revokingPeer, peerAccessError, meshMembers, activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh, transferWorkspaceOwnership, leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession, revokeWorkspacePeer }
 }
 
 function createMeshMember(personId: string, peers: ReturnType<typeof useDeviceSync>["meshPeers"]["value"], selfId: string, sync: ReturnType<typeof useDeviceSync>, chat: ReturnType<typeof useWorkspaceChat>, ownerId: string, currentRole: WorkspaceRole, reconnecting: boolean) {

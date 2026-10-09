@@ -5,6 +5,7 @@ import type { WorkspaceDocumentV2 } from "../domain/model"
 import { assertWorkspaceEntityTransitions, assertWorkspaceRootTransition, assertWorkspaceTransition } from "../domain/permissions"
 import type { WorkspaceAuthority, WorkspaceOwnershipTransfer, WorkspaceSuccessionClaim } from "./meshRecords"
 import type { WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
+import { workspaceEntitiesAtHeads } from "../crdtHistory"
 
 export type WorkspaceWriteAuthorityEvidence = {
   genesisOwner: WorkspaceAuthority
@@ -32,6 +33,7 @@ export type WorkspaceAdmissionInput = {
 }
 
 export type WorkspaceAdmissionResult = {
+  profile?: WorkspaceAdmissionProfile
   neededHashes: string[]
   admittedHashes: string[]
   verifiedAuthorizations: WorkspaceChangeAuthorization[]
@@ -43,8 +45,13 @@ export type WorkspaceAdmissionResult = {
   authorizedHeads: string[]
 }
 
+type WorkspaceAdmissionProfile = {
+  loadMs: number; prepareMs: number; policyMs: number; indexMs: number; transitionsMs: number; resultMs: number
+  changeCount: number; proofCount: number; snapshotBytes: number; operationCount: number
+}
+
 type CausalAdmissionStatus =
-  | { type: "admitted"; role: "owner" | "editor" | "visitor" }
+  | { type: "admitted"; role: "owner" | "editor" | "visitor" | "automation" }
   | { type: "quarantined" | "pending"; reason: string }
 
 type AdmissionPolicy = Pick<RustStateCore, "authorizationRecordPages" | "prepareWriteEvidence" | "evaluateCausalAdmission">
@@ -56,12 +63,13 @@ type AdmissionPlan = {
 
 /** Pure admission. No storage, notifications, transport acknowledgement or profile access. */
 export function computeWorkspaceAdmission(input: WorkspaceAdmissionInput, policy: AdmissionPolicy): WorkspaceAdmissionResult {
+  const started = performance.now()
   const remote = Automerge.load<WorkspaceDocumentV2>(input.remote)
   let local: Automerge.Doc<WorkspaceDocumentV2> | undefined
   try {
     local = input.local ? Automerge.load<WorkspaceDocumentV2>(input.local) : undefined
     if (remote.id !== input.workspaceId || (local && local.id !== input.workspaceId)) throw new Error("Admission workspace mismatch")
-    return admitDocuments(input, policy, local, remote)
+    return admitDocuments(input, policy, local, remote, performance.now() - started)
   } finally {
     if (local) Automerge.free(local)
     Automerge.free(remote)
@@ -69,7 +77,8 @@ export function computeWorkspaceAdmission(input: WorkspaceAdmissionInput, policy
 }
 
 function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
-  local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>): WorkspaceAdmissionResult {
+  local: Automerge.Doc<WorkspaceDocumentV2> | undefined, remote: Automerge.Doc<WorkspaceDocumentV2>, loadMs: number): WorkspaceAdmissionResult {
+  let phaseStarted = performance.now()
   const bundle = input.authorization
   const recordPages = policy.authorizationRecordPages(bundle)
   const incomingRecords = recordPages.flat()
@@ -80,6 +89,8 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   // already known locally so late authority evidence can reclassify them.
   const merged = local ? Automerge.merge(local, remote) : remote
   const rawBytes = Automerge.save(merged)
+  const prepareMs = performance.now() - phaseStarted
+  phaseStarted = performance.now()
   const plan = policy.evaluateCausalAdmission({
     records: incomingRecords,
     snapshot: {
@@ -91,6 +102,8 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
     },
     nowMs: input.now,
   }) as AdmissionPlan
+  const policyMs = performance.now() - phaseStarted
+  phaseStarted = performance.now()
   const changesByHash = new Map(Automerge.getChangesMetaSince(merged, []).map(change => [change.hash, change]))
   const decodedChanges = Automerge.getAllChanges(merged).map(bytes => Automerge.decodeChange(bytes))
   const operationsByHash = new Map(decodedChanges.map(decoded => [decoded.hash, decoded.ops]))
@@ -99,6 +112,8 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   for (const authorization of plan.verifiedAuthorizations) {
     for (const hash of authorization.signed.payload.hashes) actorByHash.set(hash, authorization.signed.payload.personId)
   }
+  const indexMs = performance.now() - phaseStarted
+  phaseStarted = performance.now()
   for (const decision of plan.decisions) {
     if (decision.status.type !== "admitted") continue
     const change = changesByHash.get(decision.hash)
@@ -107,6 +122,8 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
       assertAdmittedTransition(merged, change, decision.status.role, actorByHash.get(change.hash), operations, objectParents)
     }
   }
+  const transitionsMs = performance.now() - phaseStarted
+  phaseStarted = performance.now()
   const quarantinedHashes = plan.decisions.filter(decision => decision.status.type === "quarantined").map(decision => decision.hash)
   const pendingHashes = plan.decisions.filter(decision => decision.status.type === "pending").map(decision => decision.hash)
   const verifiedInputs = incomingRecords as WorkspaceChangeAuthorization[]
@@ -125,7 +142,10 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
   let authorizedHeads: string[]
   try { authorizedHeads = Automerge.getHeads(authorized) }
   finally { Automerge.free(authorized) }
-  return { neededHashes: [...changesByHash.keys()],
+  return { profile: { loadMs, prepareMs, policyMs, indexMs, transitionsMs, resultMs: performance.now() - phaseStarted,
+      changeCount: changesByHash.size, proofCount: incomingRecords.length, snapshotBytes: rawBytes.byteLength,
+      operationCount: decodedChanges.reduce((count, change) => count + change.ops.length, 0) },
+    neededHashes: [...changesByHash.keys()],
     admittedHashes: plan.decisions.filter(decision => decision.status.type === "admitted").map(decision => decision.hash),
     // Only proofs the Rust verifier matched to a real raw change may enter the
     // durable evidence journal. An unmatched hash is untrusted input, not a
@@ -139,38 +159,29 @@ function admitDocuments(input: WorkspaceAdmissionInput, policy: AdmissionPolicy,
 function assertAdmittedTransition(
   document: Automerge.Doc<WorkspaceDocumentV2>,
   change: ReturnType<typeof Automerge.getChangesMetaSince>[number],
-  role: "owner" | "editor" | "visitor",
+  role: "owner" | "editor" | "visitor" | "automation",
   actorPersonId: string | undefined,
   operations: ReturnType<typeof Automerge.decodeChange>["ops"] | undefined,
   objectParents: ReadonlyMap<string, { parentId: string; key: string }>,
 ): void {
+  // Rust admission has already verified the owner-signed automation scope and
+  // the exact before/after card effects. Automation has no manual UI role
+  // capabilities, so reusing the broad workspace transition policy here would
+  // either reject valid scoped changes or accidentally grant Editor semantics.
+  if (role === "automation") return
   const touchedPaths = touchedPathsForChange(operations, objectParents)
   if (touchedPaths) {
     assertWorkspaceRootTransition(role, touchedPaths.rootKeys)
     if (touchedPaths.entityIds.size === 0) return
-    const before = Automerge.view(document, change.deps)
-    const after = Automerge.view(document, [change.hash])
-    assertWorkspaceEntityTransitions(role, before.entities ?? {}, after.entities ?? {}, touchedPaths.entityIds, actorPersonId)
+    const before = workspaceEntitiesAtHeads(document, change.deps)
+    const after = workspaceEntitiesAtHeads(document, [change.hash])
+    assertWorkspaceEntityTransitions(role, before, after, touchedPaths.entityIds, actorPersonId)
     return
   }
-  const patches = Automerge.diffPath(document, [], change.deps, [change.hash])
-  if (patches.length === 0) return assertFullTransition(document, change, role, actorPersonId)
-  const rootKeys = new Set<string>()
-  const entityIds = new Set<string>()
-  for (const patch of patches) {
-    const [rootKey, entityId] = patch.path
-    if (typeof rootKey !== "string") return assertFullTransition(document, change, role, actorPersonId)
-    if (rootKey !== "entities") { rootKeys.add(rootKey); continue }
-    // Replacing the whole map needs full validation. Keyed patches validate only
-    // entities named by the CRDT patch, including nested fields and deletions.
-    if (typeof entityId !== "string") return assertFullTransition(document, change, role, actorPersonId)
-    entityIds.add(entityId)
-  }
-  assertWorkspaceRootTransition(role, rootKeys)
-  if (entityIds.size === 0) return
-  const before = Automerge.view(document, change.deps)
-  const after = Automerge.view(document, [change.hash])
-  assertWorkspaceEntityTransitions(role, before.entities ?? {}, after.entities ?? {}, entityIds, actorPersonId)
+  // Ambiguous operations require the full transition check. Computing patches
+  // first expands long Text values character by character, then discards that
+  // work for bootstrap/entity-map replacement. Compare the views directly.
+  assertFullTransition(document, change, role, actorPersonId)
 }
 
 export function touchedPathsForChange(
@@ -223,7 +234,7 @@ function operationObjectPath(
 function assertFullTransition(
   document: Automerge.Doc<WorkspaceDocumentV2>,
   change: ReturnType<typeof Automerge.getChangesMetaSince>[number],
-  role: "owner" | "editor" | "visitor",
+  role: "owner" | "editor" | "visitor" | "automation",
   actorPersonId: string | undefined,
 ): void {
   const before = Automerge.view(document, change.deps)

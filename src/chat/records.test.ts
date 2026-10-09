@@ -510,7 +510,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
       ).rejects.toThrow("Invalid workspace grant")
     })
 
-    it("rejects message when grant specifies viewer role instead of editor/owner", async () => {
+    it("rejects message when grant specifies visitor role instead of editor/owner", async () => {
       const owner = await createProfile("Owner Alice")
       const viewer = await createProfile("Viewer Bob")
 
@@ -518,7 +518,7 @@ describe("Chat records cryptographic admission (src/chat/records.ts)", () => {
         owner,
         workspaceId,
         viewer.identity.personId,
-        "viewer" as unknown as "editor"
+        "visitor"
       )
 
       const authority = makeEditorAuthority(owner, viewerGrant)

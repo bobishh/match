@@ -52,19 +52,24 @@ function appendMessages(snapshot: Ref<ChatSnapshot>, added: ChatSnapshot["messag
     messageOrderKey(left).localeCompare(messageOrderKey(right))) }
 }
 
-async function traceRenderedMessages(workspaceId: string, messages: Array<{ id: string }>, isCurrent: () => boolean) {
+async function traceRenderedMessages(workspaceId: string, messages: Array<{ id: string }>, isCurrent: () => boolean, seen: Set<string>) {
   await nextTick()
   if (!isCurrent()) return
   for (const message of messages.slice(-100)) {
-    if (!message.id.startsWith("pending:")) meshTrace("chat.rendered", { workspaceId, recordId: message.id })
+    const key = `${workspaceId}:${message.id}`
+    if (message.id.startsWith("pending:") || seen.has(key)) continue
+    seen.add(key)
+    if (seen.size > 1000) seen.delete(seen.values().next().value!)
+    meshTrace("chat.dom.updated", { workspaceId, recordId: message.id })
   }
 }
 
 function watchRenderedMessages(workspaceId: Ref<string>, open: Ref<boolean>, messages: Readonly<Ref<Array<{ id: string }>>>) {
+  const seen = new Set<string>()
   watch([open, messages], () => {
     if (!open.value) return
     const id = workspaceId.value
-    void traceRenderedMessages(id, messages.value, () => id === workspaceId.value && open.value)
+    void traceRenderedMessages(id, messages.value, () => id === workspaceId.value && open.value, seen)
   })
 }
 

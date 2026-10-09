@@ -2,8 +2,11 @@ import { entityKind, hasEntityKind, isItem, type WorkspaceDocumentV2 } from "./m
 import { canonicalizeJson } from "./identity"
 import { isMemberProfileData, memberProfileEntityId } from "./avatarData"
 import type { Command } from "./commandTypes"
+import { automationEntityId, automationLifecycle, isAutomationOrigin } from "./automationLifecycle"
+import { parseAutomationDefinition } from "./automationContract"
+import { parseAutomationApproval } from "./automationApproval"
 
-export type WorkspaceRole = "owner" | "editor" | "visitor"
+export type WorkspaceRole = "owner" | "editor" | "visitor" | "automation"
 
 export type WorkspaceCapability =
   | "workspace.rename"
@@ -26,6 +29,7 @@ const roleCapabilities: Record<WorkspaceRole, ReadonlySet<WorkspaceCapability>> 
   ]),
   editor: new Set<WorkspaceCapability>(["workspace.rename", "content.write", "chat.write", "chat.profile"]),
   visitor: new Set<WorkspaceCapability>(["chat.profile"]),
+  automation: new Set<WorkspaceCapability>(),
 }
 
 const capabilityErrors: Record<WorkspaceCapability, string> = {
@@ -43,7 +47,9 @@ export function canWorkspace(role: WorkspaceRole, capability: WorkspaceCapabilit
 }
 
 export function assertWorkspaceCapability(role: WorkspaceRole, capability: WorkspaceCapability) {
-  if (!canWorkspace(role, capability)) throw new Error(capabilityErrors[capability])
+  if (!canWorkspace(role, capability)) {
+    throw new Error(role === "automation" ? "Automation grants cannot perform manual workspace actions" : capabilityErrors[capability])
+  }
 }
 
 export function assertWorkspaceCommand(role: WorkspaceRole, doc: WorkspaceDocumentV2, command: Command): void {
@@ -79,6 +85,8 @@ const commandCapabilities: Record<Command["kind"], WorkspaceCapability | "entity
   updateBoardSchema: "board.configure",
   updateWorkspaceSettings: "board.configure",
   setMemberAvatar: "chat.profile",
+  createAutomation: "board.configure",
+  setAutomationState: "board.configure",
 }
 
 function entityCapability(entity: WorkspaceDocumentV2["entities"][string] | undefined): WorkspaceCapability {
@@ -113,12 +121,39 @@ export function assertWorkspaceEntityTransitions(
   for (const id of changedEntityIds) {
     const a = beforeEntities[id], b = afterEntities[id]
     if (canonicalizeJson(a ?? null) === canonicalizeJson(b ?? null)) continue
+    if (id.startsWith("automation:") || hasEntityKind(a, "automation") || hasEntityKind(b, "automation")) {
+      assertAutomationTransition(role, a, b)
+      continue
+    }
     if (id.startsWith("member-profile:") || hasEntityKind(a, "member_profile") || hasEntityKind(b, "member_profile")) {
       assertMemberProfileTransition(role, a, b, actorPersonId)
       continue
     }
     assertEntityTransition(role, a, b, afterEntities)
   }
+}
+
+function assertAutomationTransition(role: WorkspaceRole, before: WorkspaceDocumentV2["entities"][string] | undefined,
+  after: WorkspaceDocumentV2["entities"][string] | undefined): void {
+  assertWorkspaceCapability(role, "board.configure")
+  if (!hasEntityKind(after, "automation")) throw new Error("Automation deletion must retain a tombstone")
+  assertAutomationRecord(after)
+  if (!before) return
+  if (!hasEntityKind(before, "automation")) throw new Error("Automation record cannot replace another entity")
+  const stable = (value: typeof after) => Object.fromEntries(Object.entries(value).filter(([key]) => !["controls", "updatedAt"].includes(key)))
+  if (canonicalizeJson(stable(before)) !== canonicalizeJson(stable(after))) throw new Error("Automation identity and granted definition are immutable")
+  if (Object.entries(before.controls).some(([id, data]) => after.controls[id] !== data)) throw new Error("Automation control history and tombstones cannot be removed")
+  if (automationLifecycle(before).state === "deleted") throw new Error("Deleted automation is immutable")
+}
+
+function assertAutomationRecord(after: Extract<WorkspaceDocumentV2["entities"][string], { kind: "automation" }>): void {
+  const definition = parseAutomationDefinition(JSON.parse(after.definition))
+  const approval = parseAutomationApproval(after.approval)
+  if (!isAutomationOrigin(after.executor?.origin) || after.executor.personId !== approval.grant.payload.personId ||
+    canonicalizeJson(approval.definition.payload) !== canonicalizeJson(definition)) throw new Error("Automation approval or executor is invalid")
+  if (after.id !== automationEntityId(definition.id) || after.title !== definition.name || after.archivedAt !== null ||
+    after.placement.parentId !== definition.scope.boardId || after.placement.rank !== "0/1") throw new Error("Automation record identity or placement is invalid")
+  automationLifecycle(after)
 }
 
 function assertMemberProfileTransition(role: WorkspaceRole, before: WorkspaceDocumentV2["entities"][string] | undefined,

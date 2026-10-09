@@ -37,6 +37,7 @@ test("Markdown descriptions and templates render consistently without executing 
   await detail.getByRole("button", { name: "Close detail", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()
   const settings = page.getByRole("dialog", { name: "Settings", exact: true })
+  await settings.getByRole("tab", { name: "Workspace", exact: true }).click()
   await settings.getByRole("tab", { name: "Document templates", exact: true }).click()
   await settings.getByLabel("Markdown", { exact: true }).fill("# Template\n\n" + markdown)
   const template = settings.getByRole("region", { name: "Template preview" })

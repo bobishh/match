@@ -6,6 +6,7 @@ import * as basic from "./commandBasicHandlers"
 import * as content from "./commandContentHandlers"
 import * as schema from "./commandSchemaHandlers"
 import * as profile from "./commandProfileHandlers"
+import * as automation from "./commandAutomationHandlers"
 import { planWorkspaceMigration } from "./workspaceMigration"
 
 const handlers = {
@@ -34,6 +35,8 @@ const handlers = {
   updateBoardSchema: schema.updateBoardSchema,
   updateWorkspaceSettings: schema.updateWorkspaceSettings,
   setMemberAvatar: profile.setMemberAvatar,
+  createAutomation: automation.createAutomation,
+  setAutomationState: automation.setAutomationState,
 } satisfies { [K in Command["kind"]]: CommandHandler<K> }
 
 export function prepareCommand(doc: Automerge.Doc<WorkspaceDocumentV2>, command: Command, nowIso: string, beforeHeads: Heads, actorPersonId?: string): PreparedCommand {

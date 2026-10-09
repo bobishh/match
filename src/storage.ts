@@ -430,12 +430,7 @@ export class WorkspaceStorage {
     await this.saveSnapshot(workspaceId, doc, snapshotBytes)
 
     // Identify which changes are included in doc
-    const includedChanges = Automerge.getAllChanges(doc)
-    const includedHashes = new Set<string>()
-    for (const changeBytes of includedChanges) {
-      const decoded = Automerge.decodeChange(changeBytes)
-      includedHashes.add(decoded.hash)
-    }
+    const includedHashes = new Set(Automerge.getChangesMetaSince(doc, []).map(change => change.hash))
 
     if (typeof indexedDB !== "undefined") {
       const database = await openWorkspaceJournal()
@@ -528,11 +523,11 @@ export class WorkspaceStorage {
 
   async savePersonalRoot(root: PersonalRootDocumentV1): Promise<void> {
     checkStorageFailureHook()
-    this.inMemory.personalRoots.set(root.rootId, JSON.parse(JSON.stringify(root)))
     const raw = await getStorageRaw("tincanban.v1.personal_roots")
     const map: Record<string, PersonalRootDocumentV1> = raw ? JSON.parse(raw) : {}
     map[root.rootId] = JSON.parse(JSON.stringify(root))
     await setStorageRaw("tincanban.v1.personal_roots", JSON.stringify(map))
+    this.inMemory.personalRoots.set(root.rootId, JSON.parse(JSON.stringify(root)))
   }
 
   async loadPersonalRoot(rootId?: string): Promise<PersonalRootDocumentV1 | null> {

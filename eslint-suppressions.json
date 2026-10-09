@@ -104,9 +104,6 @@
   "src/main.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
     }
   },
   "src/state.test.ts": {
@@ -180,14 +177,6 @@
   "src/sync/memberAccess.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 15
-    }
-  },
-  "src/sync/telemetry.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
     }
   },
   "src/sync/useDeviceSync.test.ts": {

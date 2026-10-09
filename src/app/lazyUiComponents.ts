@@ -30,10 +30,10 @@ export const SpatialWindow = defineAsyncComponent<Component>({
 })
 export const WorkspacesDialog = defineAsyncComponent<Component>(() => import("../components/WorkspacesDialog.vue"))
 export const ColumnDialog = defineAsyncComponent<Component>(() => import("../components/ColumnDialog.vue"))
-export const WorkspaceFileActions = defineAsyncComponent<Component>(() => import("../components/WorkspaceFileActions.vue"))
 export const SchemaEditorDialog = defineAsyncComponent<Component>(() => import("../components/SchemaEditorDialog.vue"))
 export const MoveItemDialog = defineAsyncComponent<Component>(() => import("../components/MoveItemDialog.vue"))
-export const WorkspaceParticipants = defineAsyncComponent<Component>(() => import("../components/WorkspaceParticipants.vue"))
+export const IdentityPhotoPanel = defineAsyncComponent<Component>(() => import("../components/IdentityPhotoPanel.vue"))
+export const WorkspaceConnectionsPanel = defineAsyncComponent<Component>(() => import("../components/WorkspaceConnectionsPanel.vue"))
 
 let detailChunksPromise: Promise<void> | null = null
 

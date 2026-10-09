@@ -4,6 +4,7 @@ import { createJobSearchWorkspace } from "./support/workspaces"
 async function openPriorityRules(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click()
   const dialog = page.getByRole("dialog", { name: "Settings" })
+  await dialog.getByRole("tab", { name: "Workspace", exact: true }).click()
   await dialog.getByRole("tab", { name: "Priority rules" }).click()
   return dialog
 }

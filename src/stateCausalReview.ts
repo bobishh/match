@@ -1,4 +1,5 @@
 import * as Automerge from "@automerge/automerge/slim"
+import { createWorkspaceViewReader } from "./crdtHistory"
 import type { LocalProfile } from "./domain/identity"
 import { canonicalizeJson } from "./domain/identity"
 import type { WorkspaceDocumentV2, WorkspaceEntity } from "./domain/model"
@@ -40,20 +41,21 @@ export async function refreshCausalReview(storage = defaultStorage, workspaceId 
     const raw = Automerge.load<WorkspaceDocumentV2>(evidence.bytes)
     try {
       const changes = new Map(Automerge.getChangesMetaSince(raw, []).map(change => [change.hash, change]))
-      stateRuntime.causalReview.value = reviewable.map(decision => reviewEntry(raw, decision, changes.get(decision.hash)))
+      const readView = createWorkspaceViewReader(raw)
+      stateRuntime.causalReview.value = reviewable.map(decision => reviewEntry(readView, decision, changes.get(decision.hash)))
     } finally { Automerge.free(raw) }
   }
   stateRuntime.causalReviewError.value = ""
 }
 
-function reviewEntry(raw: Automerge.Doc<WorkspaceDocumentV2>, decision: WorkspaceStorageDecision,
+function reviewEntry(readView: ReturnType<typeof createWorkspaceViewReader>, decision: WorkspaceStorageDecision,
   change: ReturnType<typeof Automerge.getChangesMetaSince>[number] | undefined) {
   const transaction = parseTransaction(change?.message)
   let preview: string[] = []
   if (change) {
     try {
-      const before = Automerge.view(raw, change.deps)
-      const candidate = Automerge.view(raw, [decision.hash])
+      const before = readView(change.deps)
+      const candidate = readView([decision.hash])
       // Views share their parent handle; free the raw document once at caller.
       preview = reviewedPatch(before, candidate).preview
     } catch { preview = ["Draft content is available, but its field preview could not be built."] }

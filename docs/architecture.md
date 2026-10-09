@@ -113,7 +113,7 @@ storage change.
 Authorization export still returns the complete history and retains the existing
 record/byte limits. Paging, restart-safe transfer cursors, and any authenticated
 history checkpoint remain separate protocol work. This commit boundary does not
-fix transport timeout causes or establish replication coverage on Lighthouse.
+fix transport timeout causes or establish replication coverage on Keeper.
 
 ## Causal write admission
 

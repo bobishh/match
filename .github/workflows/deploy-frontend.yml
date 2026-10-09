@@ -1,0 +1,76 @@
+name: Deploy frontend
+
+on:
+  workflow_run:
+    workflows: [Verify]
+    types: [completed]
+    branches: [main]
+
+# Verify may cancel superseded builds; production mutations never cancel each other.
+concurrency:
+  group: tincanban-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Require client compatible with production blind Rusty
+        run: |
+          if [ ! -f src/sync/blindClient.ts ] || [ ! -f src/components/RustyPanel.vue ]; then
+            echo "::error::Production uses blind Rusty. Commit the compatible client before deploying main."
+            exit 1
+          fi
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: workers/frontend/package-lock.json
+      - run: npm ci --prefix workers/frontend
+      - uses: actions/download-artifact@v7
+        with:
+          name: tincanban-frontend-${{ github.event.workflow_run.head_sha }}
+          path: dist/
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Verify artifact and keep previous release chunks
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node workers/frontend/release.mjs retain "$RELEASE_SHA"
+      - name: Deploy current main only
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          current=$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          if [ "$current" != "$RELEASE_SHA" ]; then
+            echo "Superseded by $current; skipping deployment."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test -n "$CLOUDFLARE_API_TOKEN"
+          workers/frontend/node_modules/.bin/wrangler versions upload --config workers/frontend/wrangler.jsonc --tag "$RELEASE_SHA" --var "RELEASE_SHA:$RELEASE_SHA"
+          workers/frontend/node_modules/.bin/wrangler versions deploy --config workers/frontend/wrangler.jsonc --version-tag "$RELEASE_SHA@100" --yes
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
+      - name: Verify production serves this commit
+        if: steps.publish.outputs.deployed == 'true'
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node workers/frontend/release.mjs smoke "$RELEASE_SHA"

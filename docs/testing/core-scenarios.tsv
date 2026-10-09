@@ -70,7 +70,7 @@ device-sync-dialog.spec.ts	13	Given Device sync members are open, when the user 
 device-sync-dialog.spec.ts	24	Given live sync is enabled without a connected peer, when Sync opens, then Stop remains available until explicitly stopped
 device-sync-dialog.spec.ts	38	Given Device sync shows an invalid-link failure, when it renders recovery actions, then Dismiss remains and Close is not duplicated
 device-sync-dialog.spec.ts	48	Given many devices on mobile, when their list is scrolled, then the list moves and the board stays locked
-device-sync-dialog.spec.ts	74	Lighthouse uses its client marker for a beacon while a browser with the same name stays a browser
+device-sync-dialog.spec.ts	74	Keeper uses its client marker for a beacon while a browser with the same name stays a browser
 device-sync-dialog.spec.ts	99	Given Device sync shows Keepers, when adding one, then compact form replaces other modal content and failure stays visible
 document-editing.spec.ts	23	Given a generic card, when Edit is selected, then its visible fields can be changed from the detail view
 document-editing.spec.ts	39	Given a real file attachment, when it is reopened, then tincanban can preview and download its persisted bytes
@@ -99,13 +99,13 @@ interaction-polish.spec.ts	140	Given a pending save, when the user tries to edit
 interaction-polish.spec.ts	168	Given fast startup, when data arrives before the progress delay, then no loading indicator flashes
 job-search-rejected.spec.ts	5	Given a Job search board with a lead, when moved to Rejected and a retrospective note is added, it persists across reload
 job-search-rejected.spec.ts	56	Given a lead created directly in Rejected status, optional rejection reason is saved upon creation
-keeper-discovery.spec.ts	42	Given an owned board, when a Lighthouse origin is discovered, then tincanban shows identity, capabilities and pending-only boundary
+keeper-discovery.spec.ts	42	Given an owned board, when a Keeper origin is discovered, then tincanban shows identity, capabilities and pending-only boundary
 keeper-discovery.spec.ts	68	Given discovery reports another origin, when tincanban checks it, then it rejects identity redirection
 keeper-discovery.spec.ts	83	Given a compatible discovered keeper, when the owner starts a pairing, then tincanban stays pending until both approvals
 keeper-removal.spec.ts	3	Given a connected keeper, when owner removes it, then access removal waits for completion and keeper leaves the list
 keeper-removal.spec.ts	17	Given keeper removal fails, when owner retries, then error stays visible and keeper remains selectable
-lighthouse-login-header.spec.ts	5	Given a verified sign-in request, when tincanban opens approval, then its shared header names the approval
-lighthouse-login-header.spec.ts	20	Given an invalid sign-in link, when tincanban opens approval, then shared header stays visible with error
+keeper-login-header.spec.ts	5	Given a verified sign-in request, when tincanban opens approval, then its shared header names the approval
+keeper-login-header.spec.ts	20	Given an invalid sign-in link, when tincanban opens approval, then shared header stays visible with error
 markdown.spec.ts	3	Markdown descriptions and templates render consistently without executing HTML
 mesh-storage-contention.spec.ts	26	Given three tabs sharing nine boards, when signed catalogs replay, then processing stays bounded and a checklist change remains visible
 mobile-nav.spec.ts	9	Given 360px (Compact Mobile) viewport, when opened, hamburger drawer provides accessible grouped navigation and traps focus

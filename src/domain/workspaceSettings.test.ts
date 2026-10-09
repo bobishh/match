@@ -152,4 +152,21 @@ describe("workspace settings transaction", () => {
       message: "Rule field must be active on this board",
     })
   })
+
+  it.each([
+    { name: "missing column", buttons: [{ columnId: "missing" }], path: "/board/cardStageButtons/0/columnId", message: "Button target must be an active column on this board" },
+    { name: "duplicate target", buttons: [{ columnId: "FIRST" }, { columnId: "FIRST" }], path: "/board/cardStageButtons/1/columnId", message: "Button target is duplicated" },
+    { name: "blank label", buttons: [{ columnId: "FIRST", label: " " }], path: "/board/cardStageButtons/0/label", message: "Button label must contain text" },
+    { name: "unknown key", buttons: [{ columnId: "FIRST", unexpected: true }], path: "/board/cardStageButtons/0/unexpected", message: "Unknown button setting" },
+  ])("Given stage buttons with $name, when applying settings, then precise error is returned and source remains unchanged", async ({ buttons, path, message }) => {
+    const before = Automerge.getHeads(doc)
+    const settings = projectWorkspaceSettings(doc)
+    settings.board.cardStageButtons = buttons.map(button => ({ ...button, columnId: button.columnId === "FIRST" ? settings.board.columns[0].id! : button.columnId }))
+    expect(validateWorkspaceSettingsDraft(settings, doc)).toMatchObject({ valid: false, errors: expect.arrayContaining([{ path, message }]) })
+    const result = await executeCommand(doc, { kind: "updateWorkspaceSettings", settings, expectedHeads: before }, profile)
+    expect(result.ok).toBe(false)
+    expect(Automerge.getHeads(doc)).toEqual(before)
+    expect(projectWorkspaceSettings(doc).board.cardStageButtons).not.toEqual(settings.board.cardStageButtons)
+  })
+
 })

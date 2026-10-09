@@ -19,10 +19,19 @@ describe("workspace policy", () => {
     ["owner", capabilities],
     ["editor", ["workspace.rename", "content.write", "chat.write", "chat.profile"]],
     ["visitor", ["chat.profile"]],
+    ["automation", []],
   ] as const)("gives %s the declared capabilities", (role, allowed) => {
     for (const capability of capabilities) {
       expect(canWorkspace(role as WorkspaceRole, capability)).toBe(allowed.includes(capability as never))
     }
+  })
+
+  it("Given an automation role, when checking ordinary UI commands, then grants no manual capability", () => {
+    const doc = createWorkspaceDoc("ws", "Board", "owner", "blank")
+    expect(canWorkspace("automation", "content.write")).toBe(false)
+    expect(canWorkspace("automation", "board.configure")).toBe(false)
+    expect(() => assertWorkspaceCommand("automation", doc, { kind: "createItem", parentId: "lead", title: "No" }))
+      .toThrow("Automation grants cannot perform manual workspace actions")
   })
 
   it("uses the same policy for document transitions", () => {

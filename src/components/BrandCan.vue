@@ -17,7 +17,7 @@ const colors = computed(() => appearance.value ? {
 </script>
 
 <template>
-  <span class="brand-mark" :class="`is-${presence}`" :style="colors">
+  <span class="brand-mark" :title="label" :class="`is-${presence}`" :style="colors">
     <svg viewBox="0 0 64 80" role="img" :aria-label="label">
       <use :href="'/logo.svg?v=4#can-logo'" />
     </svg>

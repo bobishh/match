@@ -38,6 +38,7 @@ export type PersonalRootDocumentV1 = {
   formatVersion: 1
   rootId: string
   identity: PublicIdentity
+  photo?: { avatarData: string | null; changedAt: string }
   displayNamePreset?: string
   devices: Record<DeviceId, RegisteredDevice>
   workspaces: Record<WorkspaceId, WorkspaceReference>
@@ -117,9 +118,19 @@ export type WorkspaceGrant = SignedEnvelope<{
   grantId: string
   workspaceId: WorkspaceId
   personId: PersonId
-  role: "owner" | "editor" | "visitor"
+  role: "owner" | "editor" | "visitor" | "automation"
   accessEpoch?: number
+  automation?: AutomationGrantScope
 }>
+
+export type AutomationGrantScope = {
+  version: 1
+  boardId: string
+  columns: { lead: string; interview: string; rejected: string }
+  fieldIds: string[]
+  /** Unix timestamp in milliseconds. */
+  expiresAt: number
+}
 
 export type WorkspaceGenesis = SignedEnvelope<{
   kind: "workspace-genesis"

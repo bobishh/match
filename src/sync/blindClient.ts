@@ -1,0 +1,112 @@
+import { decodeBlindBytes, encodeBlindBytes, type BlindObject } from "./blindEnvelope"
+
+export type BlindAccess = { origin: string; scopeId: string; servicePublicKey: string; readToken: string; writeToken: string; policyRevision: number }
+export type BlindReceipt = { payload: { kind: "blind-storage-receipt"; version: 2; serviceId: string; scopeId: string; keyEpoch: number;
+  objectId: string; sequence: number; policyRevision: number; requestId: string }; signerKeyId: string; signature: string }
+const encoder = new TextEncoder()
+
+export function canonicalBlindJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalBlindJson).join(",")}]`
+  if (value && typeof value === "object") return `{${Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalBlindJson(item)}`).join(",")}}`
+  const encoded = JSON.stringify(value)
+  if (encoded === undefined) throw new Error("Invalid JSON value")
+  return encoded
+}
+export async function blindHash(bytes: Uint8Array): Promise<string> {
+  return encodeBlindBytes(new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))))
+}
+export async function blindObjectId(object: BlindObject): Promise<string> { return blindHash(encoder.encode(canonicalBlindJson(object))) }
+
+export function blindOrigin(input: string): string {
+  const url = new URL(input.includes("://") ? input : `https://${input}`)
+  if (url.username || url.password || url.pathname !== "/" || url.search || url.hash ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
+    throw new Error("Rusty needs an HTTPS origin; HTTP is allowed only on loopback")
+  }
+  return url.origin
+}
+
+export async function fetchBlind(url: string, init: RequestInit): Promise<Response> {
+  const response = await fetch(url, { ...init, redirect: "manual" })
+  if (response.redirected || (response.status >= 300 && response.status < 400)) {
+    throw new Error("Rusty redirects are not allowed")
+  }
+  return response
+}
+
+export async function readBlindJson<T>(response: Response, maximumBytes = 32 * 1024 * 1024): Promise<T> {
+  if (!response.body) throw new Error("Empty Rusty response")
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) break
+      length += chunk.value.length
+      if (length > maximumBytes) { await reader.cancel(); throw new Error("Rusty response too large") }
+      chunks.push(chunk.value)
+    }
+  } finally { reader.releaseLock() }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length }
+  const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as T
+  if (!response.ok) throw new Error((value as { message?: string }).message || `Rusty returned HTTP ${response.status}`)
+  return value
+}
+
+export async function discoverBlindKeeper(input: string): Promise<{ origin: string; servicePublicKey: string; serviceId: string }> {
+  const origin = blindOrigin(input)
+  const descriptor = await readBlindJson<{ protocolVersions: number[]; publicOrigin: string; service: { serviceId: string; publicKey: string };
+    capabilities: { modes: string[]; applicationWrites: boolean; classification: boolean } }>(await fetchBlind(`${origin}/.well-known/mesh-lighthouse`, { signal: AbortSignal.timeout(10000) }), 16384)
+  if (!descriptor.protocolVersions?.includes(2) || descriptor.publicOrigin !== origin || !descriptor.capabilities?.modes?.includes("blind") ||
+    descriptor.capabilities.applicationWrites !== false || descriptor.capabilities.classification !== false ||
+    !descriptor.service || await blindHash(decodeBlindBytes(descriptor.service.publicKey)) !== descriptor.service.serviceId) {
+    throw new Error("This service does not support blind Rusty replication")
+  }
+  return { origin, servicePublicKey: descriptor.service.publicKey, serviceId: descriptor.service.serviceId }
+}
+
+export async function verifyBlindReceipt(receipt: BlindReceipt, access: BlindAccess, object: BlindObject, requestId: string): Promise<void> {
+  const payload = receipt.payload
+  const serviceId = await blindHash(decodeBlindBytes(access.servicePublicKey))
+  if (!payload || payload.kind !== "blind-storage-receipt" || payload.version !== 2 || payload.serviceId !== serviceId || receipt.signerKeyId !== serviceId ||
+    payload.scopeId !== access.scopeId || payload.keyEpoch !== object.keyEpoch || payload.objectId !== await blindObjectId(object) ||
+    payload.requestId !== requestId || !Number.isSafeInteger(payload.sequence) || payload.sequence < 1 || payload.policyRevision !== access.policyRevision) {
+    throw new Error("Rusty receipt does not cover this encrypted object")
+  }
+  const publicKey = await crypto.subtle.importKey("raw", decodeBlindBytes(access.servicePublicKey), "Ed25519", false, ["verify"])
+  const message = encoder.encode(`RUSTY/2/${payload.kind}\0${canonicalBlindJson(payload)}`)
+  if (!await crypto.subtle.verify("Ed25519", publicKey, decodeBlindBytes(receipt.signature), message)) throw new Error("Rusty receipt signature invalid")
+}
+
+export async function uploadBlindObject(access: BlindAccess, object: BlindObject): Promise<BlindReceipt> {
+  const requestId = crypto.randomUUID()
+  const id = await blindObjectId(object)
+  const receipt = await readBlindJson<BlindReceipt>(await fetchBlind(`${blindOrigin(access.origin)}/v2/scopes/${access.scopeId}/objects/${id}`, {
+    method: "PUT", signal: AbortSignal.timeout(30000),
+    headers: { Authorization: `Bearer ${access.writeToken}`, "Content-Type": "application/json", "X-Rusty-Request-Id": requestId }, body: JSON.stringify(object),
+  }), 16384)
+  await verifyBlindReceipt(receipt, access, object, requestId)
+  return receipt
+}
+export async function inventoryBlindObjects(access: BlindAccess, after: number): Promise<{ objects: Array<{ objectId: string; sequence: number }>; cursor: number; hasMore: boolean }> {
+  const result = await readBlindJson<{ objects: Array<{ objectId: string; sequence: number }>; cursor: number; hasMore: boolean }>(
+    await fetchBlind(`${blindOrigin(access.origin)}/v2/scopes/${access.scopeId}/objects?after=${after}`, {
+      signal: AbortSignal.timeout(15000), headers: { Authorization: `Bearer ${access.readToken}` },
+    }), 65536)
+  if (!Array.isArray(result.objects) || result.objects.length > 128 || typeof result.hasMore !== "boolean" || !Number.isSafeInteger(result.cursor) || result.cursor < after ||
+    result.objects.some((object, index) => !/^[A-Za-z0-9_-]{43}$/.test(object.objectId) || !Number.isSafeInteger(object.sequence) || object.sequence <= (result.objects[index - 1]?.sequence ?? after)) ||
+    result.cursor !== (result.objects.at(-1)?.sequence ?? after) || result.hasMore && result.objects.length === 0) throw new Error("Invalid Rusty inventory")
+  return result
+}
+export async function downloadBlindObject(access: BlindAccess, id: string): Promise<BlindObject> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(id)) throw new Error("Invalid encrypted object ID")
+  const object = await readBlindJson<BlindObject>(await fetchBlind(`${blindOrigin(access.origin)}/v2/scopes/${access.scopeId}/objects/${id}`, {
+    signal: AbortSignal.timeout(30000), headers: { Authorization: `Bearer ${access.readToken}` },
+  }))
+  if (object.scopeId !== access.scopeId || await blindObjectId(object) !== id) throw new Error("Rusty object integrity failure")
+  return object
+}

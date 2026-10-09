@@ -119,7 +119,8 @@ async function mergeAuthorizedWorkspace(
     );
     const knownLocalHashes = new Set(local ? Automerge.getChangesMetaSince(local, []).map(change => change.hash) : [])
     if (documentChanged) for (const change of Automerge.getChangesMetaSince(merged, []).filter(change => !knownLocalHashes.has(change.hash))) {
-      meshTrace("document.persisted", { workspaceId: id, recordId: change.hash, phase: "remote" });
+      meshTrace("document.persisted", { workspaceId: id, recordId: change.hash, changeId: change.hash,
+        phase: "remote", component: "automerge", heads: Automerge.getHeads(merged) });
     }
     if (documentChanged || proofChanged || causalChanged) await publishCommittedWorkspace(id, merged, storage);
   });

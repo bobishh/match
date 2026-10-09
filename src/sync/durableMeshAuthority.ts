@@ -1,4 +1,6 @@
 import { fromBase64Url, type LocalProfile } from "../domain/identity"
+import { authorityValidationFingerprint } from "./changeAuthorization"
+import { WorkspaceAuthorityClassification } from "./workspaceAuthorityClassification"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import * as Automerge from "@automerge/automerge/slim"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
@@ -28,6 +30,7 @@ type OwnershipTransferState = {
   nextScopeAuthoritySnapshot?: ScopeAuthoritySnapshot
 }
 export abstract class DurableMeshAuthority extends DurableMeshCredentials {
+  private readonly authorityClassifications = new WorkspaceAuthorityClassification()
   async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
     const value = await this.traceSlowPhase("catalog.validate", workspaceId, {},
       () => meshRustRuntime().state.validateMeshCatalog(raw, Date.now()) as MeshExport)
@@ -82,7 +85,11 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       await this.traceSlowPhase("effect.notify", workspaceId, {}, effects.notify!)
   }
   protected async reclassifyWorkspaceAuthority(workspaceId: string): Promise<void> {
-    await this.options.workspaceStore.reclassify?.(workspaceId)
+    if (!this.options.workspaceStore.reclassify) return
+    if (!this.store.getWorkspaceAuthority) return this.options.workspaceStore.reclassify(workspaceId)
+    const authority = await this.store.getWorkspaceAuthority(workspaceId) ?? await this.store.getWorkspaceCredential?.(workspaceId) ?? null
+    return this.authorityClassifications.reclassify(workspaceId, authorityValidationFingerprint(authority),
+      () => this.options.workspaceStore.reclassify!(workspaceId), () => this.trace("workspace.reclassify.reused", { workspaceId }))
   }
   protected async mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]) {
     for (const [index, bundle] of bundles.entries()) {

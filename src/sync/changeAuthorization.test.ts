@@ -15,6 +15,10 @@ import { isItem, type WorkspaceDocumentV2 } from "../domain/model"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 
 const peerStoreState = vi.hoisted(() => ({ credential: null as any, authority: null as any }))
+vi.mock("@automerge/automerge/slim", async () => {
+  const actual = await vi.importActual<typeof Automerge>("@automerge/automerge/slim")
+  return { ...actual, diffPath: vi.fn(actual.diffPath), view: vi.fn(actual.view) }
+})
 vi.mock("./peerStore", () => ({ peerStore: {
   getWorkspaceCredential: async () => peerStoreState.credential,
   getWorkspaceAuthority: async () => peerStoreState.authority,
@@ -33,8 +37,8 @@ beforeEach(async () => {
   resetIdentityStorageForTest(); owner = await bootstrapIdentity("Owner")
   resetIdentityStorageForTest(); member = await bootstrapIdentity("Member")
 })
-async function fixture(command: (board: string, column: string) => Command, role: "visitor" | "editor") {
-  const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Permissions", owner.identity.personId, "blank"))
+async function fixture(command: (board: string, column: string) => Command, role: "visitor" | "editor", title = "Permissions") {
+  const local = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), title, owner.identity.personId, "blank"))
   await recordGenesisAuthority(local, owner)
   const board = Object.values(local.entities).find(e => hasEntityKind(e, "board"))!
   const column = Object.values(local.entities).find(e => hasEntityKind(e, "column"))!
@@ -61,6 +65,40 @@ it("exports the same fresh authorization evidence from a hydrated document witho
   const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Hydrated proofs", owner.identity.personId, "blank"))
   expect(await exportDocumentAuthorizationBundle(doc, owner)).toEqual(await exportAuthorizationBundle(Automerge.save(doc), owner))
   expect(Automerge.change(doc, draft => { draft.title = "Still writable" }).title).toBe("Still writable")
+})
+
+it("reports admission phase costs without changing the authorized result", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Measured" }), "editor")
+  const result = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [record]))
+  expect(result.profile).toMatchObject({ changeCount: 2, proofCount: 2 })
+  for (const phase of ["loadMs", "prepareMs", "policyMs", "indexMs", "transitionsMs", "resultMs"]) {
+    expect(result.profile?.[phase as keyof NonNullable<typeof result.profile>]).toBeGreaterThanOrEqual(0)
+  }
+  expect(result.admittedHashes).toContain(record.signed.payload.hashes[0])
+})
+
+it("admits a signed owner bootstrap with long text without expanding it into text patches", async () => {
+  const doc = Automerge.from(createWorkspaceDoc(crypto.randomUUID(), "Long text ".repeat(5000), owner.identity.personId, "job-search"))
+  await recordGenesisAuthority(doc, owner)
+  const diff = vi.mocked(Automerge.diffPath)
+  diff.mockClear()
+  try {
+    const result = await evaluateIncomingWorkspaceAdmission(undefined, doc, await exportDocumentAuthorizationBundle(doc, owner))
+    expect(result.admittedHashes).toHaveLength(1)
+    expect(result.quarantinedHashes).toEqual([])
+    expect(Automerge.load<WorkspaceDocumentV2>(result.authorizedDocument).title).toBe(doc.title)
+    expect(diff).not.toHaveBeenCalled()
+  } finally { Automerge.free(doc) }
+})
+
+it("checks a signed item edit without materializing unrelated whole-document historical views", async () => {
+  const { local, remote, record } = await fixture((_, parentId) => ({ kind: "createItem", parentId, title: "Measured edit" }), "editor", "Unrelated text ".repeat(5000))
+  const views = vi.mocked(Automerge.view)
+  views.mockClear()
+  const result = await evaluateIncomingWorkspaceAdmission(local, remote, authorizationBundle(local, [record]))
+  expect(result.admittedHashes).toContain(record.signed.payload.hashes[0])
+  // Only the ambiguous initial root-map creation needs full historical views.
+  expect(views.mock.calls.length).toBe(2)
 })
 
 it.runIf(process.env.TINCANBAN_PROOF_BENCHMARK === "1")("benchmarks complete TS/WASM admission and one delta on deterministic signed histories", async () => {

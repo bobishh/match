@@ -4,7 +4,7 @@ Implemented: bounded resumable proof pages; whole-record signatures retained; ex
 
 Legacy incoming v1 limits remain 20,000 records and 16 MiB. Pages use encoded frames ≤256 KiB, page payloads ≤224 KiB, requests ≤1,024 actual hashes, aggregate ≤1,000,000 records /256 MiB, and at most4,096 proof rounds. Oversized indivisible signed records or authority manifests reject. These finite resource caps still bound supported history. Paging only removes the legacy whole-bundle boundary; P2 growth/retirement work remains partially complete.
 
-Wire protocol: small proof bundles remain inline; bundles above 64 KiB use a manifest and bounded page requests. tincanban and Lighthouse ship the same protocol together. There is no legacy-peer fallback or format capability negotiation.
+Wire protocol: small proof bundles remain inline; bundles above 64 KiB use a manifest and bounded page requests. tincanban and Keeper ship the same protocol together. There is no legacy-peer fallback or format capability negotiation.
 
 ## Reproduce CPU evidence
 

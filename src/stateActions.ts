@@ -25,6 +25,7 @@ export function createTincanbanActions() {
     ...createLeadActions(derived.activeBoard),
     ...createContentActions(),
     executeCommandAsync: commitAndPersist,
+    executeWorkspaceCommandAsync: (id: string, command: Parameters<typeof commitAndPersist>[0]) => commitAndPersist(command, undefined, id),
     reviewCausalChange,
     getActiveDoc: () => stateRuntime.activeDoc,
     whenReady,

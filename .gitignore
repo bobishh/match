@@ -13,3 +13,7 @@ playwright-report/
 .env.*
 !.env.example
 tmp/
+
+test-results-automation-worker/
+
+.sloposcope/

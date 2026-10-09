@@ -1,5 +1,5 @@
 
-.topbar { position: sticky; top: 0; z-index: 20; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(244, 244, 242, .96); }
+.topbar { position: sticky; top: 0; z-index: 20; min-height: 76px; padding: 0 max(var(--site-gutter), calc((100% - var(--site-content-max)) / 2 + var(--site-gutter))); border-bottom: 2px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--paper); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-button { min-height: 0; padding: 0; border: 0; color: inherit; background: transparent; text-align: left; }
 .brand-button:hover { transform: none; }

@@ -1,4 +1,5 @@
 import * as Automerge from "@automerge/automerge/slim"
+import { workspaceEntitiesAtHeads } from "../crdtHistory"
 import type { Board, CommandErrorCode, FieldDefinition, FieldValue, Item, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
 import { entityKind, hasEntityKind, isItem, validatePlacementParent } from "./model"
 import { getAncestryPath } from "./ancestry"
@@ -141,7 +142,7 @@ export const restoreItemVersion: CommandHandler<"restoreItemVersion"> = (doc, co
   if (!isItem(item)) return err("not_found", `Item ${command.entityId} not found`)
   const change = Automerge.getChangesMetaSince(doc, []).find(entry => entry.hash === command.changeHash)
   if (!change) return err("not_found", "Recorded item version is unavailable")
-  const historical = Automerge.view(doc, [change.hash]).entities[command.entityId]
+  const historical = workspaceEntitiesAtHeads(doc, [change.hash])[command.entityId]
   if (!isItem(historical)) return err("not_found", "Recorded item version is unavailable")
   const parent = historical.placement.parentId ? doc.entities[historical.placement.parentId] : undefined
   if (!parent || !validatePlacementParent("item", entityKind(parent)).ok) return err("invalid_parent", "Recorded item parent is unavailable")

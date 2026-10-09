@@ -2,34 +2,49 @@ import { beforeAll, describe, expect, it, vi } from "vitest"
 import { readFile } from "node:fs/promises"
 import * as Automerge from "@automerge/automerge/slim"
 import { MeshNetworkError } from "@meta-uber/mesh-transport"
-import { createMeshRuntime } from "@meta-uber/mesh-runtime"
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { encodePairingFrame, inspectPairingFrame } from "@meta-uber/mesh-pairing"
 import { bootstrapIdentity, resetIdentityStorageForTest, sha256Base64Url, signEnvelope, toBase64Url, type LocalProfile } from "../domain/identity"
 import { certHashDefault, createDelegatedCertificate, createWorkspaceGrant } from "../domain/proofs"
 import { createWorkspaceOwnershipTransfer, verifyWorkspaceGrant } from "./meshRecords"
 import { assertRequiredMeshCapabilities, DurableMesh, isMeshDialNetworkFailure } from "./durableMesh"
-import { isNativeLighthouseRoute } from "./durableMeshSessions"
+import { isNativeKeeperRoute } from "./durableMeshSessions"
 import { isEnvelope, isGrantRevoked } from "./durableMeshBase"
 import { mergeSuccessionState } from "./durableMeshOwnershipScope"
 import { clearMeshTrace, meshTraceSnapshot } from "./meshTrace"
 
 beforeAll(async () => { await Automerge.initializeWasm(await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")) })
 
-function rustReplacesSession(
-  previous: { remoteIssuedAt: string; remoteRouteSequence?: number; direction: "incoming" | "outgoing" },
-  candidate: { remoteIssuedAt: string; remoteRouteSequence?: number; direction: "incoming" | "outgoing" },
-  preferred: "incoming" | "outgoing",
-) {
-  const runtime = createMeshRuntime()
-  const key = { workspaceId: "comparison", deviceId: "comparison", instanceId: "comparison" }
-  try {
-    runtime.admitSession({ key, connectionId: "previous", ...previous }, previous.direction)
-    return runtime.admitSession({ key, connectionId: "candidate", ...candidate }, preferred).decision === "accepted"
-  } finally { runtime.free?.() }
-}
 
 describe("DurableMesh peer catalog gossip", () => {
+  it("Given unchanged rights, When handshakes overlap and timestamps refresh, Then history is reclassified once until rights change", async () => {
+    let authority = { version: 1, workspaceId: "workspace", ownerPersonId: "owner", ownerPublicKey: "key",
+      ownerCertificates: [], epoch: 1, updatedAt: "2026-10-09T11:00:00Z", catalog: {} }
+    let finish!: () => void
+    const reclassify = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve }))
+      .mockResolvedValue(undefined)
+    const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never,
+      workspaceStore: { reclassify } as never, getProfile: async () => ({} as never),
+      store: { getWorkspaceAuthority: async () => authority } as never })
+    const internal = mesh as unknown as { reclassifyWorkspaceAuthority: (workspaceId: string) => Promise<void> }
+    const first = internal.reclassifyWorkspaceAuthority("workspace")
+    const overlapping = internal.reclassifyWorkspaceAuthority("workspace")
+    await vi.waitFor(() => expect(reclassify).toHaveBeenCalledOnce())
+    finish()
+    await Promise.all([first, overlapping])
+    authority = { ...authority, updatedAt: "2026-10-09T11:00:01Z" }
+    await internal.reclassifyWorkspaceAuthority("workspace")
+    expect(reclassify).toHaveBeenCalledOnce()
+    authority = { ...authority, epoch: 2 }
+    await internal.reclassifyWorkspaceAuthority("workspace")
+    expect(reclassify).toHaveBeenCalledTimes(2)
+    authority = { ...authority, epoch: 3 }
+    reclassify.mockRejectedValueOnce(new Error("History validation failed"))
+    await expect(internal.reclassifyWorkspaceAuthority("workspace")).rejects.toThrow("History validation failed")
+    await internal.reclassifyWorkspaceAuthority("workspace")
+    expect(reclassify).toHaveBeenCalledTimes(4)
+    await mesh.dispose()
+  })
   it("Given mesh stops during a dial, when route selection aborts, then cancellation does not become a reconnect error", async () => {
     const onDiagnostic = vi.fn()
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
@@ -457,19 +472,19 @@ describe("DurableMesh peer catalog gossip", () => {
     await mesh.dispose()
   })
 
-  it("skips signed Lighthouse routes for browser-originated dials while keeping browser routes", async () => {
+  it("skips signed keeper routes for browser-originated dials while keeping browser routes", async () => {
     const peer = (deviceId: string, userAgent: string) => ({ workspaceId: "workspace", deviceId,
       personId: `person-${deviceId}`, endpoint: `endpoint-${deviceId}`, transportSecret: "secret", role: "visitor" as const,
       lastSeen: new Date().toISOString(), advertisement: { advertisement: { payload: { userAgent } } } })
-    const lighthouse = peer("lighthouse-device", "mesh-lighthouse/1.2.3")
+    const keeper = peer("lighthouse-device", "mesh-lighthouse/1.2.3")
     const browser = peer("browser-device", "Mozilla/5.0 Chrome/140")
     const mesh = new DurableMesh({ transport: {} as never, workspace: {} as never, workspaceStore: {} as never,
       getProfile: async () => ({} as never),
-      store: { listPeerInstances: async () => [lighthouse, browser], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
+      store: { listPeerInstances: async () => [keeper, browser], listWorkspaceCredentials: async () => [], listWorkspaceAuthorities: async () => [] } as never })
     const schedulerPeers = await (mesh as any).dialScheduler.host.peers()
 
-    expect(isNativeLighthouseRoute(lighthouse as never)).toBe(true)
-    expect(isNativeLighthouseRoute(browser as never)).toBe(false)
+    expect(isNativeKeeperRoute(keeper as never)).toBe(true)
+    expect(isNativeKeeperRoute(browser as never)).toBe(false)
     expect(schedulerPeers.map((item: { deviceId: string }) => item.deviceId)).toEqual(["browser-device"])
     await mesh.dispose()
   })
@@ -687,29 +702,6 @@ describe("DurableMesh peer catalog gossip", () => {
     expect(publish).toHaveBeenCalledOnce()
     internal.lifecycle = undefined
     await mesh.dispose()
-  })
-
-  it("Given simultaneous dials converge, when the same session arrives again, then only the preferred direction replaces its duplicate", () => {
-    const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", direction: "incoming" as const }
-
-    expect(rustReplacesSession(current, { ...current }, "incoming")).toBe(false)
-    expect(rustReplacesSession(current, { ...current, direction: "outgoing" }, "incoming")).toBe(false)
-    expect(rustReplacesSession({ ...current, direction: "outgoing" }, current, "incoming")).toBe(true)
-  })
-
-  it("Given a renewed route for one instance, when both sessions arrive, then route sequence beats wall-clock skew", () => {
-    const current = { remoteIssuedAt: "2026-09-14T12:05:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
-    const renewed = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 5, direction: "incoming" as const }
-
-    expect(rustReplacesSession(current, renewed, "incoming")).toBe(true)
-    expect(rustReplacesSession(renewed, current, "incoming")).toBe(false)
-  })
-
-  it("Given equal route sequence with skewed clocks, when duplicate sessions arrive, then time cannot replace the preferred direction", () => {
-    const current = { remoteIssuedAt: "2026-09-14T12:00:00.000Z", remoteRouteSequence: 4, direction: "incoming" as const }
-    const future = { ...current, remoteIssuedAt: "2099-09-14T12:00:00.000Z", direction: "outgoing" as const }
-
-    expect(rustReplacesSession(current, future, "incoming")).toBe(false)
   })
 
   it("Given a newer browser instance closed, when an older live instance has no session, then it still dials the known peer", async () => {
@@ -1036,7 +1028,7 @@ describe("DurableMesh peer catalog gossip", () => {
       expect(internal.notify).toHaveBeenCalledOnce()
       expect(meshTraceSnapshot()).toContainEqual(expect.objectContaining({
         event: "authority.merge.phase",
-        phase: "effect.notify", workspaceId: "workspac", elapsedMs: expect.any(Number),
+        phase: "effect.notify", workspaceId: "workspace-1", elapsedMs: expect.any(Number),
       }))
     } finally {
       validate.mockRestore()

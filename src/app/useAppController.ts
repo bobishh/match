@@ -66,18 +66,18 @@ function appUi(core: ReturnType<typeof useAppCore>) {
 function appCollaboration(core: ReturnType<typeof useAppCore>) {
   const {
     sync, chat, confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess,
-    canImportWorkspace, canRenameWorkspace, meshPresence, meshPresenceLabel, activeMeshRetryAt,
-    meshMembers, meshParticipantDevices, activeSuccession, canClaimSuccession,
+    canImportWorkspace, canRenameWorkspace, devicePresence, meshPresence, meshPresenceLabel, activeMeshRetryAt,
+    meshMembers, activeSuccession, canClaimSuccession,
     transferringOwnership, leavingMesh, revokingPeer, peerAccessError,
     transferWorkspaceOwnership, leaveWorkspaceMesh,
     setWorkspaceSuccessor, voteForWorkspaceSuccessor, claimWorkspaceSuccession,
     revokeWorkspacePeer, promoteWorkspacePeer,
   } = core
   return {
-    device: { sync, chat },
+    device: { sync, chat, blindReplication: core.blindReplication },
     permissions: { confirmedRole, currentRole, workspaceAccessErrors, workspaceRoleStatus, keeperOwnedWorkspaces, currentWorkspaceOwnerId, canEditItems, canEditBoard, canManageAccess, canImportWorkspace, canRenameWorkspace },
     mesh: {
-      meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers, meshParticipantDevices,
+      devicePresence, meshPresence, meshPresenceLabel, activeMeshRetryAt, meshMembers,
       activeSuccession, canClaimSuccession, transferringOwnership, leavingMesh,
       revokingPeer, peerAccessError, transferWorkspaceOwnership,
       leaveWorkspaceMesh, setWorkspaceSuccessor, voteForWorkspaceSuccessor,

@@ -68,6 +68,25 @@ tincanban SHALL synchronize non-secret integration settings between devices of t
 - **WHEN** two devices submit incompatible updates to one revision
 - **THEN** a conflict is displayed and permissions are not silently combined.
 
+### Requirement: Isolated operator and identity sessions
+Lighthouse SHALL keep operator administration and Tincanban identity sessions in separate validated browser contexts. Signing into an identity MUST NOT overwrite or create operator authority. Each logout MUST revoke and clear only the selected session, and operator-only endpoints MUST continue to require a valid operator session and CSRF token.
+
+#### Scenario: Identity sign-in while operator is authenticated
+- **WHEN** a browser has a valid operator session and completes Tincanban identity exchange
+- **THEN** both sessions remain independently valid, operator approvals remain available, and identity exchange grants no operator authority.
+
+#### Scenario: Identity cannot approve
+- **WHEN** a browser has only a valid Tincanban identity session and requests an operator approval
+- **THEN** the request is denied and the identity session is not promoted.
+
+#### Scenario: Scoped logout
+- **WHEN** a browser has valid operator and identity sessions and logs out of one context
+- **THEN** only that session is revoked and cleared; the other remains valid.
+
+#### Scenario: Legacy identity cookie
+- **WHEN** a pre-migration identity session arrives in the legacy operator-cookie slot
+- **THEN** Lighthouse derives its role from the server-side session and never treats the cookie name as operator authority.
+
 ### Requirement: Explicit future-board policy
 tincanban SHALL auto-provision future owned boards only under an enabled, owner-approved revisioned policy and fresh per-board owner authorization. Approval SHALL bind a sorted, unique baseline of all eligible owner scopes present before approval. Future automation SHALL exclude every baseline scope, even when user left that scope unchecked. A missing legacy baseline SHALL fail closed for automatic additions.
 

@@ -74,7 +74,7 @@ export function isMemberProfileData(value: unknown): boolean {
   if (typeof value !== "string" || value.length > MAX_AVATAR_DATA_URL_LENGTH + 100) return false
   try {
     const record = JSON.parse(value) as Record<string, unknown>
-    return Object.keys(record).length === 2 && isAvatarDataUrl(record.avatarData) &&
+    return Object.keys(record).length === 2 && (record.avatarData === null || isAvatarDataUrl(record.avatarData)) &&
       typeof record.changedAt === "string" && Number.isFinite(Date.parse(record.changedAt)) &&
       new Date(record.changedAt).toISOString() === record.changedAt
   } catch { return false }
@@ -82,5 +82,5 @@ export function isMemberProfileData(value: unknown): boolean {
 
 export function memberAvatarData(value: unknown): string | undefined {
   if (typeof value !== "string" || !isMemberProfileData(value)) return undefined
-  return (JSON.parse(value) as { avatarData: string }).avatarData
+  return (JSON.parse(value) as { avatarData: string | null }).avatarData ?? undefined
 }

@@ -6,6 +6,7 @@ import { stateRuntime } from "./stateContext"
 import { createSyncActions } from "./stateSyncActions"
 import { bootstrapIdentity, resetIdentityStorageForTest } from "./domain/identity"
 import { createPersonalRoot } from "./domain/personalRoot"
+import { clearMeshTrace, meshTraceSnapshot } from "./sync/meshTrace"
 
 const originalDoc = stateRuntime.activeDoc
 const originalProfile = stateRuntime.currentProfile
@@ -31,6 +32,15 @@ describe("readWorkspaceDoc", () => {
     const storage = { loadWorkspaceDoc: async () => ({ doc }) } as unknown as WorkspaceStorage
     expect(await createSyncActions().readWorkspaceDoc(doc.id, storage)).toBe(doc)
   })
+})
+
+it("Given failing history storage, When access reclassification runs, Then trace preserves the failure stage and cause", async () => {
+  clearMeshTrace()
+  const storage = { loadWorkspaceDoc: async () => { throw new Error("History read failed") } } as unknown as WorkspaceStorage
+  await expect(createSyncActions().reclassifyWorkspace("trace-workspace", storage)).rejects.toThrow("History read failed")
+  expect(meshTraceSnapshot()).toEqual(expect.arrayContaining([expect.objectContaining({
+    event: "workspace.reclassify.failed", workspaceId: "trace-workspace", stage: "load-document", reason: "History read failed",
+  })]))
 })
 
 describe("recordVerifiedOwnerWorkspace", () => {

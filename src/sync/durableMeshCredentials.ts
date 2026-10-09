@@ -77,7 +77,7 @@ export abstract class DurableMeshCredentials extends DurableMeshBase {
     for (const credential of mismatched) {
       // A transient or concurrent identity bootstrap must not erase durable mesh trust.
       // Enrollment replaces stale credentials explicitly after mutual approval.
-      this.trace("credential.identity-mismatch", { workspaceId: credential.workspaceId.slice(0, 8) }, "warn")
+      this.trace("credential.identity-mismatch", { workspaceId: credential.workspaceId }, "warn")
     }
     if (mismatched.length && active.length === 0) {
       this.report("Mesh identity", new Error("Stored mesh trust belongs to another local identity. Re-enroll this device."))

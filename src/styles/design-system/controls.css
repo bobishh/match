@@ -12,6 +12,59 @@ button:disabled:hover { transform: none; }
 .search-field input { width: 100%; min-height: 42px; border: 0; outline: 0; font-size: 1rem; }
 select, input, textarea { min-width: 0; border: 2px solid var(--line); border-radius: 0; background: white; }
 select { min-height: 42px; padding: 8px 26px 8px 10px; }
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]), select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+  }
+  select:not([multiple]):not([size]) {
+    background-image: none !important;
+    align-items: center;
+    gap: 12px;
+    padding-inline-end: 12px;
+  }
+  select::picker-icon {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-inline-start: auto;
+    border-right: 2px solid var(--ink);
+    border-bottom: 2px solid var(--ink);
+    transform: translateY(-2px) rotate(45deg);
+  }
+  select:open::picker-icon { transform: translateY(2px) rotate(225deg); }
+  select::picker(select) {
+    min-inline-size: anchor-size(width);
+    max-inline-size: calc(100vw - 24px);
+    max-block-size: min(360px, 65dvh);
+    margin-block: 8px;
+    padding: 6px;
+    border: 2px solid var(--ink);
+    border-radius: 0;
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: 4px 4px 0 var(--soft);
+    overflow: auto;
+    overscroll-behavior: contain;
+    font: 400 1rem/1.4 var(--site-font-sans);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  select option {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    min-height: 44px;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: 0;
+    overflow-wrap: anywhere;
+  }
+  select option:checked { background: var(--soft); font-weight: 700; }
+  select option:hover, select option:focus { background: var(--yellow); border-color: var(--ink); outline: none; }
+  select option:disabled { opacity: .5; }
+  select option::checkmark { color: var(--focus); }
+}
 .lead-filters select { width: 100%; }
 .filter-range label, .filter-range input { min-width: 0; }
 .filter-range input { width: 100%; max-width: 100%; min-height: 42px; padding: 8px 10px; }

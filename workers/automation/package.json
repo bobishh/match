@@ -1,0 +1,25 @@
+{
+  "name": "tincanban-automation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "dev:e2e": "wrangler dev --local --config wrangler.e2e.jsonc",
+    "types": "wrangler types",
+    "check": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/clef.test.ts tests/intake.test.ts tests/extraction.test.ts tests/email.test.ts",
+    "test:runtime": "vitest run --config vitest.config.ts",
+    "build": "wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "postal-mime": "latest"
+  },
+  "devDependencies": {
+    "wrangler": "latest",
+    "typescript": "5.8.3",
+    "vitest": "4.1.11",
+    "@cloudflare/workers-types": "latest",
+    "@types/node": "latest",
+    "@cloudflare/vitest-plugin": "1.3.7"
+  }
+}

@@ -1,4 +1,4 @@
-import type { LighthouseDiscovery } from "./lighthouseDiscovery"
+import type { KeeperDiscovery } from "./keeperDiscovery"
 
 export type KeeperDisconnectScope = { workspaceId: string; expectedGrantEpoch: number }
 type KeeperIntegrationScope = {
@@ -150,7 +150,7 @@ function parseIntegration(raw: unknown): KeeperIntegrationStatus {
     scopes, tombstones, ...(pendingOperation ? { pendingOperation } : {}) }
 }
 
-export function parseKeeperIntegrationStatus(payload: Record<string, unknown>, discovery: LighthouseDiscovery) {
+export function parseKeeperIntegrationStatus(payload: Record<string, unknown>, discovery: KeeperDiscovery) {
   if (payload.servicePersonId !== discovery.personId || payload.serviceDeviceId !== discovery.deviceId || payload.serviceOrigin !== discovery.origin) {
     throw new Error("Rusty status belongs to a different service identity or address.")
   }

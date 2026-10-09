@@ -3,6 +3,10 @@ import { entitySchema, workspaceSchema } from "./entitySchemas"
 import type { CommandResult, EntityKind } from "./model"
 import type { Item, WorkspaceDocumentV2, WorkspaceEntity } from "./model"
 import { memberProfileEntityId } from "./avatarData"
+import { automationEntityId, automationLifecycle } from "./automationLifecycle"
+import { parseAutomationDefinition } from "./automationContract"
+import { parseAutomationApproval } from "./automationApproval"
+import { canonicalizeJson } from "./identity"
 
 function validate<T>(schema: z.ZodType<T>, input: unknown): CommandResult<T> {
   const result = schema.safeParse(input)
@@ -21,11 +25,36 @@ export function validateWorkspaceDoc(input: unknown): CommandResult<WorkspaceDoc
   const doc = parsed.value as WorkspaceDocumentV2
   const profileError = validateMemberProfiles(doc)
   if (profileError) return profileError
+  const automationError = validateAutomations(doc)
+  if (automationError) return automationError
   const archiveError = validateArchiveReferences(doc)
   if (archiveError) return archiveError
   const transitionError = validateItemTransitions(doc)
   if (transitionError) return transitionError
   return parsed as CommandResult<WorkspaceDocumentV2>
+}
+
+function validateAutomations(doc: WorkspaceDocumentV2): CommandResult<never> | undefined {
+  for (const [id, entity] of Object.entries(doc.entities)) {
+    if (entity.kind !== "automation") continue
+    try {
+      if (!validAutomationRecord(doc, id, entity)) {
+        return invalid(`entities.${id}`, "Automation scope, identity or placement is invalid")
+      }
+      automationLifecycle(entity)
+    } catch { return invalid(`entities.${id}`, "Automation control history is invalid") }
+  }
+}
+
+function validAutomationRecord(doc: WorkspaceDocumentV2, id: string,
+  entity: Extract<WorkspaceEntity, { kind: "automation" }>): boolean {
+  const definition = parseAutomationDefinition(JSON.parse(entity.definition))
+  const approval = parseAutomationApproval(entity.approval)
+  const board = doc.entities[definition.scope.boardId]
+  return id === entity.id && id === automationEntityId(definition.id) && definition.scope.workspaceId === doc.id &&
+    board?.kind === "board" && entity.placement.parentId === board.id && entity.placement.rank === "0/1" &&
+    entity.archivedAt === null && entity.title === definition.name && isIso(entity.createdAt) && isIso(entity.updatedAt) &&
+    canonicalizeJson(approval.definition.payload) === canonicalizeJson(definition) && approval.grant.payload.personId === entity.executor.personId
 }
 
 function validateMemberProfiles(doc: WorkspaceDocumentV2): CommandResult<never> | undefined {
@@ -111,7 +140,7 @@ function parseTransition(value: unknown): Record<string, unknown> | undefined {
 
 const allowedParents: Record<EntityKind, readonly (string | null)[]> = {
   board: [null], column: ["board"], field: ["board"], item: ["column", "item"],
-  document: ["item"], artifact: ["item"], document_template: [null], template: [null], member_profile: [null],
+  document: ["item"], artifact: ["item"], document_template: [null], template: [null], member_profile: [null], automation: ["board"],
 }
 export function validatePlacementParent(childKind: string, parentKind: string | null): CommandResult<void> {
   if (!Object.hasOwn(allowedParents, childKind)) return { ok: false, error: { code: "invalid_input", message: `Unknown entity kind: ${childKind}` } }

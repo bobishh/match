@@ -117,6 +117,7 @@ export async function ensureChatProfile(workspaceId: string) {
 }
 
 export async function sendChatMessage(workspaceId: string, body: string, context?: MessageContext) {
+  const started = performance.now()
   const scope = await readScope(workspaceId)
   let normalized: MessageContext | undefined
   if (context) {
@@ -129,7 +130,7 @@ export async function sendChatMessage(workspaceId: string, body: string, context
   const value = message(await signed(workspaceId, "chat-message", text, 0, normalized))
   meshTrace("chat.submit", { workspaceId, recordId: value.id, timestampMs })
   if (await chatStore.append(value)) {
-    meshTrace("chat.persisted", { workspaceId, recordId: value.id, elapsedMs: Date.now() - timestampMs, phase: "local" })
+    meshTrace("chat.persisted", { workspaceId, recordId: value.id, elapsedMs: performance.now() - started, phase: "local" })
     publish({ workspaceId, added: [value], remote: false, history: false })
     return value
   }
@@ -218,6 +219,7 @@ async function verifiedRecords(
 }
 
 export async function receiveChat(workspaceId: string, value: unknown, history: boolean, remoteDeviceId?: string) {
+  const started = performance.now()
   const timestampMs = Date.now()
   const wire = parseChatWire(value)
   const owner = await readOwner(workspaceId)
@@ -235,8 +237,8 @@ export async function receiveChat(workspaceId: string, value: unknown, history: 
   const typing = typingRecords.filter(record => rememberTyping(workspaceId, record))
   const result = await chatStore.merge(scope, messages, profiles)
   for (const message of result.added) {
-    meshTrace("chat.received", { workspaceId, recordId: message.id, timestampMs })
-    meshTrace("chat.persisted", { workspaceId, recordId: message.id, elapsedMs: Date.now() - timestampMs, phase: "remote" })
+    meshTrace("chat.received", { workspaceId, recordId: message.id, timestampMs, peerId: remoteDeviceId })
+    meshTrace("chat.persisted", { workspaceId, recordId: message.id, elapsedMs: performance.now() - started, phase: "remote", peerId: remoteDeviceId })
   }
   if (result.changed || typing.length) publish({ workspaceId, added: result.added, remote: true, history, typing })
 }

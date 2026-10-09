@@ -7,6 +7,7 @@ import { peerStore } from "./sync/peerStore"
 import { defaultStorage } from "./storage"
 import { withWorkspaceMutation } from "./workspaceMutation"
 import { stateRuntime } from "./stateContext"
+import { meshTrace } from "./sync/meshTrace"
 
 export async function assertWorkspaceWritesAllowed(workspaceId?: string): Promise<void> {
   if (!workspaceId) return
@@ -19,20 +20,32 @@ export async function reclassifyStoredWorkspace(workspaceId: string, storage = d
   doc: Automerge.Doc<WorkspaceDocumentV2> | undefined
   changed: boolean
 }> {
+  const startedAt = performance.now()
+  let stage = "waiting-for-lock"
+  meshTrace("workspace.reclassify.started", { workspaceId })
+  const phase = async <T>(name: string, operation: () => Promise<T>): Promise<T> => {
+    stage = name
+    const phaseStartedAt = performance.now()
+    const result = await operation()
+    meshTrace("workspace.reclassify.phase", { workspaceId, stage: name,
+      elapsedMs: Math.round(performance.now() - phaseStartedAt) })
+    return result
+  }
   return withWorkspaceMutation(workspaceId, async () => {
-    const loaded = await storage.loadWorkspaceDoc(workspaceId)
+    const loaded = await phase("load-document", () => storage.loadWorkspaceDoc(workspaceId))
     if (!loaded) return { doc: undefined, changed: false }
     // Keep the last admitted projection available if its local authority record
     // is malformed. Raw causal bytes may contain unreviewed changes, so this
     // branch must neither replay them nor persist a new classification.
-    if (await workspaceAuthorityIsInvalid(workspaceId)) return { doc: loaded.doc, changed: false }
-    const evidence = await storage.loadCausalEvidence(workspaceId)
+    if (await phase("validate-authority", () => workspaceAuthorityIsInvalid(workspaceId))) return { doc: loaded.doc, changed: false }
+    const evidence = await phase("load-evidence", () => storage.loadCausalEvidence(workspaceId))
     const rawBytes = evidence ? new Uint8Array(evidence.bytes) : Automerge.save(loaded.doc)
     const raw = Automerge.load<WorkspaceDocumentV2>(rawBytes)
     try {
-      const authorization = await exportAuthorizationBundle(rawBytes, stateRuntime.currentProfile ?? undefined)
-      const admission = await evaluateIncomingWorkspaceAdmission(raw, raw, authorization,
-        (evidence?.authorizationEvidence ?? []) as WorkspaceChangeAuthorization[])
+      const authorization = await phase("export-authorization", () => exportAuthorizationBundle(rawBytes, stateRuntime.currentProfile ?? undefined))
+      const admission = await phase("admit-history", () => evaluateIncomingWorkspaceAdmission(raw, raw, authorization,
+        (evidence?.authorizationEvidence ?? []) as WorkspaceChangeAuthorization[]))
+      stage = "validate-projection"
       const doc = Automerge.load<WorkspaceDocumentV2>(admission.authorizedDocument)
       const validation = validateWorkspaceDoc(doc)
       if (!validation.ok) {
@@ -43,15 +56,24 @@ export async function reclassifyStoredWorkspace(workspaceId: string, storage = d
         Automerge.free(doc)
         throw new Error("Workspace ownership cannot change through reclassification.")
       }
-      const result = await storage.commitWorkspace(workspaceId, doc, Automerge.save(doc),
+      const result = await phase("commit", () => storage.commitWorkspace(workspaceId, doc, Automerge.save(doc),
         admission.verifiedAuthorizations as WorkspaceChangeAuthorization[], undefined, {
           bytes: admission.rawBytes,
           decisions: admission.decisions,
           authorizationEvidence: admission.authorizationEvidence,
-        })
+        }))
       const documentChanged = !sameHeads(doc, loaded.doc)
       return { doc, changed: documentChanged || result.proofChanged || result.causalChanged }
     } finally { Automerge.free(raw) }
+  }).then(result => {
+    meshTrace("workspace.reclassify.completed", { workspaceId, changed: result.changed,
+      elapsedMs: Math.round(performance.now() - startedAt) })
+    return result
+  }).catch(error => {
+    meshTrace("workspace.reclassify.failed", { workspaceId, stage,
+      elapsedMs: Math.round(performance.now() - startedAt),
+      reason: error instanceof Error ? error.message : String(error) }, "warn")
+    throw error
   })
 }
 

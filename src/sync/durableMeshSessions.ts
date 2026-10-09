@@ -28,7 +28,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     this.options.onDiagnostic?.("")
   }
   private readonly dialScheduler = new BrowserMeshDialScheduler<WorkspacePeerRecord>({
-    peers: async () => (await this.peerInstances()).filter(peer => !isNativeLighthouseRoute(peer)),
+    peers: async () => (await this.peerInstances()).filter(peer => !isNativeKeeperRoute(peer)),
     hasSession: (workspaceId, deviceId, instanceId) => this.hasPeerSession(workspaceId, deviceId, instanceId),
     peerKey: (workspaceId, deviceId, instanceId) => this.peerKey(workspaceId, deviceId, instanceId),
     routeFailures: key => this.routeFailures(key),
@@ -137,21 +137,21 @@ export class DurableMeshSessions extends DurableMeshHandshake {
       }
     } catch (error) {
       if (signal.aborted || error instanceof MeshDialCancelled) {
-        this.trace("dial.device.cancelled", { peerId: peer.deviceId.slice(0, 8), workspaceId: peer.workspaceId.slice(0, 8) })
+        this.trace("dial.device.cancelled", { peerId: peer.deviceId, workspaceId: peer.workspaceId })
         return
       }
       if (this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) {
         this.trace("dial.device.superseded", {
-          peerId: peer.deviceId.slice(0, 8),
-          workspaceId: peer.workspaceId.slice(0, 8),
+          peerId: peer.deviceId,
+          workspaceId: peer.workspaceId,
           routes: peers.length,
           reason: error instanceof Error ? error.message : String(error),
         })
         return
       }
       this.trace("dial.device.failed", {
-        peerId: peer.deviceId.slice(0, 8),
-        workspaceId: peer.workspaceId.slice(0, 8),
+        peerId: peer.deviceId,
+        workspaceId: peer.workspaceId,
         routes: peers.length,
         reason: error instanceof Error ? error.message : String(error),
       }, "warn")
@@ -197,10 +197,10 @@ export class DurableMeshSessions extends DurableMeshHandshake {
 
   protected async openPeerConnection(peer: WorkspacePeerRecord, route: DeviceRoute, key: string, connectionId: string): Promise<SyncConnection> {
     const mode = this.reconnectPolicy.mode(this.node!, key)
-    this.trace("dial.started", { connectionId, peerId: peer.deviceId.slice(0, 8), workspaceId: peer.workspaceId.slice(0, 8),
+    this.trace("dial.started", { connectionId, peerId: peer.deviceId, workspaceId: peer.workspaceId,
       endpoint: peer.endpoint.slice(0, 8), mode })
     const connection = networkConnection(await networkIO(this.reconnectPolicy.dial<SyncConnection>(this.node!, key, route.endpoint)))
-    this.trace("dial.connected", { connectionId, peerId: peer.deviceId.slice(0, 8), mode })
+    this.trace("dial.connected", { connectionId, peerId: peer.deviceId, mode })
     return connection
   }
 
@@ -233,14 +233,14 @@ export class DurableMeshSessions extends DurableMeshHandshake {
     connectionId: string, signal: AbortSignal, routeSignal: AbortSignal): Promise<void> {
     if (error instanceof MeshDialCancelled || signal.aborted || routeSignal.aborted) {
       await connection?.close().catch(() => {})
-      this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+      this.trace("dial.cancelled", { connectionId, peerId: peer.deviceId })
       throw new MeshDialCancelled()
     }
     this.recordRouteFailure(key, error)
-    this.trace("dial.failed", { connectionId, peerId: peer.deviceId.slice(0, 8),
+    this.trace("dial.failed", { connectionId, peerId: peer.deviceId,
       reason: error instanceof Error ? error.message : String(error) }, "warn")
     if (!this.hasPeerSession(peer.workspaceId, peer.deviceId, peer.instanceId)) this.reportProtocolFailure(`Dial ${peer.deviceId.slice(0, 6)}`, error)
-    else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId.slice(0, 8) })
+    else this.trace("dial.failure.superseded", { connectionId, peerId: peer.deviceId })
     await connection?.close().catch(() => {})
     if (/runtime node is closed|node is closed/i.test(error instanceof Error ? error.message : String(error))) {
       const stale = this.node
@@ -391,11 +391,11 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   }
 
   protected publishWorkspace(workspaceId: string): Promise<void> {
-    this.trace("workspace.publish.requested", { workspaceId: workspaceId.slice(0, 8), source: "scoped" })
+    this.trace("workspace.publish.requested", { workspaceId: workspaceId, source: "scoped" })
     const active = this.workspacePublishTasks.get(workspaceId)
     if (active) {
       this.dirtyWorkspacePublishes.add(workspaceId)
-      this.trace("workspace.publish.coalesced", { workspaceId: workspaceId.slice(0, 8) })
+      this.trace("workspace.publish.coalesced", { workspaceId: workspaceId })
       return active
     }
     const task = (async () => {
@@ -403,7 +403,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
         this.dirtyWorkspacePublishes.delete(workspaceId)
         const sessions = [...this.sessions.entries()].filter(([, entry]) => entry.workspaceId === workspaceId)
         const started = performance.now()
-        this.trace("workspace.publish.started", { workspaceId: workspaceId.slice(0, 8), sessions: sessions.length })
+        this.trace("workspace.publish.started", { workspaceId: workspaceId, sessions: sessions.length })
         try {
           await Promise.allSettled(sessions.map(async ([key, entry]) => {
             try { await entry.session.publish() }
@@ -416,12 +416,12 @@ export class DurableMeshSessions extends DurableMeshHandshake {
           try { await this.broadcastWorkspaceGossip(workspaceId) }
           catch (error) {
             this.trace("gossip.broadcast.failed", {
-              workspaceId: workspaceId.slice(0, 8), reason: error instanceof Error ? error.message : String(error),
+              workspaceId: workspaceId, reason: error instanceof Error ? error.message : String(error),
             }, "warn")
           }
         } finally {
           this.trace("workspace.publish.completed", {
-            workspaceId: workspaceId.slice(0, 8), source: "scoped", sessions: sessions.length,
+            workspaceId: workspaceId, source: "scoped", sessions: sessions.length,
             elapsedMs: Math.round(performance.now() - started),
           })
         }
@@ -503,7 +503,7 @@ export class DurableMeshSessions extends DurableMeshHandshake {
   }
 }
 
-export function isNativeLighthouseRoute(peer: WorkspacePeerRecord): boolean {
+export function isNativeKeeperRoute(peer: WorkspacePeerRecord): boolean {
   const advertisement = peer.advertisement as WorkspaceMemberBundle | undefined
   const userAgent = advertisement?.advertisement?.payload?.userAgent
   return typeof userAgent === "string" && userAgent.toLowerCase().startsWith("mesh-lighthouse/")

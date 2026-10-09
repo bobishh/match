@@ -45,3 +45,17 @@ describe("member avatar profile command", () => {
     expect(missing).toMatchObject({ ok: false, error: { code: "invalid_input" } })
   })
 })
+
+it("Given identity photo removal, when projected to a new workspace, then its timestamped tombstone prevents an old photo from returning", async () => {
+  resetIdentityStorageForTest()
+  const profile = await bootstrapIdentity("Owner")
+  const doc = Automerge.from<WorkspaceDocumentV2>(createWorkspaceDoc("photo-removal", "Board", profile.identity.personId, "blank"))
+  const changedAt = "2026-10-09T14:00:00.000Z"
+  const result = await executeCommand(doc, { kind: "setMemberAvatar", avatarData: null, changedAt }, profile)
+  expect(result.ok).toBe(true)
+  if (!result.ok) return
+  const record = result.value.newDoc.entities[memberProfileEntityId(profile.identity.personId)]
+  if (!hasEntityKind(record, "member_profile")) throw new Error("Missing tombstone")
+  expect(JSON.parse(record.data)).toEqual({ avatarData: null, changedAt })
+  expect(validateWorkspaceDoc(result.value.newDoc).ok).toBe(true)
+})

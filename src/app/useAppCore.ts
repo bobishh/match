@@ -11,6 +11,7 @@ import { refreshWorkspaceAccess } from "./workspaceAccessRefresh"
 import type { AppStartupStage } from "./startup"
 import { useWorkspaceChat } from "../chat/useWorkspaceChat"
 import { defaultBoardFilters, type BoardFilters } from "../filters"
+import { useBlindReplication } from "../sync/useBlindReplication"
 import { useDeviceSync } from "../sync/useDeviceSync"
 import { meshTrace } from "../sync/meshTrace"
 import { useAppMesh } from "./useAppMesh"
@@ -133,8 +134,9 @@ function useAppCollaboration(tincanban: ReturnType<typeof useTincanban>, ui: Ret
   })
   configureAttachmentFetcher(descriptor => sync.fetchBlob(tincanban.activeWorkspace.id, descriptor))
   const policy = useWorkspacePolicy(tincanban, ui, sync)
-  const mesh = useAppMesh({ activeWorkspace: tincanban.activeWorkspace, chat, sync, ...policy })
-  return { chat, sync, ...policy, ...mesh }
+  const blindReplication = useBlindReplication(tincanban)
+  const mesh = useAppMesh({ activeWorkspace: tincanban.activeWorkspace, chat, sync, blindReplication, ...policy })
+  return { chat, sync, blindReplication, ...policy, ...mesh }
 }
 
 function subscribeWorkspaceAndChat(subscribeLocalChanges: ReturnType<typeof useTincanban>["subscribeLocalChanges"], listener: () => void) {
@@ -158,7 +160,7 @@ async function timedWorkspaceStoreStage<T>(stage: string, workspaceId: string, o
   finally {
     const elapsedMs = Math.round(performance.now() - started)
     if (elapsedMs >= 1_000) meshTrace("workspace.store.slow", {
-      stage, workspaceId: workspaceId.slice(0, 8), elapsedMs,
+      stage, workspaceId: workspaceId, elapsedMs,
     }, "warn")
   }
 }

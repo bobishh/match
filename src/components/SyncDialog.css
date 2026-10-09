@@ -1,10 +1,10 @@
 .sync-workspace-list { display: grid; gap: 8px; max-height: 220px; margin: 16px 0; overflow-y: auto; }
 .mesh-member-list { display: grid; gap: 8px; max-height: 300px; margin: 16px 0; padding: 3px 5px 5px 3px; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
-.mesh-member { width: 100%; min-height: 58px; display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); text-align: left; }
+.mesh-member { width: 100%; min-height: 58px; display: grid; grid-template-columns: 32px 10px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 2px solid var(--line); color: var(--ink); text-align: left; }
 .mesh-member:not(:disabled) { cursor: pointer; }
 .mesh-member:disabled { opacity: 1; }
 .mesh-member:focus { outline: none; }
-.mesh-member-name { min-width: 0; display: grid; gap: 4px; }
+.mesh-member-name { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
 .mesh-member-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-member-name small, .mesh-member-role { color: var(--muted); font: 700 .8rem/1.2 var(--site-font-sans); letter-spacing: .06em; text-transform: uppercase; }
 .mesh-member-help { margin: -8px 0 12px; color: var(--muted); font-size: .8rem; }
@@ -15,7 +15,8 @@
 .mesh-device-list { display: grid; gap: 8px; max-height: min(42dvh, 320px); margin: 0; padding: 0; overflow-y: auto; overscroll-behavior-y: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; list-style: none; }
 .mesh-device { display: grid; gap: 5px; padding: 10px; border: 1px solid var(--soft); min-width: 0; }
 .mesh-device-head { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 9px; min-width: 0; }
-.mesh-member:has(> .rusty-mark), .mesh-device-head:has(> .rusty-mark) { grid-template-columns: 40px minmax(0, 1fr) auto; }
+.mesh-member:has(> .rusty-mark) { grid-template-columns: 40px 10px minmax(0, 1fr) auto; }
+.mesh-device-head:has(> .rusty-mark) { grid-template-columns: 40px minmax(0, 1fr) auto; }
 .mesh-device-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mesh-device-head code, .mesh-device small { color: var(--muted); }
 .mesh-device small { font: 700 .8rem/1.3 var(--site-font-sans); }
@@ -39,3 +40,17 @@
 .sync-result { font-size: 1rem; font-weight: 700; }
 .guest-workspace-list { margin: 8px 0 16px 20px; padding: 0; }
 .guest-workspace-list li { margin: 4px 0; font-weight: 650; }
+
+.mesh-connection-summary { margin: 0 0 16px; padding: 10px 12px; border: 1px solid var(--line); color: var(--ink); font-size: 1rem; line-height: 1.4; overflow-wrap: anywhere; }
+.mesh-connection-summary.is-warning { background: var(--yellow); }
+.mesh-member-role { display: inline-flex; align-items: center; justify-content: center; padding: 4px 6px; border: 1px solid var(--line); line-height: 1.2; }
+.sync-recovery-note { display: grid; gap: 4px; }
+.sync-recovery-note p { margin: 0; }
+.sync-helper-text { color: var(--muted); font-size: .9rem; line-height: 1.4; }
+.sync-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 20px; border-bottom: 2px solid var(--line); }
+.sync-tabs button { min-width: 0; min-height: 44px; padding: 8px 4px; font-size: 1rem; border: 2px solid transparent; border-bottom: 0; }
+.sync-tabs button[aria-selected="true"] { background: var(--yellow); border-color: var(--line); font-weight: 700; }
+.sync-tabs button:focus-visible { outline: 3px solid var(--green); outline-offset: -3px; }
+.sync-advanced { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); }
+.sync-advanced summary { cursor: pointer; color: var(--muted); }
+.sync-advanced .mesh-member-action { margin-top: 12px; }

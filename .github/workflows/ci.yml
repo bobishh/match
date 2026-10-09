@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 # Direct pushes often arrive in bursts while an agent is iterating. Keep only
 # the newest run for a branch instead of billing every obsolete commit.
@@ -39,8 +40,28 @@ jobs:
           name: unit-coverage
           path: coverage/
           retention-days: 14
-      - run: npm run quality:size
+      - name: Verify frontend deployment adapter
+        run: node --test workers/frontend/*.test.mjs
+      - name: Build checked production frontend
+        env:
+          VITE_SYNC_TELEMETRY_URL: ${{ vars.VITE_SYNC_TELEMETRY_URL }}
+          VITE_SYNC_TELEMETRY_PROJECT: tincanban
+          VITE_SYNC_TELEMETRY_BROWSER_KEY: ${{ vars.VITE_SYNC_TELEMETRY_BROWSER_KEY }}
+          VITE_SYNC_TELEMETRY_LEVEL: ${{ vars.VITE_SYNC_TELEMETRY_LEVEL || 'all' }}
+          VITE_SYNC_TELEMETRY_SAMPLE_RATE: ${{ vars.VITE_SYNC_TELEMETRY_SAMPLE_RATE || '1' }}
+          VITE_SYNC_TELEMETRY_BATCH_SIZE: ${{ vars.VITE_SYNC_TELEMETRY_BATCH_SIZE || '50' }}
+        run: npm run quality:size
       - run: npm audit --audit-level=moderate
+      - name: Seal checked build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node workers/frontend/release.mjs seal "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v6
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: tincanban-frontend-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
 
   formal-models:
     name: Match formal models
@@ -68,7 +89,6 @@ jobs:
 
   browser-core:
     name: Browser (core ${{ matrix.shard }})
-    needs: [verify, formal-models]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -87,6 +107,9 @@ jobs:
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test --reporter=list --project=core --shard=${{ matrix.shard }}
+      - name: Verify deployment-configured diagnostics
+        if: matrix.shard == '1/4'
+        run: npx playwright test --reporter=list --config=playwright.telemetry.config.ts
       - uses: actions/upload-artifact@v6
         if: failure() || cancelled()
         with:
@@ -96,20 +119,16 @@ jobs:
 
   browser-network:
     name: Browser (${{ matrix.project }})
-    # Run after core browser shards to keep real Iroh relay traffic isolated,
-    # while still collecting network results when a core shard fails.
-    needs: [verify, formal-models, browser-core]
-    if: ${{ always() && needs.verify.result == 'success' && needs.formal-models.result == 'success' }}
+    # Independent runners own independent identities and browser processes.
     runs-on: ubuntu-24.04
     # Twenty serial durable scenarios take seven minutes locally, before CI
     # setup and the single retry. Keep individual test deadlines unchanged.
     timeout-minutes: ${{ matrix.project == 'durable-mesh' && 20 || 10 }}
     strategy:
-      # Run every serial project after failures so CI reports full matrix status.
+      # Collect all project results even after one fails.
       fail-fast: false
-      # Iroh relay sessions can linger after Chromium exits. Serial projects keep
-      # remote relay traffic isolated; each project still gets a fresh runner.
-      max-parallel: 1
+      # Bound service traffic without serializing every isolated project.
+      max-parallel: 3
       matrix:
         project:
           - scoped-delegated-owner
@@ -119,6 +138,7 @@ jobs:
           - sync
           - workspace-roles
           - workspace-sync-data
+          - workspace-schema-migration
           - scoped-sync
           - scoped-enrollment
           - scoped-existing-board
@@ -144,51 +164,8 @@ jobs:
           path: test-results/
           retention-days: 3
 
-  browser-keeper-lifecycle:
-    name: Browser (Rusty keeper lifecycle)
-    # Run after every Iroh-backed project. Rusty and browser-network share relay
-    # infrastructure, so this real-process contract test must not overlap them.
-    needs: [verify, formal-models, browser-core, browser-network]
-    if: ${{ always() && needs.verify.result == 'success' && needs.formal-models.result == 'success' && (needs.browser-network.result == 'success' || needs.browser-network.result == 'failure') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    env:
-      TINCANBAN_REQUIRE_LIGHTHOUSE_E2E: "1"
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: recursive
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - uses: actions/checkout@v7
-        with:
-          repository: bobishh/rusty
-          ref: 2777175fc9e5731faf801753b38455ede3cf7909
-          path: rusty-lifecycle
-      - name: Move Rusty checkout outside Tincanban Cargo workspace
-        run: cp -a "$GITHUB_WORKSPACE/rusty-lifecycle" "$RUNNER_TEMP/rusty-lifecycle"
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build pinned Rusty lifecycle fixture binary
-        run: cargo build --locked --features e2e-fixture --manifest-path "$RUNNER_TEMP/rusty-lifecycle/Cargo.toml" --bin mesh-lighthouse
-      - name: Require canonical Rusty test binary
-        run: |
-          echo "TINCANBAN_LIGHTHOUSE_BINARY=$RUNNER_TEMP/rusty-lifecycle/target/debug/mesh-lighthouse" >> "$GITHUB_ENV"
-          echo "TINCANBAN_LIGHTHOUSE_MANIFEST=$RUNNER_TEMP/rusty-lifecycle/Cargo.toml" >> "$GITHUB_ENV"
-      - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --reporter=list --project=lighthouse-keeper-provisioning
-      - uses: actions/upload-artifact@v6
-        if: failure() || cancelled()
-        with:
-          name: browser-rusty-keeper-lifecycle-failure
-          path: test-results/
-          retention-days: 3
-
   browser-policy:
     name: Browser (production policy/transport packaging)
-    needs: [verify, formal-models]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -201,8 +178,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e:policy
+      - run: npx playwright test --reporter=list --project=mobile-webkit
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
@@ -212,7 +190,6 @@ jobs:
 
   browser-native:
     name: Browser (native Rust peer)
-    needs: [verify, formal-models]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -226,5 +203,62 @@ jobs:
       - run: npm ci
       - run: npm run verify:meta-mesh
       - run: npx playwright install --with-deps chromium
+      - name: Verify Rust protocol rules
+        run: cargo test --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-core/Cargo.toml --lib
       - run: cargo build --locked --manifest-path vendor/meta-mesh/crates/meta-mesh-native/Cargo.toml --example browser_document_probe
       - run: npx playwright test --reporter=list --project=browser-native
+      - run: npx playwright test --reporter=list --project=keeper-join
+
+  automation-worker:
+    name: Automation (runtime and owner lifecycle)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/checkout@v7
+        with:
+          repository: bobishh/rusty
+          ref: d811e9d2d8b2de26c3b852506ea991cb674a654b
+          path: .ci/rusty
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .ci/rusty -> target
+      - name: Build pinned blind Rusty
+        run: cargo build --locked --manifest-path .ci/rusty/Cargo.toml
+      - name: Install locked Worker dependencies
+        run: |
+          npm install --global pnpm@11.25.0
+          pnpm --dir workers/automation install --frozen-lockfile
+      - name: Check Worker contract and real runtime
+        working-directory: workers/automation
+        run: |
+          npm run check
+          npm test
+          npm run test:runtime
+          npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Verify browser owner controls and scoped intake
+        env:
+          TINCANBAN_RUSTY_BINARY: ${{ github.workspace }}/.ci/rusty/target/debug/mesh-lighthouse
+        run: npx playwright test --config playwright.automation-worker.config.ts --reporter=list
+      - name: Verify encrypted storage connection
+        env:
+          TINCANBAN_RUSTY_BINARY: ${{ github.workspace }}/.ci/rusty/target/debug/mesh-lighthouse
+        run: npx playwright test --config playwright.rusty.config.ts --reporter=list
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: automation-worker-failure
+          path: |
+            test-results-automation-worker/
+            test-results/
+          retention-days: 3

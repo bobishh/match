@@ -25,10 +25,11 @@ async function portraitFixture(page: import("@playwright/test").Page) {
 async function openAvatarSettings(page: import("@playwright/test").Page) {
   await page.goto("/")
   await page.getByRole("button", { name: "Settings" }).click()
-  await expect(page.getByRole("region", { name: "Identity settings" })).toBeVisible()
+  await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("tab", { name: "Identity", exact: true }).click()
+  await expect(page.getByRole("region", { name: "Identity photo" })).toBeVisible()
 }
 
-test("Given my identity settings, when I crop and save a photo, then small avatar survives reload", async ({ page }) => {
+test("Given identity photo settings, when one crop is saved and another workspace opens, then the same photo appears immediately and survives reload", async ({ page }) => {
   await openAvatarSettings(page)
   await page.getByLabel("Choose photo").setInputFiles({
     name: "portrait.png", mimeType: "image/png", buffer: await portraitFixture(page),
@@ -45,7 +46,6 @@ test("Given my identity settings, when I crop and save a photo, then small avata
   await crop.getByRole("slider", { name: "Photo zoom" }).fill("1.5")
   await crop.getByRole("button", { name: "Save photo" }).first().click()
   await expect(page.getByRole("img", { name: "Your profile photo" })).toBeVisible()
-  await page.getByRole("button", { name: "Save photo" }).last().click()
 
   const saved = page.locator(".participant-avatar-photo")
   await expect(saved).toBeVisible()
@@ -55,7 +55,35 @@ test("Given my identity settings, when I crop and save a photo, then small avata
   await expect(page.getByRole("button", { name: "Save photo" })).toHaveCount(0)
   await page.reload()
   await page.getByRole("button", { name: "Settings" }).click()
-  await expect(page.locator(".participant-avatar-photo").first()).toHaveAttribute("src", source!)
+  await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("tab", { name: "Identity", exact: true }).click()
+  await expect(page.locator(".identity-avatar-preview")).toHaveAttribute("src", source!)
+  await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("button", { name: "Dismiss" }).click()
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  const originalTitle = await page.locator(".workspace-switch strong").first().innerText()
+  await page.getByRole("button", { name: "New workspace" }).click()
+  const create = page.getByRole("dialog", { name: "Create workspace" })
+  await create.getByLabel("Title").fill("Other photo scope")
+  await create.getByRole("button", { name: "Create", exact: true }).click()
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  const otherSettings = page.getByRole("dialog", { name: "Settings", exact: true })
+  await otherSettings.getByRole("tab", { name: "Identity", exact: true }).click()
+  await expect(otherSettings.getByRole("region", { name: "Identity photo" })).toBeVisible()
+  await expect(otherSettings.locator(".identity-avatar-preview")).toHaveAttribute("src", source!)
+  await otherSettings.getByRole("button", { name: "Dismiss" }).click()
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  await page.locator(".workspace-switch").filter({ hasText: originalTitle }).click()
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  const originalSettings = page.getByRole("dialog", { name: "Settings", exact: true })
+  await originalSettings.getByRole("tab", { name: "Identity", exact: true }).click()
+  await expect(originalSettings.locator(".identity-avatar-preview")).toHaveAttribute("src", source!)
+  await originalSettings.getByRole("button", { name: "Remove photo", exact: true }).click()
+  await expect(originalSettings.locator(".identity-avatar-preview")).toHaveCount(0)
+  await originalSettings.getByRole("button", { name: "Dismiss" }).click()
+  await page.getByRole("button", { name: "Open workspaces" }).click()
+  await page.locator(".workspace-switch").filter({ hasText: "Other photo scope" }).click()
+  await page.reload()
+  await page.getByRole("button", { name: "Settings", exact: true }).click()
+  await expect(page.getByRole("region", { name: "Identity photo" }).locator(".identity-avatar-preview")).toHaveCount(0)
 })
 
 test("Given a photo draft, when file decode or save fails, then current avatar stays and draft can retry", async ({ page }) => {
@@ -66,14 +94,13 @@ test("Given a photo draft, when file decode or save fails, then current avatar s
 
   await input.setInputFiles({ name: "portrait.png", mimeType: "image/png", buffer: await portraitFixture(page) })
   const crop = page.getByRole("dialog", { name: "Crop profile photo" })
-  await crop.getByRole("button", { name: "Save photo" }).first().click()
   await page.evaluate(() => { (window as AvatarFailureWindow).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
-  await page.getByRole("button", { name: "Save photo" }).last().click()
+  await crop.getByRole("button", { name: "Save photo" }).first().click()
   await expect(page.getByRole("alert")).toContainText("Storage failure injected")
   await expect(page.getByRole("img", { name: "Your profile photo" })).toBeVisible()
 
   await page.evaluate(() => { (window as AvatarFailureWindow).__TINCANBAN_INJECT_STORAGE_FAILURE__ = false })
-  await page.getByRole("button", { name: "Save photo" }).last().click()
+  await page.getByRole("button", { name: "Retry save", exact: true }).click()
   await expect(page.locator(".participant-avatar-photo")).toBeVisible()
 })
 
@@ -107,7 +134,6 @@ test("Given a visitor joins a workspace, when they save their avatar, then owner
     await expect(image).toBeVisible()
     const source = await image.getAttribute("src")
     expect(source).toBeTruthy()
-    await guest.getByRole("button", { name: "Save photo" }).last().click()
     await expect(guest.getByRole("button", { name: "Save photo" })).toHaveCount(0)
 
     const currentOwnerClose = page.getByRole("dialog", { name: "Device sync" })
@@ -115,8 +141,9 @@ test("Given a visitor joins a workspace, when they save their avatar, then owner
     if (await currentOwnerClose.isVisible().catch(() => false)) await currentOwnerClose.click()
     await page.getByRole("button", { name: "Settings" }).click()
     const settings = page.getByRole("dialog", { name: "Settings" })
-    await settings.getByRole("tab", { name: "Participants" }).click()
-    await expect.poll(async () => page.locator(".participant-row .participant-avatar-photo").evaluateAll((images, expectedSource) =>
+    await settings.getByRole("tab", { name: "Connections", exact: true }).click()
+    await settings.getByRole("button", { name: "Participants and devices", exact: true }).click()
+    await expect.poll(async () => page.locator(".mesh-member .participant-avatar-photo").evaluateAll((images, expectedSource) =>
       images.some(image => (image as HTMLImageElement).src === expectedSource), source), { timeout: 30_000 }).toBe(true)
   } finally {
     await guestContext.close()

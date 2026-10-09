@@ -20,6 +20,7 @@ test("Given a narrow mobile viewport, when cropping a wide photo, then preview s
   await page.goto("/")
   await page.getByRole("button", { name: "Menu", exact: true }).click()
   await page.getByRole("dialog", { name: "Navigation menu" }).getByRole("button", { name: "Settings", exact: true }).click()
+  await page.getByRole("dialog", { name: "Settings", exact: true }).getByRole("tab", { name: "Identity", exact: true }).click()
   await page.getByLabel("Choose photo").setInputFiles({ name: "portrait.png", mimeType: "image/png", buffer: await portraitFixture(page) })
 
   const crop = page.getByRole("dialog", { name: "Crop profile photo" })

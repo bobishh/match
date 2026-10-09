@@ -313,7 +313,7 @@ export abstract class DurableMeshHandshake extends DurableMeshAuthority {
       if (!effect) throw new Error(`Unexpected handshake authority action: ${action}`)
       await effect()
     }
-    await this.options.workspaceStore.reclassify?.(workspaceId)
+    await this.reclassifyWorkspaceAuthority(workspaceId)
     return await this.store.getWorkspaceCredential(workspaceId) ?? credential
   }
 

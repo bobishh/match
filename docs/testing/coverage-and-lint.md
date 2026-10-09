@@ -10,6 +10,8 @@ Baseline on 2026-10-02: 754 passing tests, one skipped; statements 47.19%, branc
 
 CI runs coverage instead of a second duplicate unit run and uploads the report for 14 days, including failed runs. Initial global floors are statements 47%, branches 41%, functions 45%, lines 51%. These prevent material regression; they are not a claim of adequate product coverage. Increase floors after adding meaningful coverage. Do not reduce them or exclude production files merely to make a run pass.
 
+Keeper pairing has a separate 95% floor for statements, branches, functions, and lines. `src/sync/keeperPairing.test.ts` exercises real controller/service signatures, ownership proof validation, transcript and origin binding, durable provisioning, retry idempotency, activation persistence, and exact removal receipts. The service wire contract retains its published identifiers; application modules and UI use keeper terminology.
+
 ## Typed lint
 
 Production rules now reject explicit `any` and unsafe assignment, arguments, calls, member access, and returns. Existing rules also catch floating promises, invalid `await`, misused promises, non-exhaustive switches, excessive complexity/depth/function size, dead code/dependencies, import cycles, architecture violations, duplication, and forbidden AST patterns. TypeScript already uses `strict`.

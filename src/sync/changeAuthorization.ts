@@ -10,6 +10,7 @@ import { mergeAuthorizationRecords, putRecords, records, type WorkspaceChangeAut
 import { runWorkspaceAdmission } from "./workspaceAdmissionClient"
 import type { IncomingAuthorizationBundle, WorkspaceAdmissionResult, WorkspaceWriteAuthorityEvidence } from "./workspaceAdmissionCore"
 import { readWorkspaceSnapshot } from "../storageJournal"
+import { meshTrace } from "./meshTrace"
 
 import type { WorkspaceRole } from "../domain/permissions"
 export class WorkspaceChangeRejected extends Error {
@@ -75,7 +76,7 @@ export async function recordGenesisAuthority(doc: Automerge.Doc<WorkspaceDocumen
     // CLI/unit hosts still need the exact genesis changes signed into their
     // local journal; skipping proofs would make causal replay erase the seed
     // workspace when it builds the first authorized projection.
-    const hashes = Automerge.getAllChanges(doc).map(change => Automerge.decodeChange(change).hash)
+    const hashes = Automerge.getChangesMetaSince(doc, []).map(change => change.hash)
     return hashes.length ? authorizeLocalChanges(doc, profile, hashes) : []
   }
   const genesis = await signEnvelope(profile.privateKeys.devicePrivateKey, payload, profile.device.deviceId)
@@ -92,8 +93,7 @@ export async function recordGenesisAuthority(doc: Automerge.Doc<WorkspaceDocumen
     updatedAt: new Date().toISOString(), catalog: {}, scopeAuthoritySnapshot,
   }
   await peerStore.putWorkspaceAuthority(authority)
-  const hashes = Automerge.getAllChanges(doc)
-    .map(change => Automerge.decodeChange(change).hash)
+  const hashes = Automerge.getChangesMetaSince(doc, []).map(change => change.hash)
   return hashes.length ? authorizeLocalChanges(doc, profile, hashes) : []
 }
 
@@ -319,7 +319,9 @@ export async function evaluateIncomingWorkspaceAdmission(local: Automerge.Doc<Wo
   if (credential && meshRustRuntime().state.hasAuthorityConflict(credential)) throw new Error("Workspace writes paused: conflicting ownership records")
   const unnormalizedBundle = authorizationBundle(raw)
   const bundle = { ...unnormalizedBundle, authority: normalizeAuthorityDepartures(unnormalizedBundle.authority) }
-  const frozenCredential = canonicalizeJson(credential)
+  const frozenCredential = authorityValidationFingerprint(credential)
+  const startedAt = performance.now()
+  meshTrace("workspace.admission.started", { workspaceId: remote.id, epoch: credential?.epoch ?? null })
   const knownAuthority = local ? workspaceWriteAuthorityEvidence(local, credential) ?? null : null
   const rawRecords = (bundle.version === 1 ? bundle.records : bundle.pages.flat()) as Authorization[]
   const allRecords = mergeAuthorizationRecords([...await records(remote.id), ...priorEvidenceRecords], rawRecords)
@@ -334,14 +336,45 @@ export async function evaluateIncomingWorkspaceAdmission(local: Automerge.Doc<Wo
     authorization: combinedBundle, knownAuthority,
     now: Date.now(),
   })
+  if (plan.profile) meshTrace("workspace.admission.profile", { workspaceId: remote.id, ...plan.profile })
   // Off-thread validation yields while control evidence can change. A result
   // verified against earlier rights cannot authorize a commit under new rights.
   const currentCredential = await incomingCredential(remote.id)
-  if (canonicalizeJson(currentCredential) !== frozenCredential ||
+  traceAdmissionAuthority(remote.id, credential, currentCredential, frozenCredential, startedAt, plan)
+  return { ...plan, rawBytes, authorizationEvidence: plan.verifiedAuthorizations }
+}
+
+function traceAdmissionAuthority(workspaceId: string, credential: StoredWorkspaceAuthority | null,
+  currentCredential: StoredWorkspaceAuthority | null, frozenCredential: string, startedAt: number, plan: WorkspaceAdmissionResult): void {
+  const changedFields = authorityChangedFields(credential, currentCredential)
+  if (authorityValidationFingerprint(currentCredential) !== frozenCredential ||
     (currentCredential && meshRustRuntime().state.hasAuthorityConflict(currentCredential))) {
+    meshTrace("workspace.admission.authority-changed", { workspaceId,
+      elapsedMs: Math.round(performance.now() - startedAt), changedFields,
+      previousEpoch: credential?.epoch ?? null, currentEpoch: currentCredential?.epoch ?? null }, "warn")
     throw new Error("Workspace authority changed during validation. Retry synchronization.")
   }
-  return { ...plan, rawBytes, authorizationEvidence: plan.verifiedAuthorizations }
+  meshTrace(changedFields.length ? "workspace.admission.authority-refreshed" : "workspace.admission.completed", {
+    workspaceId, elapsedMs: Math.round(performance.now() - startedAt), changedFields,
+    admitted: plan.admittedHashes?.length ?? 0, pending: plan.pendingHashes?.length ?? 0,
+    quarantined: plan.quarantinedHashes?.length ?? 0,
+  })
+}
+
+export function authorityValidationFingerprint(authority: StoredWorkspaceAuthority | null): string {
+  if (!authority) return canonicalizeJson(null)
+  // Peer refreshes advance the storage timestamp without changing rights.
+  // Keep every security field in the race guard, including unknown future fields.
+  const rights = { ...authority }
+  delete (rights as Partial<StoredWorkspaceAuthority>).updatedAt
+  return canonicalizeJson(rights)
+}
+
+function authorityChangedFields(before: StoredWorkspaceAuthority | null, after: StoredWorkspaceAuthority | null): string[] {
+  const left = (before ?? {}) as unknown as Record<string, unknown>
+  const right = (after ?? {}) as unknown as Record<string, unknown>
+  return [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()
+    .filter(key => canonicalizeJson(left[key] ?? null) !== canonicalizeJson(right[key] ?? null))
 }
 
 /** Persists only proofs that a completed admission has already verified. */

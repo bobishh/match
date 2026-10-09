@@ -192,37 +192,6 @@ function createHostGroup(done: Promise<void>, peers: Map<string, LiveWorkspaceSy
   }
 }
 
-export async function createKeeperWorkspaceHost(
-  context: WorkspaceHostContext,
-  workspaces: WorkspaceOption[],
-  servicePersonId: string,
-  followOwner = false,
-) {
-  if (!workspaces.length || !servicePersonId) throw new Error("Keeper scopes and service identity are required.")
-  const profile = await context.getProfile()
-  const owners = await workspaceOwners(context, workspaces, profile)
-  await context.pauseMesh()
-  await context.stopNode("Starting Lighthouse invitation host")
-  const run = context.nextRun()
-  clearHostNotice(context)
-  const node = await startPersistentNode(context.transport)
-  if (run !== context.currentRun()) {
-    await node.close("Keeper provisioning superseded")
-    throw new Error("Keeper provisioning was cancelled.")
-  }
-  context.setNode(node)
-  await context.durableMesh?.ensureOwnerWorkspaces(workspaces.map(item => item.id), node.endpointId, profile)
-  const invite = await issueWorkspaceInvite(context, node, profile, workspaces, "editor")
-  if (!context.workspaceStore) throw new Error("Workspace sync is unavailable.")
-  const replica = workspaceSet(context.meshWorkspaceStore ?? context.workspaceStore, workspaces)
-  context.state.liveWorkspaceIds.value = workspaces.map(item => item.id)
-  await startWorkspaceHostController({
-    context, run, node, profile, invite, owners, workspaces, replica,
-    keeperAdmission: { servicePersonId, workspaceIds: workspaces.map(item => item.id), followOwner },
-  })
-  return invite
-}
-
 async function publishPeer(session: LiveWorkspaceSync) {
   try { await session.publish() } catch (error) {
     await session.close()

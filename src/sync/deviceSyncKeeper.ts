@@ -1,14 +1,12 @@
-import { createKeeperWorkspaceHost, type WorkspaceHostContext } from "./deviceSyncHost"
-import type { KeeperDisconnectScope, KeeperIntegrationStatus, KeeperPairing, KeeperPairingStatus } from "./lighthousePairing"
+import type { KeeperDisconnectScope, KeeperIntegrationStatus } from "./keeperPairing"
 import type { KeeperDisconnectReceipt } from "./keeperIntegrationStatus"
-import type { WorkspaceJoinInvitation } from "@meta-uber/mesh-pairing"
 import { keeperIntegrationReferences, ownerKeepers, removeOwnerKeeper, saveKeeperIntegrationReference, saveOwnerKeeper, type KeeperDetails } from "./ownerKeeper"
 import type { LocalProfile } from "../domain/identity"
 import type { KeeperIntegrationReference } from "../domain/model"
-import type { LighthouseDiscovery } from "./lighthouseDiscovery"
+import type { KeeperDiscovery } from "./keeperDiscovery"
 import type { DurableMesh } from "./durableMesh"
 
-function cachedDiscovery(details: KeeperDetails): LighthouseDiscovery | undefined {
+function cachedDiscovery(details: KeeperDetails): KeeperDiscovery | undefined {
   if (!details.origin || !details.servicePersonId || !details.serviceDeviceId || !details.servicePublicKey || !details.serviceCertificates) return undefined
   return {
     origin: details.origin,
@@ -73,7 +71,7 @@ async function revokeLocalScopes(mesh: DurableMesh, personId: string, scopes: st
   }
 }
 
-async function persistRemovalReceipt(profile: LocalProfile, personId: string, discovery: LighthouseDiscovery,
+async function persistRemovalReceipt(profile: LocalProfile, personId: string, discovery: KeeperDiscovery,
   integration: KeeperIntegrationStatus, receipt: KeeperDisconnectReceipt,
   descriptor: KeeperIntegrationReference) {
   const removedIds = new Set(receipt.scopes.map(scope => scope.workspaceId))
@@ -104,7 +102,7 @@ type RemovalOptions = {
   workspaceOwner?: (id: string) => Promise<string>
   mesh: () => Promise<DurableMesh | undefined>
   activeWorkspaceId?: string
-  discovery?: LighthouseDiscovery
+  discovery?: KeeperDiscovery
   knownServiceDeviceIds?: string[]
 }
 
@@ -130,9 +128,9 @@ async function localOwnerFlags(workspaces: { id: string }[], workspaceOwner: (id
   return flags
 }
 
-async function removalIntent(discovery: LighthouseDiscovery, profile: LocalProfile, integrationId: string | undefined,
+async function removalIntent(discovery: KeeperDiscovery, profile: LocalProfile, integrationId: string | undefined,
   reference: KeeperIntegrationReference | undefined, localOwners: Map<string, boolean>) {
-  const { getKeeperIntegrationStatus } = await import("./lighthousePairing")
+  const { getKeeperIntegrationStatus } = await import("./keeperPairing")
   const status = await getKeeperIntegrationStatus(discovery)
   const ownerIds = new Set([...localOwners].filter(([, owned]) => owned).map(([id]) => id))
   const integration = findIntegration(status, ownerIds, integrationId)
@@ -165,7 +163,7 @@ async function localRemovalContext(personId: string, options: RemovalOptions, pr
   return { reference, discovery, mesh, localOwners, locallyRevoked, integrationId }
 }
 
-async function removalIntentWithLocalError(discovery: LighthouseDiscovery, profile: LocalProfile, integrationId: string | undefined,
+async function removalIntentWithLocalError(discovery: KeeperDiscovery, profile: LocalProfile, integrationId: string | undefined,
   reference: KeeperIntegrationReference | undefined, localOwners: Map<string, boolean>, locallyRevoked: Set<string>) {
   try {
     return await removalIntent(discovery, profile, integrationId, reference, localOwners)
@@ -184,7 +182,7 @@ async function finishAlreadyRemoved(personId: string, profile: LocalProfile, ref
   return true
 }
 
-async function submitRemoval(personId: string, profile: LocalProfile, discovery: LighthouseDiscovery, intent: Awaited<ReturnType<typeof removalIntent>>,
+async function submitRemoval(personId: string, profile: LocalProfile, discovery: KeeperDiscovery, intent: Awaited<ReturnType<typeof removalIntent>>,
   mesh: DurableMesh, localOwners: Map<string, boolean>, locallyRevoked: Set<string>) {
   const { integration, scopes, operationId, expectedRevision, servicePending } = intent
   await revokeLocalScopes(mesh, personId, scopes.map(scope => scope.workspaceId), localOwners, locallyRevoked)
@@ -207,7 +205,7 @@ async function submitRemoval(personId: string, profile: LocalProfile, discovery:
   }
   await saveKeeperIntegrationReference(descriptor)
   try {
-    const { disconnectKeeperIntegration } = await import("./lighthousePairing")
+    const { disconnectKeeperIntegration } = await import("./keeperPairing")
     const receipt = await disconnectKeeperIntegration(discovery, integration.integrationId, expectedRevision, operationId, scopes,
       servicePending?.requestHash)
     if (receipt.status === "pending") return "pending" as const
@@ -226,7 +224,7 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   const reference = Object.values(integrations).filter(item => item.servicePersonId === personId)
     .sort((left, right) => right.revision - left.revision)[0]
   const legacyKeeper = (await ownerKeepers(profile.identity.personId)).find(item => item.personId === personId)
-  if (!options.discovery && !reference && !cachedDiscovery(legacyKeeper?.details ?? { boardIds: [], futureBoards: false })) {
+  if (!reference && !legacyKeeper?.details?.integrationId) {
     const { beginLegacyLocalRemoval } = await import("./legacyKeeperRemoval")
     return beginLegacyLocalRemoval(personId, profile, options, legacyKeeper)
   }
@@ -240,27 +238,4 @@ export async function removeKeeperAccess(personId: string, options: RemovalOptio
   }
   return submitRemoval(personId, profile, context.discovery, intent,
     context.mesh, context.localOwners, context.locallyRevoked)
-}
-
-export function createKeeperProvisioner(
-  ensureDurableMesh: () => Promise<unknown>,
-  hostContext: () => WorkspaceHostContext,
-) {
-  const invitationHosts = new Map<string, Promise<WorkspaceJoinInvitation>>()
-  return async (pairing: KeeperPairing): Promise<KeeperPairingStatus> => {
-    await ensureDurableMesh()
-    let invitationTask = invitationHosts.get(pairing.pairingId)
-    if (!invitationTask) {
-      invitationTask = createKeeperWorkspaceHost(hostContext(), pairing.workspaces, pairing.discovery.personId, pairing.futureBoards === true)
-      invitationHosts.set(pairing.pairingId, invitationTask)
-      void invitationTask.catch(() => {
-        if (invitationHosts.get(pairing.pairingId) === invitationTask) invitationHosts.delete(pairing.pairingId)
-      })
-    }
-    const invitation = await invitationTask
-    const { deliverKeeperInvitation, rememberActiveKeeperIntegration } = await import("./lighthousePairing")
-    const status = await deliverKeeperInvitation(pairing, invitation)
-    if (status === "active") await rememberActiveKeeperIntegration(pairing)
-    return status
-  }
 }
