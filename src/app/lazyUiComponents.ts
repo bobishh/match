@@ -47,6 +47,7 @@ function preloadOfflineDetailChunks() {
     detailChunksPromise = Promise.all([
       import("../components/SpatialWindow.vue"),
       import("../components/ItemDetailDialog.vue"),
+      import("../components/ItemFormDialog.vue"),
     ]).then(() => undefined).catch(error => {
       detailChunksPromise = null
       throw error

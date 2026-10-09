@@ -217,7 +217,7 @@ impl TincanbanScopeStore {
         )?;
         put_text(&mut document, &item, "body", "")?;
         document
-            .put(&item, "deleted", false)
+            .put(&item, "archivedAt", automerge::ScalarValue::Null)
             .map_err(|error| error.to_string())?;
         put_text(&mut document, &item, "createdAt", &now)?;
         put_text(&mut document, &item, "updatedAt", &now)?;

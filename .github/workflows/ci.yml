@@ -218,6 +218,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify:meta-mesh
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: |
+            vendor/meta-mesh -> target
+            crates/tincanban-lighthouse -> target
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
         run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
@@ -248,11 +254,12 @@ jobs:
           cache: npm
       - run: npm ci
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .ci/rusty -> target
       - name: Move Rusty outside the application Cargo workspace
         run: cp -a "$GITHUB_WORKSPACE/.ci/rusty" "$RUNNER_TEMP/tincanban-rusty"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          workspaces: ${{ runner.temp }}/tincanban-rusty -> target
       - name: Build pinned blind Rusty
         run: cargo build --locked --manifest-path "$RUNNER_TEMP/tincanban-rusty/Cargo.toml"
       - name: Install locked Worker dependencies

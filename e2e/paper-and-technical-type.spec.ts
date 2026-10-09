@@ -80,7 +80,7 @@ test("Given archive, when expanded and collapsed, then open archive keeps stroke
   await expect(archive.getByText("No leads", { exact: true })).toBeVisible()
 })
 
-test("Given mesh devices or an offline board and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {
+test("Given local device details and recovery words, when viewed or restore fails, then technical text remains readable in Fira Code", async ({ page }, info) => {
   await page.goto("/")
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
@@ -88,16 +88,12 @@ test("Given mesh devices or an offline board and recovery words, when viewed or 
   await expect(sync).toBeVisible()
   const members = sync.getByRole("list", { name: "Mesh members" })
   const memberButtons = members.getByRole("button")
-  if (await members.count() && await memberButtons.count()) {
-    await memberButtons.first().click()
-    const deviceId = sync.locator(".mesh-device-head code")
-    await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
-    await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
-  } else if (await members.count()) {
-    await expect(members.getByText("No people connected to this board.", { exact: true })).toBeVisible()
-  } else {
-    await expect(sync.getByRole("button", { name: "Generate link", exact: true })).toBeVisible()
-  }
+  // The current device loads asynchronously even without connected peers.
+  await expect(memberButtons.first()).toBeVisible()
+  await memberButtons.first().click()
+  const deviceId = sync.locator(".mesh-device-head code")
+  await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
+  await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
   await sync.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()
   const settings = page.getByRole("dialog", { name: "Settings", exact: true })
