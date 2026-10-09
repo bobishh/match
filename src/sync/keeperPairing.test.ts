@@ -6,9 +6,10 @@ import { defaultProofStore } from "../domain/proofs"
 import type { KeeperDiscovery } from "./keeperDiscovery"
 import { peerStore } from "./peerStore"
 import * as ownerKeeper from "./ownerKeeper"
+import { canonicalKeeperIntegrationId } from "./keeperIntegrationSelection"
 import { getKeeperPairingStatusInfo } from "./lighthousePairingWithdrawalApi"
 const getKeeperPairingStatus = async (pairing: KeeperPairing) => (await getKeeperPairingStatusInfo(pairing)).status
-import { beginKeeperPairing, decideKeeperPairing, deliverKeeperInvitation, disconnectKeeperIntegration, getEligibleKeeperWorkspaces, getKeeperIntegrationStatus, rememberActiveKeeperIntegration, signKeeperControllerRequest, verifyKeeperServiceEnvelope, type KeeperPairing } from "./keeperPairing"
+import { beginKeeperPairing, decideKeeperPairing, deliverKeeperInvitation, disconnectKeeperIntegration, getEligibleKeeperWorkspaces, getKeeperIntegrationStatus, rememberActiveKeeperIntegration, refreshKeeperGrantFloors, signKeeperControllerRequest, verifyKeeperServiceEnvelope, type KeeperPairing } from "./keeperPairing"
 
 const domain = "MESH-LIGHTHOUSE/1"
 const boards = [{ id: "board", title: "Board" }]
@@ -60,14 +61,21 @@ async function ownedBoard() {
   vi.spyOn(peerStore, "getWorkspaceCredential").mockResolvedValue(null)
   return authority
 }
-async function offer(overrides: Record<string, unknown> = {}, challengeOverrides: Record<string, unknown> = {}) {
+async function offer(overrides: Record<string, unknown> = {}, challengeOverrides: Record<string, unknown> = {},
+  integrations: Record<string, unknown>[] = [], settingsSupported = true) {
   await ownedBoard()
-  fetchMock.mockImplementation(async (_url, init) => {
+  fetchMock.mockImplementation(async (url, init) => {
     const request = JSON.parse(String(init?.body)) as { signed: { payload: Record<string, unknown> } }
+    if (String(url).endsWith("/v1/integrations/status")) {
+      return reply(await envelope("lighthouse-integration-status", {
+        ...integrationPayload(request.signed.payload.operationId), integrations,
+        capabilities: { integrationSettings: settingsSupported },
+      }))
+    }
     const transcriptHash = await sha256Base64Url(new TextEncoder().encode(canonicalizeJson(request.signed.payload)))
     return reply({ pairingId: "pairing", expiresAt: pairing.expiresAt, comparisonCode: "123456", transcriptHash,
       operatorUrl: `${discovery.origin}/admin/`, challenge: await envelope("lighthouse-pairing-challenge", {
-        pairingId: "pairing", integrationId: "integration", transcriptHash, servicePersonId: discovery.personId,
+        pairingId: "pairing", integrationId: integrations[0]?.integrationId ?? "integration", transcriptHash, servicePersonId: discovery.personId,
         serviceOrigin: discovery.origin, expiresAt: pairing.expiresAt, nonce: "nonce", ...challengeOverrides }), ...overrides })
   })
 }
@@ -108,6 +116,67 @@ describe("keeper pairing", () => {
     expect(result.workspaces[0]).not.toBe(boards[0])
     await expect(getEligibleKeeperWorkspaces(boards)).resolves.toEqual(boards)
   })
+  async function existingIntegration(workspaceId = "board") {
+    return { integrationId: await canonicalKeeperIntegrationId(owner.identity.personId, discovery.personId), revision: 2,
+      policy: { futureBoards: false, baselineWorkspaceIds: [workspaceId] },
+      scopes: [{ workspaceId, grantEpoch: 4, state: "active", activationOperationId: "activation" }],
+      tombstones: [], pendingOperation: null }
+  }
+  it("Given an existing service integration, when another owned board is selected, then approval binds the exact revision and board delta", async () => {
+    const existing = await existingIntegration("other")
+    await offer({}, {}, [existing])
+    const result = await beginKeeperPairing(discovery, boards, { futureBoards: false, futureBoardBaselineIds: ["board", "other"] })
+    expect(result.integrationUpdate).toEqual({ integrationId: existing.integrationId, expectedRevision: 2,
+      scopeWorkspaceIds: ["board"], policy: { futureBoards: false, baselineWorkspaceIds: ["board", "other"] } })
+    expect(result.serviceGrantFloors).toEqual({ board: 0 })
+  })
+  it("Given an active board, when selected again, then no duplicate pairing offer is sent", async () => {
+    await offer({}, {}, [await existingIntegration()])
+    await expect(beginKeeperPairing(discovery, boards, { futureBoards: false, futureBoardBaselineIds: ["board"] })).rejects.toThrow("already active")
+    expect(fetchMock.mock.calls.every(([url]) => String(url).endsWith("/status"))).toBe(true)
+  })
+  it("Given canonical cleanup pending on another board, when adding access, then service cleanup blocks the offer", async () => {
+    const existing = await existingIntegration()
+    await offer({}, {}, [{ ...existing, scopes: [], tombstones: [{ workspaceId: "other", grantEpoch: 4,
+      state: "pending", cleanup: "pending", operationId: "cleanup" }], pendingOperation: { operationId: "cleanup",
+      requestHash: "hash", expectedRevision: 2, scopes: [{ workspaceId: "other", expectedGrantEpoch: 4 }], status: "pending" } }])
+    await expect(beginKeeperPairing(discovery, boards, { futureBoards: false, futureBoardBaselineIds: ["board"] })).rejects.toThrow("cleanup pending")
+  })
+  it("Given existing access with future boards off, when owner approves only policy, then no workspace invitation is delivered", async () => {
+    const existing = await existingIntegration()
+    await offer({}, {}, [existing])
+    const result = await beginKeeperPairing(discovery, [], { futureBoards: true, futureBoardBaselineIds: ["board"], policyOnly: true })
+    expect(result.integrationUpdate).toMatchObject({ policyOnly: true, scopeWorkspaceIds: [], expectedRevision: 2 })
+    fetchMock.mockResolvedValue(reply(await envelope("lighthouse-pairing-status", { pairingId: result.pairingId,
+      integrationId: result.integrationId, transcriptHash: result.transcriptHash, serviceOrigin: discovery.origin,
+      status: "active", provisioning: { scopes: [] } })))
+    await expect(deliverKeeperInvitation(result)).resolves.toBe("active")
+    const sent = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body)) as { signed: { payload: { body: Record<string, unknown> } } }
+    expect(sent.signed.payload.body).toMatchObject({ policyOnly: true, approvedScopes: [], futureBoards: true })
+    expect(sent.signed.payload.body).not.toHaveProperty("invitation")
+  })
+  it.each(["unsupported", "absent", "already-enabled", "disabled-request", "missing-baseline"])("rejects unsafe policy-only approval: %s", async scenario => {
+    const existing = await existingIntegration()
+    await offer({}, {}, scenario === "absent" ? [] : [{ ...existing,
+      policy: { futureBoards: scenario === "already-enabled", baselineWorkspaceIds: ["board"] } }], scenario !== "unsupported")
+    await expect(beginKeeperPairing(discovery, [], { futureBoards: scenario !== "disabled-request",
+      futureBoardBaselineIds: scenario === "missing-baseline" ? [] : ["board"], policyOnly: true }))
+      .rejects.toThrow(scenario === "missing-baseline" ? "active and previously removed" : "Policy-only approval requires")
+  })
+  it("Given prior removal floors, when refreshing, then local higher epochs survive and the target active grant is excluded", async () => {
+    const existing = await existingIntegration()
+    await offer({}, {}, [{ ...existing, tombstones: [{ workspaceId: "board", grantEpoch: 3,
+      state: "removed", cleanup: "complete", operationId: "old" }] }])
+    await expect(refreshKeeperGrantFloors(discovery, ["board", "unknown"], { board: 6 }, existing.integrationId))
+      .resolves.toEqual({ board: 6, unknown: 0 })
+  })
+  it.each([true, false])("rejects inconsistent policy-only scope before delivery: %s", async empty => {
+    const invalid = empty ? { ...pairing, workspaces: [] } : { ...pairing,
+      integrationUpdate: { integrationId: "integration", expectedRevision: 2, scopeWorkspaceIds: [],
+        policy: { futureBoards: true, baselineWorkspaceIds: [] }, policyOnly: true } }
+    await expect(deliverKeeperInvitation(invalid, { invitationId: "invite" } as unknown as WorkspaceJoinInvitation)).rejects.toThrow("cannot include")
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it.each([[], ["other"], ["board", "board"], ["board", ""]].map(baseline => ({ baseline })))("rejects invalid baseline $baseline before HTTP", async ({ baseline }) => {
     await expect(beginKeeperPairing(discovery, boards, { futureBoards: false, futureBoardBaselineIds: baseline })).rejects.toThrow("baseline")
     expect(fetchMock).not.toHaveBeenCalled()
@@ -116,6 +185,24 @@ describe("keeper pairing", () => {
     await expect(beginKeeperPairing(discovery, [], { futureBoards: false, futureBoardBaselineIds: [] })).rejects.toThrow("Choose at least")
     vi.spyOn(peerStore, "getWorkspaceAuthority").mockResolvedValue(null)
     vi.spyOn(peerStore, "getWorkspaceCredential").mockResolvedValue(null)
+    await expect(getEligibleKeeperWorkspaces(boards)).resolves.toEqual([])
+    await expect(beginKeeperPairing(discovery, boards, { futureBoards: false, futureBoardBaselineIds: ["board"] })).rejects.toThrow("Owner proof unavailable")
+  })
+  it("Given durable authority absent, when a valid credential remains, then only its owned board is eligible", async () => {
+    const authority = await ownedBoard()
+    vi.mocked(peerStore.getWorkspaceAuthority).mockResolvedValue(null)
+    vi.mocked(peerStore.getWorkspaceCredential).mockResolvedValue({ ...authority, transportSecret: "secret" })
+    await expect(getEligibleKeeperWorkspaces(boards)).resolves.toEqual(boards)
+    vi.mocked(peerStore.getWorkspaceCredential).mockResolvedValue({ ...authority, transportSecret: "secret", ownerPersonId: "foreign" })
+    await expect(getEligibleKeeperWorkspaces(boards)).resolves.toEqual([])
+  })
+  it("Given forged or mismatched genesis authority, when selecting a board, then owner pairing is rejected", async () => {
+    await offer()
+    const authority = await ownedBoard()
+    vi.mocked(peerStore.getWorkspaceAuthority).mockResolvedValue({ ...authority, scopeAuthoritySnapshot: {
+      ...authority.scopeAuthoritySnapshot, genesis: { ...authority.scopeAuthoritySnapshot.genesis, signature: "forged" } } })
+    await expect(getEligibleKeeperWorkspaces(boards)).resolves.toEqual([])
+    vi.mocked(peerStore.getWorkspaceAuthority).mockResolvedValue({ ...authority, ownerPublicKey: service.identity.publicKey })
     await expect(getEligibleKeeperWorkspaces(boards)).resolves.toEqual([])
     await expect(beginKeeperPairing(discovery, boards, { futureBoards: false, futureBoardBaselineIds: ["board"] })).rejects.toThrow("Owner proof unavailable")
   })
@@ -150,6 +237,20 @@ describe("keeper pairing", () => {
   ] as const)("rejects unsafe provisioning %s %j", async (status, scopes, error) => {
     fetchMock.mockResolvedValue(reply(await envelope("lighthouse-pairing-status", { ...pairingPayload(status), provisioning: scopes ? { scopes } : undefined })))
     await expect(getKeeperPairingStatus(pairing)).rejects.toThrow(error)
+  })
+  it("Given a durable active scope, when a positive grant epoch is confirmed, then activation succeeds", async () => {
+    fetchMock.mockResolvedValue(reply(await envelope("lighthouse-pairing-status", { ...pairingPayload("active"),
+      provisioning: { scopes: [{ workspaceId: "board", status: "active", grantEpoch: 2 }] } })))
+    await expect(getKeeperPairingStatus(pairing)).resolves.toBe("active")
+  })
+  it("Given join failure without details, when provisioning is queried, then retry explains missing service evidence", async () => {
+    fetchMock.mockResolvedValue(reply(await envelope("lighthouse-pairing-status", { ...pairingPayload("provisioning"),
+      provisioning: { scopes: [{ workspaceId: "board", status: "pending", error: "join_failed" }] } })))
+    await expect(getKeeperPairingStatus(pairing)).rejects.toThrow("No error detail")
+  })
+  it("Given an HTTP failure without a service message, when requesting status, then the response code is preserved", async () => {
+    fetchMock.mockResolvedValue(reply({}, 502))
+    await expect(getKeeperPairingStatus(pairing)).rejects.toThrow("502")
   })
   it("retries identical signed provision after transport failure and accepts durable activation", async () => {
     const invitation = { invitationId: "invite" } as unknown as WorkspaceJoinInvitation

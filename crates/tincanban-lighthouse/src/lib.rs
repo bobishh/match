@@ -90,7 +90,7 @@ impl TincanbanScopeStore {
                 snapshot,
                 now_ms()?,
             )?;
-            if admission.decisions.iter().any(|decision| !matches!(decision.status, meta_mesh_core::CausalAdmissionStatus::Admitted { .. })) {
+            if admission.decisions.iter().any(|decision| !matches!(decision.status, meta_mesh_core::causal_admission::CausalAdmissionStatus::Admitted { .. })) {
                 return Err("Persisted lighthouse history contains unadmitted changes".into());
             }
             if guard.file.read()?.is_none() {
