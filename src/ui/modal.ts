@@ -16,6 +16,7 @@ let pendingReturnTarget: HTMLElement | null = null
 let scrollLocked = false
 let backgroundObserver: MutationObserver | undefined
 const focusableSelector = 'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+const backgroundObserverOptions = { childList: true, subtree: true, attributes: true, attributeFilter: ["inert", "aria-hidden"] }
 
 function focusable(root: HTMLElement) {
   return [...root.querySelectorAll<HTMLElement>(focusableSelector)]
@@ -32,7 +33,26 @@ function focusModal(modal: Modal) {
   target.focus({ preventScroll: true })
 }
 
-function updateInert() {
+function recordBackgroundState(records: MutationRecord[]) {
+  for (const record of records) {
+    const element = record.target as HTMLElement
+    const original = inertElements.get(element)
+    if (!original || record.type !== "attributes") continue
+    if (record.attributeName === "inert") original.inert = element.inert
+    else if (record.attributeName === "aria-hidden") original.ariaHidden = element.getAttribute("aria-hidden")
+  }
+}
+
+function updateInert(records: MutationRecord[] = []) {
+  recordBackgroundState(records)
+  recordBackgroundState(backgroundObserver?.takeRecords() ?? [])
+  // Observe application changes, excluding this manager's temporary masking writes.
+  backgroundObserver?.disconnect()
+  maskBackground()
+  if (scrollLocked) backgroundObserver?.observe(document.body, backgroundObserverOptions)
+}
+
+function maskBackground() {
   for (const [el, original] of inertElements) {
     el.inert = original.inert
     if (original.ariaHidden === null) el.removeAttribute("aria-hidden")
@@ -40,9 +60,8 @@ function updateInert() {
   }
   inertElements.clear()
   const top = stack.at(-1)
-  if (!top) return
-  let branch: HTMLElement = top.root
-  while (branch.parentElement) {
+  let branch = top?.root
+  while (branch?.parentElement) {
     for (const sibling of branch.parentElement.children) {
       if (sibling !== branch && sibling instanceof HTMLElement) {
         inertElements.set(sibling, { inert: sibling.inert, ariaHidden: sibling.getAttribute("aria-hidden") })
@@ -76,7 +95,7 @@ function lockScroll() {
   document.addEventListener("keydown", onKeydown, true)
   document.addEventListener("focusin", onFocus)
   backgroundObserver = new MutationObserver(onBackgroundMutation)
-  backgroundObserver.observe(document.body, { childList: true, subtree: true })
+  backgroundObserver.observe(document.body, backgroundObserverOptions)
 }
 
 function unlockScroll() {
@@ -110,8 +129,8 @@ function releaseScrollWhenSettled() {
   })
 }
 
-function onBackgroundMutation() {
-  if (stack.length) updateInert()
+function onBackgroundMutation(records: MutationRecord[]) {
+  if (stack.length) updateInert(records)
   else releaseScrollWhenSettled()
 }
 
