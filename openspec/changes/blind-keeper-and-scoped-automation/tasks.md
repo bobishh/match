@@ -68,7 +68,7 @@ The remainder tracks the full automation rollout. Completed storage slice does n
 - [x] Signed origin/body/freshness-bound activation and nonce-bound Worker acknowledgements.
 - [x] Owner UI add/pause/resume/remove/retry; pending until exact admitted heads are confirmed.
 - [x] Isolated real browser/workerd/Rusty lifecycle including failed address and reload.
-- [ ] Deploy this lifecycle release and confirm production capabilities.
+- [x] Deploy this lifecycle release and confirm production capabilities.
 - [ ] Green remote Verify and automatic frontend release.
 
 ## Completion scope requested by owner (2026-10-09)
@@ -78,10 +78,10 @@ The remainder tracks the full automation rollout. Completed storage slice does n
 - [ ] Make remote CI green without dropping meaningful scenario coverage.
 - [ ] Confirm GitHub Actions deployed the checked frontend to Cloudflare; fix pipeline if needed.
 
-Remote verification in progress: GitHub Verify `37936123592` proves the owner
-visitor → editor → device removal/reconnection flow after moving publication
-outside the workspace mutation lock. Automation runtime/owner lifecycle,
-production packaging/mobile layout and chat passed in `37935255145`.
-Full Verify and the corresponding GitHub → Cloudflare frontend release remain
-open. Automation production still requires renewed Cloudflare authentication;
-`/v2/capabilities` returned 404 before deployment.
+Remote Verify `37938623644` passed 20 of 23 jobs, including automation runtime,
+owner lifecycle, settings/photo coverage, access removal/reconnection, packaging
+and shared policy checks. Its remaining failures identified stale UI assertions,
+missing offline form preloading and an obsolete native item field. Fixes are
+pushed; full Verify and the corresponding automatic frontend release remain open.
+Production Worker `275657d2-371f-4435-8636-0db98475e07a` now returns HTTP 200
+from `/v2/capabilities`: enrollment enabled, `job-intake@1`, email routing disabled.

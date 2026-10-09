@@ -88,3 +88,11 @@ without creating a record, then addition, pause, resume and terminal removal eac
 receive verified acknowledgement; removed state survives reload. Intake/MIME scoped
 mutation and ciphertext regressions remain separate acceptance. Deployment and
 remote CI are recorded only after they complete.
+
+Production lifecycle deployment (2026-10-09): Cloudflare Worker version
+`275657d2-371f-4435-8636-0db98475e07a`, uploaded and deployed through Wrangler.
+`GET https://automation.meta-uber-engineer.dev/v2/capabilities` returns HTTP 200,
+version 2, enrollment enabled and `job-intake@1`; Email Routing remains disabled.
+`/health` reports ready. CORS permits the production Match origin. This confirms
+the deployed API contract; owner add/pause/resume/remove execution is covered by
+the real isolated browser/workerd/Rusty lifecycle suite.

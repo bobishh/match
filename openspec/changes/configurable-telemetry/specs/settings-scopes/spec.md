@@ -41,11 +41,20 @@ Participants and device access SHALL have one management view. Whole-person revo
 - **THEN** Settings closes and Sync opens directly to Backups with export/import actions
 - **AND** ownership succession controls remain in Participants
 
-### Requirement: Preserve existing manual integration setup
-The existing owner-signed job-intake activation SHALL remain accessible only as collapsed manual integration setup under Connections. Rusty storage SHALL expose only storage connection and replication controls. Generic automation lifecycle management SHALL remain deferred until supported types, configuration schemas and Worker handler capabilities have a defined contract.
+### Requirement: Owner-managed supported automations
+Connections SHALL expose supported automation types and versions through a registry. Owners SHALL add, pause, resume and remove independent Worker instances. Desired state SHALL reside in signed workspace CRDT records; displayed confirmation SHALL require a fresh Worker acknowledgement of the exact admitted control heads. Rusty storage SHALL expose only storage connection and replication controls.
 
-#### Scenario: Existing activation after UI relocation
+#### Scenario: Scoped activation through Connections
 - **GIVEN** a connected blind replica and a workspace owner
-- **WHEN** the owner opens Connections and completes manual integration setup
-- **THEN** the existing signed scoped activation packet can be produced
-- **AND** invalid Worker identity proof is rejected without exporting activation
+- **WHEN** the owner opens Connections and connects a supported automation with explicit workspace reading consent
+- **THEN** an independent certified Worker receives the exact owner-signed Automation grant and private activation packet
+- **AND** invalid Worker identity proof is rejected without creating an automation record
+- **AND** operator credentials and private activation exports are absent from the ordinary UI
+
+#### Scenario: Pause, resume and terminal removal
+- **GIVEN** a connected automation
+- **WHEN** its owner changes the desired state
+- **THEN** the Worker reads admitted CRDT controls and acknowledges their exact heads
+- **AND** pending or unreachable execution remains explicit until confirmation
+- **AND** pause preserves queued events without classification or spent retries
+- **AND** removal cannot be reversed by stale snapshots or repeated activation
