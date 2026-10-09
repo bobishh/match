@@ -335,6 +335,8 @@ describe("incremental workspace control plane", () => {
 describe("rejected document isolation", () => {
   it("Given an interrupted incoming stream, When the frame fails, Then its trace identifies a network failure", async () => {
     clearMeshTrace()
+    const record = vi.spyOn(await import("./telemetry"), "record").mockImplementation(() => {})
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window")
     const stream = { read: async () => { throw new MeshNetworkError("private peer endpoint") },
       send: vi.fn(), closeSend: vi.fn(async () => {}) }
     let accepted = false
@@ -347,10 +349,16 @@ describe("rejected document isolation", () => {
       read: async () => new Uint8Array(), merge: vi.fn(), activate: vi.fn(),
     }, "workspace", "local", "remote")
     try {
-      await vi.waitFor(() => expect(meshTraceSnapshot()).toContainEqual(expect.objectContaining({
-        event: "workspace.frame.rejected", errorCode: "MeshNetworkError",
-      })))
-    } finally { await session.close() }
+      Object.defineProperty(globalThis, "window", { value: {}, configurable: true })
+      await vi.waitFor(() => expect(record).toHaveBeenCalledWith("workspace.frame.rejected",
+        expect.objectContaining({ error: expect.any(MeshNetworkError) }), "warn"))
+      expect(meshTraceSnapshot()).toContainEqual(expect.objectContaining({ event: "workspace.frame.rejected" }))
+    } finally {
+      await session.close()
+      record.mockRestore()
+      if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow)
+      else Reflect.deleteProperty(globalThis, "window")
+    }
   })
 
   it("Given blocked persistence, when authenticated heartbeat arrives, then liveness replies before any durable receipt", async () => {

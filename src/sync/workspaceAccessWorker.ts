@@ -13,13 +13,15 @@ async function decide(data: AccessWorkerRequest) {
   if (data.diagnosticsEnabled && typeof data.input.deviceId === "string") setStartupDiagnosticDevice(data.input.deviceId)
   const diagnose = data.diagnosticsEnabled ? diagnoseStartupStep : async <T>(_stage: string, step: () => T | Promise<T>) => step()
   const detail = { workspaceId: data.input.snapshot.workspaceId, bytes: 0 }
+  let wasm: Awaited<ReturnType<typeof init>>
   try {
     ready ??= diagnose("access-worker-wasm", async () => {
       const wasm = await init()
       detail.bytes = wasm.memory.buffer.byteLength
       return wasm
     }, detail)
-    detail.bytes = (await ready).memory.buffer.byteLength
+    wasm = await ready
+    detail.bytes = wasm.memory.buffer.byteLength
   } catch (error) {
     scope.postMessage({ id: data.id, error: String(error), fatal: true })
     return
@@ -30,6 +32,7 @@ async function decide(data: AccessWorkerRequest) {
     { workspaceId: detail.workspaceId, bytes: data.input.snapshot.document.byteLength })
     const role = await diagnose("access-worker-decide", () => {
       const result = WasmStateCore.decideWorkspaceAccess(input, Date.now()) as WorkspaceRole
+      detail.bytes = wasm.memory.buffer.byteLength
       return result
     }, detail)
     scope.postMessage({ id: data.id, role })
