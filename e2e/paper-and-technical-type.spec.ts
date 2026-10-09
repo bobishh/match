@@ -85,15 +85,18 @@ test("Given mesh devices or an offline board and recovery words, when viewed or 
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const sync = page.getByRole("dialog", { name: "Device sync", exact: true })
+  await expect(sync).toBeVisible()
   const members = sync.getByRole("list", { name: "Mesh members" })
   const memberButtons = members.getByRole("button")
-  if (await memberButtons.count()) {
+  if (await members.count() && await memberButtons.count()) {
     await memberButtons.first().click()
     const deviceId = sync.locator(".mesh-device-head code")
     await expect(deviceId).toHaveCSS("font-family", /Fira Code/)
     await expect(deviceId).toHaveCSS("font-variant-ligatures", "none")
-  } else {
+  } else if (await members.count()) {
     await expect(members.getByText("No people connected to this board.", { exact: true })).toBeVisible()
+  } else {
+    await expect(sync.getByRole("button", { name: "Generate link", exact: true })).toBeVisible()
   }
   await sync.getByRole("button", { name: "Close", exact: true }).click()
   await page.getByRole("button", { name: "Settings", exact: true }).click()

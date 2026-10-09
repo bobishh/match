@@ -21,8 +21,6 @@ test("Given paired workspaces, when matching names and messages sync, then both 
   type Diagnostic = { event: string; entity_id: string; trace_id: string; device_id: string; session_id: string; attrs: { phase?: string } }
   const hostEvents: Diagnostic[] = [], guestEvents: Diagnostic[] = []
   for (const [peer, events] of [[page, hostEvents], [guest, guestEvents]] as const) {
-    await peer.addInitScript(() => localStorage.setItem("tincanban.telemetry.v2", JSON.stringify({ enabled: true,
-      endpoint: "https://telemetry.invalid/events", project: "tincanban", browserKey: "public-browser-fixture-key-0123456789", level: "all", sampleRate: 1 })))
     await peer.route("https://telemetry.invalid/events", async route => {
       const batch = route.request().postDataJSON() as { events: Diagnostic[] }
       events.push(...batch.events)

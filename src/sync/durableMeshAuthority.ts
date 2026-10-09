@@ -1,5 +1,4 @@
 import { type LocalProfile } from "../domain/identity"
-import { authorityValidationFingerprint } from "./changeAuthorization"
 import { WorkspaceAuthorityClassification } from "./workspaceAuthorityClassification"
 import type { DeviceCertificate, WorkspaceGrant } from "../domain/model"
 import { defaultProofStore, createWorkspaceGrant } from "../domain/proofs"
@@ -20,18 +19,7 @@ import { runKeeperRevocationActions } from "./keeperRevocationActions"
 import { nextKeeperRevocationEpoch } from "./keeperGrantEpoch"
 import { awaitOwnerDelivery, confirmedOwnershipSnapshot, createOwnershipProposal, mergeSuccessionState as mergeSuccessionStateInScope,
   ownershipTransfersWithPending, persistScopeAuthoritySnapshot, planOwnershipMerge, preflightScopeAuthoritySnapshot, publishConfirmedToSessions,
-  type OwnershipMergePlan } from "./durableMeshOwnershipScope"
-type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
-type OwnershipTransferState = {
-  profile: LocalProfile
-  credential: WorkspaceMeshCredential
-  sessions: SessionEntry[]
-  targetAdvertisement?: WorkspaceMemberBundle
-  target?: VerifiedWorkspaceMember
-  transfer?: WorkspaceOwnershipTransfer
-  current: WorkspaceMeshCredential
-  nextScopeAuthoritySnapshot?: ScopeAuthoritySnapshot
-}
+  type OwnershipMergePlan, type OwnershipTransferState } from "./durableMeshOwnershipScope"
 export abstract class DurableMeshAuthority extends DurableMeshCredentials {
   private readonly authorityClassifications = new WorkspaceAuthorityClassification()
   async mergeWorkspace(workspaceId: string, raw: unknown): Promise<void> {
@@ -88,11 +76,8 @@ export abstract class DurableMeshAuthority extends DurableMeshCredentials {
       await this.traceSlowPhase("effect.notify", workspaceId, {}, effects.notify!)
   }
   protected async reclassifyWorkspaceAuthority(workspaceId: string): Promise<void> {
-    if (!this.options.workspaceStore.reclassify) return
-    if (!this.store.getWorkspaceAuthority) return this.options.workspaceStore.reclassify(workspaceId)
-    const authority = await this.store.getWorkspaceAuthority(workspaceId) ?? await this.store.getWorkspaceCredential?.(workspaceId) ?? null
-    return this.authorityClassifications.reclassify(workspaceId, authorityValidationFingerprint(authority),
-      () => this.options.workspaceStore.reclassify!(workspaceId), () => this.trace("workspace.reclassify.reused", { workspaceId }))
+    return this.authorityClassifications.classifyStored(workspaceId, this.store, this.options.workspaceStore,
+      () => this.trace("workspace.reclassify.reused", { workspaceId }))
   }
   protected async mergePeerBundles(credential: WorkspaceMeshCredential, bundles: WorkspaceMemberBundle[]) {
     for (const [index, bundle] of bundles.entries()) {

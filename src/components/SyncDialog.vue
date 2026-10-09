@@ -330,7 +330,7 @@ function deviceConnectionLabel(device: { deviceId: string; online: boolean; reco
         </details>
         </div>
         <div v-show="activeTab === 'Rusty'" :id="`${tabId}-Rusty-panel`" role="tabpanel" :aria-labelledby="`${tabId}-Rusty-tab`">
-          <details v-if="keeperMembers.length && provisionKeeper && cancelKeeper" class="legacy-keeper-settings"><summary>Legacy Rusty connections</summary>
+          <details v-if="provisionKeeper && cancelKeeper" class="legacy-keeper-settings"><summary>Legacy Rusty connections</summary>
             <LegacyKeeperDiscovery :owned-workspaces="keeperOwnedWorkspaces ?? []" :keepers="keeperMembers" :provision-keeper="provisionKeeper" :cancel-keeper="cancelKeeper" :remove-keeper="currentRole === 'owner' ? removeKeeper : undefined" :begin-policy-update="currentRole === 'owner' ? beginPolicyUpdate : undefined" :active-workspace-id="activeWorkspaceId" />
           </details>
           <RustyPanel v-if="blindReplication && activeWorkspaceId" :controller="blindReplication" :workspace-id="activeWorkspaceId" :owner="currentRole === 'owner'" />

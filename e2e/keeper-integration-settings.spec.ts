@@ -131,8 +131,11 @@ test("Given a saved active keeper, when verified removal succeeds, then row stay
   await expect(page.getByText("No keepers connected to this board.")).toBeVisible()
   await page.reload()
   await page.getByRole("button", { name: "Sync", exact: true }).click()
-  await expect(page.getByRole("list", { name: "Keeper services" })).toHaveCount(0)
-  await expect(page.getByText("No keepers connected to this board.")).toBeVisible()
+  const sync = page.getByRole("dialog", { name: "Device sync" })
+  await sync.getByRole("tab", { name: "Rusty", exact: true }).click()
+  await sync.getByText("Legacy Rusty connections", { exact: true }).click()
+  await expect(sync.getByRole("button", { name: /Rusty keeper/ })).toHaveCount(0)
+  await expect(sync.getByText("No keepers connected to this board.")).toBeVisible()
 })
 
 for (const scenario of [
@@ -149,6 +152,8 @@ for (const scenario of [
       await page.getByRole("button", { name: "Sync, import & export" }).click()
     } else await page.getByRole("button", { name: "Sync", exact: true }).click()
     const dialog = page.getByRole("dialog", { name: "Device sync" })
+    await dialog.getByRole("tab", { name: "Rusty", exact: true }).click()
+    await dialog.getByText("Legacy Rusty connections", { exact: true }).click()
     const list = dialog.getByRole("list", { name: "Keeper services" })
     const keeper = list.getByRole("button", { name: /Rusty keeper/ })
     await expect(keeper).toContainText(scenario.expected)

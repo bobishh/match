@@ -4,12 +4,24 @@ import type { DeviceCertificate } from "../domain/model"
 import type { WorkspaceSetStore } from "./workspaceSet"
 import { publishConfirmedWorkspace, workspaceSet } from "./workspaceSet"
 import type { WorkspaceOwnershipTransfer, WorkspaceRevocation, WorkspaceSuccessionClaim, WorkspaceSuccessionPolicy,
-  WorkspaceSuccessionVote } from "./meshRecords"
+  WorkspaceSuccessionVote, WorkspaceMemberBundle, verifyWorkspaceMemberBundle } from "./meshRecords"
 import { createWorkspaceOwnershipTransfer } from "./meshRecords"
 import type { PeerStore, WorkspaceMeshCredential, WorkspacePeerRecord } from "./peerStore"
 import { meshCatalog, ownerAuthorities, ownershipTransfers, revocations, revokedPersonIds, successionClaims, successionPolicy,
   successionVotes, type MeshExport, type ScopeAuthoritySnapshot } from "./durableMeshBase"
 import type { SessionEntry } from "./durableMeshBase"
+
+type VerifiedWorkspaceMember = Awaited<ReturnType<typeof verifyWorkspaceMemberBundle>>
+export type OwnershipTransferState = {
+  profile: LocalProfile
+  credential: WorkspaceMeshCredential
+  sessions: SessionEntry[]
+  targetAdvertisement?: WorkspaceMemberBundle
+  target?: VerifiedWorkspaceMember
+  transfer?: WorkspaceOwnershipTransfer
+  current: WorkspaceMeshCredential
+  nextScopeAuthoritySnapshot?: ScopeAuthoritySnapshot
+}
 
 export type OwnershipMergePlan = {
   accepted: WorkspaceOwnershipTransfer[]

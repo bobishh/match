@@ -3,7 +3,7 @@ import { ensureJobSearchWorkspace } from "./support/workspaces"
 
 test("owner promotes a visitor, then removes only their device through an explicit scope confirmation", async ({ page, browser }, testInfo) => {
   test.setTimeout(90000)
-  await page.goto("/")
+  await page.goto("/?syncTrace=1")
   await ensureJobSearchWorkspace(page)
   await page.getByRole("button", { name: "Sync", exact: true }).click()
   const host = page.getByRole("dialog", { name: "Device sync" })
@@ -11,7 +11,9 @@ test("owner promotes a visitor, then removes only their device through an explic
   await host.getByRole("button", { name: "Generate link" }).click()
   const context = await browser.newContext()
   const guest = await context.newPage()
-  await guest.goto(await host.getByLabel("Pairing link").inputValue())
+  const invitation = new URL(await host.getByLabel("Pairing link").inputValue())
+  invitation.searchParams.set("syncTrace", "1")
+  await guest.goto(invitation.toString())
   const guestDialog = guest.getByRole("dialog", { name: "Device sync" })
   await guestDialog.getByRole("button", { name: "Accept and join" }).click()
   await host.getByRole("button", { name: "Approve access" }).click()

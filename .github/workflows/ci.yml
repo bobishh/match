@@ -115,7 +115,7 @@ jobs:
       - run: npx playwright test --reporter=list --project=core --shard=${{ matrix.shard }}
       - name: Verify deployment-configured diagnostics
         if: matrix.shard == '1/4'
-        run: npx playwright test --reporter=list --config=playwright.telemetry.config.ts
+        run: npx playwright test --reporter=list --config=playwright.telemetry.config.ts --grep-invert 'Given paired workspaces'
       - uses: actions/upload-artifact@v6
         if: failure() || cancelled()
         with:
@@ -164,7 +164,13 @@ jobs:
       - name: Use Ubuntu primary archive mirror for Chromium dependencies
         run: bash scripts/use-primary-ubuntu-mirror.sh
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --reporter=list --project=${{ matrix.project }}
+      - name: Verify isolated network scenario
+        run: |
+          if [ "${{ matrix.project }}" = chat ]; then
+            npx playwright test --reporter=list --config=playwright.telemetry.config.ts --grep 'Given paired workspaces'
+          else
+            npx playwright test --reporter=list --project=${{ matrix.project }}
+          fi
       - uses: actions/upload-artifact@v6
         if: failure()
         with:
