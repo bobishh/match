@@ -26,7 +26,7 @@ export async function startupCheckpoint(event: string, stage: string, detail: Re
   try {
     try { sessionStorage.setItem(markerKey, JSON.stringify({ sessionId, stage, event })) } catch { /* Optional crash breadcrumb. */ }
     const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent
-    const diagnostic = await diagnosticEvent(event, { ...detail, stage, component: "startup",
+    const diagnostic = await diagnosticEvent(event, { ...detail, stage, component: "startup", operation: stage,
       browser: /Safari/.test(userAgent) && !/Chrome|Chromium|CriOS/.test(userAgent) ? "safari" : "other",
       platform: /iPhone|iPad|iPod/.test(userAgent) ? "ios" : "other",
     }, { project: config.project, sessionId, deviceId, timestamp: Date.now(), level: event.endsWith("failed") ? "warn" : "info" })
