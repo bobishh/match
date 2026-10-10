@@ -23,7 +23,8 @@ test("Given a mobile board with over 312k signed operations, When cold loading a
   const card = page.locator('[data-item-id="mobile-history-card"]')
   await expect(card).toBeVisible({ timeout: 30_000 })
   await expect(card).toContainText("Memory check")
-  await expect(page.getByRole("button", { name: "Open workspaces", exact: true })).toBeEnabled()
+  // Saved cards appear before history and access checks finish on reload.
+  await expect(page.getByRole("button", { name: "Open workspaces", exact: true })).toBeEnabled({ timeout: 30_000 })
   await page.evaluate(() => { (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   const failure = await page.evaluate(async workspaceId => {
     const { useTincanban } = await import("/src/state.ts")
