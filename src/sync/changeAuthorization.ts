@@ -8,7 +8,6 @@ import { type WorkspaceAuthority, type WorkspaceDeviceRevocation, type Workspace
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import { mergeAuthorizationRecords, putRecords, records, type WorkspaceChangeAuthorization } from "./workspaceChangeProofStore"
 import { rememberWorkspaceAdmission, reusedWorkspaceAdmission } from "./workspaceAdmissionReuse"
-import { runWorkspaceAdmission } from "./workspaceAdmissionClient"
 import type { IncomingAuthorizationBundle, WorkspaceAdmissionResult, WorkspaceWriteAuthorityEvidence } from "./workspaceAdmissionCore"
 import { readWorkspaceSnapshot } from "../storageJournal"
 import { meshTrace } from "./meshTrace"
@@ -354,7 +353,7 @@ export async function evaluateIncomingWorkspaceAdmission(local: Automerge.Doc<Wo
   const reuseKey = canonicalizeJson({ heads,
     authorization: combinedBundle, knownAuthority, credential: frozenCredential })
   const reused = reusedWorkspaceAdmission(remote.id, reuseKey)
-  const plan = reused ?? await runWorkspaceAdmission({ workspaceId: remote.id,
+  const plan = reused ?? await (await import("./workspaceAdmissionClient")).runWorkspaceAdmission({ workspaceId: remote.id,
     // Admission workers transfer input buffers. Keep the original raw union
     // alive for atomic persistence and replication after the worker returns.
     local: undefined, remote: rawBytes.slice(),
