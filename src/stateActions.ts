@@ -13,6 +13,7 @@ export function createTincanbanActions() {
   return {
     workspace: stateRuntime.workspace,
     ready: stateRuntime.ready,
+    startupStage: stateRuntime.startupStage,
     saveState: stateRuntime.saveState,
     ...derived,
     availableWorkspaces: stateRuntime.availableWorkspaces,

@@ -50,7 +50,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
     activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
     selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError, quickNoteDraft,
     quickNoteSaving, quickNoteError, hasExperimentalMcp, showMobileMenu, menuButtonRef,
-    showLoading, startupError, artifactDraft,
+    startupError, artifactDraft,
   } = core
   return { state: {
     detailDialog, importInput, showArtifactForm, search, filters, notice, archiveUndo, undoSaving,
@@ -60,7 +60,7 @@ function appUi(core: ReturnType<typeof useAppCore>) {
     activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
     selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError, quickNoteDraft,
     quickNoteSaving, quickNoteError, hasExperimentalMcp, showMobileMenu, menuButtonRef,
-    showLoading, startupError, artifactDraft,
+    startupError, artifactDraft,
   }, controls: { toggleMobileMenu: core.toggleMobileMenu, closeMobileMenu: core.closeMobileMenu } }
 }
 
@@ -88,9 +88,7 @@ function appCollaboration(core: ReturnType<typeof useAppCore>) {
 }
 
 function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<typeof useAppBoard>, actions: ReturnType<typeof useAppActions>) {
-  let loadingTimer: ReturnType<typeof setTimeout> | undefined
   onMounted(async () => {
-    loadingTimer = setTimeout(() => { core.showLoading.value = true }, 200)
     const startup = await runAppStartup({
       loadRuntime: async () => {
         const { initializePolicyBrowserRuntime } = await import("../iroh")
@@ -108,8 +106,6 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
         await core.sync.startDurableMesh()
       },
     })
-    clearTimeout(loadingTimer)
-    core.showLoading.value = false
     if (startup.status === "fatal") {
       core.startupError.value = {
         stage: startup.stage,
@@ -129,7 +125,6 @@ function useAppLifecycle(core: ReturnType<typeof useAppCore>, board: ReturnType<
     board.destroyBoardDrag()
     board.clearHighlightTimer()
     noticeTimer.clear()
-    if (loadingTimer) clearTimeout(loadingTimer)
   })
 }
 

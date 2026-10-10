@@ -13,7 +13,7 @@ const colors = computed(() => appearance.value ? {
   "--can-body": appearance.value.body,
   "--can-highlight": appearance.value.highlight,
   "--can-shade": appearance.value.shade,
-} : undefined)
+} : { "--can-body": "#f3f0e8", "--can-highlight": "#fffdf8", "--can-shade": "#d8d3c7" })
 </script>
 
 <template>

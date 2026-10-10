@@ -1,4 +1,4 @@
-import { hasEntityKind } from "./domain/model"
+import { hasEntityKind, validateWorkspaceDoc } from "./domain/model"
 import { meshTrace } from "./sync/meshTrace"
 import * as Automerge from "@automerge/automerge/slim";
 import { initializeAutomerge } from "./crdt";
@@ -13,7 +13,7 @@ import {
 } from "./domain/identity";
 import { initializePersonalRootCatalog, registerWorkspaceInCurrentRoot } from "./statePersonalRoot";
 import { createWorkspaceDoc } from "./domain/seeds";
-import { needsWorkspaceStateMigration } from "./domain/workspaceMigration";
+import { migrateOwnedWorkspaces } from "./stateStartupMigration";
 import { type Board, type WorkspaceDocumentV2 } from "./domain/model";
 import { executeCommand, type Command, type ExecuteResult } from "./domain/commands";
 import {
@@ -51,6 +51,7 @@ export function resetStateForTest(): void {
   stateRuntime.activeDoc = null;
   stateRuntime.currentProfile = null;
   stateRuntime.ready.value = false;
+  stateRuntime.startupStage.value = "starting";
   stateRuntime.saveState.value = "idle";
   stateRuntime.pendingWrites = 0;
   stateRuntime.batchSaveFailed = false;
@@ -92,6 +93,7 @@ export function updateReactiveState(
 
 export async function prepareLocalState(storage = defaultStorage): Promise<void> {
   try {
+    stateRuntime.startupStage.value = "reading";
     console.info("[tincanban.startup] prepare", "automerge")
     await diagnoseStartupStep("automerge-wasm", initializeAutomerge);
     console.info("[tincanban.startup] prepare", "identity")
@@ -114,9 +116,15 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
   try {
     const profile = stateRuntime.currentProfile;
     if (!profile) throw new Error("Local identity is unavailable");
-    await diagnoseStartupStep("workspace-migrations", () => migrateOwnedWorkspaces(storage, profile));
     console.info("[tincanban.startup] hydrate", "workspace")
     let doc = await diagnoseStartupStep("initial-workspace-load", () => loadInitialWorkspace(storage, profile));
+    // Publish only the saved projection, never the separate raw causal history.
+    // Readiness stays false until local history checks finish.
+    if (validateWorkspaceDoc(doc).ok) await diagnoseStartupStep("workspace-preview", () => updateReactiveState(doc), { workspaceId: doc.id });
+    stateRuntime.startupStage.value = "updating";
+    await diagnoseStartupStep("workspace-migrations", () => migrateOwnedWorkspaces(storage, profile,
+      source => persistAuthorizedCommand(source, { kind: "migrateWorkspaceFormat" }, profile, storage)));
+    stateRuntime.startupStage.value = "history";
     const reclassified = await diagnoseStartupStep("history-reclassification", () => reclassifyStoredWorkspace(doc.id, storage), { workspaceId: doc.id, operationCount: Automerge.stats(doc).numOps });
     doc = reclassified.doc ?? (await storage.loadWorkspaceDoc(doc.id))?.doc ?? doc;
     await diagnoseStartupStep("workspace-projection", () => updateReactiveState(doc), { workspaceId: doc.id });
@@ -126,6 +134,7 @@ export async function hydratePreparedState(storage = defaultStorage): Promise<vo
     applyInjectedFixture(updateReactiveState);
     console.info("[tincanban.startup] hydrate", "catalog")
     await refreshAvailableWorkspaces(storage);
+    stateRuntime.startupStage.value = "access";
     stateRuntime.ready.value = true;
     for (const waiter of readinessWaiters) waiter.resolve();
     readinessWaiters.clear();
@@ -142,16 +151,6 @@ function rejectReadinessWaiters(error: unknown): void {
   readinessWaiters.clear();
 }
 
-async function migrateOwnedWorkspaces(storage: WorkspaceStorage, profile: LocalProfile): Promise<void> {
-  const available = [...await storage.listWorkspaces(), ...await storage.listArchivedWorkspaces()];
-  for (const { id } of new Map(available.map(workspace => [workspace.id, workspace])).values()) {
-    const loaded = await storage.loadWorkspaceDoc(id);
-    if (!loaded || ((loaded.doc as unknown as { formatVersion: number }).formatVersion !== 2 && !needsWorkspaceStateMigration(loaded.doc))) continue;
-    if (await workspaceRole(loaded.doc, profile) !== "owner") continue;
-    await persistAuthorizedCommand(loaded.doc, { kind: "migrateWorkspaceFormat" }, profile, storage);
-  }
-}
-
 export function whenReady(): Promise<void> {
   if (stateRuntime.ready.value && stateRuntime.activeDoc) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -164,6 +163,7 @@ export async function commitAndPersist(
   storage = defaultStorage,
   targetWorkspaceId?: string,
 ): Promise<void> {
+  if (!stateRuntime.ready.value) throw new Error("Saved board is still being checked. Try again when checks finish.");
   const workspaceId = targetWorkspaceId ?? stateRuntime.activeDoc?.id;
   const profile = stateRuntime.currentProfile;
   if (!workspaceId || !profile) throw new Error("Workspace not hydrated");

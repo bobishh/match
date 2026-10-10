@@ -32,10 +32,10 @@ import { createNarrativeEditHandler } from "./app/narrativeEditor"
 import { useColumnCollapse } from "./app/useColumnCollapse"
 import { useAppViewState } from "./app/useAppViewState"
 import { useMemberAvatars } from "./app/useMemberAvatars"
-import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, startOfflineDetailPreload, WorkspaceConnectionsPanel, IdentityPhotoPanel, WorkspacesDialog } from "./app/lazyUiComponents"
+import { CausalChangeReview, ColumnDialog, IdentityRecoveryDialog, IdentitySettingsPanel, ItemDetailDialog, MoveItemDialog, SchemaEditorDialog, SpatialWindow, StartupStatus, startOfflineDetailPreload, WorkspaceConnectionsPanel, IdentityPhotoPanel, WorkspacesDialog } from "./app/lazyUiComponents"
 
 const app = useAppController()
-const { SyncDialog, reviewCausalChange, dismissCausalChange, restoreCausalChange, chatCanView, uiReady, showAccessLoading } = useAppViewState(app)
+const { SyncDialog, reviewCausalChange, dismissCausalChange, restoreCausalChange, chatCanView, uiReady, boardVisible, startupMessage } = useAppViewState(app)
 const conversations = useObjectConversations(app)
 const [showIdentityRecovery, showSettings] = [ref(false), ref(false)]
 const syncInitialTab = ref<"Participants" | "Rusty" | "Backups">("Participants")
@@ -60,7 +60,7 @@ const {
   activeMobileColumnIndex, showItemForm, itemFormError, savingItem, editingColumn,
   selectedItemId, editingItemId, itemToMove, showMoveDialog, storageError,
   quickNoteDraft, quickNoteSaving, quickNoteError, hasExperimentalMcp,
-  showMobileMenu, menuButtonRef, showLoading, startupError, artifactDraft,
+  showMobileMenu, menuButtonRef, startupError, artifactDraft,
 } = ui
 const { toggleMobileMenu, closeMobileMenu } = uiControls
 const {
@@ -111,10 +111,10 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
       <button class="brand brand-button" type="button" aria-label="Open workspaces" :disabled="!uiReady" @click="showWorkspaces = true">
         <span class="brand-presence">
           <span v-if="ready.value && workspaceRoleStatus === 'unavailable'" class="sr-only" role="img" aria-label="Workspace permissions: unavailable" />
-          <BrandCan :presence="meshPresence" :label="meshPresenceLabel" :access-role="confirmedRole" />
+          <BrandCan :presence="meshPresence" :label="uiReady ? meshPresenceLabel : 'Workspace access is not yet confirmed'" :access-role="confirmedRole" />
         </span>
         <div>
-          <TincanbanHeading :label="ready.value ? workspaceLabel : '…'" />
+          <TincanbanHeading :label="boardVisible ? workspaceLabel : '…'" />
         </div>
       </button>
       <div class="topbar-mobile-controls">
@@ -147,25 +147,9 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
       :can-review="uiReady && canEditItems" :review-change="reviewCausalChange"
       :dismiss-change="dismissCausalChange" :restore-change="restoreCausalChange" />
 
-    <section v-if="!uiReady" class="boot-placeholder" aria-label="Opening workspace">
-      <div class="boot-content">
-        <div class="boot-brand" aria-hidden="true"><BrandCan /><span>tincanban</span></div>
-        <div class="boot-progress" aria-live="polite">
-          <Transition name="notice">
-            <div v-if="!startupError && (showLoading || showAccessLoading)" class="loading-indicator" role="status">
-              <div class="loading-track" aria-hidden="true"><span></span></div>
-              <span>{{ ready.value ? 'Checking workspace access' : 'Loading your cards' }}</span>
-            </div>
-          </Transition>
-          <div v-if="startupError" class="startup-error" role="alert">
-            <p>{{ startupError.message }}</p><p class="startup-error-detail">{{ startupError.detail }}</p>
-            <p v-if="startupError.stage === 'storage'" class="startup-error-guidance">Do not clear website data. Share this error when asking for help.</p>
-          </div>
-        </div>
-      </div>
-    </section>
+    <StartupStatus v-if="!boardVisible" :message="startupMessage" :view-only="false" :error="startupError" />
 
-    <template v-else>
+    <template v-if="boardVisible">
     <MobileDrawer
       :is-open="showMobileMenu"
       :active-workspace-title="workspaceLabel"
@@ -204,6 +188,8 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
         <SaveState :state="saveState" :settled-label="workspacePresenceSummary" aria-label="Workspace presence" />
       </div>
     </section>
+
+    <StartupStatus v-if="!uiReady || startupError" :message="startupMessage" :view-only="true" :error="startupError" />
 
     <div v-if="hasFilters" class="filter-summary" aria-live="polite">
       <span>{{ visibleItems ? 'Showing matching cards' : 'No matching cards' }}</span>

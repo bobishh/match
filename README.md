@@ -15,6 +15,10 @@ second device and keep working across both.
   editable documents, and template drafts; visitors and immutable chat/file
   previews remain read-only.
 - Work locally, then synchronize with another online device.
+- On reload, the saved board appears in view-only mode while local checks run.
+  A compact status below the filters shows the current stage. Editing becomes
+  available after history and access checks succeed; failed checks preserve the
+  saved view and show a retry message.
 - Share selected boards with an editor or a read-only visitor.
 - Inspect item history and restore an earlier version without erasing history.
 - Cards with saved messages show a count on their permanent chat icon. Open the

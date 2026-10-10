@@ -14,7 +14,7 @@ async function addLead(page: import("@playwright/test").Page, input: { company: 
   await page.getByRole("button", { name: "Close detail" }).click()
 }
 
-for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) test(`Given cards still loading at ${viewport.width}px, when tincanban opens, then full-page progress covers controls until ready`, async ({ page }) => {
+for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) test(`Given local runtime is still loading at ${viewport.width}px, when tincanban opens, then a compact stage status leaves the shell visible until cards arrive`, async ({ page }) => {
   await page.setViewportSize(viewport)
   await page.addInitScript(() => {
     const instantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly)
@@ -26,26 +26,17 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       return instantiateStreaming(source, imports)
     }
   })
-
   await page.goto("/", { waitUntil: "domcontentloaded" })
-
-  const preloader = page.getByRole("status")
-  await expect(preloader).toBeVisible()
-  await expect(preloader.getByText("Loading your cards")).toBeVisible()
-  await expect(page.locator(".boot-placeholder")).toBeVisible()
-  const overlay = page.locator(".boot-placeholder")
-  expect(await overlay.boundingBox()).toEqual({ x: 0, y: 0, ...viewport })
-  expect(await overlay.evaluate(element => {
-    const points = [[1, 1], [innerWidth - 1, 1], [1, innerHeight - 1], [innerWidth - 1, innerHeight - 1]]
-    return points.every(([x, y]) => element.contains(document.elementFromPoint(x!, y!)))
-  })).toBe(true)
+  const status = page.getByRole("status", { name: "Board status" })
+  await expect(status).toBeVisible()
+  await expect(status).toContainText("Starting local checks")
+  await expect(page.locator(".topbar")).toBeVisible()
   await expect(page.locator(".topbar")).toHaveAttribute("inert", "")
-  await expect(page.locator(".boot-board")).toHaveCount(0)
-  await expect(page.getByRole("region", { name: "Job search" })).toHaveCount(0)
-
+  await expect(page.locator(".boot-placeholder")).toHaveCount(0)
+  expect((await status.boundingBox())!.height).toBeLessThan(64)
   await page.evaluate(() => window.dispatchEvent(new Event("match:release-automerge")))
   await expect(page.getByRole("region", { name: "Untitled" })).toBeVisible()
-  await expect(preloader).toHaveCount(0)
+  await expect(status).toHaveCount(0)
 })
 
 test("Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts", async ({ page }) => {

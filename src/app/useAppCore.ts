@@ -69,7 +69,6 @@ function useAppUiState() {
   const hasExperimentalMcp = ref(false)
   const showMobileMenu = ref(false)
   const menuButtonRef = ref<HTMLButtonElement | null>(null)
-  const showLoading = ref(false)
   const startupError = ref<{ stage: AppStartupStage; message: string; detail: string } | null>(null)
   const toggleMobileMenu = () => { showMobileMenu.value = !showMobileMenu.value }
   const closeMobileMenu = () => { showMobileMenu.value = false }
@@ -80,7 +79,7 @@ function useAppUiState() {
     newBoardColumnTitle, boardRef, boardRenderKey, movedItemId, movedColumnId, activeMobileColumnIndex,
     showItemForm, itemFormParentId, itemFormError, savingItem, editingColumn, selectedItemId, editingItemId,
     itemToMove, showMoveDialog, storageError, quickNoteDraft, quickNoteSaving, quickNoteError,
-    hasExperimentalMcp, showMobileMenu, menuButtonRef, showLoading, startupError, toggleMobileMenu, closeMobileMenu,
+    hasExperimentalMcp, showMobileMenu, menuButtonRef, startupError, toggleMobileMenu, closeMobileMenu,
   }
 }
 
@@ -181,6 +180,7 @@ function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: Retu
   const workspaceRoleStatus = computed(() => roleWorkspaceId.value !== tincanban.activeWorkspace.id ? "loading" : workspaceAccess.value[tincanban.activeWorkspace.id]?.error ? "unavailable" : "verified")
   const confirmedRole = computed(() => tincanban.ready.value && workspaceRoleStatus.value === "verified" ? currentRole.value : null)
   const refreshAccess = async (includeOthers: boolean, onCleanup: (cleanup: () => void) => void) => {
+    if (!tincanban.ready.value) return
     let cancelled = false
     onCleanup(() => { cancelled = true })
     const doc = tincanban.getActiveDoc()
@@ -202,7 +202,7 @@ function useWorkspacePolicy(tincanban: ReturnType<typeof useTincanban>, ui: Retu
   watch([() => tincanban.activeWorkspace.id, () => tincanban.availableWorkspaces.value.map(item => item.id).join("|"), () => tincanban.ready.value, sync.ownershipRevision, identityFingerprint],
     (_, __, onCleanup) => refreshAccess(true, onCleanup), { immediate: true })
   watch(tincanban.docVersion, (_, __, onCleanup) => refreshAccess(false, onCleanup))
-  const activePolicyAvailable = computed(() => roleWorkspaceId.value === tincanban.activeWorkspace.id && workspaceAccess.value[tincanban.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(tincanban.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === tincanban.activeWorkspace.id)?.conflicted)
+  const activePolicyAvailable = computed(() => tincanban.ready.value && roleWorkspaceId.value === tincanban.activeWorkspace.id && workspaceAccess.value[tincanban.activeWorkspace.id]?.blocked !== true && !sync.isWorkspaceAccessRevoked(tincanban.activeWorkspace.id) && !sync.meshSuccession.value.find(item => item.workspaceId === tincanban.activeWorkspace.id)?.conflicted)
   const allowed = (permission: Parameters<typeof canWorkspace>[1]) => computed(() => activePolicyAvailable.value && canWorkspace(currentRole.value, permission))
   const canEditItems = allowed("content.write")
   const canEditBoard = allowed("board.configure")

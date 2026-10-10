@@ -14,6 +14,7 @@ import { isItem } from "./domain/model"
 import { authorizeLocalChanges, exportAuthorizationBundle, exportAuthorizations, prepareLocalChangeAuthorizations, recordGenesisAuthority } from "./sync/changeAuthorization"
 import { executeCommand } from "./domain/commands"
 import { peerStore } from "./sync/peerStore"
+import * as causalAdmission from "./stateCausalAdmission"
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/@automerge/automerge/dist/automerge.wasm")
@@ -31,6 +32,31 @@ describe("Repository-backed state and projections (Requirement 1.8)", () => {
     await bootstrapIdentity("State Test User")
     await hydrate()
     await useTincanban().createWorkspaceAsync("Job search", "job-search")
+  })
+
+  it.each([false, true])("Given a saved board, When reload history validation fails=%s, Then the saved projection appears before validation and command writes stay blocked", async fail => {
+    const app = useTincanban()
+    await app.createLeadAsync({ company: "Saved preview", role: "Engineer", status: "lead" })
+    const original = causalAdmission.reclassifyStoredWorkspace
+    let finish!: () => void
+    const gate = new Promise<void>(resolve => { finish = resolve })
+    const validation = vi.spyOn(causalAdmission, "reclassifyStoredWorkspace").mockImplementation(async (...args) => {
+      await gate
+      if (fail) throw new Error("History check failed")
+      return original(...args)
+    })
+    resetStateForTest()
+    const startup = hydrate().then(() => undefined, error => error as Error)
+    try {
+      await vi.waitFor(() => expect(validation).toHaveBeenCalled())
+      expect(app.workspace.leads.map(lead => lead.company)).toContain("Saved preview")
+      expect(app.ready.value).toBe(false)
+      await expect(app.executeCommandAsync({ kind: "renameWorkspace", title: "Changed during checks" })).rejects.toThrow(/still being checked/)
+    } finally { finish(); validation.mockRestore() }
+    const error = await startup
+    expect(app.ready.value).toBe(!fail)
+    if (fail) expect(error).toMatchObject({ message: "History check failed" })
+    expect(app.workspace.leads.map(lead => lead.company)).toContain("Saved preview")
   })
 
   it("rejects an invalid configured workspace before durable or active-state changes", async () => {

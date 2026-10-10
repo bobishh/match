@@ -44,14 +44,14 @@ browser	e2e/board-drag-drop.spec.ts	311	no	Trello-like board dragging	Given a mo
 browser	e2e/board-drag-drop.spec.ts	324	no	Trello-like board dragging	Given three cards, when cards and columns reorder, then hints, neighbors and exact order survive reload
 browser	e2e/board-drag-drop.spec.ts	408	no	Trello-like board dragging	Given persistence fails, when a card is dragged and retried, then rollback and recovery preserve neighbors after reload
 browser	e2e/board-drag-drop.spec.ts	427	no	Trello-like board dragging	Given storage rejects a card move, when rollback finishes, then card text remains selectable
-browser	e2e/board-local.spec.ts	17	no		Given cards still loading on first visit, when tincanban opens, then delayed progress appears within the board shell
-browser	e2e/board-local.spec.ts	43	no		Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts
-browser	e2e/board-local.spec.ts	76	no		Given an archived card, when Archive opens, then it expands into a filtered column and can collapse again
-browser	e2e/board-local.spec.ts	106	no		Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit
-browser	e2e/board-local.spec.ts	122	no		Given a mid-size desktop viewport, when tincanban opens, then the title and filters stay legible without clipped controls
-browser	e2e/board-local.spec.ts	147	no		Given an iPhone 17e portrait viewport, when tincanban opens, then filters start closed and columns snap one page at a time
-browser	e2e/board-local.spec.ts	166	no		Given two tabs on one device, when one tab saves a card, then the other reads and merges IndexedDB without pairing
-browser	e2e/board-local.spec.ts	180	no		Given the board, when Sync is clicked, then members open before workspace selection without starting a node
+browser	e2e/board-local.spec.ts	17	yes		Given local runtime is still loading at ${viewport.width}px, when tincanban opens, then a compact stage status leaves the shell visible until cards arrive
+browser	e2e/board-local.spec.ts	42	no		Given a saved base CV, when a generated PDF is attached to a lead, then it keeps template provenance and rejects incomplete artifacts
+browser	e2e/board-local.spec.ts	75	no		Given an archived card, when Archive opens, then it expands into a filtered column and can collapse again
+browser	e2e/board-local.spec.ts	116	no		Given several leads, when filters intersect, then only matching cards remain and an empty result is explicit
+browser	e2e/board-local.spec.ts	132	no		Given a mid-size desktop viewport, when tincanban opens, then the title and filters stay legible without clipped controls
+browser	e2e/board-local.spec.ts	157	no		Given an iPhone 17e portrait viewport, when tincanban opens, then filters start closed and columns snap one page at a time
+browser	e2e/board-local.spec.ts	176	no		Given two tabs on one device, when one tab saves a card, then the other reads and merges IndexedDB without pairing
+browser	e2e/board-local.spec.ts	190	no		Given the board, when Sync is clicked, then members open before workspace selection without starting a node
 browser	e2e/brand-layout.spec.ts	4	yes		Given ${width}px mobile header, when Caveat is pending then ${width === 320 ? "fails" : "loads"}, then full brand name stays before controls
 browser	e2e/brand-layout.spec.ts	42	no		Given owner board, when its can logo opens workspaces, then centered role stamp remains visible
 browser	e2e/browser-native.spec.ts	9	no		Given a signed editor and native Rust peer, when they sync and revoke access, then documents converge and further access is denied
@@ -256,6 +256,7 @@ browser	e2e/settings-scope.spec.ts	38	no		Given a job-search workspace, when key
 browser	e2e/spatial-window-loading.spec.ts	4	no		Given a new lead, when its detail module is still loading then a pending status precedes the window
 browser	e2e/startup-diagnostics.spec.ts	3	no		Given an intake withholding every acknowledgement, When a mobile board opens and reloads, Then the board becomes usable before any acknowledgement
 browser	e2e/startup-diagnostics.spec.ts	25	yes		Given startup debug and intake ${status}, When a mobile page reloads, Then phase checkpoints identify startup and the board stays usable
+browser	e2e/startup-preview.spec.ts	4	yes		Given a saved board at ${width}px, When history checks ${fail ? "fail" : "are pending"}, Then saved cards stay readable beneath a stage status and edits wait for confirmed access
 browser	e2e/startup-runtime-failure.spec.ts	3	no		Given the Rust policy runtime request fails, when tincanban opens, then it identifies the runtime rather than local data
 browser	e2e/startup-storage-failure.spec.ts	3	no		Given local storage fails, when tincanban opens, then it shows the cause without a reload button
 browser	e2e/startup-storage-failure.spec.ts	19	no		Given a saved board cannot open, when a device invitation opens, then pairing remains available and the board error stays visible
@@ -647,24 +648,25 @@ app-unit	src/iroh.test.ts	131	no	Iroh gossip and blobs support in match	Given th
 app-unit	src/iroh.test.ts	138	no	Iroh gossip and blobs support in match	WasmBlobEngine creates content-addressed blob with ticket and verifies payload
 app-unit	src/iroh.test.ts	165	no	Iroh gossip and blobs support in match	WasmGossipEngine joins workspace topic and broadcasts deduplicated messages
 app-unit	src/iroh.test.ts	208	no	policy initialization recovery	Given unavailable WebAssembly, when initialization fails, then concurrent callers share failure and a later retry installs policy
-app-unit	src/state.test.ts	36	no	Repository-backed state and projections (Requirement 1.8)	rejects an invalid configured workspace before durable or active-state changes
-app-unit	src/state.test.ts	60	no	Repository-backed state and projections (Requirement 1.8)	Given a format 2 owner board, when tincanban starts, then migration is signed and durable
-app-unit	src/state.test.ts	85	no	Repository-backed state and projections (Requirement 1.8)	notifies subscribers only after durable commit succeeds
-app-unit	src/state.test.ts	107	no	Repository-backed state and projections (Requirement 1.8)	Given two commands start together, when they commit to one workspace, then UI and reopened storage retain both
-app-unit	src/state.test.ts	125	no	Repository-backed state and projections (Requirement 1.8)	Given two accepted peer branches, when merges overlap, then reopened storage retains both
-app-unit	src/state.test.ts	143	no	Repository-backed state and projections (Requirement 1.8)	Given a signed proof for a hash absent from raw history, when its change later arrives with genuine proof, then unverified proof never persists or poisons replay
-app-unit	src/state.test.ts	167	no	Repository-backed state and projections (Requirement 1.8)	Given local commit fails, when command is rejected, then no authorization or change leaks
-app-unit	src/state.test.ts	179	no	Repository-backed state and projections (Requirement 1.8)	does not notify replication or adopt change when save fails
-app-unit	src/state.test.ts	207	no	Repository-backed state and projections (Requirement 1.8)	rejects a local edit while an ownership transfer awaits confirmation
-app-unit	src/state.test.ts	239	no	Repository-backed state and projections (Requirement 1.8)	rejects review of a quarantined edit while ownership transfer awaits confirmation
-app-unit	src/state.test.ts	283	no	Repository-backed state and projections (Requirement 1.8)	reconciles changes from BroadcastChannel without losing local state
-app-unit	src/state.test.ts	293	no	Repository-backed state and projections (Requirement 1.8)	refreshes active and archived workspace lists with one catalog read
-app-unit	src/state.test.ts	302	no	Repository-backed state and projections (Requirement 1.8)	notifies live mesh subscribers when another tab persists an inactive workspace during reconciliation
-app-unit	src/state.test.ts	318	no	Repository-backed state and projections (Requirement 1.8)	rejects an unrelated same-ID workspace without changing local documents or identity
-app-unit	src/state.test.ts	330	no	Repository-backed state and projections (Requirement 1.8)	rejects a document addressed to another workspace without touching the active board
-app-unit	src/state.test.ts	339	no	Repository-backed state and projections (Requirement 1.8)	does not allow a peer to replace the owner used to authorize chat
-app-unit	src/state.test.ts	352	no	Repository-backed state and projections (Requirement 1.8)	keeps unsigned merge helpers private and rejects importing another owner's workspace
-app-unit	src/state.test.ts	361	no	Repository-backed state and projections (Requirement 1.8)	deletes the active workspace and opens a remaining workspace
+app-unit	src/state.test.ts	37	yes	Repository-backed state and projections (Requirement 1.8)	Given a saved board, When reload history validation fails=%s, Then the saved projection appears before validation and command writes stay blocked
+app-unit	src/state.test.ts	62	no	Repository-backed state and projections (Requirement 1.8)	rejects an invalid configured workspace before durable or active-state changes
+app-unit	src/state.test.ts	86	no	Repository-backed state and projections (Requirement 1.8)	Given a format 2 owner board, when tincanban starts, then migration is signed and durable
+app-unit	src/state.test.ts	111	no	Repository-backed state and projections (Requirement 1.8)	notifies subscribers only after durable commit succeeds
+app-unit	src/state.test.ts	133	no	Repository-backed state and projections (Requirement 1.8)	Given two commands start together, when they commit to one workspace, then UI and reopened storage retain both
+app-unit	src/state.test.ts	151	no	Repository-backed state and projections (Requirement 1.8)	Given two accepted peer branches, when merges overlap, then reopened storage retains both
+app-unit	src/state.test.ts	169	no	Repository-backed state and projections (Requirement 1.8)	Given a signed proof for a hash absent from raw history, when its change later arrives with genuine proof, then unverified proof never persists or poisons replay
+app-unit	src/state.test.ts	193	no	Repository-backed state and projections (Requirement 1.8)	Given local commit fails, when command is rejected, then no authorization or change leaks
+app-unit	src/state.test.ts	205	no	Repository-backed state and projections (Requirement 1.8)	does not notify replication or adopt change when save fails
+app-unit	src/state.test.ts	233	no	Repository-backed state and projections (Requirement 1.8)	rejects a local edit while an ownership transfer awaits confirmation
+app-unit	src/state.test.ts	265	no	Repository-backed state and projections (Requirement 1.8)	rejects review of a quarantined edit while ownership transfer awaits confirmation
+app-unit	src/state.test.ts	309	no	Repository-backed state and projections (Requirement 1.8)	reconciles changes from BroadcastChannel without losing local state
+app-unit	src/state.test.ts	319	no	Repository-backed state and projections (Requirement 1.8)	refreshes active and archived workspace lists with one catalog read
+app-unit	src/state.test.ts	328	no	Repository-backed state and projections (Requirement 1.8)	notifies live mesh subscribers when another tab persists an inactive workspace during reconciliation
+app-unit	src/state.test.ts	344	no	Repository-backed state and projections (Requirement 1.8)	rejects an unrelated same-ID workspace without changing local documents or identity
+app-unit	src/state.test.ts	356	no	Repository-backed state and projections (Requirement 1.8)	rejects a document addressed to another workspace without touching the active board
+app-unit	src/state.test.ts	365	no	Repository-backed state and projections (Requirement 1.8)	does not allow a peer to replace the owner used to authorize chat
+app-unit	src/state.test.ts	378	no	Repository-backed state and projections (Requirement 1.8)	keeps unsigned merge helpers private and rejects importing another owner's workspace
+app-unit	src/state.test.ts	387	no	Repository-backed state and projections (Requirement 1.8)	deletes the active workspace and opens a remaining workspace
 app-unit	src/statePersonalRootScope.test.ts	14	no	identity-scoped local workspace catalog	shows root-entitled workspaces, including invited visitor refs, but hides another identity's local docs
 app-unit	src/statePersonalRootScope.test.ts	38	no	identity-scoped local workspace catalog	fails closed when legacy root omits its workspace map
 app-unit	src/statePersonalRootScope.test.ts	54	no	identity-scoped local workspace catalog	repairs polluted genesis refs without dropping invited or unavailable refs

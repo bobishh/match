@@ -38,7 +38,7 @@ for (const status of [202, 503]) test(`Given startup debug and intake ${status},
   await expect(page.getByRole("button", { name: "Open workspaces", exact: true })).toBeEnabled({ timeout: 30000 })
   await expect.poll(() => events.slice(before).some(event => event.event === "startup.phase.completed" && event.attrs.stage === "start-sync")).toBe(true)
   await expect.poll(() => events.slice(before).some(event => event.event === "startup.phase.completed" && event.operation === "access-ui-commit")).toBe(true)
-  for (const stage of ["entry", "policy-wasm", "admission-worker-init", "automerge-wasm", "identity-load", "initial-workspace-load", "history-reclassification", "reclassify-admit-history", "workspace-projection", "personal-root-load", "start-sync", "access-active-workspace", "access-serialize", "access-policy", "access-worker-wasm", "access-worker-decode", "access-worker-decide", "access-current-owner", "access-ui-commit"]) {
+  for (const stage of ["entry", "policy-wasm", "admission-worker-init", "automerge-wasm", "identity-load", "initial-workspace-load", "workspace-preview", "history-reclassification", "reclassify-admit-history", "workspace-projection", "personal-root-load", "start-sync", "access-active-workspace", "access-serialize", "access-policy", "access-worker-wasm", "access-worker-decode", "access-worker-decide", "access-current-owner", "access-ui-commit"]) {
     await expect.poll(() => events.slice(before).some(event => event.event === "startup.phase.started" && event.operation === stage), { message: `Missing checkpoint: ${stage}` }).toBe(true)
   }
   expect(events.slice(before).find(event => event.event === "startup.phase.completed" && event.operation === "access-serialize")?.attrs.bytes).toBeGreaterThan(0)

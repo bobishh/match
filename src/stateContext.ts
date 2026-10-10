@@ -14,6 +14,7 @@ type ActiveWorkspaceMeta = {
 export type StateRuntime = {
   workspace: Workspace;
   ready: { value: boolean };
+  startupStage: Ref<"starting" | "reading" | "updating" | "history" | "access">;
   saveState: Ref<"idle" | "saving" | "saved" | "error">;
   docVersion: Ref<number>;
   availableWorkspaces: Ref<WorkspaceSummary[]>;
@@ -43,6 +44,7 @@ export const stateRuntime: StateRuntime = {
     artifacts: [],
   }),
   ready: reactive({ value: false }),
+  startupStage: ref("starting"),
   saveState: ref("idle"),
   docVersion: ref(0),
   availableWorkspaces: ref([]),
