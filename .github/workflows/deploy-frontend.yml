@@ -66,8 +66,10 @@ jobs:
             exit 0
           fi
           test -n "$CLOUDFLARE_API_TOKEN"
-          workers/frontend/node_modules/.bin/wrangler versions upload --config workers/frontend/wrangler.jsonc --tag "$RELEASE_SHA" --var "RELEASE_SHA:$RELEASE_SHA"
-          workers/frontend/node_modules/.bin/wrangler versions deploy --config workers/frontend/wrangler.jsonc --version-tag "$RELEASE_SHA@100" --yes
+          upload_output=$(mktemp)
+          WRANGLER_OUTPUT_FILE_PATH="$upload_output" workers/frontend/node_modules/.bin/wrangler versions upload --config workers/frontend/wrangler.jsonc --tag "$RELEASE_SHA" --var "RELEASE_SHA:$RELEASE_SHA"
+          version_id=$(node workers/frontend/release.mjs uploaded-version "$upload_output")
+          workers/frontend/node_modules/.bin/wrangler versions deploy --config workers/frontend/wrangler.jsonc "$version_id@100" --yes
           echo "deployed=true" >> "$GITHUB_OUTPUT"
       - name: Verify production serves this commit
         if: steps.publish.outputs.deployed == 'true'

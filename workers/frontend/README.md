@@ -9,6 +9,9 @@ size and audit, seals SHA/file checksums, and uploads the build. The separate
 `deploy-frontend.yml` downloads only that trusted main run's artifact, checks
 checksums, and deploys with pinned Wrangler. Its concurrency prevents overlapping
 production deployments. Verify's cancellation cannot interrupt this workflow.
+Publishing uses the version ID from that upload's structured Wrangler output.
+Release tags may repeat after a manual publish or retry; tag lookup cannot select
+the uploaded artifact unambiguously.
 
 Set optional GitHub repository variables `VITE_SYNC_TELEMETRY_URL` and
 `VITE_SYNC_TELEMETRY_BROWSER_KEY` to enable production telemetry; unset URL keeps

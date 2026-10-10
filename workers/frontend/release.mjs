@@ -6,6 +6,15 @@ import { pathToFileURL } from 'node:url';
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const safePath = (path) => typeof path === 'string' && !path.startsWith('/') && path.split('/').every((part) => part && part !== '.' && part !== '..');
 export const retainedAsset = (path) => /^assets\/[\w.-]+-[\w-]{8,}\.(?:js|css|wasm)$/.test(path);
+export function uploadedVersion(output) {
+  const uploads = output.split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line))
+    .filter((entry) => entry.type === 'version-upload');
+  if (uploads.length !== 1 || uploads[0].version !== 1 ||
+      !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(uploads[0].version_id ?? '')) {
+    throw new Error('Expected one successful Wrangler version upload');
+  }
+  return uploads[0].version_id;
+}
 export function checkRelease(manifest, sha, read) {
   if (!/^[a-f0-9]{40}$/.test(sha) || manifest.sha !== sha) throw new Error('Artifact commit mismatch');
   if (!manifest.files?.['index.html']) throw new Error('Artifact missing entry point');
@@ -24,6 +33,10 @@ async function get(url) {
 }
 async function main() {
   const [command, sha] = process.argv.slice(2);
+  if (command === 'uploaded-version') {
+    console.log(uploadedVersion(readFileSync(sha, 'utf8')));
+    return;
+  }
   const directory = resolve('dist');
   const manifestPath = join(directory, 'release.json');
   const origin = 'https://match.meta-uber-engineer.dev';
@@ -74,6 +87,6 @@ async function main() {
       await new Promise((done) => setTimeout(done, 5000));
     }
     throw lastError;
-  } else throw new Error('Use seal, check, retain, or smoke');
+  } else throw new Error('Use seal, check, retain, smoke, or uploaded-version');
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) await main();
