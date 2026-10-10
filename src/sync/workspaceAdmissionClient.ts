@@ -9,6 +9,7 @@ type PendingJob = { resolve(result: PolicyResult): void; reject(error: Error): v
 let worker: Worker | undefined
 let workerReady: Promise<void> | undefined
 let resolveWorkerReady: (() => void) | undefined
+let rejectReady: ((error: Error) => void) | undefined
 let nextId = 0
 const pending = new Map<number, PendingJob>()
 const admissionDeadlineMs = 60_000
@@ -20,20 +21,14 @@ function failWorker(target: Worker, error: Error) {
   if (worker !== target) return
   if (workerReadinessTimer) clearTimeout(workerReadinessTimer)
   workerReadinessTimer = undefined
-  rejectWorkerReady(error)
+  rejectReady?.(error)
+  rejectReady = undefined
   worker?.terminate()
   worker = undefined
   workerReady = undefined
   resolveWorkerReady = undefined
   for (const job of pending.values()) { clearTimeout(job.timer); job.reject(error) }
   pending.clear()
-}
-
-let rejectReady: ((error: Error) => void) | undefined
-
-function rejectWorkerReady(error: Error) {
-  rejectReady?.(error)
-  rejectReady = undefined
 }
 
 function admissionWorker(): Worker {
