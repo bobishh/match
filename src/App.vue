@@ -147,7 +147,19 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
       :can-review="uiReady && canEditItems" :review-change="reviewCausalChange"
       :dismiss-change="dismissCausalChange" :restore-change="restoreCausalChange" />
 
-    <StartupStatus v-if="!boardVisible" :message="startupMessage" :view-only="false" :error="startupError" />
+    <section class="toolbar" aria-label="tincanban controls" :inert="!boardVisible || undefined">
+      <label class="search-field">
+        <span aria-hidden="true">⌕</span>
+        <input v-model="search" type="search" aria-label="Search cards" :placeholder="isBlankBoard ? 'Search cards' : 'Search company, role, notes'" />
+      </label>
+      <div class="toolbar-spacer"></div>
+      <LeadFilters v-model="filters" :columns="genericColumns" :fields="boardFields" />
+      <div class="toolbar-meta">
+        <SaveState :state="saveState" :settled-label="workspacePresenceSummary" aria-label="Workspace presence" />
+      </div>
+    </section>
+
+    <StartupStatus v-if="!uiReady || startupError" :message="startupMessage" :view-only="boardVisible" :error="startupError" />
 
     <template v-if="boardVisible">
     <MobileDrawer
@@ -176,20 +188,6 @@ const { memberAvatars, currentAvatar, saveAvatar, avatarNotice } = useMemberAvat
         <button type="button" class="notice-dismiss" aria-label="Dismiss notice" @click="notice = ''">×</button>
       </div>
     </TransitionGroup>
-
-    <section class="toolbar" aria-label="tincanban controls">
-      <label class="search-field">
-        <span aria-hidden="true">⌕</span>
-        <input v-model="search" type="search" aria-label="Search cards" :placeholder="isBlankBoard ? 'Search cards' : 'Search company, role, notes'" />
-      </label>
-      <div class="toolbar-spacer"></div>
-      <LeadFilters v-model="filters" :columns="genericColumns" :fields="boardFields" />
-      <div class="toolbar-meta">
-        <SaveState :state="saveState" :settled-label="workspacePresenceSummary" aria-label="Workspace presence" />
-      </div>
-    </section>
-
-    <StartupStatus v-if="!uiReady || startupError" :message="startupMessage" :view-only="true" :error="startupError" />
 
     <div v-if="hasFilters" class="filter-summary" aria-live="polite">
       <span>{{ visibleItems ? 'Showing matching cards' : 'No matching cards' }}</span>

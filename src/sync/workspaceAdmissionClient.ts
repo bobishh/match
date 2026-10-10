@@ -1,8 +1,11 @@
 import { meshRustRuntime } from "@meta-uber/mesh-replication/runtime"
 import type { WorkspaceAdmissionInput, WorkspaceAdmissionResult,
   WorkspaceAdmissionRequest, WorkspaceAdmissionResponse } from "./workspaceAdmissionCore"
+import type { WorkspaceAccessInput } from "./workspaceAccessInput"
+import type { WorkspaceRole } from "../domain/permissions"
 
-type PendingJob = { resolve(result: WorkspaceAdmissionResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
+type PolicyResult = WorkspaceAdmissionResult | WorkspaceRole
+type PendingJob = { resolve(result: PolicyResult): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 let worker: Worker | undefined
 let workerReady: Promise<void> | undefined
 let resolveWorkerReady: (() => void) | undefined
@@ -57,7 +60,7 @@ function admissionWorker(): Worker {
     pending.delete(response.id)
     clearTimeout(job.timer)
     if ("error" in response) job.reject(new Error(response.error))
-    else job.resolve(response.result)
+    else job.resolve("role" in response ? response.role : response.result)
   }
   target.onerror = event => { event.preventDefault(); failWorker(target, new Error(`Workspace admission worker failed: ${event.message}`)) }
   target.onmessageerror = () => failWorker(target, new Error("Workspace admission worker response could not be decoded"))
@@ -93,16 +96,32 @@ export async function runWorkspaceAdmission(input: WorkspaceAdmissionInput): Pro
     const { computeWorkspaceAdmission } = await import("./workspaceAdmissionCore")
     return computeWorkspaceAdmission(input, meshRustRuntime().state)
   }
+  const result = await runPolicyRequest(input, "admission")
+  if (typeof result === "string") throw new Error("Workspace admission response has the wrong type")
+  return result
+}
+
+export async function runWorkspaceAccess(input: WorkspaceAccessInput, diagnosticsEnabled = false): Promise<WorkspaceRole> {
+  const result = await runPolicyRequest(input, "access", diagnosticsEnabled)
+  if (typeof result !== "string") throw new Error("Workspace access response has the wrong type")
+  return result
+}
+
+async function runPolicyRequest(input: WorkspaceAdmissionInput | WorkspaceAccessInput,
+  kind: "admission" | "access", diagnosticsEnabled = false): Promise<PolicyResult> {
   await warmWorkspaceAdmissionWorker()
-  return new Promise<WorkspaceAdmissionResult>((resolve, reject) => {
+  return new Promise<PolicyResult>((resolve, reject) => {
     const id = ++nextId
     try {
       const target = worker
       if (!target) throw new Error("Workspace admission worker is unavailable")
       const timer = setTimeout(() => failWorker(target, new Error("Workspace admission worker timed out")), admissionDeadlineMs)
       pending.set(id, { resolve, reject, timer })
-      const request: WorkspaceAdmissionRequest = { id, input }
-      const buffers = [input.remote.buffer, ...(input.local ? [input.local.buffer] : [])] as ArrayBuffer[]
+      const request: WorkspaceAdmissionRequest = kind === "access"
+        ? { id, kind, input: input as WorkspaceAccessInput, diagnosticsEnabled }
+        : { id, input: input as WorkspaceAdmissionInput }
+      const buffers = (request.kind === "access" ? [request.input.snapshot.document.buffer]
+        : [request.input.remote.buffer, ...(request.input.local ? [request.input.local.buffer] : [])]) as ArrayBuffer[]
       target.postMessage(request, buffers)
     } catch (cause) {
       const job = pending.get(id)

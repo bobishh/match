@@ -17,6 +17,9 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
     A.free(raw)
   })
   await page.addInitScript(({ fail }) => {
+    const instantiate = WebAssembly.instantiateStreaming.bind(WebAssembly)
+    const runtime = new Promise<void>(resolve => window.addEventListener("tincanban:finish-runtime", () => resolve(), { once: true }))
+    WebAssembly.instantiateStreaming = async (source, imports) => { await runtime; return instantiate(source, imports) }
     const OriginalWorker = Worker
     window.Worker = class extends OriginalWorker {
       constructor(url: string | URL, options?: WorkerOptions) {
@@ -24,6 +27,7 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
         if (options?.name !== "workspace-admission") return
         const send = this.postMessage.bind(this)
         this.postMessage = (message, transfer) => {
+          if (message.kind === "access") { Reflect.apply(send, this, [message, transfer]); return }
           window.addEventListener("tincanban:finish-history-check", () => {
             if (fail) this.dispatchEvent(new MessageEvent("message", { data: { id: message.id, error: "History check failed", fatal: true } }))
             else Reflect.apply(send, this, [message, transfer])
@@ -35,6 +39,10 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
   await page.reload({ waitUntil: "domcontentloaded" })
   const card = page.locator('[data-item-id="saved-preview-card"]')
   const status = page.getByRole("status", { name: "Board status" })
+  await expect(status).toContainText("Starting local checks")
+  await expect(page.locator(".toolbar")).toBeVisible()
+  const initialStatus = await status.boundingBox()
+  await page.evaluate(() => window.dispatchEvent(new Event("tincanban:finish-runtime")))
   await expect(card).toBeVisible()
   await expect(card).toContainText("Saved engineer")
   await expect(page.getByText("Unverified replacement", { exact: true })).toHaveCount(0)
@@ -45,6 +53,7 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
   await expect(page.locator('.brand [data-role-stamp="visitor"]')).toHaveCount(0)
   const toolbar = await page.locator(".toolbar").boundingBox()
   const strip = await status.boundingBox()
+  expect(Math.abs(strip!.y - initialStatus!.y)).toBeLessThan(2)
   expect(strip!.y).toBeGreaterThanOrEqual(toolbar!.y + toolbar!.height - 1)
   expect(strip!.height).toBeLessThan(64)
   await page.getByRole("searchbox", { name: "Search cards" }).fill("Saved engineer")

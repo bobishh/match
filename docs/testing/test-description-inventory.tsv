@@ -190,6 +190,7 @@ browser	e2e/message-references.spec.ts	117	no		Given signing remains pending, wh
 browser	e2e/message-references.spec.ts	138	no		Given a target older than 100 messages, when its link opens, then that retained message becomes visible
 browser	e2e/message-references.spec.ts	154	no		Given chat loading remains pending, when opening a link, then loading precedes retained-message resolution
 browser	e2e/message-references.spec.ts	172	no		Given a copied link before local workspace rekeying, when its preserved scope opens afterward, then the same message resolves
+browser	e2e/mobile-large-history.spec.ts	4	no		Given a mobile board with over 312k signed operations, When cold loading and retrying a failed access update, Then the saved card remains available
 browser	e2e/mobile-nav.spec.ts	9	yes	Mobile Navigation & Drawer (Gate D)	Given ${viewport.name} viewport, when opened, hamburger drawer provides accessible grouped navigation and traps focus
 browser	e2e/mobile-nav.spec.ts	75	no	Mobile Navigation & Drawer (Gate D)	Given 1024px desktop viewport, topbar displays direct action buttons and hides hamburger button
 browser	e2e/mobile-nav.spec.ts	98	no	Mobile Navigation & Drawer (Gate D)	Given an open drawer, when a background branch appears, then it stays inaccessible and scroll lock survives an interrupted handoff
@@ -929,13 +930,17 @@ app-unit	src/sync/useDeviceSync.test.ts	170	no	useDeviceSync direct sync selecti
 app-unit	src/sync/useDeviceSync.test.ts	197	no	useDeviceSync direct sync selection and custom workspace sets	handles empty workspace selection disabling generation
 app-unit	src/sync/useDeviceSync.test.ts	214	no	useDeviceSync direct sync selection and custom workspace sets	Given an editor, when they generate an invite, rejects before starting a network node
 app-unit	src/sync/useDeviceSync.test.ts	233	no	useDeviceSync direct sync selection and custom workspace sets	handles expired invitation by setting error state and preventing connection
-app-unit	src/sync/workspaceAccess.test.ts	17	no		revalidates revoked authority after a trusted move instead of retaining cached editor rights
-app-unit	src/sync/workspaceAccess.test.ts	32	no		revalidates an unrelated document change even with identical authority
-app-unit	src/sync/workspaceAdmissionClient.test.ts	37	no		rejects all queued admissions after initialization failure and starts a fresh worker on retry
-app-unit	src/sync/workspaceAdmissionClient.test.ts	55	no		rejects a stalled worker, ignores its late result and leaves a new retry pending until its own result
-app-unit	src/sync/workspaceAdmissionClient.test.ts	81	no		keeps the initialized worker after a policy rejection so later valid admission can complete
-app-unit	src/sync/workspaceAdmissionClient.test.ts	97	no		starts the worker before an admission is requested and waits for runtime readiness
-app-unit	src/sync/workspaceAdmissionClient.test.ts	113	no		retries worker initialization after connectivity returns
+app-unit	src/sync/workspaceAccess.test.ts	25	no		Given uncached access, When checking permissions, Then checkpoints precede document serialization and policy execution
+app-unit	src/sync/workspaceAccess.test.ts	37	no		revalidates revoked authority after a trusted move instead of retaining cached editor rights
+app-unit	src/sync/workspaceAccess.test.ts	52	no		revalidates an unrelated document change even with identical authority
+app-unit	src/sync/workspaceAccess.test.ts	63	no		Given browser access validation, When sending a saved document, Then ownership transfers without cloning a number array
+app-unit	src/sync/workspaceAccessWorker.test.ts	16	no		Given transferred document bytes, When checking worker access, Then the policy receives its original numeric document format
+app-unit	src/sync/workspaceAdmissionClient.test.ts	37	no		Given verified history in a warm worker, When checking access, Then the same worker validates rights without another WASM instance
+app-unit	src/sync/workspaceAdmissionClient.test.ts	53	no		rejects queued history and access checks after initialization failure and starts a fresh worker on retry
+app-unit	src/sync/workspaceAdmissionClient.test.ts	71	no		rejects a stalled worker, ignores its late result and leaves a new retry pending until its own result
+app-unit	src/sync/workspaceAdmissionClient.test.ts	97	no		keeps the initialized worker after a policy rejection so later valid admission can complete
+app-unit	src/sync/workspaceAdmissionClient.test.ts	113	no		starts the worker before an admission is requested and waits for runtime readiness
+app-unit	src/sync/workspaceAdmissionClient.test.ts	129	no		retries worker initialization after connectivity returns
 app-unit	src/sync/workspaceAdmissionGuard.test.ts	23	no		rejects a worker result when durable authority changed while admission was pending
 app-unit	src/sync/workspaceAdmissionPaths.test.ts	15	no	workspace admission operation paths	attributes root Text updates and entity edits to exact paths
 app-unit	src/sync/workspaceAdmissionPaths.test.ts	38	no	workspace admission operation paths	uses slow-path for ambiguous root entity-map replacement and unknown object ids

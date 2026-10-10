@@ -21,13 +21,9 @@ it("Given transferred document bytes, When checking worker access, Then the poli
     expect(Array.isArray(input.snapshot.document)).toBe(true)
     return "owner"
   })
-  let complete!: (value: unknown) => void
-  const response = new Promise(resolve => { complete = resolve })
-  vi.stubGlobal("onmessage", undefined)
-  vi.stubGlobal("postMessage", complete)
-  await import("./workspaceAccessWorker")
-  const scope = globalThis as unknown as { onmessage(event: { data: AccessWorkerRequest }): void }
-  scope.onmessage({ data: { id: 17, diagnosticsEnabled: true, input: { snapshot: { document: new Uint8Array([1, 2, 3]) } } } })
+  const { decideWorkspaceAccessInWorker } = await import("./workspaceAccessWorker")
+  const request: AccessWorkerRequest = { id: 17, diagnosticsEnabled: true, input: { snapshot: { document: new Uint8Array([1, 2, 3]) } } }
+  const response = decideWorkspaceAccessInWorker(request, Promise.resolve({ memory: new WebAssembly.Memory({ initial: 1 }) }))
   await expect(response).resolves.toEqual({ id: 17, role: "owner" })
   expect(decision).toHaveBeenCalledTimes(1)
 })

@@ -5,13 +5,11 @@ import type { WorkspaceDocumentV2 } from "../domain/model"
 import type { WorkspaceRole } from "../domain/permissions"
 import { diagnoseStartupStep } from "./startupDiagnostics"
 import { telemetryConfig } from "./telemetryConfig"
+import type { WorkspaceAccessInput } from "./workspaceAccessInput"
+export type { AccessWorkerRequest } from "./workspaceAccessInput"
 
 type Entry = { evidence: string; result: Promise<WorkspaceRole>; expires: number }
-export type AccessWorkerRequest = { id: number; diagnosticsEnabled?: boolean; input: Record<string, unknown> & { snapshot: Record<string, unknown> & { document: Uint8Array } } }
 const cache = new Map<string, Entry>()
-const jobs = new Map<number, { resolve(role: WorkspaceRole): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>()
-let worker: Worker | undefined
-let sequence = 0
 
 function documentKey(doc: Automerge.Doc<WorkspaceDocumentV2>) {
   return `${doc.id}:${Automerge.getHeads(doc).sort().join()}`
@@ -50,33 +48,7 @@ export function decideAccess(doc: Automerge.Doc<WorkspaceDocumentV2>, evidence: 
 
 function trimCache() { if (cache.size > 100) cache.delete(cache.keys().next().value!) }
 
-function fail(error: Error) {
-  worker?.terminate()
-  worker = undefined
-  for (const job of jobs.values()) { clearTimeout(job.timer); job.reject(error) }
-  jobs.clear()
-}
-
-function offThread(input: AccessWorkerRequest["input"]): Promise<WorkspaceRole> {
-  return new Promise((resolve, reject) => {
-    const id = ++sequence
-    try {
-      if (!worker) {
-        worker = new Worker(new URL("./workspaceAccessWorker.ts", import.meta.url), { type: "module", name: "workspace-access" })
-        worker.onmessage = ({ data }: MessageEvent<{ id: number; role?: WorkspaceRole; error?: string; fatal?: boolean }>) => {
-          if (data.fatal) { fail(new Error(data.error ?? "Workspace access unavailable")); return }
-          const job = jobs.get(data.id)
-          if (!job) return
-          jobs.delete(data.id)
-          clearTimeout(job.timer)
-          if (data.role) job.resolve(data.role)
-          else job.reject(new Error(data.error ?? "Workspace access unavailable"))
-        }
-        worker.onerror = event => { event.preventDefault(); fail(new Error("Workspace access worker unavailable")) }
-        worker.onmessageerror = () => fail(new Error("Workspace access response unavailable"))
-      }
-      jobs.set(id, { resolve, reject, timer: setTimeout(() => fail(new Error("Workspace access worker timed out")), 60_000) })
-      worker.postMessage({ id, input, diagnosticsEnabled: telemetryConfig().enabled } satisfies AccessWorkerRequest, [input.snapshot.document.buffer as ArrayBuffer])
-    } catch (error) { fail(error instanceof Error ? error : new Error(String(error))); reject(error) }
-  })
+async function offThread(input: WorkspaceAccessInput): Promise<WorkspaceRole> {
+  const { runWorkspaceAccess } = await import("./workspaceAdmissionClient")
+  return runWorkspaceAccess(input, telemetryConfig().enabled)
 }

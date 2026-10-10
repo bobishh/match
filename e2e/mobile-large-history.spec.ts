@@ -4,6 +4,17 @@ import { createJobSearchWorkspace } from "./support/workspaces"
 test("Given a mobile board with over 312k signed operations, When cold loading and retrying a failed access update, Then the saved card remains available", async ({ page }, info) => {
   test.setTimeout(90_000)
   await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    const NativeWorker = Worker
+    const names: string[] = []
+    ;(window as Window & { __policyWorkers?: string[] }).__policyWorkers = names
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        if (options?.name?.startsWith("workspace-")) names.push(options.name)
+      }
+    }
+  })
   await page.goto("/")
   await createJobSearchWorkspace(page, "Mobile history")
   const fixture = await page.evaluate(async () => {
@@ -25,6 +36,8 @@ test("Given a mobile board with over 312k signed operations, When cold loading a
   await expect(card).toContainText("Memory check")
   // Saved cards appear before history and access checks finish on reload.
   await expect(page.getByRole("button", { name: "Open workspaces", exact: true })).toBeEnabled({ timeout: 30_000 })
+  expect(await page.evaluate(() => (window as Window & { __policyWorkers?: string[] }).__policyWorkers))
+    .toEqual(["workspace-admission"])
   await page.evaluate(() => { (window as Window & { __TINCANBAN_INJECT_STORAGE_FAILURE__?: boolean }).__TINCANBAN_INJECT_STORAGE_FAILURE__ = true })
   const failure = await page.evaluate(async workspaceId => {
     const { useTincanban } = await import("/src/state.ts")

@@ -18,6 +18,7 @@
 .filter-label, .filter-label span { display: flex; align-items: center; gap: 8px; color: var(--muted); font: 700 .8rem/1 var(--site-font-sans); letter-spacing: .1em; text-transform: uppercase; }
 .filters-panel { min-width: 0; }
 .lead-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; margin: 0; padding: 0; border: 0; }
+.lead-filters select, .lead-filters input { height: 44px; }
 .lead-filters legend { grid-column: 1 / -1; padding: 0; color: var(--muted); font: 700 .8rem/1 var(--site-font-sans); letter-spacing: .1em; text-transform: uppercase; }
 .lead-filters .filter-label, .filter-range { display: grid; align-content: start; gap: 7px; min-width: 0; }
 .filter-range { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -65,7 +65,8 @@ it("Given browser access validation, When sending a saved document, Then ownersh
   const expected = Automerge.save(doc)
   const messages: unknown[] = []
   class AccessWorker {
-    onmessage?: (event: { data: { id: number; role: string } }) => void
+    onmessage?: (event: { data: { id: number; role: string } | { type: "ready" } }) => void
+    constructor() { queueMicrotask(() => this.onmessage?.({ data: { type: "ready" } })) }
     postMessage(request: { id: number; input: { snapshot: { document: Uint8Array } } }, transfer: Transferable[]) {
       const document = request.input.snapshot.document
       expect(document).toBeInstanceOf(Uint8Array)
@@ -78,7 +79,7 @@ it("Given browser access validation, When sending a saved document, Then ownersh
     }
     terminate() {}
   }
-  vi.stubGlobal("window", {})
+  vi.stubGlobal("window", { addEventListener: vi.fn() })
   vi.stubGlobal("Worker", AccessWorker)
   await expect(decideAccess(doc, { snapshot: {} })).resolves.toBe("owner")
   expect(messages).toHaveLength(1)

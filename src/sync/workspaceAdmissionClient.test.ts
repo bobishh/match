@@ -34,10 +34,26 @@ beforeEach(() => {
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
-it("rejects all queued admissions after initialization failure and starts a fresh worker on retry", async () => {
-  const { runWorkspaceAdmission } = await import("./workspaceAdmissionClient")
+it("Given verified history in a warm worker, When checking access, Then the same worker validates rights without another WASM instance", async () => {
+  const client = await import("./workspaceAdmissionClient")
+  const admission = client.runWorkspaceAdmission(input())
+  workers[0]!.ready()
+  await vi.waitFor(() => expect(workers[0]!.requests).toHaveLength(1))
+  workers[0]!.reply({ id: workers[0]!.requests[0]!.id, result })
+  await admission
+  const access = client.runWorkspaceAccess({ snapshot: { workspaceId: "test", document: new Uint8Array([1]) } }, true)
+  await vi.waitFor(() => expect(workers[0]!.requests).toHaveLength(2))
+  expect(workers).toHaveLength(1)
+  const request = workers[0]!.requests[1]!
+  expect(request).toMatchObject({ kind: "access", diagnosticsEnabled: true })
+  workers[0]!.reply({ id: request.id, role: "owner" })
+  await expect(access).resolves.toBe("owner")
+})
+
+it("rejects queued history and access checks after initialization failure and starts a fresh worker on retry", async () => {
+  const { runWorkspaceAdmission, runWorkspaceAccess } = await import("./workspaceAdmissionClient")
   const first = runWorkspaceAdmission(input())
-  const second = runWorkspaceAdmission(input())
+  const second = runWorkspaceAccess({ snapshot: { document: new Uint8Array([1]) } })
   const firstRejected = expect(first).rejects.toThrow("WASM unavailable")
   const secondRejected = expect(second).rejects.toThrow("WASM unavailable")
   const failed = workers[0]!

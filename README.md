@@ -254,8 +254,9 @@ Recovery requires the peer, network, and storage to become available again.
 Continuous workspace document synchronization runs its Rust/WASM scope state in
 one dedicated browser worker. Scope effects still await storage before sending a
 saved-state acknowledgement. Worker failures reject synchronization; they do not
-retry the same computation on the UI thread. Admission and access checks retain
-their separate workers. Transport and lightweight lifecycle bookkeeping remain
+retry the same computation on the UI thread. History admission and access checks
+run sequentially in one shared policy worker, reusing its Rust/WASM instance.
+Transport and lightweight lifecycle bookkeeping remain
 in the browser's main context.
 
 ## Discuss objects

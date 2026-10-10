@@ -1,7 +1,22 @@
 import { expect, test } from "./support/coverage"
 
 for (const unavailable of [false, true]) test(`Given workspace permissions ${unavailable ? "fail" : "load"}, when footer animation replays, then it completes without blocking controls`, async ({ page }) => {
-  if (unavailable) await page.route("**/src/sync/workspaceAccessWorker.ts*", route => route.abort())
+  if (unavailable) await page.addInitScript(() => {
+    const OriginalWorker = Worker
+    window.Worker = class extends OriginalWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options)
+        if (options?.name !== "workspace-admission") return
+        const send = this.postMessage.bind(this)
+        this.postMessage = (message, transfer) => {
+          if (message.kind === "access") this.dispatchEvent(new MessageEvent("message", {
+            data: { id: message.id, error: "Workspace access unavailable" },
+          }))
+          else Reflect.apply(send, this, [message, transfer])
+        }
+      }
+    }
+  })
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto("/")
   const replay = page.getByRole("button", { name: "Replay tower animation", exact: true })
