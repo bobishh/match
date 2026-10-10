@@ -40,6 +40,13 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
   const card = page.locator('[data-item-id="saved-preview-card"]')
   const status = page.getByRole("status", { name: "Board status" })
   await expect(status).toContainText("Starting local checks")
+  const indicator = status.locator(".startup-status-mark")
+  await expect(indicator).toHaveText("•••")
+  expect(await indicator.evaluate(element => element.getAnimations().every(animation =>
+    (animation.effect as KeyframeEffect).getKeyframes().every(frame => !frame.transform || frame.transform === "none")))).toBe(true)
+  await page.emulateMedia({ reducedMotion: "reduce" })
+  expect(await indicator.evaluate(element => element.getAnimations().length)).toBe(0)
+  await page.emulateMedia({ reducedMotion: "no-preference" })
   await expect(page.locator(".toolbar")).toBeVisible()
   const initialStatus = await status.boundingBox()
   await page.evaluate(() => window.dispatchEvent(new Event("tincanban:finish-runtime")))
@@ -65,6 +72,7 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
   await page.evaluate(() => window.dispatchEvent(new Event("tincanban:finish-history-check")))
   if (fail) {
     await expect(page.getByRole("alert", { name: "Board status" })).toContainText("Saved board is view only")
+    await expect(page.getByRole("alert", { name: "Board status" }).locator(".startup-status-mark")).toHaveText("!")
     await expect(card).toBeVisible()
     await expect(page.getByRole("button", { name: /Add lead to/ })).toHaveCount(0)
   } else {
