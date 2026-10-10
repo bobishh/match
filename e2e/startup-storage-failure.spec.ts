@@ -10,9 +10,10 @@ test("Given local storage fails, when tincanban opens, then it shows the cause w
 
   const alert = page.getByRole("alert")
   await expect(alert).toContainText("Could not open your local data")
+  await alert.getByText("Details", { exact: true }).click()
   await expect(alert).toContainText("Error: Storage failure injected")
-  await expect(alert).toContainText("Do not clear website data")
-  await expect(alert.locator(".startup-error-detail")).toBeInViewport()
+  await expect(alert).toContainText("Keep your website data. Reload to retry.")
+  await expect(alert.getByText("Error: Storage failure injected", { exact: true })).toBeInViewport()
   await expect(alert.getByRole("button", { name: "Reload" })).toHaveCount(0)
 })
 

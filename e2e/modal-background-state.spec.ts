@@ -3,7 +3,8 @@ import { expect, test } from "./support/coverage"
 for (const [initial, pending] of [[true, false], [false, true]] as const) {
   test(`Given background inert=${initial}, When its requested state becomes ${pending} during a dialog, Then closing restores the latest state`, async ({ page }) => {
     await page.goto("/")
-    await page.locator(".boot-placeholder").waitFor({ state: "detached" })
+    await page.getByRole("status", { name: "Board status" }).waitFor({ state: "detached" })
+    await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeEnabled()
     const header = page.locator(".topbar")
     const sync = page.getByRole("button", { name: "Sync", exact: true })
     await header.evaluate((element, value) => { (element as HTMLElement).inert = value }, initial)

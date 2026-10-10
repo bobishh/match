@@ -40,9 +40,9 @@ test("Given a local journal created before the catalog index, when tincanban ope
     return id
   })
   await page.goto(baseURL ?? "http://127.0.0.1:4244")
-  await expect(page.getByLabel("Opening workspace")).toHaveCount(0, { timeout: 15_000 })
+  await expect(page.getByRole("status", { name: "Board status" })).toHaveCount(0, { timeout: 15_000 })
   await expect(page.getByRole("alert")).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeEnabled({ timeout: 15_000 })
   expect(await page.evaluate(async () => {
     const { useTincanban } = await import("/src/state.ts")
     return useTincanban().getActiveDoc()?.id
@@ -55,8 +55,8 @@ test("Given a local journal created before the catalog index, when tincanban ope
 
 test("Given normal browser storage, when tincanban starts, then workspace controls load", async ({ page, baseURL }) => {
   await page.goto(baseURL ?? "http://127.0.0.1:4244")
-  await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByLabel("Opening workspace")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Sync", exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(page.getByRole("status", { name: "Board status" })).toHaveCount(0)
   const databaseNames = await page.evaluate(async () => (await indexedDB.databases()).map(database => database.name))
   expect(databaseNames).toContain("tincanban-workspace-state")
   expect(databaseNames).not.toContain("tincanban-workspace-journal-v1")
@@ -104,8 +104,8 @@ test("Given a legacy version upgrade is pending, when tincanban opens it unversi
   await expect.poll(() => upgrader.evaluate(() => (window as Window & { legacyUpgradeState?: string }).legacyUpgradeState)).toBe("complete")
   await expect.poll(() => storageEvents.some(event => event.includes("legacy-open-success"))).toBe(true)
   await app.reload()
-  await expect(app.getByRole("button", { name: "Sync", exact: true })).toBeVisible({ timeout: 15_000 })
-  await expect(app.getByLabel("Opening workspace")).toHaveCount(0)
+  await expect(app.getByRole("button", { name: "Sync", exact: true })).toBeEnabled({ timeout: 15_000 })
+  await expect(app.getByRole("status", { name: "Board status" })).toHaveCount(0)
   await context.close()
 })
 

@@ -165,11 +165,11 @@ browser	e2e/interaction-polish.spec.ts	30	no		Given an empty form, when Escape i
 browser	e2e/interaction-polish.spec.ts	48	no		Given nested schema dialogs, when the preview closes, then focus returns to its parent before the parent closes
 browser	e2e/interaction-polish.spec.ts	70	no		Given mobile save failure, when retry succeeds, then draft persists exactly once and save status recovers
 browser	e2e/interaction-polish.spec.ts	92	no		Given a filtered mobile board, when no cards match, then result count and reset explain the empty state
-browser	e2e/interaction-polish.spec.ts	111	no		Given slow startup, when data is not ready, then a stable shell shows delayed progress and recovers
-browser	e2e/interaction-polish.spec.ts	127	no		Given reduced motion, when mobile navigation opens and closes, then transitions do not delay interaction
-browser	e2e/interaction-polish.spec.ts	140	no		Given a pending save, when the user tries to edit or submit again, then the form waits and publishes one card
-browser	e2e/interaction-polish.spec.ts	168	no		Given fast startup, when data arrives before the progress delay, then no loading indicator flashes
-browser	e2e/interaction-polish.spec.ts	183	no		Given a desktop scrollbar, when settings open, reject a draft, and close, then header and logo keep their positions
+browser	e2e/interaction-polish.spec.ts	111	no		Given slow startup, when data is not ready, then compact progress keeps the shell visible and controls wait for checks
+browser	e2e/interaction-polish.spec.ts	129	no		Given reduced motion, when mobile navigation opens and closes, then transitions do not delay interaction
+browser	e2e/interaction-polish.spec.ts	142	no		Given a pending save, when the user tries to edit or submit again, then the form waits and publishes one card
+browser	e2e/interaction-polish.spec.ts	170	no		Given fast startup, when data arrives before the progress delay, then no loading indicator flashes
+browser	e2e/interaction-polish.spec.ts	185	no		Given a desktop scrollbar, when settings open, reject a draft, and close, then header and logo keep their positions
 browser	e2e/job-search-rejected.spec.ts	5	no	Job Search Rejected Column & Retrospective Notes (Gate F)	Given a Job search board with a lead, when moved to Rejected and a retrospective note is added, it persists across reload
 browser	e2e/job-search-rejected.spec.ts	56	no	Job Search Rejected Column & Retrospective Notes (Gate F)	Given a lead created directly in Rejected status, optional rejection reason is saved upon creation
 browser	e2e/keeper-join.spec.ts	68	no		Given a tincanban invitation, when native lighthouse joins and restarts, then it exchanges board changes both ways
@@ -259,7 +259,7 @@ browser	e2e/startup-diagnostics.spec.ts	25	yes		Given startup debug and intake $
 browser	e2e/startup-preview.spec.ts	4	yes		Given a saved board at ${width}px, When history checks ${fail ? "fail" : "are pending"}, Then saved cards stay readable beneath a stage status and edits wait for confirmed access
 browser	e2e/startup-runtime-failure.spec.ts	3	no		Given the Rust policy runtime request fails, when tincanban opens, then it identifies the runtime rather than local data
 browser	e2e/startup-storage-failure.spec.ts	3	no		Given local storage fails, when tincanban opens, then it shows the cause without a reload button
-browser	e2e/startup-storage-failure.spec.ts	19	no		Given a saved board cannot open, when a device invitation opens, then pairing remains available and the board error stays visible
+browser	e2e/startup-storage-failure.spec.ts	20	no		Given a saved board cannot open, when a device invitation opens, then pairing remains available and the board error stays visible
 browser	e2e/storage-atomicity.spec.ts	4	no		Given two tabs persist different changes concurrently, when storage reopens, then both durable records remain
 browser	e2e/storage-atomicity.spec.ts	36	no		Given proof persistence fails, when a transaction aborts, then no change or receipt leaks
 browser	e2e/storage-atomicity.spec.ts	75	no		Given two open tabs, when both edit one workspace together, then both converge on both changes
