@@ -42,10 +42,17 @@ for (const width of [390, 1440]) for (const fail of [false, true]) test(`Given a
   await expect(status).toContainText("Starting local checks")
   const indicator = status.locator(".startup-status-mark")
   await expect(indicator).toHaveText("•••")
-  expect(await indicator.evaluate(element => element.getAnimations().every(animation =>
-    (animation.effect as KeyframeEffect).getKeyframes().every(frame => !frame.transform || frame.transform === "none")))).toBe(true)
+  expect(await indicator.evaluate(element => {
+    const animations = element.getAnimations({ subtree: true })
+    animations.forEach(animation => animation.pause())
+    return [100, 600, 1100, 1600].map(time => {
+      animations.forEach(animation => { animation.currentTime = time })
+      return [...element.children].filter(dot => getComputedStyle(dot).opacity === "1").length
+    })
+  })).toEqual([1, 2, 3, 0])
   await page.emulateMedia({ reducedMotion: "reduce" })
-  expect(await indicator.evaluate(element => element.getAnimations().length)).toBe(0)
+  expect(await indicator.evaluate(element => element.getAnimations({ subtree: true }).length)).toBe(0)
+  expect(await indicator.evaluate(element => [...element.children].every(dot => getComputedStyle(dot).opacity === "1"))).toBe(true)
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await expect(page.locator(".toolbar")).toBeVisible()
   const initialStatus = await status.boundingBox()
